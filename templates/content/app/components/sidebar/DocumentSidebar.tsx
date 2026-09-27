@@ -124,6 +124,7 @@ import {
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
 import {
+  filesRootHintScope,
   prefetchPagedFilesRoot,
   readPagedFilesRootHint,
   rememberPagedFilesRoot,
@@ -624,20 +625,20 @@ function WorkspaceSidebarItem({
       };
   const queryClient = useQueryClient();
   const { session } = useSession();
-  const accountId = session?.email?.trim().toLowerCase() ?? null;
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
   const filesRootConfirmed =
     !localFileMode && expanded && filesPersonalView.isSuccess;
   useEffect(() => {
-    if (!accountId || !filesRootConfirmed) return;
-    rememberPagedFilesRoot(accountId, {
+    if (!filesRootScope || !filesRootConfirmed) return;
+    rememberPagedFilesRoot(filesRootScope, {
       databaseId: space.filesDatabaseId,
       sort: sidebarOrder.mode,
       viewId: activeViewId,
     });
   }, [
-    accountId,
     activeViewId,
     filesRootConfirmed,
+    filesRootScope,
     sidebarOrder.mode,
     space.filesDatabaseId,
   ]);
@@ -1005,12 +1006,12 @@ export function DocumentSidebar({
   );
   const contentSpacesQuery = useContentSpaces();
   const { session } = useSession();
-  const sessionAccountId = session?.email?.trim().toLowerCase() ?? null;
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {
-    if (!sessionAccountId) return;
-    const root = readPagedFilesRootHint(sessionAccountId);
+    if (!filesRootScope) return;
+    const root = readPagedFilesRootHint(filesRootScope);
     if (root) prefetchPagedFilesRoot(queryClient, root);
-  }, [queryClient, sessionAccountId]);
+  }, [filesRootScope, queryClient]);
   const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;

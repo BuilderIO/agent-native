@@ -4,10 +4,18 @@ import type { QueryClient } from "@tanstack/react-query";
 
 // The Files tree's root page is keyed by the space's Files database and the
 // personal view's order, which arrive from two other reads. The inputs this
-// browser last used for the same account let the root page start alongside
-// those reads; when they turn out different, the tree reads again with the
-// confirmed ones and the early read is simply unused.
+// browser last used for the same person in the same active organization let
+// the root page start alongside those reads; when they turn out different,
+// the tree reads again with the confirmed ones and the early read is unused.
 const FILES_ROOT_HINT_STORAGE_KEY = "content-sidebar-files-root-v1";
+
+export function filesRootHintScope(
+  email: string | null | undefined,
+  orgId: string | null | undefined,
+) {
+  const account = email?.trim().toLowerCase();
+  return account ? JSON.stringify([account, orgId ?? null]) : null;
+}
 
 export type PagedFilesRoot = {
   databaseId: string;
@@ -34,9 +42,7 @@ export function pagedFilesNavigationArgs(args: {
   };
 }
 
-export function readPagedFilesRootHint(
-  accountId: string,
-): PagedFilesRoot | null {
+export function readPagedFilesRootHint(scope: string): PagedFilesRoot | null {
   let raw: string | null;
   try {
     raw = localStorage.getItem(FILES_ROOT_HINT_STORAGE_KEY);
@@ -47,10 +53,10 @@ export function readPagedFilesRootHint(
   if (!raw) return null;
   try {
     const hint = JSON.parse(raw) as Partial<PagedFilesRoot> & {
-      accountId?: unknown;
+      scope?: unknown;
     };
     if (
-      hint.accountId !== accountId ||
+      hint.scope !== scope ||
       typeof hint.databaseId !== "string" ||
       typeof hint.sort !== "string"
     ) {
@@ -67,14 +73,11 @@ export function readPagedFilesRootHint(
   }
 }
 
-export function rememberPagedFilesRoot(
-  accountId: string,
-  root: PagedFilesRoot,
-) {
+export function rememberPagedFilesRoot(scope: string, root: PagedFilesRoot) {
   try {
     localStorage.setItem(
       FILES_ROOT_HINT_STORAGE_KEY,
-      JSON.stringify({ accountId, ...root }),
+      JSON.stringify({ scope, ...root }),
     );
   } catch {
     // coercion-ok: without storage the next load simply waits for its inputs.

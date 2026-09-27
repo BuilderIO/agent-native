@@ -2887,9 +2887,7 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
-  // Only an editable body can take uploads; a read-only body that is showing
-  // while collaboration connects should not add this read to the page open.
-  const fileUploadStatus = useFileUploadStatus(editable);
+  const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
       ? "unknown"

@@ -738,10 +738,11 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
-  const { query: documentQuery, fetchedForThisOpen } = usePageOpenDocument(
-    documentId,
-    { databaseId, databaseDocumentId },
-  );
+  const {
+    query: documentQuery,
+    fetchedForThisOpen,
+    readsStartedEarly,
+  } = usePageOpenDocument(documentId, { databaseId, databaseDocumentId });
   const {
     data: queriedDocument,
     dataUpdatedAt,
@@ -758,6 +759,7 @@ export function PageEditorSurface({
     databaseDocumentId,
   });
   useEffect(() => {
+    if (readsStartedEarly) return;
     startPreviewDocumentDraftRead(
       queryClient,
       documentId,
@@ -765,7 +767,13 @@ export function PageEditorSurface({
         documentQueryKey(documentId, { databaseId, databaseDocumentId }),
       ),
     );
-  }, [databaseDocumentId, databaseId, documentId, queryClient]);
+  }, [
+    databaseDocumentId,
+    databaseId,
+    documentId,
+    queryClient,
+    readsStartedEarly,
+  ]);
   const authoritativeSuccess = useAuthoritativeQuerySuccess(
     queryClient,
     documentQueryKeyValue,

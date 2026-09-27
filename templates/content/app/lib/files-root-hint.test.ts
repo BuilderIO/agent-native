@@ -10,6 +10,7 @@ const { callAction } = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
 
 import {
+  filesRootHintScope,
   pagedFilesNavigationArgs,
   prefetchPagedFilesRoot,
   readPagedFilesRootHint,
@@ -22,30 +23,49 @@ describe("Files root hint", () => {
     callAction.mockReset();
   });
 
-  it("returns the last confirmed root inputs only for the same account", () => {
-    rememberPagedFilesRoot("owner@example.test", {
+  it("returns the last confirmed root inputs only for the same account and organization", () => {
+    const scope = filesRootHintScope(" Owner@Example.test ", "org-a")!;
+    rememberPagedFilesRoot(scope, {
       databaseId: "files-1",
       sort: "last_edited",
       viewId: "default",
     });
 
-    expect(readPagedFilesRootHint("owner@example.test")).toEqual({
+    expect(
+      readPagedFilesRootHint(
+        filesRootHintScope("owner@example.test", "org-a")!,
+      ),
+    ).toEqual({
       databaseId: "files-1",
       sort: "last_edited",
       viewId: "default",
     });
-    expect(readPagedFilesRootHint("someone-else@example.test")).toBeNull();
+    expect(
+      readPagedFilesRootHint(
+        filesRootHintScope("owner@example.test", "org-b")!,
+      ),
+    ).toBeNull();
+    expect(
+      readPagedFilesRootHint(filesRootHintScope("owner@example.test", null)!),
+    ).toBeNull();
+    expect(
+      readPagedFilesRootHint(
+        filesRootHintScope("someone@example.test", "org-a")!,
+      ),
+    ).toBeNull();
+    expect(filesRootHintScope(undefined, "org-a")).toBeNull();
   });
 
   it("ignores a missing or malformed hint", () => {
-    expect(readPagedFilesRootHint("owner@example.test")).toBeNull();
+    const scope = filesRootHintScope("owner@example.test", "org-a")!;
+    expect(readPagedFilesRootHint(scope)).toBeNull();
     localStorage.setItem("content-sidebar-files-root-v1", "{not json");
-    expect(readPagedFilesRootHint("owner@example.test")).toBeNull();
+    expect(readPagedFilesRootHint(scope)).toBeNull();
     localStorage.setItem(
       "content-sidebar-files-root-v1",
-      JSON.stringify({ accountId: "owner@example.test", sort: "name" }),
+      JSON.stringify({ scope, sort: "name" }),
     );
-    expect(readPagedFilesRootHint("owner@example.test")).toBeNull();
+    expect(readPagedFilesRootHint(scope)).toBeNull();
   });
 
   it("starts the root page under the key the tree reads", async () => {

@@ -27,6 +27,8 @@ vi.mock("@agent-native/core/client/hooks", () => {
   };
   return {
     callAction,
+    getBrowserTabId: () => "tab-1",
+    useDbSync: vi.fn(),
     useActionMutation: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
     // Mirrors core: the action name and params are the query key.
     useActionQuery: (name: string, params: unknown, options: object) =>
@@ -42,6 +44,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { markDocumentCreationPending } from "../lib/optimistic-document";
+import { contentSyncInvalidatePredicate } from "./use-db-sync";
 import {
   ensurePreviewDocumentDraftRead,
   startPageOpenDocumentReads,
@@ -58,6 +61,21 @@ function deferred<T>() {
 
 const reads = (name: string) =>
   server.calls.filter((call) => call.name === name).length;
+
+// Delivers peer sync events the way core's db sync does: one invalidation
+// with Content's predicate, without cancelling in-flight reads.
+function deliverSyncEvents(
+  queryClient: QueryClient,
+  pathname: string,
+  keys: string[],
+) {
+  const predicate = contentSyncInvalidatePredicate(queryClient, pathname);
+  const events = keys.map((key) => ({ source: "action", key }));
+  return queryClient.invalidateQueries(
+    { predicate: (query) => predicate(query, events) },
+    { cancelRefetch: false },
+  );
+}
 
 describe("page open document reads", () => {
   let queryClient: QueryClient;
@@ -177,6 +195,71 @@ describe("page open document reads", () => {
     await vi.waitFor(() => expect(reads("get-document")).toBe(2));
   });
 
+  it("does not show an early read after a peer changed the page before it mounted", async () => {
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+    await act(async () => {});
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? { id: params.id, title: "Edited by the agent", canEdit: true }
+          : { editable: true, draft: null },
+      );
+
+    await deliverSyncEvents(queryClient, "/home", ["edit-document"]);
+    await mount();
+
+    expect(seen[0].fetchedForThisOpen).toBe(false);
+    await vi.waitFor(() =>
+      expect(seen[seen.length - 1]).toEqual({
+        fetchedForThisOpen: true,
+        title: "Edited by the agent",
+      }),
+    );
+    expect(reads("get-document")).toBe(2);
+  });
+
+  it("drops an early read that a peer change overtook while it was in flight", async () => {
+    const first = deferred<unknown>();
+    server.respond = (name) =>
+      name === "get-document"
+        ? first.promise
+        : Promise.resolve({ editable: true, draft: null });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await deliverSyncEvents(queryClient, "/home", ["update-document"]);
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? { id: params.id, title: "After the change", canEdit: true }
+          : { editable: true, draft: null },
+      );
+
+    await mount();
+    first.resolve({ id: "doc-1", title: "Before the change", canEdit: true });
+
+    await vi.waitFor(() =>
+      expect(seen[seen.length - 1]).toEqual({
+        fetchedForThisOpen: true,
+        title: "After the change",
+      }),
+    );
+    expect(reads("get-document")).toBe(2);
+  });
+
+  it("keeps an early read through changes that cannot affect the page", async () => {
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+    await act(async () => {});
+
+    await deliverSyncEvents(queryClient, "/home", [
+      "update-content-database-personal-view",
+    ]);
+    await mount();
+
+    expect(seen[0]).toEqual({ fetchedForThisOpen: true, title: "Plan" });
+    expect(reads("get-document")).toBe(1);
+  });
+
   it("does not read a page whose creation has not committed", () => {
     queryClient.setQueryData(
       ["action", "get-document", { id: "new-page" }],
@@ -224,6 +307,26 @@ describe("draft recovery read", () => {
     await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
 
     expect(reads("get-preview-document-draft")).toBe(1);
+  });
+
+  it("reads again when another tab wrote a draft after the early read", async () => {
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryState([
+          "action",
+          "get-preview-document-draft",
+          { documentId: "doc-1" },
+        ])?.status,
+      ).toBe("success"),
+    );
+
+    await deliverSyncEvents(queryClient, "/home", [
+      "update-preview-document-draft",
+    ]);
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-preview-document-draft")).toBe(2);
   });
 
   it("reads once when no read was made for this open", async () => {

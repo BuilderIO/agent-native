@@ -96,6 +96,11 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
 
+const PREVIEW_DRAFT_MUTATIONS = new Set([
+  "resolve-preview-document-draft",
+  "update-preview-document-draft",
+]);
+
 const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-content-databases",
   "list-documents",
@@ -209,6 +214,20 @@ function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
   return CONTENT_MUTATIONS.has(eventKey);
 }
 
+// A read started for a page open has no observer until the page mounts, so
+// the active-query rules below never reach it. Any change that could alter
+// what it read spoils it, whichever page the change touched.
+function eventSpoilsPageOpenRead(eventKey: string, queryName: unknown) {
+  if (queryName === "get-preview-document-draft") {
+    return PREVIEW_DRAFT_MUTATIONS.has(eventKey);
+  }
+  return (
+    queryName === "get-document" &&
+    (PREVIEW_DRAFT_MUTATIONS.has(eventKey) ||
+      eventRefreshesDocumentQuery(eventKey, queryName))
+  );
+}
+
 function isDatabaseQuery(query: ActionQuery): boolean {
   if (
     query.queryKey[0] !== "action" ||
@@ -284,9 +303,24 @@ export function contentDocumentIdFromPathname(
 
 export function contentActionInvalidatePredicate(
   pathname: string,
+  isPageOpenRead: (query: ActionQuery) => boolean = () => false,
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      query.queryKey[0] === "action" &&
+      (query.queryKey[1] === "get-document" ||
+        query.queryKey[1] === "get-preview-document-draft") &&
+      isPageOpenRead(query) &&
+      events.some(
+        (event) =>
+          event.source === "action" &&
+          typeof event.key === "string" &&
+          eventSpoilsPageOpenRead(event.key, query.queryKey[1]),
+      )
+    ) {
+      return true;
+    }
     if (
       queryTargetsActiveNavigationOrRecent(query) &&
       events.some(

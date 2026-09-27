@@ -8,14 +8,18 @@ import {
 // A page open starts its reads before the component that shows them mounts:
 // in the layout while the route loads, or on /home while the landing
 // resolves. The mounting component adopts a read made for its open instead of
-// refetching. A read that was invalidated, failed, expired, or already adopted
-// is never adopted, so any other mount still reads fresh.
+// refetching. A read that was invalidated, failed, cancelled, expired, or
+// already adopted is never adopted, so any other mount still reads fresh.
 export const PAGE_OPEN_READ_TTL_MS = 10_000;
 
 type PageOpenRead = {
   documentId: string;
   startedAt: number;
   invalidated: boolean;
+  // Set only by a fetch's own success. A cache write (`setQueryData`) is a
+  // manual success and never counts: a read cancelled by an optimistic update
+  // leaves the older cached body behind with a fresh timestamp.
+  landed: boolean;
 };
 
 export type PageOpenReadAdoption = "fresh" | "pending" | "none";
@@ -32,11 +36,13 @@ function openReads(queryClient: QueryClient) {
         reads!.delete(event.query.queryHash);
         return;
       }
-      if (event.type !== "updated" || event.action.type !== "invalidate") {
-        return;
-      }
+      if (event.type !== "updated") return;
       const read = reads!.get(event.query.queryHash);
-      if (read) read.invalidated = true;
+      if (!read) return;
+      if (event.action.type === "invalidate") read.invalidated = true;
+      if (event.action.type === "success" && event.action.manual !== true) {
+        read.landed = true;
+      }
     });
   }
   return reads;
@@ -70,8 +76,13 @@ export function startPageOpenRead<TData>(
     documentId,
     startedAt: Date.now(),
     invalidated: false,
+    landed: false,
   });
   void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+}
+
+export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {
+  return openReads(queryClient).has(hashKey(queryKey));
 }
 
 export function adoptPageOpenRead(
@@ -91,14 +102,12 @@ export function adoptPageOpenRead(
     Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS;
   if (query.state.fetchStatus !== "idle") {
     if (usable) return "pending";
-    void queryClient.cancelQueries({ queryKey, exact: true });
+    // Until the open's own read lands, the fetch in flight is that read, and
+    // it may predate the change that spoiled it. A later fetch is left alone.
+    if (!read.landed) void queryClient.cancelQueries({ queryKey, exact: true });
     return "none";
   }
-  return usable &&
-    query.state.status === "success" &&
-    query.state.dataUpdatedAt >= read.startedAt
-    ? "fresh"
-    : "none";
+  return usable && read.landed ? "fresh" : "none";
 }
 
 export function retirePageOpenReads(

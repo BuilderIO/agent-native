@@ -119,6 +119,51 @@ describe("page open reads", () => {
     await vi.waitFor(() => expect(aborted).toHaveBeenCalled());
   });
 
+  it("does not count a cache write over a cancelled read as the read landing", async () => {
+    queryClient.setQueryData(queryKey, { id: "doc-1", body: "Cached earlier" });
+    const response = deferred<{ id: string; body: string }>();
+    startPageOpenRead(queryClient, "doc-1", {
+      queryKey,
+      queryFn: () => response.promise,
+    });
+    // An optimistic update cancels the read and patches the older body.
+    await queryClient.cancelQueries({ queryKey });
+    queryClient.setQueryData(queryKey, {
+      id: "doc-1",
+      body: "Cached earlier",
+      title: "Renamed",
+    });
+
+    expect(queryClient.getQueryState(queryKey)?.fetchStatus).toBe("idle");
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
+  });
+
+  it("does not count a cache write as a landed read for a page with no cached copy", async () => {
+    const response = deferred<{ id: string }>();
+    startPageOpenRead(queryClient, "doc-1", {
+      queryKey,
+      queryFn: () => response.promise,
+    });
+    await queryClient.cancelQueries({ queryKey });
+    queryClient.setQueryData(queryKey, { id: "doc-1", title: "Patched" });
+
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
+  });
+
+  it("still adopts a landed read that a later optimistic patch touched", async () => {
+    startPageOpenRead(queryClient, "doc-1", {
+      queryKey,
+      queryFn: () => Promise.resolve({ id: "doc-1", title: "Plan" }),
+    });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toBeTruthy(),
+    );
+    await queryClient.cancelQueries({ queryKey });
+    queryClient.setQueryData(queryKey, { id: "doc-1", title: "Renamed" });
+
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("fresh");
+  });
+
   it("does not adopt a failed or expired read", async () => {
     startPageOpenRead(queryClient, "doc-1", {
       queryKey,

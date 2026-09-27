@@ -892,6 +892,58 @@ describe("contentActionInvalidatePredicate", () => {
   });
 });
 
+describe("page open reads under sync", () => {
+  const earlyRead = {
+    queryKey: ["action", "get-document", { id: "next-page" }],
+    isActive: () => false,
+  };
+  const earlyDraftRead = {
+    queryKey: [
+      "action",
+      "get-preview-document-draft",
+      { documentId: "next-page" },
+    ],
+    isActive: () => false,
+  };
+
+  it("spoils a page's early reads on any change that could alter them, from any route", () => {
+    for (const pathname of ["/home", "/page/other-page"]) {
+      const predicate = contentActionInvalidatePredicate(
+        pathname,
+        (query) => query === earlyRead || query === earlyDraftRead,
+      );
+      for (const key of [
+        "edit-document",
+        "update-document",
+        "restore-document-version",
+        "resolve-preview-document-draft",
+      ]) {
+        expect(predicate(earlyRead, [{ source: "action", key }])).toBe(true);
+      }
+      expect(
+        predicate(earlyDraftRead, [
+          { source: "action", key: "update-preview-document-draft" },
+        ]),
+      ).toBe(true);
+      expect(
+        predicate(earlyRead, [
+          { source: "action", key: "update-content-database-personal-view" },
+        ]),
+      ).toBe(false);
+      expect(
+        predicate(earlyDraftRead, [{ source: "action", key: "edit-document" }]),
+      ).toBe(false);
+    }
+  });
+
+  it("leaves inactive reads that no page open is waiting on alone", () => {
+    const predicate = contentActionInvalidatePredicate("/home");
+    expect(
+      predicate(earlyRead, [{ source: "action", key: "edit-document" }]),
+    ).toBe(false);
+  });
+});
+
 describe("contentDocumentIdFromPathname", () => {
   it("reads only Content document routes", () => {
     expect(contentDocumentIdFromPathname("/page/document-1")).toBe(

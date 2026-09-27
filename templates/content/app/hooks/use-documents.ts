@@ -47,7 +47,11 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import { isDocumentCreationPending } from "../lib/optimistic-document";
-import { adoptPageOpenRead, startPageOpenRead } from "../lib/page-open-reads";
+import {
+  adoptPageOpenRead,
+  startPageOpenRead,
+  type PageOpenReadAdoption,
+} from "../lib/page-open-reads";
 import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
@@ -657,26 +661,30 @@ export function usePageOpenDocument(
   const queryClient = useQueryClient();
   const queryKey = documentQueryKey(documentId, context);
   const queryHash = hashKey(queryKey);
-  const adoptionRef = useRef<{ queryHash: string; fresh: boolean } | null>(
-    null,
-  );
+  const adoptionRef = useRef<{
+    queryHash: string;
+    adoption: PageOpenReadAdoption;
+  } | null>(null);
   if (adoptionRef.current?.queryHash !== queryHash) {
     adoptionRef.current = {
       queryHash,
-      fresh:
-        adoptionRef.current === null &&
-        adoptPageOpenRead(queryClient, queryKey) === "fresh",
+      adoption:
+        adoptionRef.current === null
+          ? adoptPageOpenRead(queryClient, queryKey)
+          : "none",
     };
   }
-  const adoptedOpenRead = adoptionRef.current.fresh;
+  const { adoption } = adoptionRef.current;
   const query = useDocument(
     documentId,
     context,
-    adoptedOpenRead ? { refetchOnMount: false } : {},
+    adoption === "fresh" ? { refetchOnMount: false } : {},
   );
   return {
     query,
-    fetchedForThisOpen: query.isFetchedAfterMount || adoptedOpenRead,
+    fetchedForThisOpen: query.isFetchedAfterMount || adoption === "fresh",
+    // The open's own reads, draft included, already started elsewhere.
+    readsStartedEarly: adoption !== "none",
   };
 }
 
