@@ -1,3 +1,9 @@
+## 0.164.11
+
+### Patch Changes
+
+- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
+
 ## 0.164.10
 
 ### Patch Changes

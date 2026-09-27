@@ -154,6 +154,21 @@ describe("connected composer menus", () => {
     expect(row("Meeting notes").getAttribute("role")).toBe("menuitem");
     expect(row("Project brief")).toBeDefined();
   });
+  it("hides the Add context tooltip while the host storage popover is open", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await render(items);
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(trigger).toBeDefined();
+    await render(items, { contextButtonTooltipDisabled: true });
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(warning).not.toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Tooltip is changing from uncontrolled to controlled",
+      ),
+    );
+  });
   it("closes a context picker when its composer becomes disabled", async () => {
     const onDismiss = vi.fn();
     const picker = {
@@ -269,6 +284,18 @@ describe("connected composer menus", () => {
     );
     expect(attach.mock.calls.map(([file]) => file)).toEqual(files);
     expect(error).toHaveBeenCalledWith("Upload unavailable");
+  });
+  it("requests gated upload after the menu closes", async () => {
+    const onAttachmentRequest = vi.fn();
+    await render([], { onAttachmentRequest });
+    await open();
+    await click("Upload File");
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(menus()).toHaveLength(0);
   });
   it("preserves legacy render, latest updates, dismissal and resume without reselecting", async () => {
     let controls!: ComposerContextPageControls;

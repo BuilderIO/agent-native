@@ -25,8 +25,35 @@ vi.mock("@agent-native/core/client/uploads", () => ({
 vi.mock("@agent-native/core/client/setup-connections", async () => {
   const { createElement } = await import("react");
   return {
-    FileStorageSetupCard: () =>
-      createElement("div", { "data-testid": "file-storage-setup-card" }),
+    FileStorageSetupPopover: ({
+      open,
+      status,
+      onRetry,
+    }: {
+      open: boolean;
+      status?: string;
+      onRetry?: () => void;
+    }) =>
+      open
+        ? createElement(
+            "div",
+            { "data-testid": "file-storage-setup-popover" },
+            status === "unavailable"
+              ? createElement(
+                  "span",
+                  {},
+                  "onboarding.fileStorage.statusUnavailable",
+                )
+              : null,
+            status === "unavailable"
+              ? createElement(
+                  "button",
+                  { onClick: onRetry, "data-testid": "file-storage-retry" },
+                  "common.retry",
+                )
+              : null,
+          )
+        : null,
   };
 });
 
@@ -89,18 +116,21 @@ describe("rich editor media upload storage gates", () => {
     ["video", VideoBlock],
     ["audio", AudioBlock],
   ] as const)(
-    "gates %s file selection with shared storage setup",
+    "keeps %s storage setup hidden until upload is requested",
     (type, Block) => {
       act(() => root.render(createElement(Block, mediaNodeProps(type))));
 
       expect(
-        container.querySelector('[data-testid="file-storage-setup-card"]'),
-      ).not.toBeNull();
+        container.querySelector('[data-testid="file-storage-setup-popover"]'),
+      ).toBeNull();
+      const uploadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent === "editor.media.uploadFile");
+      expect(uploadButton).not.toBeNull();
+      act(() => uploadButton?.click());
       expect(
-        Array.from(container.querySelectorAll("button")).some(
-          (button) => button.textContent === "editor.media.uploadFile",
-        ),
-      ).toBe(false);
+        container.querySelector('[data-testid="file-storage-setup-popover"]'),
+      ).not.toBeNull();
     },
   );
 
@@ -126,17 +156,24 @@ describe("rich editor media upload storage gates", () => {
       act(() => root.render(createElement(Block, mediaNodeProps(type))));
 
       expect(
-        container.querySelector('[data-testid="file-storage-setup-card"]'),
+        container.querySelector('[data-testid="file-storage-setup-popover"]'),
       ).toBeNull();
       const fileInput =
         container.querySelector<HTMLInputElement>('input[type="file"]');
       expect(fileInput === null || fileInput.disabled).toBe(true);
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).not.toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+      const uploadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent === "editor.media.uploadFile");
+      act(() => uploadButton?.click());
+      expect(document.body.textContent).toContain(
         "onboarding.fileStorage.statusUnavailable",
       );
 
       await act(async () => {
-        container
+        document.body
           .querySelector<HTMLButtonElement>(
             '[data-testid="file-storage-retry"]',
           )

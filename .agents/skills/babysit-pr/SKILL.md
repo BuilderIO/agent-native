@@ -202,16 +202,17 @@ connectors. Re-query first-party Agent-Native Analytics error issues with
 `list-error-issues` and its available filters; it has no time cursor and caps
 results at 100, so record bounded coverage and do not claim exhaustive newness.
 A new actionable report resets the soak timer and must reach either
-a verified **Fixed** or **Shipped** result with a concise reply and `✅`, a
-verified **Live verified** result with `✅` (reply only when informative), or a
-non-fixed terminal ledger disposition with its marker before merge (`✅` only
-for **Fixed**, **Shipped**, or **Live verified**; `:done:` means triage is
-complete, not that the bug is fixed). An active/evidence-limited disposition, an eye-only item,
-or a reply without one of those outcomes blocks merge.
-Evidence-limited or active dispositions retain the workflow's eye until
-resolved; they are not terminal closure. Silent terminal
-states need no reply. If a connector is unavailable, record it as unavailable
-in the recap rather than treating it as no findings.
+a verified **Fixed** result with a concise reply and `✅`, a verified
+**Shipped** result with a concise reply, a verified **Live verified** result
+(reply only when informative), or a non-fixed terminal ledger disposition
+with its existing `👀` before merge (`✅` only for **Fixed**). An
+active/evidence-limited disposition or a reply without one of those outcomes
+blocks merge; the eye remains on every claimed item. Reactions are append-only;
+newer thread evidence controls the current disposition.
+Evidence-limited or active dispositions retain the workflow's eye; it remains
+after resolution. Keep active and terminal state in thread text or linked
+work; do not repeat a status already recorded. If a connector is unavailable,
+record it as unavailable in the recap rather than treating it as no findings.
 
 **Then proceed with PR checks:**
 

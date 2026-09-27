@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "답장이 필요하거나 기한이 있는 메시지. GitHub의 사람 댓글을 포함하고 봇 댓글은 제외합니다.",
       aiSetupArchiveSpamPrompt:
-        "자동 보관: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
+        "받은편지함 건너뛰기: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
       aiSetupCustomTag: "사용자 지정",
       aiSetupDone: "완료",
       aiSetupRunAgain: "설정 다시 실행",
@@ -71,6 +71,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub, Vercel, Dependabot의 봇 및 CI 알림",
       aiSetupFilteredExample: "답장하지 않은 영업 메일과 채용 담당자 메시지",
       aiSetupSortingHeadline: "받은편지함을 정리하고 있어요",
+      aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
@@ -163,6 +164,7 @@ const messages = {
       deleteDraft: "초안 삭제",
       deleteDrafts: "초안 삭제",
       reopenDraft: "다시 열기",
+      openInMail: "Mail에서 열기",
       discardDraft: "초안 버리기",
       enterLinkUrl: "링크 URL을 입력하세요.",
       forward: "Forward",
@@ -572,17 +574,29 @@ const messages = {
       settingsFailed: "AI 필터 설정을 저장하지 못했습니다.",
       automationRulesLoadFailed: "분류 규칙을 불러오지 못했습니다.",
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
+      autoArchiveMode: "자동 보관",
       skipInboxMode: "받은편지함 건너뛰기",
       spamMode: "스팸",
       tagMode: "태그",
       aiTagsTitle: "AI 태그",
+      ruleHelpLabel: "{{mode}} 규칙 설명",
+      aiTagRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일에 이 태그를 추가합니다.",
+      importantRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 중요 메일로 표시합니다.",
+      skipInboxRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 보관해 받은편지함을 건너뜁니다.",
+      spamRuleHelp:
+        "자연어로 지침을 작성하세요. Jev는 일치하는 메일에 agent-native-filtered 라벨을 추가하고 보관합니다. Gmail 스팸으로 보내지는 않습니다.",
       filteredMode: "필터됨",
-      autoArchiveMode: "자동 보관",
       manageSettings: "관리",
       askJev: "Jev에게 묻기",
       askJevPrompt:
         "이 Mail 규칙을 다듬어 주세요: {{condition}}. 무엇을 바꾸고 싶은지 물어본 다음 업데이트해 주세요.",
       composerPlaceholder: "Jev에게 받은편지함 정리를 요청하세요…",
+      chatSuggestionFilter: "이런 메시지 필터링",
+      chatSuggestionPriority: "다음 발신자의 이메일 우선순위 지정…",
+      chatSuggestionArchive: "봇 알림 자동 보관",
       ruleBackfillStarting: "이 규칙을 최근 메일에 적용하고 있어요…",
       ruleBackfillProgress:
         "최근 메일에 적용 중: {{total}}개 중 {{processed}}개",
@@ -630,7 +644,7 @@ const messages = {
       promptRulesCleared: "분류 규칙을 삭제했습니다.",
       tagTabsHelp: "각 태그가 받은편지함 탭이 됩니다",
       addTag: "태그 추가",
-      triageTitle: "분류",
+      triageTitle: "AI 분류",
       connectJev: "Jev 연결",
       connectJevToRunTriage: "분류를 실행하려면 Jev를 연결하세요",
       freeBuilderOrApiKey: "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
@@ -695,6 +709,9 @@ const messages = {
     suggestionSummarize: "읽지 않은 이메일 요약하기",
     suggestionReplies: "오늘 답장해야 할 것은 무엇인가요?",
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
+    ruleSuggestionFilter: "이런 메시지 필터링하기",
+    ruleSuggestionImportant: "상사의 이메일 우선 처리하기",
+    ruleSuggestionArchive: "봇 알림 자동 보관하기",
   },
   settings: {
     openAgentSettings: "에이전트 관리",
@@ -820,7 +837,7 @@ const messages = {
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
-    aiFilter: "분류",
+    aiFilter: "AI 분류",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",

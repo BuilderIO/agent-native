@@ -11,6 +11,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Connect Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -60,7 +61,7 @@ const messages = {
       description:
         "Connect Builder.io (free) or configure your own S3-compatible object storage.",
       reconnectBuilder: "Reconnect Builder.io",
-      custom: "Add your own object storage keys",
+      custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -1014,6 +1015,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -1833,11 +1836,18 @@ const messages = {
     noReviews: "No agent outputs to review yet",
     summarizeWithAgent: "Summarize with agent",
     regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
     searchReviews: "Search prompts, outcomes, people, or artifacts",
     allArtifactTypes: "All types",
-    summarySending: "Sending summary request…",
-    summarySent: "Summary request sent to agent",
-    summaryFailed: "Could not send the summary request",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
     readOnlyTenant: "Cross-organization review is read-only.",
     showReviewDetails: "Show review details",
     hideReviewDetails: "Hide review details",

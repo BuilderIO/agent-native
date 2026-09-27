@@ -6,6 +6,7 @@ import {
   getRequestOrgId,
   getRequestTimezone,
   getRequestContext,
+  getCredentialContext,
   hasRequestContext,
   hasAuthContextAccess,
   getAmbientUserEmail,
@@ -73,6 +74,24 @@ describe("server/request-context", () => {
         expect(getRequestOrgId()).toBeUndefined();
       });
     });
+  });
+
+  it("keeps org-only credential scope separate from the authenticated user", () => {
+    runWithRequestContext(
+      {
+        userEmail: "admin@example.test",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      () => {
+        expect(getRequestUserEmail()).toBe("admin@example.test");
+        expect(getCredentialContext()).toEqual({
+          userEmail: "admin@example.test",
+          orgId: "customer-org",
+          credentialScope: "org",
+        });
+      },
+    );
   });
 
   describe("request identity validation time", () => {

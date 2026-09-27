@@ -23,9 +23,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
-function render(ui: ReactNode, options?: RenderOptions) {
+function render(
+  ui: ReactNode,
+  options?: RenderOptions,
+  storageConfigured = true,
+) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured: true });
+  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, {
+    configured: storageConfigured,
+  });
   return renderWithoutQueryClient(ui, {
     ...options,
     wrapper: ({ children }: { children: ReactNode }) => (
@@ -104,6 +110,7 @@ function useEagerFileUploadsMock<T>(
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
+    attachmentsEnabled?: boolean;
     submissionDisabled?: boolean;
     showModelSelector?: boolean;
     modelStatusChecksEnabled?: boolean;
@@ -116,6 +123,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
     onTextChange?: (text: string) => void;
     contextItems?: readonly unknown[];
     onAttachmentsChange?: (files: File[]) => void;
+    onAttachmentRequest?: () => void;
     attachmentAdapter?: { accept: string };
     onModelSelectionChange?: (selection: {
       model?: string;
@@ -175,7 +183,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
           type="button"
           data-testid="prompt-composer-attach"
           disabled={props.disabled}
-          onClick={() => props.onAttachmentsChange?.([promptFile])}
+          onClick={() =>
+            props.attachmentsEnabled
+              ? props.onAttachmentsChange?.([promptFile])
+              : props.onAttachmentRequest?.()
+          }
         >
           Attach
         </button>
@@ -210,6 +222,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "home.googleSlidesImportLabel": "Slides",
       "home.googleSlidesReferenceTitle": "Google Slides",
       "home.googleSlidesReferenceUrl": "Paste a Google Slides link",
+      "onboarding.fileStorage.title": "Connect storage to upload files",
+      "onboarding.fileStorage.custom": "Custom keys",
+      "composer.connectBuilder": "Connect Builder.io",
       "raw.uploadFailed": "Upload failed",
       "raw.uploadAttachedFailed": "Upload failed",
       "raw.uploading": "Uploading...",
@@ -807,6 +822,33 @@ describe("uploadPromptFiles", () => {
       { credentials: "include" },
     );
     expect(uploadFetch).not.toHaveBeenCalled();
+  });
+
+  it("shows storage setup only after the user chooses Upload File", async () => {
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+      undefined,
+      false,
+    );
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Connect storage to upload files",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Connect Builder.io" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Custom keys" })).toBeTruthy();
   });
 
   it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {

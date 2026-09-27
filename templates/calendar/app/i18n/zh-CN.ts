@@ -47,6 +47,11 @@ export default {
     noEventId: "未提供事件 ID。请在 URL 中添加 ?id=<eventId>。",
     openCalendar: "打开日历",
   },
+  eventCreation: {
+    created: "活动已创建",
+    zoomNotAdded: "活动已创建，但无法添加 Zoom。",
+    openInCalendar: "在 Calendar 中打开活动",
+  },
   agentSidebar: {
     emptyState: "问我任何关于你的日历的问题",
     suggestions: {
@@ -240,6 +245,14 @@ export default {
     weekStartSunday: "周日 - 周六",
     weekStartMonday: "周一 - 周日",
     eventRules: "邀请规则",
+    eventRulesConnectJev: "连接 Jev 以运行邀请规则",
+    eventRulesFreeBuilderOrApiKey:
+      "通过 Builder.io 免费使用，或添加 API 密钥。",
+    eventRulesConnectBuilder: "连接 Builder.io",
+    eventRulesAddJevApiKey: "添加 API 密钥",
+    eventRulesTabRules: "规则",
+    eventRulesHelpLabel: "了解邀请规则提示",
+    eventRulesHelp: "编写提示，告诉 Jev 自动接受、拒绝或隐藏哪些邀请。",
     eventRuleAccept: "自动接受",
     eventRuleDecline: "自动拒绝",
     eventRuleHide: "自动隐藏",
@@ -247,6 +260,7 @@ export default {
     eventRulePlaceholderDecline: "例如：拒绝供应商演示和下班后的活动",
     eventRulePlaceholderHide: "例如：隐藏专注时段和提醒",
     eventRulesSave: "保存规则",
+    eventRulesClearSaved: "清除已保存的规则",
     eventRulesRecentActivity: "最近活动",
     eventRulesNoActivity: "暂无活动",
     eventRuleActivityAccepted: "已接受",

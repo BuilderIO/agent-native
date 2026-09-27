@@ -198,27 +198,47 @@ describe("listOutputReviews", () => {
   });
 
   it("keeps a prior run's summary on the current thread rollup", async () => {
+    mockGetRecentReviewRunsForThreads.mockResolvedValueOnce([
+      {
+        runId: "run-1",
+        orgId: "org-a",
+        threadId: "thread-1",
+        userId: "alice@example.com",
+        model: "test-model",
+        createdAt: 123,
+      },
+      {
+        runId: "run-old",
+        orgId: "org-a",
+        threadId: "thread-1",
+        userId: "alice@example.com",
+        model: "older-model",
+        createdAt: 100,
+      },
+    ]);
     mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
           "thread-1",
-          {
-            runId: "run-old",
-            orgId: "org-a",
-            ask: "Build a report",
-            outcome: "Created the weekly dashboard",
-            artifacts: [
-              {
-                appId: "analytics",
-                artifactId: "dash-1",
-                title: "Weekly dashboard",
-                path: "/dashboards/dash-1",
-              },
-            ],
-            createdBy: "admin@example.com",
-            createdAt: 1,
-            updatedAt: 2,
-          },
+          [
+            {
+              runId: "run-old",
+              orgId: "org-a",
+              ask: "Build a report",
+              outcome: "Created the weekly dashboard",
+              artifacts: [
+                {
+                  appId: "analytics",
+                  artifactId: "dash-1",
+                  title: "Weekly dashboard",
+                  path: "/dashboards/dash-1",
+                },
+              ],
+              createdBy: "admin@example.com",
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
         ],
       ]),
     );
@@ -237,10 +257,15 @@ describe("listOutputReviews", () => {
       ask: "Build a report",
       answer: "Created the weekly dashboard",
       runId: "run-1",
+      runs: [{ runId: "run-1" }, { runId: "run-old", summaryUpdatedAt: 2 }],
     });
-    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
-      { orgId: "org-a", threadId: "thread-1" },
-    ]);
+    expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
+      [{ orgId: "org-a", threadId: "thread-1" }],
+      [
+        { orgId: "org-a", runId: "run-1" },
+        { orgId: "org-a", runId: "run-old" },
+      ],
+    );
     expect(mockGetTraceSummaries).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org-a",
@@ -301,12 +326,14 @@ describe("listOutputReviews", () => {
         runId: "run-a",
         orgId: "org-a",
         readOnly: false,
+        authorEmail: "alice@example.com",
         threadTitle: "Org A title",
       },
       {
         runId: "run-b",
         orgId: "org-b",
         readOnly: true,
+        authorEmail: "bob@example.com",
         threadTitle: "Org B title",
       },
     ]);
@@ -410,16 +437,18 @@ describe("listOutputReviews", () => {
       new Map([
         [
           "thread-1",
-          {
-            runId: "run-1",
-            orgId: "org-a",
-            ask: "Saved ask",
-            outcome: "Saved outcome",
-            artifacts: [],
-            createdBy: "admin@example.com",
-            createdAt: 1,
-            updatedAt: 2,
-          },
+          [
+            {
+              runId: "run-1",
+              orgId: "org-a",
+              ask: "Saved ask",
+              outcome: "Saved outcome",
+              artifacts: [],
+              createdBy: "admin@example.com",
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
         ],
       ]),
     );
@@ -1112,23 +1141,25 @@ describe("listOutputReviews", () => {
       new Map([
         [
           "thread-1",
-          {
-            runId: "run-old",
-            orgId: "org-a",
-            ask: "Create an onboarding flow",
-            outcome: "Built a complete onboarding design",
-            artifacts: [
-              {
-                appId: "design",
-                artifactId: "design-1",
-                title: "Onboarding",
-                path: "/design/design-1",
-              },
-            ],
-            createdBy: "admin@example.com",
-            createdAt: 1,
-            updatedAt: 2,
-          },
+          [
+            {
+              runId: "run-old",
+              orgId: "org-a",
+              ask: "Create an onboarding flow",
+              outcome: "Built a complete onboarding design",
+              artifacts: [
+                {
+                  appId: "design",
+                  artifactId: "design-1",
+                  title: "Onboarding",
+                  path: "/design/design-1",
+                },
+              ],
+              createdBy: "admin@example.com",
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
         ],
       ]),
     );

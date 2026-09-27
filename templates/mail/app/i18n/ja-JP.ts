@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "返信が必要、または期限のあるメール。GitHub の人からのコメントを含み、ボットのコメントは除きます。",
       aiSetupArchiveSpamPrompt:
-        "自動アーカイブ：ボットのコメントや自動ステータス更新を含む GitHub 通知。\n迷惑メール：依頼していない明らかな宣伝や不要なメール。",
+        "受信トレイをスキップ：ボットのコメントや自動ステータス更新を含む GitHub 通知。\n迷惑メール：依頼していない明らかな宣伝や不要なメール。",
       aiSetupCustomTag: "カスタム",
       aiSetupDone: "完了",
       aiSetupRunAgain: "設定をやり直す",
@@ -72,6 +72,7 @@ const messages = {
         "GitHub、Vercel、Dependabot のボット通知と CI 通知",
       aiSetupFilteredExample: "返信していない営業メールや採用担当者からの連絡",
       aiSetupSortingHeadline: "受信トレイを整理しています",
+      aiSetupFindingRecentMail: "最近のメールを検索しています…",
       aiSetupSortingProgress:
         "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
       aiSetupUndoing: "受信トレイの変更を取り消しています…",
@@ -167,6 +168,7 @@ const messages = {
       deleteDraft: "下書きを削除",
       deleteDrafts: "下書きを削除",
       reopenDraft: "再度開く",
+      openInMail: "Mailで開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",
@@ -577,17 +579,29 @@ const messages = {
       settingsFailed: "AI フィルターの設定を保存できませんでした。",
       automationRulesLoadFailed: "トリアージルールを読み込めませんでした。",
       instructionFailed: "AI フィルターの指示を保存できませんでした。",
+      autoArchiveMode: "自動アーカイブ",
       skipInboxMode: "受信トレイをスキップ",
       spamMode: "スパム",
       tagMode: "タグ",
       aiTagsTitle: "AIタグ",
+      ruleHelpLabel: "{{mode}}ルールの説明",
+      aiTagRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールにこのタグを付けます。",
+      importantRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールを重要としてマークします。",
+      skipInboxRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールをアーカイブして受信トレイをスキップします。",
+      spamRuleHelp:
+        "自然な言葉で指示を書きます。Jev は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
       filteredMode: "フィルター済み",
-      autoArchiveMode: "自動アーカイブ",
       manageSettings: "管理",
       askJev: "Jev に相談",
       askJevPrompt:
         "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
       composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      chatSuggestionFilter: "このようなメッセージをフィルタする",
+      chatSuggestionPriority: "次の差出人のメールを優先…",
+      chatSuggestionArchive: "ボット通知を自動でアーカイブ",
       ruleBackfillStarting: "このルールを最近のメールに適用しています…",
       ruleBackfillProgress:
         "最近のメールに適用中：{{total}} 件中 {{processed}} 件",
@@ -637,7 +651,7 @@ const messages = {
       promptRulesCleared: "トリアージルールを削除しました。",
       tagTabsHelp: "各タグが受信トレイのタブになります",
       addTag: "タグを追加",
-      triageTitle: "トリアージ",
+      triageTitle: "AIトリアージ",
       connectJev: "Jevを接続",
       connectJevToRunTriage: "トリアージを実行するにはJevを接続",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
@@ -702,6 +716,9 @@ const messages = {
     suggestionSummarize: "未読メールを要約して",
     suggestionReplies: "今日返信が必要なものは？",
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
+    ruleSuggestionFilter: "このようなメールを除外する",
+    ruleSuggestionImportant: "上司からのメールを優先する",
+    ruleSuggestionArchive: "ボット通知を自動でアーカイブする",
   },
   settings: {
     openAgentSettings: "エージェントを管理",
@@ -826,7 +843,7 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
-    aiFilter: "トリアージ",
+    aiFilter: "AIトリアージ",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",

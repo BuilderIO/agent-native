@@ -261,6 +261,8 @@ export const CommentComposer = forwardRef<
     dismissPopover: () => composerRef.current?.dismissPopover() ?? false,
     submitWithText: (text) =>
       composerRef.current?.submitWithText(text) ?? Promise.resolve(false),
+    addAttachment: (file) =>
+      composerRef.current?.addAttachment(file) ?? Promise.resolve(undefined),
   }));
 
   const connectedModels = useMemo<CommentAiSelection[]>(

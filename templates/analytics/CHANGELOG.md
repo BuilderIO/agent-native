@@ -5,6 +5,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-26
 
+### Improved
+
+- Human Review shows saved Analytics charts and analysis results inline.
+- Loading screens now reflect the app's home layout.
+- Saved dashboard charts can be previewed directly in Human Review.
+
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.

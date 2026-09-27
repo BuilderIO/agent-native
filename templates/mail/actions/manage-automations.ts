@@ -107,38 +107,17 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
     };
   }
 
-  try {
-    const { readMailAiFilterBackfill } =
-      await import("../server/lib/ai-filter-backfill.js");
-    const status = await readMailAiFilterBackfill(ownerEmail, runId);
-    return {
-      appliedCounts:
-        status.status === "queued"
-          ? null
-          : status.perRule.map(({ ruleId, name, appliedCount }) => ({
-              ruleId,
-              name,
-              appliedCount,
-            })),
-      backfillRunId: runId,
-      backfillStatus: status.status,
-      ...(status.error ? { backfillError: status.error } : {}),
-    };
-  } catch {
-    return {
-      appliedCounts: null,
-      backfillRunId: runId,
-      backfillStatus: "status-unavailable",
-      backfillError:
-        "The backfill was queued, but its progress could not be read.",
-    };
-  }
+  return {
+    appliedCounts: null,
+    backfillRunId: runId,
+    backfillStatus: "queued",
+  };
 }
 
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
     description:
-      "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, filter, or archive); recent mail is backfilled automatically. Star, mark-read, and trash rules keep the legacy automation behavior.",
+      "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Star, mark-read, and trash rules keep the legacy automation behavior.",
     agentTool,
     schema: z.object({
       action: z
@@ -219,15 +198,18 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
             }
             actions = parseActions(args.actions);
           }
-          const kind = isAiFilterRule(actions) ? "ai-filter" : "automation";
-          const rule = await createAutomationRule(ownerEmail, {
+          const kind: "ai-filter" | "automation" = isAiFilterRule(actions)
+            ? "ai-filter"
+            : "automation";
+          const input = {
             name: name!,
             condition,
             actions,
             domain: "mail",
             kind,
             enabled: args.enabled,
-          });
+          };
+          const rule = await createAutomationRule(ownerEmail, input);
           const backfill =
             kind === "ai-filter"
               ? await startRecentBackfill(ownerEmail, rule)
@@ -301,9 +283,8 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         case "enable":
         case "disable": {
           if (!args.id) throw new Error(`--id is required for ${args.action}`);
-          const rule = await updateAutomationRule(ownerEmail, args.id, {
-            enabled: args.action === "enable",
-          });
+          const patch = { enabled: args.action === "enable" };
+          const rule = await updateAutomationRule(ownerEmail, args.id, patch);
           const backfill =
             args.action === "enable" &&
             rule.domain === "mail" &&

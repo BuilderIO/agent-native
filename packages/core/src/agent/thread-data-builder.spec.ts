@@ -95,6 +95,43 @@ describe("buildAssistantMessage", () => {
     );
   });
 
+  it("persists raw action widget data beside the transcript result", () => {
+    const result = { deepLink: "/_agent-native/open?composeDraftId=draft-1" };
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "call_draft",
+            tool: "manage-draft",
+            input: { action: "create" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "call_draft",
+            tool: "manage-draft",
+            result: JSON.stringify(result, null, 2),
+            chatUI: { renderer: "mail.draft-created" },
+            chatUIResult: result,
+          },
+        },
+      ],
+      "run-action-widget-result",
+    );
+
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        result: JSON.stringify(result, null, 2),
+        chatUIResult: result,
+      }),
+    );
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     const events: RunEvent[] = [
       {

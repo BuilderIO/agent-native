@@ -142,7 +142,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: async () => ({ role: "owner" }),
   resolveAccess: async (...args: unknown[]) => {
     state.accessCalls.push(args);
-    return state.accessResult;
+    const access = state.accessResult as {
+      resource: Record<string, unknown>;
+      role: string;
+    } | null;
+    return access
+      ? { ...access, resource: state.dashboardRow ?? access.resource }
+      : null;
   },
   roleSatisfies: (role: string, minimum: string) => {
     const ranks: Record<string, number> = {
@@ -223,7 +229,7 @@ vi.mock("../db/index.js", () => ({
   }),
 }));
 
-const { deleteDashboardView, getOrgDashboardForReview, saveDashboardView } =
+const { deleteDashboardView, getDashboardForReview, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
@@ -261,11 +267,14 @@ describe("dashboard views", () => {
     };
     state.legacyDashboard = { name: "Legacy", panels: [] };
 
-    const result = await getOrgDashboardForReview("dashboard-a", "org-a");
-    const otherOrgResult = await getOrgDashboardForReview(
-      "dashboard-a",
-      "org-b",
-    );
+    const result = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-a",
+    });
+    const otherOrgResult = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-b",
+    });
 
     expect(result).toMatchObject({
       id: "dashboard-a",
@@ -275,7 +284,13 @@ describe("dashboard views", () => {
       canManage: false,
     });
     expect(otherOrgResult).toBeNull();
-    expect(state.accessCalls).toEqual([]);
+    expect(state.accessCalls).toEqual([
+      [
+        "dashboard",
+        "dashboard-a",
+        { userEmail: "alice@example.com", orgId: "org-a" },
+      ],
+    ]);
     expect(state.dashboardRow?.orgId).toBe("org-a");
   });
 

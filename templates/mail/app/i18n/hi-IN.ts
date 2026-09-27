@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "जिन संदेशों का जवाब देना है या समय-सीमा है, उनमें GitHub पर लोगों की टिप्पणियाँ भी शामिल हैं। बॉट टिप्पणियाँ छोड़ें।",
       aiSetupArchiveSpamPrompt:
-        "अपने-आप संग्रह करें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
+        "इनबॉक्स छोड़ें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
       aiSetupCustomTag: "कस्टम",
       aiSetupDone: "हो गया",
       aiSetupRunAgain: "सेटअप फिर चलाएँ",
@@ -72,6 +72,7 @@ const messages = {
       aiSetupFilteredExample:
         "अनचाहे बिक्री संदेश और वे रिक्रूटर जिन्हें मैंने जवाब नहीं दिया",
       aiSetupSortingHeadline: "आपका इनबॉक्स व्यवस्थित हो रहा है",
+      aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
@@ -164,6 +165,7 @@ const messages = {
       deleteDraft: "ड्राफ़्ट हटाएँ",
       deleteDrafts: "ड्राफ़्ट हटाएँ",
       reopenDraft: "फिर से खोलें",
+      openInMail: "Mail में खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",
@@ -571,17 +573,29 @@ const messages = {
       settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
       automationRulesLoadFailed: "ट्रायेज नियम लोड नहीं हो सके।",
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
+      autoArchiveMode: "अपने आप संग्रहित करें",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
       tagMode: "टैग",
       aiTagsTitle: "AI टैग",
+      ruleHelpLabel: "{{mode}} नियम समझाएँ",
+      aiTagRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर यह टैग जोड़ता है।",
+      importantRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
+      skipInboxRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
+      spamRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
       filteredMode: "फ़िल्टर किए गए",
-      autoArchiveMode: "अपने आप संग्रहित करें",
       manageSettings: "प्रबंधित करें",
       askJev: "Jev से पूछें",
       askJevPrompt:
         "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
       composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      chatSuggestionFilter: "ऐसे संदेश फ़िल्टर करें",
+      chatSuggestionPriority: "इनसे आने वाले ईमेल को प्राथमिकता दें…",
+      chatSuggestionArchive: "बॉट सूचनाओं को अपने-आप संग्रहित करें",
       ruleBackfillStarting: "यह नियम हाल के मेल पर लागू हो रहा है…",
       ruleBackfillProgress:
         "हाल के मेल पर लागू हो रहा है: {{total}} में से {{processed}}",
@@ -628,7 +642,7 @@ const messages = {
       promptRulesCleared: "ट्रायेज नियम हटाए गए।",
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
-      triageTitle: "ट्रायेज",
+      triageTitle: "AI ट्रायेज",
       connectJev: "Jev कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
@@ -693,6 +707,9 @@ const messages = {
     suggestionSummarize: "मेरे unread emails का सारांश दें",
     suggestionReplies: "आज किन चीजों पर मेरा reply चाहिए?",
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
+    ruleSuggestionFilter: "इस तरह के संदेश फ़िल्टर करें",
+    ruleSuggestionImportant: "मेरे बॉस के ईमेल को प्राथमिकता दें",
+    ruleSuggestionArchive: "बॉट सूचनाएँ अपने-आप संग्रहित करें",
   },
   settings: {
     openAgentSettings: "एजेंट प्रबंधित करें",
@@ -817,7 +834,7 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
-    aiFilter: "ट्रायेज",
+    aiFilter: "AI ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",

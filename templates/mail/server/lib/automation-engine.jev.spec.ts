@@ -70,6 +70,7 @@ vi.mock("./google-auth.js", () => ({}));
 
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  evaluateAiFilterBackfillRules,
   previewAutomationPriority,
   previewAutomationRules,
   processAutomationsForAccount,
@@ -126,6 +127,23 @@ describe("Mail Jev automation routing", () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it("checks model availability while processing a queued backfill", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "ai-sdk:openrouter",
+      model: "openai/gpt-5.6-luna",
+    });
+    mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+
+    await expect(
+      evaluateAiFilterBackfillRules(
+        [],
+        [],
+        "unavailable-owner@example.com",
+        {} as never,
+      ),
+    ).rejects.toThrow("No LLM provider is connected for Mail AI rules.");
+  });
 
   it("resolves a saved scoped Anthropic credential for the owner", async () => {
     mocks.resolveCredential.mockResolvedValue("saved-workspace-key");

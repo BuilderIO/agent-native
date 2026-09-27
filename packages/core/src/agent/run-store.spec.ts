@@ -138,8 +138,9 @@ const mockDb: any = {
     if (/UPDATE agent_runs SET status = 'aborted'/i.test(rawSql)) {
       return { rows: [], rowsAffected: abortRowsAffected };
     }
+    // Tool-call result ledger lookup.
     if (
-      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
         rawSql,
       )
     ) {
@@ -239,6 +240,8 @@ const {
 let ledgerRows: Array<{
   result_summary: string;
   artifacts_json?: string | null;
+  result_is_string?: boolean | null;
+  chat_ui_result_json?: string | null;
 }> = [];
 
 describe("run store", () => {
@@ -1086,6 +1089,8 @@ describe("run store", () => {
     expect(insert?.args[1]).toBe("my-tool:{}");
     expect(insert?.args[2]).toBe("the result");
     expect(insert?.args[3]).toBe("[]");
+    expect(insert?.args[4]).toBeNull();
+    expect(insert?.args[5]).toBeNull();
     expect(insert?.sql).toContain("ON CONFLICT");
   });
 
@@ -1129,8 +1134,10 @@ describe("run store", () => {
     ledgerRows = [
       {
         result_summary: "cached output",
+        result_is_string: false,
         artifacts_json:
           '[{"kind":"image","id":"asset-1","url":"/asset/asset-1"}]',
+        chat_ui_result_json: JSON.stringify({ id: "draft-1" }),
       },
     ];
     const result = await readLedgerEntry("thread-abc", "my-tool:{}");
@@ -1138,9 +1145,11 @@ describe("run store", () => {
     expect(result).toEqual({
       result: "cached output",
       artifacts: [{ kind: "image", id: "asset-1", url: "/asset/asset-1" }],
+      resultIsString: false,
+      chatUIResult: { id: "draft-1" },
     });
     const select = execCalls.find((call) =>
-      /SELECT result_summary, artifacts_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
         call.sql,
       ),
     );
@@ -1154,6 +1163,126 @@ describe("run store", () => {
     await expect(
       readLedgerEntry("thread-legacy", "old-tool:{}"),
     ).resolves.toEqual({ result: "legacy output", artifacts: [] });
+  });
+
+  it("preserves JSON-looking string results without inferring their type", async () => {
+    await writeLedgerEntry(
+      "thread-json-string",
+      "tool:key",
+      '{"deepLink":"/_agent-native/open"}',
+      [],
+      true,
+      JSON.stringify('{"deepLink":"/_agent-native/open"}'),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[4]).toBe(true);
+    expect(insert?.args[5]).toBe(
+      JSON.stringify('{"deepLink":"/_agent-native/open"}'),
+    );
+
+    ledgerRows = [
+      {
+        result_summary: '{"deepLink":"/_agent-native/open"}',
+        result_is_string: true,
+        chat_ui_result_json: JSON.stringify(
+          '{"deepLink":"/_agent-native/open"}',
+        ),
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-json-string", "tool:key"),
+    ).resolves.toMatchObject({
+      result: '{"deepLink":"/_agent-native/open"}',
+      resultIsString: true,
+      chatUIResult: '{"deepLink":"/_agent-native/open"}',
+    });
+  });
+
+  it("preserves structured widget data outside the capped ledger summary", async () => {
+    const chatUIResult = { rows: [{ value: "x".repeat(12_000) }] };
+    await writeLedgerEntry(
+      "thread-large-widget",
+      "tool:key",
+      '{"rows":[truncated]',
+      [],
+      false,
+      JSON.stringify(chatUIResult),
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[2]).toBe('{"rows":[truncated]');
+    expect(JSON.parse(insert?.args[5] as string)).toEqual(chatUIResult);
+
+    ledgerRows = [
+      {
+        result_summary: '{"rows":[truncated]',
+        result_is_string: false,
+        chat_ui_result_json: JSON.stringify(chatUIResult),
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-large-widget", "tool:key"),
+    ).resolves.toEqual({
+      result: '{"rows":[truncated]',
+      artifacts: [],
+      resultIsString: false,
+      chatUIResult,
+    });
+  });
+
+  it("omits oversized widget JSON without truncating the ledger payload", async () => {
+    const oversizedWidgetResult = JSON.stringify({
+      body: "x".repeat(70_000),
+    });
+    await writeLedgerEntry(
+      "thread-large-widget",
+      "tool:key",
+      "completed output",
+      [],
+      false,
+      oversizedWidgetResult,
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[2]).toBe("completed output");
+    expect(insert?.args[5]).toBeNull();
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Oversized action widget result omitted",
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "write-tool-ledger-chat-ui-result",
+        }),
+        extra: expect.objectContaining({ maxBytes: 64 * 1024 }),
+      }),
+    );
+  });
+
+  it("keeps a ledger result when its widget JSON is malformed", async () => {
+    ledgerRows = [
+      {
+        result_summary: "completed output",
+        chat_ui_result_json: "{truncated",
+      },
+    ];
+
+    await expect(
+      readLedgerEntry("thread-malformed-widget", "tool:key"),
+    ).resolves.toEqual({ result: "completed output", artifacts: [] });
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.any(SyntaxError),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "parse-tool-ledger-chat-ui-result",
+        }),
+      }),
+    );
   });
 
   it("readLedgerEntry preserves a completed result when receipt JSON is malformed", async () => {

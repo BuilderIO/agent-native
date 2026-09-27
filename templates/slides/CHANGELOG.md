@@ -11,6 +11,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Builder.io super-organization admins can preview customer slide decks in Human Review.
+- Connect storage only when you choose to upload a file
+- Slides accepts HTML references, identifies files in upload errors, and clarifies Figma access issues.
+- Keep Slides deck setup drafts across template navigation and retry failed storage checks before importing references.
+- Loading screens now reflect the app's home layout.
+- Saved slide decks can be previewed directly in Human Review.
+- Slides chat labels the selected slide by number so the agent knows which slide to edit.
 - Home headers keep search and controls aligned at intermediate widths
 - Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
@@ -18,6 +25,13 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Exports and Present are disabled when a deck has no slides
+- File uploads ask for storage only when requested, and chat stays disabled until an AI provider is connected.
+- Home suggestions and file imports handle provider failures more clearly.
+- Mobile chat now waits for slide edits to save before restoring an earlier deck version.
+- Search remains available before you create a presentation
+- Slides stops retrying imports when a file path is outside your uploads.
+- The presentation prompt appears immediately without a loading placeholder
 - Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
 - The home search shortcut leaves commands for open menus and dialogs.
 - Double-clicking slide text selects the word under the pointer.

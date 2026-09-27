@@ -14,6 +14,7 @@ import {
   parseAgentProtocolEnvelope,
   parseInvokeActionInput,
   parseQueueMessageInput,
+  parseSubmitFeedbackInput,
   parseResumeRunInput,
   parseAgentThreadSnapshot,
   parseStartRunInput,
@@ -369,6 +370,27 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseQueueMessageInput({ threadId: "thread-1", text: 42 }),
     ).toThrow(AgentProtocolValidationError);
+  });
+
+  it("validates optional feedback trace identifiers and sequence numbers", () => {
+    expect(
+      parseSubmitFeedbackInput({
+        threadId: "thread-1",
+        messageId: "message-1",
+        runId: "run-1",
+        messageSeq: 0,
+        value: "negative",
+        reason: "The answer missed a detail.",
+      }),
+    ).toMatchObject({ runId: "run-1", messageSeq: 0 });
+    expect(() =>
+      parseSubmitFeedbackInput({
+        threadId: "thread-1",
+        messageId: "message-1",
+        messageSeq: -1,
+        value: "positive",
+      }),
+    ).toThrow("submitFeedback.messageSeq");
   });
 
   it("validates rich snapshots as one internally consistent projection", () => {

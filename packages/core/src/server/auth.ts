@@ -3935,9 +3935,16 @@ function createAuthGuardFn(
     const session = await getSession(event);
     if (session) {
       const workspaceAppId = resolveWorkspaceAccessAppId();
+      const method = getMethod(event);
       const sharedWorkspaceAccessPath =
         p === "/_agent-native/org/me" ||
-        p === "/_agent-native/actions/list-workspace-apps";
+        p === "/_agent-native/actions/list-workspace-apps" ||
+        (method === "GET" &&
+          p === "/_agent-native/actions/list-workspace-app-access") ||
+        (method === "POST" &&
+          p === "/_agent-native/actions/set-workspace-app-access");
+      // Keep org-owned repair controls reachable when this app is disabled;
+      // each action or handler still enforces its org membership and role.
       if (
         workspaceAppId &&
         !sharedWorkspaceAccessPath &&

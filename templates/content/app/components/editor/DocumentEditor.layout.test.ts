@@ -29,6 +29,7 @@ import {
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
   suggestionPresentation,
+  suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
   suggestionAmendmentTargetIsResolved,
@@ -48,7 +49,10 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
-import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
+import {
+  markdownSuggestionOperation,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
   it("keeps an open comment when its portalled menus are clicked", () => {
@@ -485,6 +489,20 @@ describe("document editor layout", () => {
       from: insertion.anchor.from,
       to: insertion.anchor.from + insertion.after.changedText.length,
     });
+  });
+  it("shows precise regions for an existing broad suggestion without splitting its decision", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const saved = markdownSuggestionOperation(before, after)!;
+    const precise = suggestionPresentations(
+      { id: "existing", status: "pending", operations: [saved] },
+      before,
+    );
+
+    expect(precise).toHaveLength(2);
+    expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
+    expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
+    expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -1601,14 +1619,18 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.createShareableCopy");
+    expect(source).toContain("editor.toolbar.sharePeople");
+    expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
-    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain("quickCopy={{");
+    expect(source).toContain("agentTabContent={");
+    expect(source).not.toContain("shareLinkContent=");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
     expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
@@ -2018,7 +2040,8 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "suggestionDraftOperations(base, suggestionDraft)",
     );
-    expect(source).toContain("persistSuggestionDraftOperations(");
+    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
+    expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
     expect(source).toContain("baseRevision: base.baseRevision");
   });
@@ -2102,7 +2125,7 @@ describe("document editor layout", () => {
     expect(source).toContain("decisionRefreshInFlightRef.current = true");
     expect(source).toContain("decisionRefreshInFlightRef.current = false");
     expect(source).toMatch(
-      /decisionRefreshFailed &&\s+pendingSuggestionDecision/,
+      /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
     expect(source).toContain(
       "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",

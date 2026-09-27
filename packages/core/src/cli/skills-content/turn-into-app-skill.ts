@@ -228,11 +228,12 @@ Generated apps must follow the shared Agent-Native surface model:
 - Choose a named visual direction in \`DESIGN.md\` before styling and build to it.
   Preserve existing brand tokens; a new unbranded app picks its own
   product-fitting palette rather than inheriting a sibling app's accent.
-- Standalone apps that render \`AgentSidebar\` must keep one assistant-ui runtime
-  context. Pin the versions compatible with the installed core/toolkit peer
-  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
-  duplicate assistant-ui modules. Verify a fresh AI handoff has no
-  \`AssistantUiStaleIndexErrorBoundary\` or stale-index console error.
+- Standalone apps that render \`AgentSidebar\` must use the shared AgentKit chat
+  surface with one controller/transport. Do not add a legacy \`AssistantChat\`
+  renderer or a second stream owner. Keep assistant-ui usage inside the shared
+  composer integration; if linked dependencies need Vite aliases, resolve one
+  \`@agent-native/agentkit\` context and verify a real AgentKit handoff in the
+  browser.
 - Before handoff, inspect the first viewport and remove the text density,
   repeated cards, unrelated forms, and generic helper copy the user does not
   need until the next decision.

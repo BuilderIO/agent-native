@@ -255,7 +255,11 @@ function DbSyncSetup() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+    <AppProviders
+      queryClient={queryClient}
+      skeletonLayout="welcome"
+      i18n={{ catalog: i18nCatalog }}
+    >
       <AppToolkitProvider>
         <DbSyncSetup />
         <Outlet />
