@@ -1,3 +1,9 @@
+/**
+ * <SecretsSection /> — renders the registered secrets from the framework
+ * secrets registry. Configured keys stay compact; adding or editing one
+ * progressively discloses its controls.
+ */
+
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -23,6 +29,11 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
+import {
+  listRegisteredSecrets,
+  type SecretSource,
+  type SecretStatus,
+} from "../secrets.js";
 import { cn } from "../utils.js";
 import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
@@ -46,8 +57,6 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-type SecretSource = "personal" | "workspace" | "vault";
-
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
   workspace: "secrets.sourceWorkspace",
@@ -56,26 +65,8 @@ const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-interface SecretStatus {
-  key: string;
-  label: string;
-  description?: string;
-  docsUrl?: string;
-  scope: "user" | "workspace" | "org";
-  kind: "api-key" | "oauth";
-  required: boolean;
-  status: "set" | "unset" | "invalid" | "unknown";
-  source?: SecretSource;
-  managedHere?: boolean;
-  overrides?: "vault" | "workspace";
-  last4?: string;
-  updatedAt?: number;
-  oauthProvider?: string;
-  oauthConnectUrl?: string;
-  error?: string;
-}
-
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -87,10 +78,12 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
+  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -106,25 +99,45 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = listRegisteredSecrets({
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Secrets request timed out after 15 seconds"));
+        controller?.abort();
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const retry = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
@@ -135,9 +148,15 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={retry}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {
@@ -168,6 +187,8 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
+  // Vault keys count as "set", but until someone adds their own key the
+  // quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
     (secret) => secret.status === "set" && secret.managedHere !== false,
   );
@@ -255,6 +276,8 @@ function KeysEmptyState({
   onPick: (key: string) => void;
 }) {
   const t = useT();
+  // OAuth client pairs are app setup, not "your own account"; keep them
+  // behind New so the tiles stay the keys people actually paste.
   const tiles = availableSecrets
     .filter(
       (secret) =>
@@ -324,6 +347,7 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
+  /** Dispatch Vault page, when running inside a workspace. */
   vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -510,6 +534,8 @@ function SecretCard({
   ]);
 
   const isOAuth = secret.kind === "oauth";
+  // Vault/workspace-shadowed rows only show the value form once the user
+  // opts into a personal override.
   const showRotationForm =
     (secret.status !== "set" && secret.status !== "unknown") || isRotating;
 
@@ -811,6 +837,8 @@ function SecretCard({
     </div>
   );
 }
+
+// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
 
 interface AdHocKey {
   name: string;

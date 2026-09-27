@@ -11,7 +11,14 @@ export function mayClearRecoveryDraft(
 
 export interface PageSaveResult {
   contentPersisted: boolean;
-  outcome?: "superseded";
+  outcome?: "superseded" | "pending_preservation";
+  recoveryDraft?: {
+    title: string;
+    content: string;
+    baseContent?: string;
+    baseUpdatedAt?: string | null;
+    baseRevision?: string;
+  };
 }
 
 export async function savePageWithRecovery({
@@ -20,7 +27,7 @@ export async function savePageWithRecovery({
   clear,
 }: {
   save: () => Promise<PageSaveResult>;
-  retain: (reason: "conflict" | null) => Promise<void>;
+  retain: (reason: "conflict" | null, result?: PageSaveResult) => Promise<void>;
   clear: () => Promise<void>;
 }): Promise<PageSaveResult> {
   let result: PageSaveResult;
@@ -33,7 +40,7 @@ export async function savePageWithRecovery({
 
   if (!result.contentPersisted) {
     if (result.outcome === "superseded") return result;
-    await retain("conflict");
+    await retain(result.recoveryDraft ? null : "conflict", result);
     return result;
   }
 

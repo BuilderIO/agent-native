@@ -29,6 +29,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
+import { getForwardedRequestHostname } from "./request-origin.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
@@ -358,7 +359,12 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
+      audienceHost: getForwardedRequestHostname(event),
       scope: consumed.scope,
+      ...(consumed.ticketCreatedAtMs != null &&
+      !isEmbedCapabilityScope(consumed.scope)
+        ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
+        : {}),
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {
             ttlSeconds: Math.max(

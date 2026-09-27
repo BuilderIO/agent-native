@@ -19,6 +19,7 @@ import {
   type Transaction,
 } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   act,
   createElement,
@@ -3316,6 +3317,16 @@ describe("VisualEditor markdown round-tripping", () => {
     const onChange = vi.fn();
     const draftBWithTrailingEmpty = "Draft B body\n<empty-block/>";
     let controller: VisualEditorHistoryController | null = null;
+
+    const seedYdoc = (target: Y.Doc, content: string) => {
+      const seedEditor = createMarkdownEditor(content);
+      const seeded = prosemirrorToYDoc(seedEditor.state.doc, "default");
+      Y.applyUpdate(target, Y.encodeStateAsUpdate(seeded));
+      seeded.destroy();
+      seedEditor.destroy();
+    };
+    seedYdoc(ydoc, "Draft A body");
+    seedYdoc(nextDocumentYdoc, "Older Page B body");
 
     const renderEditor = (
       documentId: string,
