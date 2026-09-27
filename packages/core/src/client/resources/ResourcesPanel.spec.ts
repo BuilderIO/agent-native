@@ -21,6 +21,7 @@ const storageMocks = vi.hoisted(() => ({
   upload: vi.fn<(formData: FormData) => void>(),
   retry: null as (() => void) | null,
   dismiss: null as (() => void) | null,
+  setup: null as (() => void) | null,
 }));
 
 vi.mock("../uploads/use-file-upload-status.js", () => ({
@@ -70,6 +71,7 @@ vi.mock("../FileStorageSetupPopover.js", () => ({
     if (open) {
       storageMocks.retry = onRetry ?? null;
       storageMocks.dismiss = () => onOpenChange(false, "dismiss");
+      storageMocks.setup = () => onOpenChange(false, "setup");
     }
     return null;
   },
@@ -374,6 +376,7 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.upload.mockReset();
     storageMocks.retry = null;
     storageMocks.dismiss = null;
+    storageMocks.setup = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -483,6 +486,24 @@ describe("ResourcesPanel storage retries", () => {
     ).toEqual(["success.png", "retry.png"]);
   });
 
+  it("flushes an earlier failed batch when a later probe succeeds", async () => {
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockResolvedValueOnce({ isError: false, data: { configured: true } });
+    renderPanel();
+    await chooseFile(
+      new File(["earlier"], "earlier.png", { type: "image/png" }),
+    );
+    await chooseFile(new File(["later"], "later.png", { type: "image/png" }));
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["earlier.png", "later.png"]);
+  });
+
   it("resumes queued uploads after storage is configured in settings", async () => {
     storageMocks.refetch.mockResolvedValueOnce({ isError: true });
     renderPanel();
@@ -503,6 +524,51 @@ describe("ResourcesPanel storage retries", () => {
     expect(
       (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
     ).toBe("notes.png");
+  });
+
+  it("invalidates in-flight probes when custom setup opens and keeps their files", async () => {
+    let resolveProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(new File(["queued"], "queued.png", { type: "image/png" }));
+    await chooseFile(
+      new File(["inflight"], "inflight.png", { type: "image/png" }),
+    );
+    act(() => storageMocks.setup?.());
+
+    await act(async () => {
+      resolveProbe({ isError: true });
+      await Promise.resolve();
+    });
+    renderPanel();
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(
+      storageMocks.upload.mock.calls.map(
+        ([formData]) => (formData.get("file") as File).name,
+      ),
+    ).toEqual(["queued.png", "inflight.png"]);
   });
 
   it("ignores an upload probe after its attempt was dismissed", async () => {

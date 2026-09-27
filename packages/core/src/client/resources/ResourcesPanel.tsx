@@ -90,6 +90,12 @@ const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 type PendingResourceUpload = {
   file: File;
   targetScope: ResourceScope;
+  attemptId?: number;
+};
+
+type ResourceUploadStatusResult = {
+  isError: boolean;
+  data?: { configured?: unknown };
 };
 
 export function mergePendingResourceUploads(
@@ -108,13 +114,21 @@ export function mergePendingResourceUploads(
 
 export function takePendingResourceUploads(
   pending: PendingResourceUpload[],
-  result: { isError: boolean; data?: { configured?: unknown } },
+  result: ResourceUploadStatusResult,
+  throughAttemptId?: number,
 ): { uploads: PendingResourceUpload[]; storageConfigured: boolean } | null {
   if (result.isError || typeof result.data?.configured !== "boolean") {
     return null;
   }
+  const shouldTake = (upload: PendingResourceUpload) =>
+    throughAttemptId === undefined ||
+    upload.attemptId === undefined ||
+    upload.attemptId <= throughAttemptId;
+  const uploads = pending.filter(shouldTake);
+  const remaining = pending.filter((upload) => !shouldTake(upload));
+  pending.splice(0, pending.length, ...remaining);
   return {
-    uploads: pending.splice(0),
+    uploads,
     storageConfigured: result.data.configured,
   };
 }
@@ -1298,6 +1312,7 @@ export function ResourcesPanel({
   const [fileStorageSetupOpen, setFileStorageSetupOpen] = useState(false);
   const pendingResourceUploadsRef = useRef<PendingResourceUpload[]>([]);
   const uploadProbeEpochRef = useRef(0);
+  const uploadAttemptIdRef = useRef(0);
   const resumePendingResourceUploadsRef = useRef(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
@@ -1684,26 +1699,36 @@ export function ResourcesPanel({
 
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
-      const selected = Array.from(files, (file) => ({ file, targetScope }));
+      const attemptId = ++uploadAttemptIdRef.current;
+      const selected = Array.from(files, (file) => ({
+        file,
+        targetScope,
+        attemptId,
+      }));
+      pendingResourceUploadsRef.current = mergePendingResourceUploads(
+        pendingResourceUploadsRef.current,
+        selected,
+      );
       const probeEpoch = uploadProbeEpochRef.current;
-      const processAttempt = (result: typeof fileUploadStatus) => {
+      const processAttempt = (result: ResourceUploadStatusResult) => {
         if (probeEpoch !== uploadProbeEpochRef.current) return;
-        if (result.isError || typeof result.data?.configured !== "boolean") {
-          pendingResourceUploadsRef.current = mergePendingResourceUploads(
-            pendingResourceUploadsRef.current,
-            selected,
-          );
+        const pending = takePendingResourceUploads(
+          pendingResourceUploadsRef.current,
+          result,
+          attemptId,
+        );
+        if (!pending) {
           setFileStorageSetupOpen(true);
           return;
         }
-        processResourceUploads(selected, result.data.configured, true);
-      };
-      if (fileUploadStatus.data && !fileUploadStatus.isError) {
         processResourceUploads(
-          selected,
-          fileUploadStatus.data.configured,
+          pending.uploads,
+          pending.storageConfigured,
           true,
         );
+      };
+      if (fileUploadStatus.data && !fileUploadStatus.isError) {
+        processAttempt(fileUploadStatus);
         return;
       }
       void fileUploadStatus
@@ -1711,10 +1736,6 @@ export function ResourcesPanel({
         .then(processAttempt)
         .catch(() => {
           if (probeEpoch !== uploadProbeEpochRef.current) return;
-          pendingResourceUploadsRef.current = mergePendingResourceUploads(
-            pendingResourceUploadsRef.current,
-            selected,
-          );
           setFileStorageSetupOpen(true);
         });
     },
@@ -1868,6 +1889,10 @@ export function ResourcesPanel({
         open={fileStorageSetupOpen}
         onOpenChange={(open, reason) => {
           setFileStorageSetupOpen(open);
+          if (!open && reason === "setup") {
+            uploadProbeEpochRef.current += 1;
+            resumePendingResourceUploadsRef.current = false;
+          }
           if (shouldClearPendingResourceUploads(open, reason)) {
             uploadProbeEpochRef.current += 1;
             resumePendingResourceUploadsRef.current = false;
