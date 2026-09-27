@@ -467,8 +467,18 @@ function ListLayout() {
             <div style={{ flex: 1 }} />
             <Block style={{ width: 120, height: 34, borderRadius: 8 }} />
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Block style={{ width: 260, height: 34, borderRadius: 8 }} />
+          <div
+            data-agent-native-app-skeleton-list-toolbar="true"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <Block
+              style={{ width: "min(260px, 100%)", height: 34, borderRadius: 8 }}
+            />
             <Block style={{ width: 84, height: 30, borderRadius: 8 }} />
             <Block style={{ width: 84, height: 30, borderRadius: 8 }} />
           </div>
@@ -1031,10 +1041,10 @@ export function AppShellSkeleton({
         }
         @media (max-width: 767px) {
           [data-agent-native-app-skeleton-sidebar],
-          [data-agent-native-mail-folders] { display: none; }
-          [data-agent-native-mail-list] { width: 100%; }
+          [data-agent-native-mail-folders] { display: none !important; }
+          [data-agent-native-mail-list] { width: 100% !important; }
           [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] { flex: 1; }
-          [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] + div { display: none; }
+          [data-agent-native-app-skeleton-layout="mail"] [data-agent-native-mail-list] + div { display: none !important; }
         }
       `}</style>
       {content ?? <DefaultLayout />}
