@@ -135,6 +135,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 
 function identityRekeyDbFromExec(
   exec: Awaited<ReturnType<typeof getDbExec>>,
@@ -2012,6 +2013,11 @@ async function createBetterAuthInstance(
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
     };
   }
+  recordActiveSocialSignInProviders(
+    Object.entries(socialProviders)
+      .filter(([, provider]) => Boolean(provider))
+      .map(([id]) => id),
+  );
 
   const database = await buildDatabaseConfig();
 

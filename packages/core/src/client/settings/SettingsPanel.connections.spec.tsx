@@ -370,12 +370,15 @@ describe("ConnectionsSettingsContent", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    const queryClient = new QueryClient();
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <AgentSettingsContent sections={["llm"]} />
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
       await Promise.resolve();
     });

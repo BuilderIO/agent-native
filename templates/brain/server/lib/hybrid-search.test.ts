@@ -221,12 +221,13 @@ const hybridMocks = vi.hoisted(() => {
   }));
   return {
     accessibleSourceIds,
+    availableEmbeddingFamilies: vi.fn(),
     readEmbeddingFamilyAvailability: vi.fn(),
     deletePgVectors: vi.fn(),
     deletePostgresFtsDocuments: vi.fn(),
     embeddingFamily: {
-      id: "builder:test:3",
-      provider: "builder",
+      id: "gemini:test:3",
+      provider: "gemini",
       model: "test-model",
       version: "test",
       dimensions: 3,
@@ -246,9 +247,20 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: hybridMocks.getDbExec,
 }));
 
-vi.mock("@agent-native/core/embeddings", () => ({
-  readEmbeddingFamilyAvailability: hybridMocks.readEmbeddingFamilyAvailability,
-}));
+vi.mock("@agent-native/core/embeddings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/embeddings")>();
+  return {
+    availableEmbeddingFamilies: hybridMocks.availableEmbeddingFamilies,
+    defaultEmbeddingFamily: actual.defaultEmbeddingFamily,
+    readEmbeddingFamilyAvailability:
+      hybridMocks.readEmbeddingFamilyAvailability,
+    resolveDefaultEmbeddingFamily: async () =>
+      actual.defaultEmbeddingFamily(
+        await hybridMocks.availableEmbeddingFamilies(),
+      ),
+  };
+});
 
 vi.mock("@agent-native/core/search", () => ({
   deletePgVectors: hybridMocks.deletePgVectors,
@@ -589,10 +601,9 @@ describe("Brain hybrid search pipeline", () => {
       "audienceMember.principalId": "leader@example.com",
       "audienceMember.status": "active",
     });
-    hybridMocks.readEmbeddingFamilyAvailability.mockResolvedValue({
-      families: [hybridMocks.embeddingFamily],
-      unavailableProviders: [],
-    });
+    hybridMocks.availableEmbeddingFamilies.mockResolvedValue([
+      hybridMocks.embeddingFamily,
+    ]);
     hybridMocks.queryPostgresFts.mockResolvedValue([]);
     hybridMocks.queryPgVectorIndex.mockResolvedValue([]);
   });
@@ -664,7 +675,7 @@ describe("Brain hybrid search pipeline", () => {
       expect.anything(),
       expect.objectContaining({
         allowedAudienceIds: ["audience-allowed"],
-        embeddingSetId: "builder:test:3",
+        embeddingSetId: "gemini:test:3",
       }),
       true,
     );
@@ -680,47 +691,6 @@ describe("Brain hybrid search pipeline", () => {
     );
   });
 
-  it("uses Builder query vectors when Gemini is also configured", async () => {
-    const gemini = {
-      ...hybridMocks.embeddingFamily,
-      id: "gemini:test:3",
-      provider: "gemini",
-      embed: vi.fn(async () => [[0.4, 0.5, 0.6]]),
-    };
-    hybridMocks.readEmbeddingFamilyAvailability.mockResolvedValueOnce({
-      families: [gemini, hybridMocks.embeddingFamily],
-      unavailableProviders: [],
-    });
-
-    await searchAs("leader@example.com", { query: "onboarding decision" });
-
-    expect(hybridMocks.embeddingFamily.embed).toHaveBeenCalledOnce();
-    expect(gemini.embed).not.toHaveBeenCalled();
-    expect(hybridMocks.queryPgVectorIndex).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ embeddingSetId: "builder:test:3" }),
-      true,
-    );
-  });
-
-  it("does not fall back to Gemini query vectors when Builder is unavailable", async () => {
-    const gemini = {
-      ...hybridMocks.embeddingFamily,
-      id: "gemini:test:3",
-      provider: "gemini",
-      embed: vi.fn(async () => [[0.4, 0.5, 0.6]]),
-    };
-    hybridMocks.readEmbeddingFamilyAvailability.mockResolvedValueOnce({
-      families: [gemini],
-      unavailableProviders: ["builder"],
-    });
-
-    await searchAs("leader@example.com", { query: "onboarding decision" });
-
-    expect(gemini.embed).not.toHaveBeenCalled();
-    expect(hybridMocks.queryPgVectorIndex).not.toHaveBeenCalled();
-  });
-
   it("keeps FTS results when embedding credentials are unavailable", async () => {
     hybridMocks.rows.artifacts.push(
       artifactRow({
@@ -733,7 +703,7 @@ describe("Brain hybrid search pipeline", () => {
     hybridMocks.queryPostgresFts.mockResolvedValue([
       { chunkId: "fts-only", score: 0.9 },
     ]);
-    hybridMocks.readEmbeddingFamilyAvailability.mockRejectedValueOnce(
+    hybridMocks.availableEmbeddingFamilies.mockRejectedValueOnce(
       new Error("credential store unavailable"),
     );
 
@@ -891,58 +861,98 @@ describe("Brain hybrid search pipeline", () => {
 
 describe("Brain embedding readiness", () => {
   const family: EmbeddingFamily = {
-    id: "builder:test:3",
-    provider: "builder",
+    id: "gemini:test:3",
+    provider: "gemini",
     model: "test-model",
     version: "test",
     dimensions: 3,
     embed: vi.fn(async () => [[0.1, 0.2, 0.3]]),
-  };
-  const gemini: EmbeddingFamily = {
-    ...family,
-    id: "gemini:test:3",
-    provider: "gemini",
-    embed: vi.fn(async () => [[0.4, 0.5, 0.6]]),
   };
 
   beforeEach(() => {
     vi.mocked(family.embed).mockClear();
   });
 
-  it("reports Builder ready even when Gemini is also configured or unavailable", () => {
-    expect(
-      embeddingReadinessFromFamilies([gemini, family], ["cohere"]),
-    ).toEqual({
+  it("reports exactly one configured family as ready without credential data", () => {
+    expect(embeddingReadinessFromFamilies([family])).toEqual({
       status: "ready",
       ready: true,
-      configuredProviders: ["gemini", "builder"],
+      configuredProviders: ["gemini"],
       unavailableProviders: [],
-      configuredFamilies: 2,
-      provider: "builder",
+      configuredFamilies: 1,
+      provider: "gemini",
       model: "test-model",
-      embeddingSetId: "builder:test:3",
+      embeddingSetId: "gemini:test:3",
       dimensions: 3,
       warning: null,
     });
   });
 
-  it("does not fall back to Gemini when Builder is absent or unavailable", () => {
-    expect(embeddingReadinessFromFamilies([gemini])).toMatchObject({
+  it("prefers Builder.io when several providers are configured", () => {
+    const builder: EmbeddingFamily = {
+      ...family,
+      id: "builder:test:3",
+      provider: "builder",
+    };
+    expect(embeddingReadinessFromFamilies([family, builder])).toMatchObject({
+      status: "ready",
+      ready: true,
+      configuredProviders: ["gemini", "builder"],
+      configuredFamilies: 2,
+      provider: "builder",
+      embeddingSetId: "builder:test:3",
+    });
+  });
+
+  it("uses the organization's embeddings choice", () => {
+    const builder: EmbeddingFamily = {
+      ...family,
+      id: "builder:test:3",
+      provider: "builder",
+    };
+    expect(
+      embeddingReadinessFromFamilies([builder, family], [], "gemini"),
+    ).toMatchObject({
+      status: "ready",
+      provider: "gemini",
+      embeddingSetId: "gemini:test:3",
+    });
+    // A chosen provider without a key stays off instead of indexing with
+    // another provider's vectors.
+    expect(
+      embeddingReadinessFromFamilies([builder], [], "cohere"),
+    ).toMatchObject({
       status: "not-configured",
       ready: false,
-      configuredProviders: ["gemini"],
       embeddingSetId: null,
-      warning: "Configure Builder embeddings to enable semantic retrieval.",
+      warning: expect.stringContaining("cohere"),
     });
-    expect(embeddingReadinessFromFamilies([gemini], ["builder"])).toMatchObject(
-      {
-        status: "unavailable",
-        ready: false,
-        configuredProviders: ["gemini"],
-        unavailableProviders: ["builder"],
-        embeddingSetId: null,
-      },
-    );
+  });
+
+  it("reports missing and ambiguous provider configurations", () => {
+    expect(embeddingReadinessFromFamilies([])).toMatchObject({
+      status: "not-configured",
+      ready: false,
+      configuredFamilies: 0,
+    });
+    const unknown = (provider: string): EmbeddingFamily => ({
+      ...family,
+      id: `${provider}:test:3`,
+      provider,
+    });
+    expect(
+      embeddingReadinessFromFamilies([unknown("acme"), unknown("other")]),
+    ).toMatchObject({
+      status: "ambiguous",
+      ready: false,
+      configuredFamilies: 2,
+    });
+    expect(embeddingReadinessFromFamilies([family], ["cohere"])).toMatchObject({
+      status: "unavailable",
+      ready: false,
+      configuredProviders: ["gemini"],
+      unavailableProviders: ["cohere"],
+    });
   });
 
   it("embeds document text when a family is configured", async () => {

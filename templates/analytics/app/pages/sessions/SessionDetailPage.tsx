@@ -1025,11 +1025,10 @@ function ReplayPlayer({
               </ReplayIconButton>
               <Button
                 type="button"
-                size="icon"
+                size="icon-sm"
                 disabled={disabled}
                 onClick={togglePlay}
                 aria-label={playing ? t("sessions.pause") : t("sessions.play")}
-                className="h-8 w-8"
               >
                 {playing ? (
                   <IconPlayerPause className="h-4 w-4" />
@@ -1294,8 +1293,7 @@ function ReplayIconButton({
         <Button
           type="button"
           variant="outline"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
           aria-label={label}
           disabled={disabled}
           onClick={onClick}

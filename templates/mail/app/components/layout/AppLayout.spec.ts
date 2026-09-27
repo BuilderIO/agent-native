@@ -30,16 +30,11 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
   });
 
-  it("uses stable router links for tooltip-wrapped tabs and settings gears", () => {
+  it("uses stable router links for tooltip-wrapped tabs", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain("RouterSidebarLink,");
     expect(source).toContain("const link = ( <RouterSidebarLink");
-    expect(
-      source.match(
-        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
-      ),
-    ).toHaveLength(2);
     expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
   });
 

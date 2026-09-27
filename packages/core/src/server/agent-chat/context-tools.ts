@@ -7,6 +7,7 @@ import {
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
+import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
@@ -390,6 +391,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
         return `set-url-path: ${pathname}`;
       },
     },
+    "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": {
       endsTurn: true,
       tool: {

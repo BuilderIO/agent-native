@@ -40,7 +40,11 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
-import { ScreenRefreshBoundary, URLSync } from "./agent-sidebar-url-sync.js";
+import {
+  ScreenRefreshBoundary,
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import { agentNativePath } from "./api-path.js";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
@@ -1271,6 +1275,7 @@ export function AgentSidebar({
         {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
+        <SettingsReturnPathRecorder />
         {shouldMountPanel ? (
           <URLSync browserTabId={resolvedBrowserTabId} />
         ) : null}

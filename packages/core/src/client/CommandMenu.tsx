@@ -15,6 +15,7 @@ import {
   IconMessage,
   IconHistory,
   IconLogout,
+  IconSettings,
 } from "@tabler/icons-react";
 import React, {
   createContext,
@@ -44,6 +45,10 @@ import {
   chatModelSelectionStorageKey,
   useChatModels,
 } from "./use-chat-models.js";
+import {
+  getSettingsShortcutHint,
+  openSettingsPage,
+} from "./use-settings-shortcut.js";
 import { cn } from "./utils.js";
 
 const LazyChangelogDialog = lazy(async () => {
@@ -250,6 +255,21 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
   );
 }
 
+const SETTINGS_SEARCH_TERMS = [
+  "settings",
+  "preferences",
+  "account",
+  "profile",
+  "integrations",
+];
+
+function isApplePlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+  );
+}
+
 export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -416,6 +436,17 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
+  const settingsLabel = t("settingsShortcut.command");
+  const showSettingsRow =
+    !search ||
+    [settingsLabel, ...SETTINGS_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleOpenSettings = useCallback(() => {
+    onOpenChange(false);
+    openSettingsPage();
+  }, [onOpenChange]);
   const signOutLabel = t("agentChat.auth.logOut");
   const showSignOutRow =
     !search ||
@@ -498,9 +529,27 @@ export function CommandMenu({
       {results}
       {hasResults && filteredChildren}
 
-      {showChangelogRow && (
+      {showSettingsRow && (
         <>
           {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleOpenSettings}
+            >
+              <IconSettings className="h-4 w-4 text-muted-foreground" />
+              <span>{settingsLabel}</span>
+              <CommandShortcutPrimitive>
+                {getSettingsShortcutHint(isApplePlatform())}
+              </CommandShortcutPrimitive>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showChangelogRow && (
+        <>
+          {(hasResults || showSettingsRow) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -521,7 +570,9 @@ export function CommandMenu({
 
       {showAboutRow && (
         <>
-          {(hasResults || showChangelogRow) && <CommandSeparator />}
+          {(hasResults || showSettingsRow || showChangelogRow) && (
+            <CommandSeparator />
+          )}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -536,9 +587,10 @@ export function CommandMenu({
 
       {showSignOutRow && (
         <>
-          {(hasResults || showChangelogRow || showAboutRow) && (
-            <CommandSeparator />
-          )}
+          {(hasResults ||
+            showSettingsRow ||
+            showChangelogRow ||
+            showAboutRow) && <CommandSeparator />}
           <div className="p-1">
             <CommandItemPrimitive
               className="cursor-pointer gap-2 py-2"
@@ -554,6 +606,7 @@ export function CommandMenu({
       {showAgentFallback && (
         <>
           {(hasResults ||
+            showSettingsRow ||
             showChangelogRow ||
             showAboutRow ||
             showSignOutRow ||

@@ -75,7 +75,11 @@ function buttonVariant(
 ) {
   if (inset && emphasis === "ghost") return "ghost-inset" as const;
   if (emphasis === "ghost") return "ghost" as const;
-  if (emphasis === "outline") return "outline" as const;
+  if (emphasis === "outline") {
+    return intent === "danger"
+      ? ("outline-destructive" as const)
+      : ("outline" as const);
+  }
   if (intent === "primary") return "default" as const;
   if (intent === "danger") return "destructive" as const;
   return "secondary" as const;

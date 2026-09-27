@@ -368,15 +368,32 @@ describe("Nitro dev startup recovery", () => {
 
       errorLog.mockClear();
       nextError.mockClear();
-      const incomingReadReset = Object.assign(new Error("read ECONNRESET"), {
+      const upstreamReadReset = Object.assign(new Error("read ECONNRESET"), {
         code: "ECONNRESET",
         syscall: "read",
       });
-      const activeResponse = { destroyed: false, destroy: vi.fn() };
-      logError(incomingReadReset, request, activeResponse, nextError);
+      const waitingResponse = { destroyed: false, destroy: vi.fn() };
+      logError(upstreamReadReset, request, waitingResponse, nextError);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining("socket_destroyed=false"),
+        upstreamReadReset,
+      );
+      expect(nextError).toHaveBeenCalledWith(upstreamReadReset);
+      expect(waitingResponse.destroy).not.toHaveBeenCalled();
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const resetClientRequest = { ...request, socket: { destroyed: true } };
+      const orphanedResponse = { destroyed: false, destroy: vi.fn() };
+      logError(
+        upstreamReadReset,
+        resetClientRequest,
+        orphanedResponse,
+        nextError,
+      );
       expect(errorLog).not.toHaveBeenCalled();
       expect(nextError).not.toHaveBeenCalled();
-      expect(activeResponse.destroy).toHaveBeenCalledOnce();
+      expect(orphanedResponse.destroy).toHaveBeenCalledOnce();
 
       errorLog.mockClear();
       nextError.mockClear();

@@ -41,7 +41,6 @@ const messages = {
     brand: "スライド",
     decks: "デッキ",
     designSystems: "デザインシステム",
-    team: "チーム",
   },
   settings: {
     agentObservability: "エージェントの可観測性",
@@ -55,6 +54,13 @@ const messages = {
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
+    notificationsEmail: "メール",
+    commentsAndReplies: "コメントと返信",
+    commentsAndRepliesDescription:
+      "誰かがあなたのデッキにコメントまたは返信したとき。",
+    retry: "再試行",
+    mcpAbout:
+      "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     languageTitle: "言語",
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -186,8 +192,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "アプリで開く",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
