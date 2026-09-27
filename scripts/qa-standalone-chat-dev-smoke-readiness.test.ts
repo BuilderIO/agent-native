@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  isPersistenceReloadPollReset,
+  isPersistenceReloadFrameworkGetReset,
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
@@ -77,26 +77,86 @@ describe("standalone chat startup poll readiness", () => {
   });
 });
 
-describe("standalone chat persistence reload poll errors", () => {
-  it("ignores only reset responses from polls in flight when reload began", () => {
+describe("standalone chat persistence reload framework errors", () => {
+  it("ignores reset responses only for in-flight framework GETs", () => {
     assert.equal(
-      isPersistenceReloadPollReset(500, "Error: read ECONNRESET", true),
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/_agent-native/poll",
+        "Error: read ECONNRESET",
+        true,
+      ),
       true,
     );
     assert.equal(
-      isPersistenceReloadPollReset(500, "Error: read ECONNRESET", false),
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/_agent-native/agent-chat/threads",
+        "Error: read ECONNRESET",
+        true,
+      ),
+      true,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/_agent-native/application-state",
+        "Error: read ECONNRESET",
+        true,
+      ),
+      true,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/_agent-native/poll",
+        "Error: read ECONNRESET",
+        false,
+      ),
       false,
     );
     assert.equal(
-      isPersistenceReloadPollReset(
+      isPersistenceReloadFrameworkGetReset(
         500,
+        "GET",
+        "/_agent-native/poll",
         "Error: database migration failed",
         true,
       ),
       false,
     );
     assert.equal(
-      isPersistenceReloadPollReset(502, "Error: read ECONNRESET", true),
+      isPersistenceReloadFrameworkGetReset(
+        502,
+        "GET",
+        "/_agent-native/poll",
+        "Error: read ECONNRESET",
+        true,
+      ),
+      false,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "POST",
+        "/_agent-native/poll",
+        "Error: read ECONNRESET",
+        true,
+      ),
+      false,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/api/unrelated",
+        "Error: read ECONNRESET",
+        true,
+      ),
       false,
     );
   });

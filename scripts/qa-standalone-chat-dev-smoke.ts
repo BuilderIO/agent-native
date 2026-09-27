@@ -2950,6 +2950,7 @@ async function main(): Promise<void> {
     await provider.close();
     throw error;
   }
+  const runningOrigin = new URL(running.baseUrl).origin;
   let browser: Browser | null = null;
   let page: Page | null = null;
   let primaryError: Error | null = null;
@@ -3047,7 +3048,12 @@ async function main(): Promise<void> {
     });
 
     page.on("request", (request) => {
-      if (request.url().startsWith(running.baseUrl)) {
+      const requestUrl = new URL(request.url());
+      if (
+        requestUrl.origin === runningOrigin &&
+        request.method() === "GET" &&
+        requestUrl.pathname.startsWith("/_agent-native/")
+      ) {
         network.inFlightRequests.add(request);
       }
       if (request.frame() !== page.mainFrame()) return;
@@ -3088,7 +3094,7 @@ async function main(): Promise<void> {
       const wasInFlightAtPersistenceReload =
         network.requestsInFlightAtPersistenceReload.delete(request);
       const url = request.url();
-      if (!url.startsWith(running.baseUrl)) return;
+      if (new URL(url).origin !== runningOrigin) return;
       if (
         wasInFlightAtPersistenceReload &&
         request.failure()?.errorText === "net::ERR_ABORTED"
@@ -3144,7 +3150,7 @@ async function main(): Promise<void> {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
-      if (!url.startsWith(running.baseUrl)) return;
+      if (new URL(url).origin !== runningOrigin) return;
       if (isBenignHttpError(status, url, network)) {
         recordSuppressedNoise(`${status} ${url}`);
         return;
@@ -3153,18 +3159,16 @@ async function main(): Promise<void> {
       const request = response.request();
       const wasInFlightAtPersistenceReload =
         network.requestsInFlightAtPersistenceReload.has(request);
-      if (
-        status >= 500 &&
-        new URL(url).pathname === "/_agent-native/poll" &&
-        request.method() === "GET"
-      ) {
+      if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response
             .text()
             .then((detail) => {
               if (
-                isPersistenceReloadPollReset(
+                isPersistenceReloadFrameworkGetReset(
                   status,
+                  request.method(),
+                  new URL(url).pathname,
                   detail,
                   wasInFlightAtPersistenceReload,
                 )

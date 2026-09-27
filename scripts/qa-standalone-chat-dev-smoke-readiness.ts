@@ -16,13 +16,19 @@ export function isTransientCommittedNavigationResponse(
   return status === 504 || isTransientStartupPollResponse(status, body);
 }
 
-export function isPersistenceReloadPollReset(
+export function isPersistenceReloadFrameworkGetReset(
   status: number,
+  method: string,
+  pathname: string,
   body: string,
   requestWasInFlightAtReload: boolean,
 ): boolean {
   return (
-    requestWasInFlightAtReload && status === 500 && /\bECONNRESET\b/i.test(body)
+    requestWasInFlightAtReload &&
+    method === "GET" &&
+    pathname.startsWith("/_agent-native/") &&
+    status === 500 &&
+    /\bECONNRESET\b/i.test(body)
   );
 }
 
