@@ -706,7 +706,13 @@ export function AiInboxSetup({
                 condition={archivePrompt}
                 placeholder={t("mail.sort.aiSetupArchiveExample")}
                 enabled={archiveEnabled}
-                onConditionChange={setArchivePrompt}
+                onConditionChange={(value) => {
+                  setArchivePrompt(value);
+                  if (!archivePrompt.trim() && value.trim()) {
+                    setArchiveEnabled(true);
+                  }
+                  if (!value.trim()) setArchiveEnabled(false);
+                }}
                 onEnabledChange={setArchiveEnabled}
               />
               <SetupRuleRow
@@ -715,7 +721,13 @@ export function AiInboxSetup({
                 condition={spamPrompt}
                 placeholder={t("mail.sort.aiSetupFilteredExample")}
                 enabled={spamEnabled}
-                onConditionChange={setSpamPrompt}
+                onConditionChange={(value) => {
+                  setSpamPrompt(value);
+                  if (!spamPrompt.trim() && value.trim()) {
+                    setSpamEnabled(true);
+                  }
+                  if (!value.trim()) setSpamEnabled(false);
+                }}
                 onEnabledChange={setSpamEnabled}
               />
               {customCleanupOpen ? (

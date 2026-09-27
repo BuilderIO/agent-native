@@ -704,9 +704,11 @@ describe("AiInboxSetup", () => {
       }),
       { target: { value: "Skip bot notifications" } },
     );
-    for (const toggle of screen.getAllByRole("switch")) {
-      fireEvent.click(toggle);
-    }
+    expect(
+      screen
+        .getAllByRole("switch")
+        .map((toggle) => toggle.getAttribute("aria-checked")),
+    ).toEqual(["true", "true"]);
     fireEvent.click(
       await screen.findByRole("button", {
         name: "mail.sort.aiSetupSortInbox",
