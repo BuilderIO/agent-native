@@ -32,7 +32,6 @@ export type AgentRunOwnerContext = {
   owner: string;
   anonymous: boolean;
   authUserId?: string;
-  /** Earliest auth-resolution time, carried through later org-context lookups. */
   identityAuthenticatedAtMs?: number;
   name?: string;
   orgId?: string | null;

@@ -836,10 +836,6 @@ export async function createEmbedSessionTicket(
   return { ticket, ticketHash, expiresAt };
 }
 
-/**
- * Verify an embed token against the host serving it, including owner logout
- * revocation. Runtime asset gates use this without needing an H3 event.
- */
 export async function resolveEmbedSessionTokenForHost(
   token: string | undefined,
   hostname: string,

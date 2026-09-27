@@ -1,6 +1,5 @@
 import { agentNativePath } from "./api-path.js";
 
-/** Where a stored value's effective source is, as reported by the server. */
 export type SecretSource = "personal" | "workspace" | "vault";
 
 export interface SecretStatus {
@@ -11,21 +10,9 @@ export interface SecretStatus {
   scope: "user" | "workspace" | "org";
   kind: "api-key" | "oauth";
   required: boolean;
-  /**
-   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
-   * could not be read.
-   */
   status: "set" | "unset" | "invalid" | "unknown";
-  /** Where the effective value comes from — only present when status === "set". */
   source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault or
-   * workspace value is in use instead.
-   */
   managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
   overrides?: "vault" | "workspace";
   last4?: string;
   updatedAt?: number;
