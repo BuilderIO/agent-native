@@ -108,6 +108,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "user_id",
     mode: "email-user-id",
   },
+  { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },

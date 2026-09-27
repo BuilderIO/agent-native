@@ -179,6 +179,32 @@ export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000;
 
 export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
 
+export type AgentTurnInitiator = {
+  email: string;
+  authUserId?: string | null;
+  orgId?: string | null;
+  orgScope?: "personal" | null;
+  anonymous: boolean;
+};
+
+export class AgentTurnInitiatorMismatchError extends Error {
+  constructor(threadId: string, turnId: string) {
+    super(
+      `Agent turn ${turnId} in thread ${threadId} belongs to another initiator`,
+    );
+    this.name = "AgentTurnInitiatorMismatchError";
+  }
+}
+
+export class AgentTurnInitiatorUnavailableError extends Error {
+  constructor(threadId: string, turnId: string) {
+    super(
+      `Agent turn ${turnId} in thread ${threadId} has no persisted initiator`,
+    );
+    this.name = "AgentTurnInitiatorUnavailableError";
+  }
+}
+
 export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -233,6 +259,20 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (thread_id, tool_key)
         )
       `;
+      const agentTurnInitiatorsCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_turn_initiators (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          principal_email TEXT NOT NULL,
+          auth_user_id TEXT,
+          org_id TEXT,
+          org_scope TEXT,
+          is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+          first_run_id TEXT NOT NULL,
+          created_at BIGINT NOT NULL,
+          PRIMARY KEY (thread_id, turn_id)
+        )
+      `;
 
       await ensureTableExists("agent_runs", agentRunsCreateSql);
       for (const [col, colType] of [
@@ -258,6 +298,10 @@ export async function ensureRunTables(): Promise<void> {
         );
       }
       await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+      await ensureTableExists(
+        "agent_turn_initiators",
+        agentTurnInitiatorsCreateSql,
+      );
       await ensureColumnExists(
         "agent_run_events",
         "event_at",
@@ -479,6 +523,7 @@ export async function insertRun(
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     dispatchPayload?: string;
     continuationOrder?: number;
+    turnInitiator?: AgentTurnInitiator;
   },
 ): Promise<void> {
   await ensureRunTables();
@@ -489,6 +534,15 @@ export async function insertRun(
     options?.continuationOrder,
   );
   const insert = async (db: DbExec, continuationOrder: number) => {
+    if (options?.turnInitiator) {
+      await bindTurnInitiator(
+        db,
+        threadId,
+        logicalTurnId,
+        id,
+        options.turnInitiator,
+      );
+    }
     await db.execute({
       sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
@@ -505,6 +559,11 @@ export async function insertRun(
     });
   };
   if (!client.transaction) {
+    if (options?.turnInitiator) {
+      throw new Error(
+        "Atomic turn initiator binding requires transaction support",
+      );
+    }
     await lockContinuationOrder(client, threadId, logicalTurnId);
     await insert(
       client,
@@ -832,15 +891,142 @@ export async function countRunsForTurn(
   return Number.isFinite(count) ? count : 0;
 }
 
-export async function getRunOwnerEmail(runId: string): Promise<string | null> {
+export async function getTurnInitiatorByRun(
+  runId: string,
+): Promise<(AgentTurnInitiator & { firstRunId: string }) | null> {
   await ensureRunTables();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT t.owner_email AS owner_email FROM agent_runs r JOIN chat_threads t ON r.thread_id = t.id WHERE r.id = ? LIMIT 1`,
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT i.principal_email, i.auth_user_id, i.org_id, i.org_scope, i.is_anonymous, i.first_run_id
+          FROM agent_runs r
+          JOIN agent_turn_initiators i
+            ON i.thread_id = r.thread_id
+           AND i.turn_id = COALESCE(r.turn_id, r.id)
+          WHERE r.id = ?
+          LIMIT 1`,
     args: [runId],
   });
-  const row = rows?.[0] as { owner_email?: string | null } | undefined;
-  return row?.owner_email ?? null;
+  const row = rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+        first_run_id?: unknown;
+      }
+    | undefined;
+  if (
+    typeof row?.principal_email !== "string" ||
+    typeof row.first_run_id !== "string"
+  ) {
+    return null;
+  }
+  return {
+    email: row.principal_email,
+    authUserId: typeof row.auth_user_id === "string" ? row.auth_user_id : null,
+    orgId: typeof row.org_id === "string" ? row.org_id : null,
+    orgScope: row.org_scope === "personal" ? "personal" : null,
+    anonymous: row.is_anonymous === true || row.is_anonymous === "t",
+    firstRunId: row.first_run_id,
+  };
+}
+
+async function bindTurnInitiator(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+  runId: string,
+  initiator: AgentTurnInitiator,
+): Promise<void> {
+  const email = initiator.email.trim();
+  if (!email) throw new Error("Agent turn initiator email is required");
+
+  const existing = await db.execute({
+    sql: `SELECT principal_email, auth_user_id, org_id, org_scope, is_anonymous
+          FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ? LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  const row = existing.rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+      }
+    | undefined;
+  if (row) {
+    assertTurnInitiatorMatches(row, initiator, threadId, turnId);
+    return;
+  }
+
+  const priorRun = await db.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND id <> ?
+          LIMIT 1`,
+    args: [threadId, turnId, runId],
+  });
+  if (priorRun.rows.length > 0) {
+    throw new AgentTurnInitiatorUnavailableError(threadId, turnId);
+  }
+
+  await db.execute({
+    sql: `INSERT INTO agent_turn_initiators
+          (thread_id, turn_id, principal_email, auth_user_id, org_id, org_scope, is_anonymous, first_run_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (thread_id, turn_id) DO NOTHING`,
+    args: [
+      threadId,
+      turnId,
+      email,
+      initiator.authUserId ?? null,
+      initiator.orgId ?? null,
+      initiator.orgScope ?? null,
+      initiator.anonymous,
+      runId,
+      Date.now(),
+    ],
+  });
+  const insertedOrConcurrent = await db.execute({
+    sql: `SELECT principal_email, auth_user_id, org_id, org_scope, is_anonymous
+          FROM agent_turn_initiators WHERE thread_id = ? AND turn_id = ? LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  const bound = insertedOrConcurrent.rows?.[0] as
+    | {
+        principal_email?: unknown;
+        auth_user_id?: unknown;
+        org_id?: unknown;
+        org_scope?: unknown;
+        is_anonymous?: unknown;
+      }
+    | undefined;
+  if (!bound) throw new Error(`Agent turn ${turnId} initiator was not stored`);
+  assertTurnInitiatorMatches(bound, initiator, threadId, turnId);
+}
+
+function assertTurnInitiatorMatches(
+  row: {
+    principal_email?: unknown;
+    auth_user_id?: unknown;
+    org_id?: unknown;
+    org_scope?: unknown;
+    is_anonymous?: unknown;
+  },
+  initiator: AgentTurnInitiator,
+  threadId: string,
+  turnId: string,
+): void {
+  if (
+    row.principal_email !== initiator.email.trim() ||
+    (row.auth_user_id ?? null) !== (initiator.authUserId ?? null) ||
+    (row.org_id ?? null) !== (initiator.orgId ?? null) ||
+    (row.org_scope ?? null) !== (initiator.orgScope ?? null) ||
+    (row.is_anonymous === true || row.is_anonymous === "t") !==
+      initiator.anonymous
+  ) {
+    throw new AgentTurnInitiatorMismatchError(threadId, turnId);
+  }
 }
 
 export async function tryClaimRunSlot(
@@ -853,6 +1039,7 @@ export async function tryClaimRunSlot(
     dispatchMode?: "foreground" | "foreground-self-chain" | "background";
     dispatchPayload?: string;
     continuationOrder?: number;
+    turnInitiator?: AgentTurnInitiator;
   },
 ): Promise<{
   claimed: boolean;
@@ -881,6 +1068,15 @@ export async function tryClaimRunSlot(
     });
     if (abortMarker.rows.length > 0) {
       return { claimed: false, activeRunId: null, turnAborted: true };
+    }
+    if (options?.turnInitiator) {
+      await bindTurnInitiator(
+        tx,
+        threadId,
+        turnId,
+        runId,
+        options.turnInitiator,
+      );
     }
     const explicitCutoff = typeof maxStaleMs === "number";
     const active = await tx.execute({
@@ -2431,6 +2627,16 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
+    await tx.execute({
+      sql: `DELETE FROM agent_turn_initiators i
+            WHERE i.created_at < ?
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = i.thread_id
+                  AND COALESCE(r.turn_id, r.id) = i.turn_id
+              )`,
+      args: [cutoff],
+    });
 
     const groups = new Map<
       string,
