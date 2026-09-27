@@ -1783,7 +1783,7 @@ jobs:
         env:
           DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          REGION: ${{ steps.functions_region.outputs.region }}
+          FUNCTIONS_REGION: ${{ steps.functions_region.outputs.region }}
         run: |
           set -euo pipefail
           node --experimental-strip-types <<'NODE'
@@ -1795,7 +1795,7 @@ jobs:
           );
           if (!response.ok) throw new Error(`Netlify deploy lookup failed: HTTP ${response.status}`);
           const deploy = await response.json();
-          const region = process.env.REGION;
+          const region = process.env.FUNCTIONS_REGION;
           const functions = Array.isArray(deploy.available_functions) ? deploy.available_functions : [];
           const name = (fn) => fn.n ?? fn.name;
           const regionOf = (fn) => fn.rg ?? fn.region;

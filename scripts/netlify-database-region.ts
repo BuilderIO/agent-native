@@ -32,6 +32,7 @@ export function parseNeonDatabaseRegion(databaseUrl: string): string | null {
   try {
     host = new URL(databaseUrl).hostname;
   } catch {
+    // coercion-ok: an unparseable URL has no region; null tells the caller to leave the functions region unchanged.
     return null;
   }
   if (!host || !host.toLowerCase().endsWith(NEON_AWS_HOST_SUFFIX)) {
