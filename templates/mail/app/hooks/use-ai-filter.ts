@@ -66,16 +66,14 @@ export function usePreviewAiFilter() {
 export function useManageAiFilterBackfill() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    | AiFilterBackfillStartResult
-    | AiFilterBackfillUndoResult
-    | AiFilterBackfillStatus,
+    AiFilterBackfillStartResult | AiFilterBackfillUndoResult,
     ManageAiFilterBackfillInput
   >("manage-ai-filter-backfill", {
     skipActionQueryInvalidation: true,
     timeoutMs: 15_000,
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: ["action", "manage-ai-filter-backfill"],
+        queryKey: ["action", "get-ai-filter-backfill"],
       });
     },
   });
@@ -83,7 +81,7 @@ export function useManageAiFilterBackfill() {
 
 export function useRecentAiFilterBackfills() {
   return useActionQuery<AiFilterBackfillStatus[]>(
-    "manage-ai-filter-backfill",
+    "get-ai-filter-backfill",
     { operation: "recent" },
     {
       staleTime: 0,
@@ -99,7 +97,7 @@ export function useRecentAiFilterBackfills() {
 
 export function useAiFilterBackfillStatus(runId: string | null) {
   return useActionQuery<AiFilterBackfillStatus>(
-    "manage-ai-filter-backfill",
+    "get-ai-filter-backfill",
     { operation: "status", runId: runId ?? "" },
     {
       enabled: runId !== null,

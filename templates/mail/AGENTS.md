@@ -15,7 +15,7 @@ Read the relevant skill before deeper work:
 - `draft-queue` for org and Slack draft review/send workflows.
 - `contacts-and-crm` for resolving recipients and CRM reach.
 - `mail-backends` for real Gmail vs synthetic local fallback.
-- `inbox-automations` for automation rules, AI filtering, and Gmail-native filters.
+- `inbox-automations` for AI rules and Gmail filters.
 - `provider-api-scans` for raw provider API calls and staged large scans.
 
 ## Core Rules
@@ -74,7 +74,7 @@ Read the relevant skill before deeper work:
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Scheduled sends. |
 | `manage-gmail-filters` | Gmail-native filters. |
 | `manage-automations` | Recurring and event-triggered automations. |
-| `manage-email-rules` / `trigger-automations` | Inbox AI rules; read `inbox-automations`. |
+| `manage-email-rules` / `trigger-automations` | AI rules; one rule call; see `inbox-automations`. |
 | `get-ai-filter` / `apply-ai-filter` / `refine-ai-filter` / `record-ai-priority-feedback` | AI filtering and per-message corrections. |
 | `get-ai-priority` | Optional Jev Priority sort. |
 | `respond-calendar-invite` | Respond to a calendar invite. |

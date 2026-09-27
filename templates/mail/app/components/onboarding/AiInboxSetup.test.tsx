@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
     data: undefined as
       | {
           runId: string;
-          status: "completed" | "failed" | "undone";
+          status: "completed" | "failed" | "undone" | "queued" | "running";
           totalThreads: number;
           processedThreads: number;
           matchedThreads: number;
@@ -230,10 +230,8 @@ describe("AiInboxSetup", () => {
     const spamInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.filteredMode",
     }) as HTMLInputElement;
-    expect(archiveInput.value).toBe("");
-    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
-    expect(spamInput.value).toBe("");
-    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
+    expect(archiveInput.value).toBe("mail.sort.aiSetupArchiveExample");
+    expect(spamInput.value).toBe("mail.sort.aiSetupFilteredExample");
     expect(
       screen
         .getAllByRole("switch")
@@ -481,6 +479,9 @@ describe("AiInboxSetup", () => {
         name: "mail.sort.aiSetupSortingHeadline",
       }),
     ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.thread.back" }),
+    ).toBeNull();
     expect(mocks.updateSettings).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
 
@@ -586,6 +587,9 @@ describe("AiInboxSetup", () => {
     expect(
       screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
     ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.thread.back" }),
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "mail.actions.undo" }),
     ).not.toBeNull();
@@ -1000,5 +1004,67 @@ describe("AiInboxSetup", () => {
 
     expect(await screen.findByText("mail.sort.aiSetupSortingFailed"));
     expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
+  });
+
+  it("shows the status refresh error once while preserving cached progress", async () => {
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "rule-1",
+          name: "Receipts",
+          matchedCount: 2,
+          appliedCount: 2,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+    mocks.backfillStatus.isError = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("mail.sort.aiSetupSortingFailed"),
+      ).toHaveLength(1),
+    );
+    expect(screen.getByText("mail.sort.aiSetupSortingProgress")).not.toBeNull();
+    expect(screen.getByText("Matched 2")).not.toBeNull();
+  });
+
+  it("shows an indeterminate finding state until the backfill total is known", async () => {
+    mocks.backfillStatus.isLoading = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    expect(
+      await screen.findByText("mail.sort.aiSetupFindingRecentMail"),
+    ).not.toBeNull();
+    expect(screen.queryByText("Sorting recent mail: 0 of 0")).toBeNull();
   });
 });

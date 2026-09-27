@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
+import { aiFilterRuleMode } from "@shared/ai-filter-rules";
 import type { AutomationRule, AutomationAction } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -39,7 +40,19 @@ export function useCreateAutomation() {
       domain?: AutomationRule["domain"];
       kind?: AutomationRule["kind"];
     }) => callAction("create-email-rule", data) as Promise<AutomationRule>,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+    onSuccess: (_rule, data) => {
+      const invalidations = [
+        qc.invalidateQueries({ queryKey: ["automations"] }),
+      ];
+      if (
+        (data.domain ?? "mail") === "mail" &&
+        data.kind === "ai-filter" &&
+        aiFilterRuleMode(data) === "filtered"
+      ) {
+        invalidations.push(qc.invalidateQueries({ queryKey: ["settings"] }));
+      }
+      return Promise.all(invalidations);
+    },
   });
 }
 
@@ -76,7 +89,18 @@ export function useUpdateAutomation() {
         qc.setQueryData(["automations"], context.previous);
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+    onSettled: (_rule, _error, data) => {
+      const invalidations = [
+        qc.invalidateQueries({ queryKey: ["automations"] }),
+      ];
+      if (
+        data.actions &&
+        aiFilterRuleMode({ actions: data.actions }) === "filtered"
+      ) {
+        invalidations.push(qc.invalidateQueries({ queryKey: ["settings"] }));
+      }
+      return Promise.all(invalidations);
+    },
   });
 }
 

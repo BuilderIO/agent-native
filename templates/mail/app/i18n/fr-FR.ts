@@ -77,6 +77,7 @@ const messages = {
       aiSetupFilteredExample:
         "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
       aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupFindingRecentMail: "Recherche des e-mails récents…",
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
@@ -589,6 +590,7 @@ const messages = {
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
       automationRulesLoadFailed: "Impossible de charger les règles de tri.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      autoArchiveMode: "Archivage automatique",
       skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
       tagMode: "Tag",
@@ -608,6 +610,10 @@ const messages = {
       askJevPrompt:
         "Aidez-moi à améliorer cette règle Mail : {{condition}}. Demandez-moi ce que je souhaite modifier, puis mettez-la à jour.",
       composerPlaceholder: "Demandez à Jev d’organiser votre boîte…",
+      chatSuggestionFilter: "Filtrer les messages comme celui-ci",
+      chatSuggestionPriority: "Prioriser les e-mails de…",
+      chatSuggestionArchive:
+        "Archiver automatiquement les notifications de bots",
       ruleBackfillStarting: "Application de cette règle aux messages récents…",
       ruleBackfillProgress:
         "Application aux messages récents : {{processed}} sur {{total}}",
@@ -728,6 +734,9 @@ const messages = {
     suggestionSummarize: "Resumer mes e-mails non lus",
     suggestionReplies: "A quoi dois-je repondre aujourd'hui?",
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
+    ruleSuggestionFilter: "Filtrer les messages comme celui-ci",
+    ruleSuggestionImportant: "Prioriser les e-mails de mon responsable",
+    ruleSuggestionArchive: "Archiver automatiquement les notifications de bots",
   },
   settings: {
     openAgentSettings: "Gérer l’agent",
