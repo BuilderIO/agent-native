@@ -1399,13 +1399,23 @@ describe("managed Gmail request context", () => {
     }
   });
 
-  it("preserves retryability on managed Gmail token failures", async () => {
+  it.each([
+    [
+      "provider hint",
+      Object.assign(new Error("temporary refresh failure"), {
+        retryable: true,
+      }),
+    ],
+    ["network failure", new TypeError("fetch failed")],
+    [
+      "aborted refresh",
+      Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      }),
+    ],
+  ])("preserves retryability on managed Gmail %s", async (_kind, failure) => {
     vi.mocked(getMailProviderApiRuntime).mockReturnValue({
-      resolveOAuthAccessToken: vi.fn().mockRejectedValue(
-        Object.assign(new Error("temporary refresh failure"), {
-          retryable: true,
-        }),
-      ),
+      resolveOAuthAccessToken: vi.fn().mockRejectedValue(failure),
     } as any);
 
     await expect(getClientsWithErrors(ownerEmail)).resolves.toEqual({
@@ -1413,7 +1423,7 @@ describe("managed Gmail request context", () => {
       errors: [
         {
           email: "workspace",
-          error: "temporary refresh failure",
+          error: failure.message,
           retryable: true,
         },
       ],

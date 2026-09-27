@@ -83,6 +83,16 @@ type ManagedGmailResolution =
       error: { email: "workspace"; error: string; retryable?: true };
     };
 
+function isRetryableManagedGmailError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("retryable" in error && error.retryable === true) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      (error instanceof TypeError && error.message === "fetch failed"))
+  );
+}
+
 async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   if (!getCredentialContext()) return null;
   const connection = await resolveWorkspaceConnectionForApp({
@@ -131,9 +141,7 @@ async function resolveManagedGmailClientWithError(
           error instanceof Error
             ? error.message
             : "Workspace Gmail connection failed",
-        ...((error as { retryable?: unknown } | null)?.retryable === true
-          ? { retryable: true as const }
-          : {}),
+        ...(isRetryableManagedGmailError(error) ? { retryable: true } : {}),
       },
     };
   }
