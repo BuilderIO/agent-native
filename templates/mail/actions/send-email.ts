@@ -183,8 +183,8 @@ export default defineAction({
         change: {
           verb: "sent",
           kind: "email",
-          title: subject || to,
-          ...(to ? { detail: to } : {}),
+          title: (subject || to).slice(0, 180),
+          ...(to ? { detail: to.slice(0, 500) } : {}),
           url: buildDeepLink({
             app: "mail",
             view: "sent",

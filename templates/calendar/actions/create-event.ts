@@ -13,6 +13,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import {
   prepareZoomMeetingPatch,
   shouldAutoAddGoogleMeet,
@@ -50,10 +51,19 @@ import {
 } from "./event-action-helpers.js";
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ACTION_CHANGE_TITLE_LIMIT = 180;
 
-function eventTimezone(value: string | undefined): string | null {
-  if (!value?.trim()) return "UTC";
-  return isCalendarTimezone(value) ? value : null;
+function eventTimezone(
+  value: string | undefined,
+  input: string,
+  fallback?: string,
+): string | null {
+  if (isCalendarTimezone(value)) return value;
+  const inputOffset = input.match(/(?:Z|[+-]\d{2}:\d{2})$/i)?.[0];
+  if (inputOffset) {
+    return inputOffset.toUpperCase() === "Z" ? "UTC" : inputOffset;
+  }
+  return isCalendarTimezone(fallback) ? fallback : null;
 }
 
 function eventDate(value: string, timezone: string | null): string | undefined {
@@ -79,6 +89,10 @@ function eventTime(
       }).format(instant);
 }
 
+function eventTimezoneLabel(timezone: string): string {
+  return /^[+-]\d{2}:\d{2}$/.test(timezone) ? `UTC${timezone}` : timezone;
+}
+
 function localizedDate(value: string, locale: string): string | undefined {
   if (!DATE_ONLY_PATTERN.test(value)) return undefined;
   const instant = new Date(`${value}T12:00:00.000Z`);
@@ -94,9 +108,16 @@ async function getActionLocale(
   email: string,
   requestHeaders: Headers | undefined,
 ): Promise<LocaleCode> {
-  const preference = normalizeLocalizationPreference(
-    await getUserSetting(email, LOCALIZATION_SETTING_KEY),
-  );
+  let preference:
+    | ReturnType<typeof normalizeLocalizationPreference>
+    | undefined;
+  try {
+    preference = normalizeLocalizationPreference(
+      await getUserSetting(email, LOCALIZATION_SETTING_KEY),
+    );
+  } catch {
+    // coercion-ok: the saved locale only formats the result card; it cannot block event creation.
+  }
   return resolveLocaleFromRequest({
     preference,
     request: requestHeaders ? { headers: requestHeaders } : undefined,
@@ -112,16 +133,19 @@ function getZoomFailureMessage(locale: LocaleCode): string {
 }
 
 function eventChangeTitle(event: CalendarEvent): string {
-  if (event.title.trim()) return event.title.trim().slice(0, 180);
   const location = event.workingLocationProperties;
-  if (location?.type === "homeOffice") return "Home";
+  let fallback = "Event";
+  if (location?.type === "homeOffice") fallback = "Home";
   if (location?.type === "officeLocation") {
-    return location.officeLocation?.label || "Office";
+    fallback = location.officeLocation?.label || "Office";
   }
   if (location?.type === "customLocation") {
-    return location.customLocation?.label || "Working location";
+    fallback = location.customLocation?.label || "Working location";
   }
-  return "Event";
+  return (event.title.trim() || fallback.trim() || "Event").slice(
+    0,
+    ACTION_CHANGE_TITLE_LIMIT,
+  );
 }
 
 function eventChangeDetail(
@@ -129,9 +153,18 @@ function eventChangeDetail(
   args: { eventType?: string; fullDay?: boolean; start: string; end: string },
   locale: string,
   additions: Array<string | undefined> = [],
+  timezoneFallback?: string,
 ): string | undefined {
-  const startTimezone = eventTimezone(event.startTimeZone);
-  const endTimezone = eventTimezone(event.endTimeZone ?? event.startTimeZone);
+  const startTimezone = eventTimezone(
+    event.startTimeZone,
+    args.start,
+    timezoneFallback,
+  );
+  const endTimezone = eventTimezone(
+    event.endTimeZone ?? event.startTimeZone,
+    args.end,
+    startTimezone ?? timezoneFallback,
+  );
   const fullDayOutOfOffice =
     args.eventType === "outOfOffice" && args.fullDay === true;
   let when: string | undefined;
@@ -143,8 +176,8 @@ function eventChangeDetail(
   ) {
     const start = localizedDate(args.start, locale);
     const end = localizedDate(args.end, locale);
-    if (start && end) {
-      when = `${start}${start === end ? "" : `–${end}`} ${startTimezone ?? "UTC"}`;
+    if (start && end && startTimezone) {
+      when = `${start}${start === end ? "" : `–${end}`} ${eventTimezoneLabel(startTimezone)}`;
     }
   } else if (
     event.allDay ||
@@ -172,8 +205,8 @@ function eventChangeDetail(
       if (localizedStart && localizedEnd) {
         when =
           startDate === endDate && startTimezone === endTimezone
-            ? `${localizedStart} · ${startTime}–${endTime} ${startTimezone}`
-            : `${localizedStart} ${startTime} ${startTimezone}–${localizedEnd} ${endTime} ${endTimezone}`;
+            ? `${localizedStart} · ${startTime}–${endTime} ${eventTimezoneLabel(startTimezone)}`
+            : `${localizedStart} ${startTime} ${eventTimezoneLabel(startTimezone)}–${localizedEnd} ${endTime} ${eventTimezoneLabel(endTimezone)}`;
       }
     }
   }
@@ -187,14 +220,19 @@ function eventChangeDetail(
 
 function eventDeepLink(
   event: Pick<CalendarEvent, "id" | "start" | "startTimeZone">,
+  timezoneFallback?: string | null,
 ): string | undefined {
   if (!event.id) return undefined;
+  const timezone =
+    timezoneFallback === undefined
+      ? eventTimezone(event.startTimeZone, event.start)
+      : timezoneFallback;
   return buildDeepLink({
     app: "calendar",
     view: "calendar",
     params: {
       eventId: event.id,
-      date: eventDate(event.start, eventTimezone(event.startTimeZone)),
+      date: eventDate(event.start, timezone),
     },
   });
 }
@@ -417,6 +455,19 @@ export default defineAction({
     if (videoConferenceError)
       calEvent.videoConferenceError = videoConferenceError;
 
+    let timezoneFallback: string | undefined;
+    if (
+      !calEvent.startTimeZone &&
+      !/(?:Z|[+-]\d{2}:\d{2})$/i.test(args.start) &&
+      !DATE_ONLY_PATTERN.test(args.start)
+    ) {
+      try {
+        timezoneFallback = await getCalendarTimezone(email);
+      } catch {
+        // coercion-ok: this timezone only formats the result card after event creation.
+      }
+    }
+
     try {
       emit(
         "calendar.event.created",
@@ -452,14 +503,25 @@ export default defineAction({
       actionContext,
     );
 
-    const url = eventDeepLink(calEvent);
+    const startTimezone = eventTimezone(
+      calEvent.startTimeZone,
+      args.start,
+      timezoneFallback,
+    );
+    const url = eventDeepLink(calEvent, startTimezone);
     const conferenceLink = calEvent.meetingLink ?? extractVideoLink(calEvent);
-    const detail = eventChangeDetail(calEvent, args, locale, [
-      conferenceLink && !calEvent.location?.includes(conferenceLink)
-        ? conferenceLink
-        : undefined,
-      videoConferenceWarning,
-    ]);
+    const detail = eventChangeDetail(
+      calEvent,
+      args,
+      locale,
+      [
+        conferenceLink && !calEvent.location?.includes(conferenceLink)
+          ? conferenceLink
+          : undefined,
+        videoConferenceWarning,
+      ],
+      timezoneFallback,
+    );
     return {
       ...calEvent,
       change: {
@@ -477,13 +539,16 @@ export default defineAction({
       id?: string;
       start?: string;
       startTimeZone?: string;
+      change?: { url?: string };
     };
     if (!evt.id || !evt.start) return null;
-    const url = eventDeepLink({
-      id: evt.id,
-      start: evt.start,
-      startTimeZone: evt.startTimeZone,
-    });
+    const url =
+      evt.change?.url ??
+      eventDeepLink({
+        id: evt.id,
+        start: evt.start,
+        startTimeZone: evt.startTimeZone,
+      });
     if (!url) return null;
     return {
       url,

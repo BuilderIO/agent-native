@@ -127,6 +127,21 @@ describe("scheduled mail actions", () => {
     expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
   });
 
+  it("rejects future run times outside the JavaScript Date range", async () => {
+    await expect(
+      action.run({
+        runAt: 8_640_000_000_000_001,
+        payload: {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+      }),
+    ).rejects.toThrow("runAt must be a future timestamp");
+
+    expect(mocks.createScheduledJobRecord).not.toHaveBeenCalled();
+  });
+
   it("owner-scopes the selected sender and persists its canonical identity", async () => {
     mocks.resolveScheduledSendAccountEmail.mockResolvedValue(
       "Selected@example.com",

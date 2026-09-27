@@ -78,6 +78,8 @@ vi.mock("./helpers.js", () => ({
   getAccessTokens: mocks.getAccessTokens,
 }));
 
+import { normalizeActionChangeResult } from "@agent-native/core/action-ui";
+
 import action from "./send-email";
 
 const OWNER = "sharon@builder.io";
@@ -145,6 +147,25 @@ describe("send-email action", () => {
     expect(localCard).toMatchObject({
       change: { verb: "sent", kind: "email", title: "A test message" },
     });
+  });
+
+  it("bounds successful send cards to the shared action card limits", () => {
+    const subject = "S".repeat(181);
+    const to = Array.from({ length: 25 }, () => "recipient@example.com").join(
+      ", ",
+    );
+    const projected = action.chatUI?.projectResult?.(
+      { subject, to },
+      "Email sent successfully (id: gmail-message-1)",
+    );
+
+    expect(projected).toMatchObject({
+      change: {
+        title: subject.slice(0, 180),
+        detail: to.slice(0, 500),
+      },
+    });
+    expect(normalizeActionChangeResult(projected)).not.toBeNull();
   });
 
   it("requires approval for interactive sends", async () => {

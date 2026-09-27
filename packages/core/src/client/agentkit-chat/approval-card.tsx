@@ -4,6 +4,7 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentKitMutation,
+  useAgentThread,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
 import { IconShieldCheck } from "@tabler/icons-react";
@@ -41,18 +42,31 @@ function SimpleToolApproval({
   const t = useT();
   const { requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
+  const editPrompt = t("agentChat.approval.editPrompt");
+  const queuedEdit = thread.queuedMessages.find(
+    (message) =>
+      message.metadata?.["agent-native.core.approval-edit"] === request.id,
+  );
   const resolution = useAgentKitMutation(
     async (options: {
       decision: "approve" | "deny";
       requestRevision?: boolean;
     }) => {
+      if (options.requestRevision) {
+        if (!queuedEdit) {
+          await control.queueMessage({
+            text: editPrompt,
+            metadata: { "agent-native.core.approval-edit": request.id },
+          });
+        }
+      } else if (queuedEdit) {
+        await control.removeQueued(queuedEdit.id);
+      }
       await control.resolveApproval(runId, request.id, {
         decision: options.decision,
         optionIds: [options.decision],
       });
-      if (options.requestRevision) {
-        await control.send(t("agentChat.approval.editPrompt"));
-      }
     },
   );
   const question = t("agentChat.approval.question", {

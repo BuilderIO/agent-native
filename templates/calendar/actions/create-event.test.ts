@@ -26,6 +26,7 @@ vi.mock("@agent-native/core/server", () => ({
   ),
   getRequestOrgId: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
+  getRequestTimezone: vi.fn(() => undefined),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -45,6 +46,7 @@ vi.mock("../server/lib/google-calendar.js", () => ({
 
 import { buildDeepLink } from "@agent-native/core/server";
 
+import { dateKeyInTimezone } from "../shared/timezone.js";
 import createEventAction from "./create-event";
 
 describe("create-event recurrence", () => {
@@ -116,6 +118,19 @@ describe("create-event recurrence", () => {
     }
   });
 
+  it("creates the event when the saved locale cannot be read", async () => {
+    getUserSettingMock.mockRejectedValueOnce(new Error("Settings unavailable"));
+
+    const result = await createEventAction.run({
+      title: "Planning",
+      start: "2026-10-03T06:30:00.000Z",
+      end: "2026-10-03T06:50:00.000Z",
+    });
+
+    expect(createEventMock).toHaveBeenCalled();
+    expect(result.id).toBe("google-event-123");
+  });
+
   it("returns a record change with event-local timing and a Calendar deep link", async () => {
     const result = await createEventAction.run({
       title: "Late planning",
@@ -160,6 +175,44 @@ describe("create-event recurrence", () => {
       detail: "Oct 31, 2026–Nov 2, 2026",
       url: "https://calendar.example.test/event?date=2026-10-31",
     });
+  });
+
+  it("uses the offset in timezone-less event inputs for the result card", async () => {
+    const result = await createEventAction.run({
+      title: "Late planning",
+      start: "2026-10-03T06:30:00.000-07:00",
+      end: "2026-10-03T06:50:00.000-07:00",
+    });
+
+    expect(result.change).toMatchObject({
+      detail: expect.stringContaining(
+        "Oct 3, 2026 · 6:30 AM–6:50 AM UTC-07:00",
+      ),
+      url: "https://calendar.example.test/event?date=2026-10-03",
+    });
+  });
+
+  it("uses the saved Calendar timezone when an event input has no zone", async () => {
+    getUserSettingMock.mockImplementation((_email: string, key: string) =>
+      key === "calendar-settings"
+        ? { timezone: "America/Los_Angeles" }
+        : undefined,
+    );
+
+    const result = await createEventAction.run({
+      title: "Planning",
+      start: "2026-10-03T06:30:00.000",
+      end: "2026-10-03T06:50:00.000",
+    });
+    const expectedDate = dateKeyInTimezone(
+      new Date("2026-10-03T06:30:00.000"),
+      "America/Los_Angeles",
+    );
+
+    expect(result.change.detail).toContain("America/Los_Angeles");
+    expect(result.change.url).toBe(
+      `https://calendar.example.test/event?date=${expectedDate}`,
+    );
   });
 
   it("formats event timing using the saved interface locale", async () => {
@@ -254,4 +307,21 @@ describe("create-event recurrence", () => {
       consoleError.mockRestore();
     }
   });
+
+  it.each(["officeLocation", "customLocation"] as const)(
+    "bounds %s working-location card titles to the shared limit",
+    async (workingLocationType) => {
+      const label = "L".repeat(181);
+      const result = await createEventAction.run({
+        eventType: "workingLocation",
+        workingLocationType,
+        workingLocationLabel: label,
+        allDay: true,
+        start: "2026-10-31",
+        end: "2026-11-01",
+      });
+
+      expect(result.change.title).toBe(label.slice(0, 180));
+    },
+  );
 });

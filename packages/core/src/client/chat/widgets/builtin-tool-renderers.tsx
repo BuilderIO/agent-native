@@ -9,9 +9,11 @@ import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
   normalizeActionChangeResult,
+  type ActionChange,
 } from "../../../action-ui.js";
 import { normalizeConnectRequiredResult } from "../../../shared/connect-required.js";
 import { useT } from "../../i18n.js";
+import { buildOpenRouteLink } from "../../navigation/index.js";
 import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
@@ -71,8 +73,147 @@ const LazyRecordChangeWidget: ComponentType<{
         })),
       );
 
+const LEGACY_RECORD_CHANGE_RENDERERS = [
+  "mail.ai-filter-confirmation",
+  "mail.draft-created",
+  "mail.gmail-filter-confirmation",
+  "calendar.event-created",
+] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeLegacyActionChangeResult(
+  context: ToolRendererContext,
+): ReturnType<typeof normalizeActionChangeResult> {
+  const current = normalizeActionChangeResult(context.resultJson);
+  if (current) return current;
+
+  const renderer = context.chatUI?.renderer;
+  if (!LEGACY_RECORD_CHANGE_RENDERERS.some((id) => id === renderer))
+    return null;
+  const result = isRecord(context.resultJson) ? context.resultJson : {};
+  let change: ActionChange | undefined;
+
+  if (renderer === "mail.ai-filter-confirmation") {
+    const changed = result.changed;
+    if (
+      context.toolName === "apply-ai-filter" &&
+      Number.isSafeInteger(changed) &&
+      typeof changed === "number" &&
+      changed > 0 &&
+      (context.args.mode === "filter" || context.args.mode === "keep")
+    ) {
+      change = {
+        verb: "updated",
+        kind: "mail-filter",
+        title: context.args.mode === "filter" ? "Filtered email" : "Kept email",
+        detail: String(changed),
+      };
+    }
+  } else if (renderer === "mail.draft-created") {
+    const draft = isRecord(result.draft) ? result.draft : {};
+    const subject = text(context.args.subject) ?? text(draft.subject);
+    const recipient = text(context.args.to) ?? text(draft.to);
+    const deepLink = text(result.deepLink);
+    let draftId = text(result.id) ?? text(context.args.id);
+    if (
+      !draftId &&
+      deepLink &&
+      URL.canParse(deepLink, "https://agent-native.invalid")
+    ) {
+      const url = new URL(deepLink, "https://agent-native.invalid");
+      if (
+        url.origin === "https://agent-native.invalid" &&
+        url.pathname.endsWith("/_agent-native/open")
+      ) {
+        draftId = text(url.searchParams.get("composeDraftId"));
+      }
+    }
+    if (
+      context.toolName === "manage-draft" &&
+      context.args.action === "create" &&
+      (subject || recipient || draftId)
+    ) {
+      change = {
+        verb: "created",
+        kind: "email-draft",
+        title: (subject ?? recipient ?? draftId)!.slice(0, 180),
+        ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+        ...(deepLink ? { url: deepLink } : {}),
+      };
+    }
+  } else if (renderer === "mail.gmail-filter-confirmation") {
+    const filter = isRecord(result.filter) ? result.filter : {};
+    const operation = context.args.operation;
+    if (
+      context.toolName === "manage-gmail-filters" &&
+      !context.isRunning &&
+      (operation === "create" || operation === "replace") &&
+      result.ok === true &&
+      text(result.message) &&
+      text(result.accountEmail) &&
+      text(filter.id) &&
+      text(filter.criteriaSummary) &&
+      text(filter.actionSummary)
+    ) {
+      const url = new URL("https://mail.google.com/mail/");
+      url.searchParams.set("authuser", text(result.accountEmail)!);
+      url.hash = "settings/filters";
+      change = {
+        verb: operation === "create" ? "created" : "updated",
+        kind: "gmail-filter",
+        title: text(filter.criteriaSummary)!.slice(0, 180),
+        detail: text(filter.actionSummary)!.slice(0, 500),
+        url: url.toString(),
+      };
+    }
+  } else if (
+    renderer === "calendar.event-created" &&
+    context.toolName === "create-event" &&
+    !context.isRunning
+  ) {
+    const title = text(result.title);
+    const start = text(result.start);
+    const end = text(result.end);
+    if (title && start && end) {
+      const eventId = text(result.id);
+      change = {
+        verb: "created",
+        kind: "calendar-event",
+        title: title.slice(0, 180),
+        detail: [start, end, text(result.location)]
+          .filter((part): part is string => Boolean(part))
+          .join(" · ")
+          .slice(0, 500),
+        ...(eventId
+          ? {
+              url: buildOpenRouteLink({
+                app: "calendar",
+                view: "calendar",
+                params: { eventId },
+              }).url,
+            }
+          : {}),
+      };
+    }
+  }
+
+  return change ? normalizeActionChangeResult({ change }) : null;
+}
+
+export function normalizeBuiltinActionChangeResult(
+  context: ToolRendererContext,
+) {
+  return (
+    normalizeActionChangeResult(context.resultJson) ??
+    normalizeLegacyActionChangeResult(context)
+  );
 }
 
 function normalizeActionDataWidgetResult(
@@ -195,12 +336,25 @@ const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   ) : null;
 };
 
-const BuiltinRecordChangeRenderer: ToolRendererComponent = ({ context }) =>
-  normalizeActionChangeResult(context.resultJson) || context.isRunning ? (
+const BuiltinRecordChangeRenderer: ToolRendererComponent = ({ context }) => {
+  const normalized = normalizeBuiltinActionChangeResult(context);
+  if (
+    !normalized &&
+    !(
+      context.isRunning &&
+      context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
+    )
+  ) {
+    return null;
+  }
+  return (
     <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
-      <LazyRecordChangeWidget context={context} />
+      <LazyRecordChangeWidget
+        context={{ ...context, resultJson: normalized ?? context.resultJson }}
+      />
     </Suspense>
-  ) : null;
+  );
+};
 
 export function isBuiltinConnectRequiredResult(
   context: ToolRendererContext,
@@ -245,8 +399,13 @@ export function resolveBuiltinActionChatRenderer(
     return BuiltinWorkspaceFileRenderer;
   }
   if (
-    context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER &&
-    (normalizeActionChangeResult(context.resultJson) || context.isRunning)
+    (context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER ||
+      LEGACY_RECORD_CHANGE_RENDERERS.some(
+        (id) => id === context.chatUI?.renderer,
+      )) &&
+    (normalizeBuiltinActionChangeResult(context) ||
+      (context.isRunning &&
+        context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER))
   ) {
     return BuiltinRecordChangeRenderer;
   }
@@ -271,7 +430,7 @@ export function resolveBuiltinFallbackToolRenderer(
   if (normalizeConnectRequiredResult(context.resultJson)) {
     return BuiltinConnectRequiredRenderer;
   }
-  if (normalizeActionChangeResult(context.resultJson)) {
+  if (normalizeBuiltinActionChangeResult(context)) {
     return BuiltinRecordChangeRenderer;
   }
   return normalizeActionDataWidgetResult(context) !== null
@@ -299,6 +458,14 @@ for (const [id, renderer] of [
   });
 }
 
+for (const renderer of LEGACY_RECORD_CHANGE_RENDERERS) {
+  registerReservedActionChatRenderer({
+    id: `core.legacy-${renderer}`,
+    renderer,
+    Component: BuiltinRecordChangeRenderer,
+  });
+}
+
 registerReservedFallbackToolRenderer({
   id: "core.data-widgets",
   match: (context) => normalizeActionDataWidgetResult(context) !== null,
@@ -320,6 +487,6 @@ registerReservedFallbackToolRenderer({
 
 registerReservedFallbackToolRenderer({
   id: "core.record-change",
-  match: (context) => normalizeActionChangeResult(context.resultJson) !== null,
+  match: (context) => normalizeBuiltinActionChangeResult(context) !== null,
   Component: BuiltinRecordChangeRenderer,
 });

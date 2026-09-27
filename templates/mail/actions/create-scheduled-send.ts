@@ -68,7 +68,11 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
-    if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
+    if (
+      !Number.isFinite(args.runAt) ||
+      !Number.isFinite(new Date(args.runAt).getTime()) ||
+      args.runAt <= Date.now()
+    ) {
       fail("runAt must be a future timestamp", {
         errorCode: "invalid_run_at",
       });

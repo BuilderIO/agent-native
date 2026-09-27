@@ -141,22 +141,47 @@ describe("CoreAgentKitApproval", () => {
     expect(container.textContent).not.toContain("PRIVATE MESSAGE BODY");
   });
 
-  it("denies Edit before asking for a revised action", async () => {
+  it("queues an Edit prompt before denying approval", async () => {
     const callOrder: string[] = [];
     const resolveApproval = vi.fn(async () => {
       callOrder.push("resolve");
+    });
+    const queueMessage = vi.fn(async (input) => {
+      callOrder.push("queue");
+      return {
+        message: {
+          id: "queued-edit",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          metadata: input.metadata,
+        },
+      };
     });
     const startRun = vi.fn(async () => {
       callOrder.push("send");
       return { runId: "revised-run" };
     });
     const client = new AgentKitClient({
-      transport: createTransport({ resolveApproval, startRun }),
+      transport: createTransport({
+        capabilities: { approvals: true, messageQueue: true },
+        queueMessage,
+        resolveApproval,
+        startRun,
+      }),
     });
     renderApproval(client);
 
     await clickButton("Edit");
 
+    expect(queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        text: "Ask me how I want to revise this action before trying again.",
+        metadata: { "agent-native.core.approval-edit": "approval-1" },
+      }),
+      expect.any(Object),
+    );
     expect(resolveApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "thread-1",
@@ -166,17 +191,49 @@ describe("CoreAgentKitApproval", () => {
       }),
       expect.any(Object),
     );
-    expect(callOrder).toEqual(["resolve", "send"]);
-    expect(startRun).toHaveBeenCalledTimes(1);
-    expect(startRun.mock.calls[0]?.[0].messages.at(-1)).toMatchObject({
-      role: "user",
-      parts: [
-        {
-          type: "text",
+    expect(callOrder).toEqual(["queue", "resolve"]);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps Edit pending when queueing fails and reuses a queued prompt on retry", async () => {
+    const queueMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue unavailable"))
+      .mockResolvedValueOnce({
+        message: {
+          id: "queued-edit",
+          threadId: "thread-1",
           text: "Ask me how I want to revise this action before trying again.",
+          createdAt: "2026-09-27T00:00:00.000Z",
+          metadata: { "agent-native.core.approval-edit": "approval-1" },
         },
-      ],
+      });
+    const resolveApproval = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("approval unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const client = new AgentKitClient({
+      transport: createTransport({
+        capabilities: { approvals: true, messageQueue: true },
+        queueMessage,
+        resolveApproval,
+      }),
     });
+    renderApproval(client);
+
+    await clickButton("Edit");
+    expect(resolveApproval).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("queue unavailable");
+    expect(container.textContent).toContain("Deny");
+
+    await clickButton("Edit");
+    expect(queueMessage).toHaveBeenCalledTimes(2);
+    expect(resolveApproval).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("approval unavailable");
+
+    await clickButton("Edit");
+    expect(queueMessage).toHaveBeenCalledTimes(2);
+    expect(resolveApproval).toHaveBeenCalledTimes(2);
   });
 
   it("denies without asking for a revised action", async () => {
