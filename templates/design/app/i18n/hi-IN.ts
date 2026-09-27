@@ -1460,6 +1460,13 @@ export default {
         "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
       connectionNotConfirmed:
         "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
+      permissionPromptTitle: "अपनी लोकल स्क्रीन कनेक्ट करें",
+      permissionPromptDescription:
+        "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
+      permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
+      permissionPromptSettingsInstructions:
+        "ऐड्रेस बार के बाईं ओर साइट जानकारी आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर स्थानीय नेटवर्क एक्सेस को “अनुमति दें” पर सेट करें।",
+      permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {

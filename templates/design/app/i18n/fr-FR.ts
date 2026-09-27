@@ -1501,6 +1501,13 @@ export default {
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
       connectionNotConfirmed:
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
+      permissionPromptTitle: "Connecter vos écrans locaux",
+      permissionPromptDescription:
+        "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
+      permissionPromptNoPrompt: "Aucune invite Chrome ?",
+      permissionPromptSettingsInstructions:
+        "Cliquez sur l’icône d’informations du site à gauche de la barre d’adresse, ouvrez Paramètres du site, puis réglez Accès au réseau local sur Autoriser.",
+      permissionPromptRetry: "Réessayer la connexion",
     },
   },
   multiScreenCanvas: {

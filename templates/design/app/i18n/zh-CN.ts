@@ -1424,6 +1424,13 @@ export default {
       confirmationRetryExhausted: "多次尝试后，实时编辑器桥接器仍未确认连接。",
       connectionNotConfirmed:
         "实时编辑器桥接器未确认连接。本地开发服务器是否仍在运行？",
+      permissionPromptTitle: "连接本地画面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
+      permissionPromptNoPrompt: "没有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "点击地址栏左侧的站点信息图标，打开“网站设置”，然后将“本地网络访问”设为“允许”。",
+      permissionPromptRetry: "重试连接",
     },
   },
   multiScreenCanvas: {
