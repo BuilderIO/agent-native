@@ -11,8 +11,35 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/core/client/setup-connections", async () => {
   const { createElement } = await import("react");
   return {
-    FileStorageSetupCard: () =>
-      createElement("div", { "data-testid": "file-storage-setup-card" }),
+    FileStorageSetupPopover: ({
+      open,
+      status,
+      onRetry,
+    }: {
+      open: boolean;
+      status?: string;
+      onRetry?: () => void;
+    }) =>
+      open
+        ? createElement(
+            "div",
+            { "data-testid": "file-storage-setup-popover" },
+            status === "unavailable"
+              ? createElement(
+                  "span",
+                  {},
+                  "onboarding.fileStorage.statusUnavailable",
+                )
+              : null,
+            status === "unavailable"
+              ? createElement(
+                  "button",
+                  { onClick: onRetry, "data-testid": "file-storage-retry" },
+                  "common.retry",
+                )
+              : null,
+          )
+        : null,
   };
 });
 
@@ -65,39 +92,76 @@ describe("file upload storage gate", () => {
     ).toBe("unknown");
   });
 
-  it("shows setup only for missing storage and retry for unknown status", () => {
+  it("shows missing or unknown storage only after an upload attempt", () => {
     const onRetry = vi.fn();
+    const onOpenChange = vi.fn();
     act(() =>
       root.render(
         createElement(FileUploadStorageGate, {
           state: "unknown",
+          open: false,
+          onOpenChange,
           onRetry,
         }),
       ),
     );
 
     expect(
-      container.querySelector('[data-testid="file-storage-setup-card"]'),
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).toBeNull();
-    expect(container.textContent).toContain("settings.statusUnavailable");
-    act(() => container.querySelector("button")?.click());
+    expect(document.body.textContent).not.toContain(
+      "onboarding.fileStorage.statusUnavailable",
+    );
+
+    act(() =>
+      root.render(
+        createElement(FileUploadStorageGate, {
+          state: "unknown",
+          open: true,
+          onOpenChange,
+          onRetry,
+        }),
+      ),
+    );
+    expect(document.body.textContent).toContain(
+      "onboarding.fileStorage.statusUnavailable",
+    );
+    act(() => document.body.querySelector("button")?.click());
     expect(onRetry).toHaveBeenCalledOnce();
 
     act(() =>
       root.render(
         createElement(FileUploadStorageGate, {
           state: "missing",
+          open: false,
+          onOpenChange,
           onRetry,
         }),
       ),
     );
     expect(
-      container.querySelector('[data-testid="file-storage-setup-card"]'),
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+
+    act(() =>
+      root.render(
+        createElement(FileUploadStorageGate, {
+          state: "missing",
+          open: true,
+          onOpenChange,
+          onRetry,
+        }),
+      ),
+    );
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).not.toBeNull();
 
     act(() =>
       root.render(
         createElement(FileUploadStorageGate, {
+          open: false,
+          onOpenChange,
           state: "configured",
           onRetry,
         }),
@@ -105,7 +169,7 @@ describe("file upload storage gate", () => {
     );
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(
-      container.querySelector('[data-testid="file-storage-setup-card"]'),
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).toBeNull();
   });
 });

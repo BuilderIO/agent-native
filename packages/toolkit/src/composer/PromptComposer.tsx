@@ -111,6 +111,7 @@ export interface PromptComposerProps {
   showAutoModelOption?: boolean;
   voiceEnabled?: boolean;
   attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
   attachmentAdapter?: AttachmentAdapter;
   inlineTextAttachments?: boolean;
   plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
@@ -505,6 +506,7 @@ function PromptComposerInner({
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
+  onAttachmentRequest,
   inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
@@ -756,6 +758,7 @@ function PromptComposerInner({
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
+          onAttachmentRequest={onAttachmentRequest}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
@@ -779,9 +782,13 @@ function PromptComposerInner({
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             gateComposer
-              ? "hidden"
+              ? attachmentsEnabled || onAttachmentRequest
+                ? "upload-only"
+                : "hidden"
               : (plusMenuMode ??
-                (attachmentsEnabled ? "upload-only" : "hidden"))
+                (attachmentsEnabled || onAttachmentRequest
+                  ? "upload-only"
+                  : "hidden"))
           }
           terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}

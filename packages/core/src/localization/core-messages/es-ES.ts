@@ -117,11 +117,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
   "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
+  "onboarding.fileStorage.statusUnavailable":
+    "No se pudo comprobar el almacenamiento",
   "onboarding.fileStorage.description":
     "Conecta Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
   "onboarding.fileStorage.reconnectBuilder": "Volver a conectar Builder.io",
-  "onboarding.fileStorage.custom":
-    "Añadir tus propias claves de almacenamiento",
+  "onboarding.fileStorage.custom": "Usar claves personalizadas",
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
