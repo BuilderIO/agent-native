@@ -99,6 +99,25 @@ describe("suggestion decomposition", () => {
     );
   });
 
+  it("keeps an explicit single-word replacement together", () => {
+    const before = "The quick fox can run.";
+    const start = before.indexOf("run");
+    const operations = markdownSuggestionOperationsForFindReplace({
+      before,
+      find: "run",
+      replace: "sprint",
+      start,
+    });
+
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({
+      before: { changedText: "run" },
+      after: { changedText: "sprint" },
+      anchor: { from: start, to: start + 3 },
+    });
+    expect(proposedFrom(before, operations)).toBe("The quick fox can sprint.");
+  });
+
   it("keeps selected sentence replacements granular", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";

@@ -669,6 +669,9 @@ export function markdownSuggestionOperationsForFindReplace(input: {
   const { before, find, replace, start } = input;
   const after = `${before.slice(0, start)}${replace}${before.slice(start + find.length)}`;
   if (after === before) return [];
+  if (/^[\p{L}\p{M}\p{N}_]+$/u.test(find)) {
+    return [operationForChange(before, start, start + find.length, replace, 0)];
+  }
   const operations = markdownSuggestionOperations(before, after);
   let reconstructed = before;
   for (const operation of [...operations].reverse()) {
