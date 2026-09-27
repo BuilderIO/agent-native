@@ -1837,7 +1837,10 @@ function ReviewTab({
           </span>
         )}
       </div>
-      <div className="space-y-2" data-review-list>
+      <div
+        className="divide-y divide-border border-y border-border"
+        data-review-list
+      >
         {visibleReviews.length === 0 ? (
           <EmptyState message={t("observability.noData")} />
         ) : (
@@ -1883,12 +1886,12 @@ function ReviewTab({
             return (
               <div
                 key={review.runId}
-                className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground"
+                className="group min-w-0 overflow-hidden"
                 data-review-row={review.runId}
               >
                 <div
                   className={cn(
-                    "flex min-w-0 items-center gap-3 px-3 py-3 sm:px-4",
+                    "flex min-h-[74px] min-w-0 items-center gap-3 px-3 py-0.5 text-card-foreground transition-colors hover:bg-muted/20 sm:px-4",
                     expanded && "bg-muted/30",
                   )}
                 >
