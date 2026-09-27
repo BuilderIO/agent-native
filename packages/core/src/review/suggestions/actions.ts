@@ -977,6 +977,41 @@ export const decideResourceSuggestionProposal = defineAction({
     }
     const adapter = getSuggestionAdapter(proposal.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
+    const replayDecision = async (
+      tx: DbExec,
+      prior: NonNullable<Awaited<ReturnType<typeof getProposalDecision>>>,
+    ) => {
+      if (
+        prior.proposalId !== proposal.id ||
+        prior.reviewer !== reviewer ||
+        prior.decision !== args.decision ||
+        prior.request !== request
+      ) {
+        fail(
+          "Idempotency key was already used for a different proposal decision",
+          {
+            statusCode: 409,
+            errorCode: "idempotency_conflict",
+          },
+        );
+      }
+      const currentProposal = await getSuggestionProposal(tx, args.proposalId);
+      if (!currentProposal)
+        throw new Error(
+          "Proposal decision receipt references a missing proposal",
+        );
+      const suggestions = await Promise.all(
+        prior.suggestionIds.map((id) => getSuggestion(id, tx)),
+      );
+      if (suggestions.some((suggestion) => !suggestion))
+        throw new Error(
+          "Proposal decision receipt references a missing suggestion",
+        );
+      return {
+        proposal: currentProposal,
+        suggestions: suggestions as ResourceSuggestion[],
+      };
+    };
     const decide = (coordination?: unknown) =>
       db.transaction!(async (tx) => {
         const currentProposal = await getSuggestionProposal(
@@ -995,30 +1030,7 @@ export const decideResourceSuggestionProposal = defineAction({
           "editor",
         );
         const prior = await getProposalDecision(tx, args.idempotencyKey);
-        if (prior) {
-          if (
-            prior.proposalId !== proposal.id ||
-            prior.reviewer !== reviewer ||
-            prior.decision !== args.decision ||
-            prior.request !== request
-          ) {
-            fail(
-              "Idempotency key was already used for a different proposal decision",
-              { statusCode: 409, errorCode: "idempotency_conflict" },
-            );
-          }
-          const suggestions = await Promise.all(
-            prior.suggestionIds.map((id) => getSuggestion(id, tx)),
-          );
-          if (suggestions.some((suggestion) => !suggestion))
-            throw new Error(
-              "Proposal decision receipt references a missing suggestion",
-            );
-          return {
-            proposal: currentProposal,
-            suggestions: suggestions as ResourceSuggestion[],
-          };
-        }
+        if (prior) return replayDecision(tx, prior);
         const suggestions: ResourceSuggestion[] = [];
         for (const observed of members) {
           const current = await getSuggestion(observed.id, tx);
@@ -1119,6 +1131,18 @@ export const decideResourceSuggestionProposal = defineAction({
             }),
           ),
         };
+      }).catch(async (error) => {
+        const prior = await getProposalDecision(db, args.idempotencyKey);
+        if (!prior) throw error;
+        return db.transaction!(async (tx) => {
+          await assertReviewableResourceAccess(
+            proposal.resourceType,
+            proposal.resourceId,
+            { ...(ctx as any), transaction: tx },
+            "editor",
+          );
+          return replayDecision(tx, prior);
+        });
       });
     if (args.decision === "accepted" && adapter.coordinateDecision) {
       return adapter.coordinateDecision(
