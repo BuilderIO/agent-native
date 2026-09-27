@@ -12,6 +12,7 @@ import {
   AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
+  getActiveTabScrollContainer,
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
@@ -84,6 +85,18 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("finds the overflow viewport for a tab nested in its group", () => {
+    const viewport = document.createElement("div");
+    viewport.className = "agent-tabs-scroll";
+    const group = document.createElement("div");
+    group.className = "agent-tab-group";
+    const tab = document.createElement("div");
+    group.append(tab);
+    viewport.append(group);
+
+    expect(getActiveTabScrollContainer(tab)).toBe(viewport);
+  });
+
   it("keeps the active tab clear of the overflow edges", () => {
     expect(
       getActiveTabScrollDelta(
