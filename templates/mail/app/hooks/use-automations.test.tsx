@@ -54,7 +54,9 @@ describe("useCreateAutomation", () => {
       { wrapper },
     );
     mocks.callAction.mockResolvedValue({ id: "filtered-rule" });
-    await waitFor(() => expect(settingsQuery).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(result.current.settings.data?.pinnedLabels).toEqual([]),
+    );
 
     await act(async () => {
       await result.current.create.mutateAsync({
@@ -70,10 +72,12 @@ describe("useCreateAutomation", () => {
     });
 
     expect(settingsQuery).toHaveBeenCalledTimes(2);
-    expect(result.current.settings.data?.pinnedLabels).toEqual([
-      "important",
-      "agent-native-filtered",
-    ]);
+    await waitFor(() =>
+      expect(result.current.settings.data?.pinnedLabels).toEqual([
+        "important",
+        "agent-native-filtered",
+      ]),
+    );
 
     await act(async () => {
       await result.current.update.mutateAsync({
