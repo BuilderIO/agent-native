@@ -52,14 +52,15 @@ describe("requestRecordingShortcutStop", () => {
     expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
   });
 
-  it("preserves toolbar lookup failures", async () => {
+  it("stops directly and preserves toolbar lookup failures", async () => {
     getByLabel.mockRejectedValue(new Error("window lookup failed"));
 
-    await expect(requestRecordingShortcutStop()).rejects.toThrow(
-      "window lookup failed",
-    );
-
-    expect(emit).not.toHaveBeenCalled();
+    await expect(requestRecordingShortcutStop()).resolves.toMatchObject({
+      type: "direct",
+      reason: "toolbar-lookup-failed",
+      error: new Error("window lookup failed"),
+    });
+    expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
   });
 
   it("stops directly when the toolbar window has no mounted listener", async () => {

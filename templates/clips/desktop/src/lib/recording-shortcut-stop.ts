@@ -3,9 +3,35 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 const STOP_ACK_TIMEOUT_MS = 250;
 
-export async function requestRecordingShortcutStop() {
-  const toolbar = await WebviewWindow.getByLabel("toolbar");
-  if (!toolbar) return emit("clips:recorder-stop");
+type StopOutcome =
+  | { type: "pill" }
+  | {
+      type: "direct";
+      reason:
+        | "toolbar-absent"
+        | "toolbar-lookup-failed"
+        | "pill-did-not-acknowledge";
+      error?: unknown;
+    };
+
+async function stopDirectly(
+  reason: Extract<StopOutcome, { type: "direct" }>["reason"],
+  error?: unknown,
+): Promise<StopOutcome> {
+  await emit("clips:recorder-stop");
+  return error === undefined
+    ? { type: "direct", reason }
+    : { type: "direct", reason, error };
+}
+
+export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
+  let toolbar;
+  try {
+    toolbar = await WebviewWindow.getByLabel("toolbar");
+  } catch (error) {
+    return stopDirectly("toolbar-lookup-failed", error);
+  }
+  if (!toolbar) return stopDirectly("toolbar-absent");
 
   const requestId = crypto.randomUUID();
   const pillHandledRequest = new Promise<boolean>((resolve) => {
@@ -36,5 +62,8 @@ export async function requestRecordingShortcutStop() {
       .catch(() => finish(false));
   });
 
-  if (!(await pillHandledRequest)) return emit("clips:recorder-stop");
+  if (!(await pillHandledRequest)) {
+    return stopDirectly("pill-did-not-acknowledge");
+  }
+  return { type: "pill" };
 }
