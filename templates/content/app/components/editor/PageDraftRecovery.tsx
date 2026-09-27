@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentQueryFilter,
+  ensurePreviewDocumentDraftRead,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
   isDocumentUpdateSuperseded,
@@ -83,12 +84,11 @@ export function PageDraftRecovery({
     setReleasedScopeKey(null);
     if (!scopeKey || creationPending) return;
     let cancelled = false;
-    void callAction(
-      "get-preview-document-draft",
-      { documentId: document.id },
-      { method: "GET" },
+    void ensurePreviewDocumentDraftRead(
+      queryClient,
+      document.id,
+      document.createdAt,
     )
-      .then(() => drafts.refetch())
       .then(() => {
         if (!cancelled) setVerifiedScopeKey(scopeKey);
       })

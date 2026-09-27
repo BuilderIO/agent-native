@@ -101,9 +101,10 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
-  useDocument,
+  startPreviewDocumentDraftRead,
   useDeleteDocument,
   useDocuments,
+  usePageOpenDocument,
   useResolvePreviewDocumentDraft,
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
@@ -126,6 +127,7 @@ import {
 } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
+import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -689,6 +691,9 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   return (
     <PageEditorSurface
+      // Each page open mounts its own surface, so a read started for the open
+      // is adopted instead of refetched by a document switch.
+      key={pageEditorSessionKey({ documentId, databaseId, databaseDocumentId })}
       documentId={documentId}
       databaseId={databaseId}
       databaseDocumentId={databaseDocumentId}
@@ -733,10 +738,10 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
-  const documentQuery = useDocument(documentId, {
-    databaseId,
-    databaseDocumentId,
-  });
+  const { query: documentQuery, fetchedForThisOpen } = usePageOpenDocument(
+    documentId,
+    { databaseId, databaseDocumentId },
+  );
   const {
     data: queriedDocument,
     dataUpdatedAt,
@@ -744,7 +749,6 @@ export function PageEditorSurface({
     errorUpdateCount,
     errorUpdatedAt,
     isError,
-    isFetchedAfterMount,
     isFetching,
   } = documentQuery;
   const navigate = useNavigate();
@@ -753,6 +757,15 @@ export function PageEditorSurface({
     databaseId,
     databaseDocumentId,
   });
+  useEffect(() => {
+    startPreviewDocumentDraftRead(
+      queryClient,
+      documentId,
+      queryClient.getQueryData<Document>(
+        documentQueryKey(documentId, { databaseId, databaseDocumentId }),
+      ),
+    );
+  }, [databaseDocumentId, databaseId, documentId, queryClient]);
   const authoritativeSuccess = useAuthoritativeQuerySuccess(
     queryClient,
     documentQueryKeyValue,
@@ -786,7 +799,7 @@ export function PageEditorSurface({
     isDocumentCreationPending: document
       ? isDocumentCreationPending(document)
       : false,
-    isFetchedAfterMount,
+    isFetchedAfterMount: fetchedForThisOpen,
     isFetching,
     isError,
     hasLoadFailure: loadFailure.failed,
@@ -803,7 +816,7 @@ export function PageEditorSurface({
       !!document &&
       !document.database &&
       !isError &&
-      isFetchedAfterMount &&
+      fetchedForThisOpen &&
       loadState.view === "editor",
   );
 
@@ -890,7 +903,7 @@ export function PageEditorSurface({
         documentId={documentId}
         document={document}
         foreground={
-          foreground && host === "page" && !isError && isFetchedAfterMount
+          foreground && host === "page" && !isError && fetchedForThisOpen
         }
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
@@ -1692,17 +1705,20 @@ function PageEditorSessionBody({
     databaseId,
     databaseDocumentId,
   });
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (host !== "page" || document.database?.systemRole) return;
+    const target = {
+      documentId,
+      ...(currentDocumentRef.current?.title?.trim()
+        ? { title: currentDocumentRef.current.title }
+        : {}),
+      ...(databaseId ? { databaseId } : {}),
+      ...(viewId ? { viewId } : {}),
+    };
+    rememberLandingTitleHint(queryClient, target);
     void rememberContentLandingDocument(
-      {
-        documentId,
-        ...(currentDocumentRef.current?.title?.trim()
-          ? { title: currentDocumentRef.current.title }
-          : {}),
-        ...(databaseId ? { databaseId } : {}),
-        ...(viewId ? { viewId } : {}),
-      },
+      target,
       document.spaceId ?? undefined,
     ).catch((error) => {
       toast.error(t("landing.saveFailed"), {
@@ -1716,6 +1732,7 @@ function PageEditorSessionBody({
     document.spaceId,
     documentId,
     host,
+    queryClient,
     viewId,
     t,
   ]);
@@ -1748,7 +1765,6 @@ function PageEditorSessionBody({
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
-  const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
@@ -4071,14 +4087,19 @@ function PageEditorSessionBody({
         return;
       }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
-      refreshLandingTitleHintCache(queryClient, documentId, newTitle);
-      void rememberContentLandingDocument(documentId, newTitle).catch(() => {});
+      if (host === "page") {
+        refreshLandingTitleHintCache(queryClient, documentId, newTitle);
+        void rememberContentLandingDocument(documentId, newTitle).catch(
+          () => {},
+        );
+      }
       debouncedSave(newTitle, localContentRef.current);
     },
     [
       debouncedSave,
       documentId,
       editorCanEdit,
+      host,
       isSuggesting,
       journalCurrentDraft,
       queryClient,
@@ -6949,6 +6970,7 @@ function PageEditorSessionBody({
                               handlePrimaryFieldAvailabilityChange
                             }
                             primaryEditor={primaryEditorWithStarter}
+                            pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
                             }

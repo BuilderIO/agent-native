@@ -67,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { pagedFilesNavigationArgs } from "@/lib/files-root-hint";
 import { cn } from "@/lib/utils";
 
 import {
@@ -219,16 +220,10 @@ function PagedContentFilesBranch({
 }) {
   const t = useT();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const query = useActionQuery("query-content-database-items", {
-    databaseId: props.databaseId,
-    limit: 20,
-    navigation: {
-      parentId: props.parentId,
-      sort: props.sort,
-      viewId: props.viewId,
-      cursor,
-    },
-  });
+  const query = useActionQuery(
+    "query-content-database-items",
+    pagedFilesNavigationArgs({ ...props, cursor }),
+  );
   const data =
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)

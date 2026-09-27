@@ -1,0 +1,112 @@
+import {
+  hashKey,
+  type FetchQueryOptions,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
+
+// A page open starts its reads before the component that shows them mounts:
+// in the layout while the route loads, or on /home while the landing
+// resolves. The mounting component adopts a read made for its open instead of
+// refetching. A read that was invalidated, failed, expired, or already adopted
+// is never adopted, so any other mount still reads fresh.
+export const PAGE_OPEN_READ_TTL_MS = 10_000;
+
+type PageOpenRead = {
+  documentId: string;
+  startedAt: number;
+  invalidated: boolean;
+};
+
+export type PageOpenReadAdoption = "fresh" | "pending" | "none";
+
+const readsByClient = new WeakMap<QueryClient, Map<string, PageOpenRead>>();
+
+function openReads(queryClient: QueryClient) {
+  let reads = readsByClient.get(queryClient);
+  if (!reads) {
+    reads = new Map();
+    readsByClient.set(queryClient, reads);
+    queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === "removed") {
+        reads!.delete(event.query.queryHash);
+        return;
+      }
+      if (event.type !== "updated" || event.action.type !== "invalidate") {
+        return;
+      }
+      const read = reads!.get(event.query.queryHash);
+      if (read) read.invalidated = true;
+    });
+  }
+  return reads;
+}
+
+export function startPageOpenRead<TData>(
+  queryClient: QueryClient,
+  documentId: string,
+  options: FetchQueryOptions<TData, Error, TData, QueryKey>,
+) {
+  const reads = openReads(queryClient);
+  const queryHash = hashKey(options.queryKey);
+  const current = reads.get(queryHash);
+  if (
+    current &&
+    !current.invalidated &&
+    Date.now() - current.startedAt < PAGE_OPEN_READ_TTL_MS
+  ) {
+    return;
+  }
+  const query = queryClient
+    .getQueryCache()
+    .find({ queryKey: options.queryKey, exact: true });
+  // An already-invalidated query dispatches no further invalidate events, so
+  // clear the flag before this read replaces its data; otherwise a change that
+  // lands while the read is in flight would go unnoticed.
+  if (query?.state.isInvalidated) {
+    query.setState({ ...query.state, isInvalidated: false });
+  }
+  reads.set(queryHash, {
+    documentId,
+    startedAt: Date.now(),
+    invalidated: false,
+  });
+  void queryClient.prefetchQuery({ ...options, staleTime: 0 });
+}
+
+export function adoptPageOpenRead(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+): PageOpenReadAdoption {
+  const reads = openReads(queryClient);
+  const queryHash = hashKey(queryKey);
+  const read = reads.get(queryHash);
+  if (!read) return "none";
+  reads.delete(queryHash);
+  const query = queryClient.getQueryCache().get(queryHash);
+  if (!query) return "none";
+  const usable =
+    !read.invalidated &&
+    !query.state.isInvalidated &&
+    Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS;
+  if (query.state.fetchStatus !== "idle") {
+    if (usable) return "pending";
+    void queryClient.cancelQueries({ queryKey, exact: true });
+    return "none";
+  }
+  return usable &&
+    query.state.status === "success" &&
+    query.state.dataUpdatedAt >= read.startedAt
+    ? "fresh"
+    : "none";
+}
+
+export function retirePageOpenReads(
+  queryClient: QueryClient,
+  keepDocumentId: string | null,
+) {
+  const reads = openReads(queryClient);
+  for (const [queryHash, read] of reads) {
+    if (read.documentId !== keepDocumentId) reads.delete(queryHash);
+  }
+}

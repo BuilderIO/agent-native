@@ -5,14 +5,22 @@ import type {
   ContentSpaceLandingResult,
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  Link,
+  PrefetchPageLinks,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
+import { startPageOpenDocumentReads } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import { readContentLandingRecovery } from "@/lib/content-landing";
 import {
@@ -114,6 +122,21 @@ export default function HomeRoute() {
   lastLocationHintRef.current = lastLocationHint;
   const recoveredDocumentId =
     readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
+  const queryClient = useQueryClient();
+  // The personal landing restores the last page visited, which the hint
+  // already names, so that page's reads start while the landing validates it.
+  const likelyDocumentId =
+    !spaceId && !recoveredDocumentId
+      ? (lastLocationHint?.documentId ?? null)
+      : null;
+  useEffect(() => {
+    if (!likelyDocumentId) return;
+    const search = new URLSearchParams(location.search);
+    startPageOpenDocumentReads(queryClient, likelyDocumentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+  }, [likelyDocumentId, location.search, queryClient]);
   const resolveLanding = useActionMutation<
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
@@ -192,6 +215,11 @@ export default function HomeRoute() {
     return <WorkspaceWelcomeUnavailable spaceId={spaceId} />;
   }
   return (
-    <DocumentSkeleton title={landingOptimisticTitle(null, lastLocationHint)} />
+    <>
+      <PrefetchPageLinks page={`/page/${likelyDocumentId ?? "home"}`} />
+      <DocumentSkeleton
+        title={landingOptimisticTitle(null, lastLocationHint)}
+      />
+    </>
   );
 }

@@ -23,7 +23,13 @@ import type { ContentSidebarSections } from "@shared/content-personal-navigation
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
 import type { QueryClient } from "@tanstack/react-query";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useRef } from "react";
 import { toast } from "sonner";
 
 import type {
@@ -33,12 +39,15 @@ import type {
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
 import {
   documentQueryFilter,
+  documentQueryKey,
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
+import { isDocumentCreationPending } from "../lib/optimistic-document";
+import { adoptPageOpenRead, startPageOpenRead } from "../lib/page-open-reads";
 import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
@@ -617,26 +626,79 @@ export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
   retry: false,
 };
 
+function documentReadParams(id: string, context: DocumentQueryContext) {
+  return documentQueryKey(id, context)[2];
+}
+
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
+  options: { refetchOnMount?: false } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
-    id
-      ? {
-          id,
-          ...(context.databaseId ? { databaseId: context.databaseId } : {}),
-          ...(context.databaseDocumentId
-            ? { databaseDocumentId: context.databaseDocumentId }
-            : {}),
-        }
-      : undefined,
+    id ? documentReadParams(id, context) : undefined,
     {
       enabled: !!id,
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
+      ...options,
     },
   );
+}
+
+// The page editor's read of its document. When a read started for this page
+// open has already landed, it counts as fetched for this mount instead of
+// being discarded and read again. Only the first mount can adopt; a later
+// document switch reads fresh.
+export function usePageOpenDocument(
+  documentId: string,
+  context: DocumentQueryContext,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentQueryKey(documentId, context);
+  const queryHash = hashKey(queryKey);
+  const adoptionRef = useRef<{ queryHash: string; fresh: boolean } | null>(
+    null,
+  );
+  if (adoptionRef.current?.queryHash !== queryHash) {
+    adoptionRef.current = {
+      queryHash,
+      fresh:
+        adoptionRef.current === null &&
+        adoptPageOpenRead(queryClient, queryKey) === "fresh",
+    };
+  }
+  const adoptedOpenRead = adoptionRef.current.fresh;
+  const query = useDocument(
+    documentId,
+    context,
+    adoptedOpenRead ? { refetchOnMount: false } : {},
+  );
+  return {
+    query,
+    fetchedForThisOpen: query.isFetchedAfterMount || adoptedOpenRead,
+  };
+}
+
+export function startPageOpenDocumentReads(
+  queryClient: QueryClient,
+  documentId: string,
+  context: DocumentQueryContext = {},
+) {
+  const queryKey = documentQueryKey(documentId, context);
+  const cached = queryClient.getQueryData<Document>(queryKey);
+  if (cached && isDocumentCreationPending(cached)) return;
+  startPageOpenRead(queryClient, documentId, {
+    queryKey,
+    queryFn: ({ signal }) =>
+      callAction<Document>(
+        "get-document",
+        documentReadParams(documentId, context),
+        { method: "GET", signal },
+      ),
+    retry: false,
+  });
+  startPreviewDocumentDraftRead(queryClient, documentId, cached);
 }
 
 export interface PreviewDocumentDraftRecord {
@@ -652,24 +714,82 @@ export interface PreviewDocumentDraftRecord {
   updatedAt: string;
 }
 
+// `editable: false` means the reader cannot edit the page, so it has no
+// private draft to recover; it is not the same answer as `draft: null`.
+export interface PreviewDocumentDraftResponse {
+  draft: PreviewDocumentDraftRecord | null;
+  editable: boolean;
+}
+
+function previewDocumentDraftReadOptions(
+  documentId: string,
+  createdAt?: string | null,
+) {
+  return {
+    queryKey: ["action", "get-preview-document-draft", { documentId }] as const,
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      callAction<PreviewDocumentDraftResponse>(
+        "get-preview-document-draft",
+        { documentId },
+        { method: "GET", signal },
+      ),
+    // A 403/404 for a row this young is one this connection cannot see yet
+    // rather than a refusal, so ride it out. Once the row is past its settling
+    // window a 403 is a real authorization answer and stays terminal.
+    ...documentScopedReadRetryOptions(isWithinCreateSettlingWindow(createdAt)),
+  };
+}
+
 export function usePreviewDocumentDraft(
-  documentId: string | null,
+  documentId: string,
   options: { enabled?: boolean; createdAt?: string | null } = {},
 ) {
-  return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
-    "get-preview-document-draft",
-    documentId ? { documentId } : undefined,
-    {
-      enabled: !!documentId && options.enabled !== false,
-      // The caller gates this off while it knows creation is pending. A 403/404
-      // that still arrives for a row that young is one this connection cannot
-      // see yet rather than a refusal, so ride it out. Once the row is past its
-      // settling window a 403 is a real authorization answer and stays terminal.
-      ...documentScopedReadRetryOptions(
-        isWithinCreateSettlingWindow(options.createdAt),
-      ),
-    },
+  return useQuery({
+    ...previewDocumentDraftReadOptions(documentId, options.createdAt),
+    // The caller gates this off while it knows creation is pending.
+    enabled: options.enabled !== false,
+  });
+}
+
+// Starts the draft read that page recovery verifies, alongside the document
+// read instead of after it. A page that is known not to need recovery skips
+// it.
+export function startPreviewDocumentDraftRead(
+  queryClient: QueryClient,
+  documentId: string,
+  known?: Document,
+) {
+  if (
+    known &&
+    (isDocumentCreationPending(known) ||
+      known.canEdit === false ||
+      known.source?.mode === "local-files")
+  ) {
+    return;
+  }
+  startPageOpenRead(
+    queryClient,
+    documentId,
+    previewDocumentDraftReadOptions(documentId, known?.createdAt),
   );
+}
+
+// Resolves once the current user's draft has been read for this page open:
+// the open's own read when it is still usable, otherwise one fresh read.
+// Rejects when that read fails or says the page is no longer editable.
+export async function ensurePreviewDocumentDraftRead(
+  queryClient: QueryClient,
+  documentId: string,
+  createdAt?: string | null,
+) {
+  const options = previewDocumentDraftReadOptions(documentId, createdAt);
+  const result =
+    adoptPageOpenRead(queryClient, options.queryKey) === "fresh"
+      ? queryClient.getQueryData<PreviewDocumentDraftResponse>(options.queryKey)
+      : await queryClient.fetchQuery({ ...options, staleTime: 0 });
+  if (result?.editable === false) {
+    throw new Error("The page is no longer editable by this user.");
+  }
 }
 
 export function useUpdatePreviewDocumentDraft() {

@@ -7,6 +7,7 @@ import type {
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
   DeleteDocumentPropertyRequest,
+  DocumentProperty,
   DocumentPropertyDefinition,
   DocumentPropertyOption,
   DocumentPropertiesResponse,
@@ -287,6 +288,7 @@ function withDatabaseScope<
 export function useDocumentProperties(
   documentId: string | null,
   databaseId: string | null,
+  options: { placeholder?: DocumentPropertiesResponse } = {},
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
@@ -295,9 +297,34 @@ export function useDocumentProperties(
       : undefined,
     {
       enabled: !!documentId,
-      placeholderData: (prev) => prev,
+      placeholderData: (prev) => options.placeholder ?? prev,
     },
   );
+}
+
+// The page read already carries the page's fields for the collection it was
+// read in, so the body need not wait on a second read to learn which field
+// owns it. It stands in only when every field belongs to this scope, and it
+// grants no edit rights until the property read answers.
+export function documentPropertiesPlaceholder(
+  documentId: string,
+  databaseId: string | null,
+  properties: DocumentProperty[] | undefined,
+): DocumentPropertiesResponse | undefined {
+  if (
+    !databaseId ||
+    !properties?.length ||
+    properties.some((property) => property.definition.databaseId !== databaseId)
+  ) {
+    return undefined;
+  }
+  return {
+    documentId,
+    databaseId,
+    canEditValues: false,
+    canManageSchema: false,
+    properties,
+  };
 }
 
 export function useConfigureDocumentProperty(
