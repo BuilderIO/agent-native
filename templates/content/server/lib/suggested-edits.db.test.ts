@@ -738,7 +738,10 @@ describe("Content suggested edits Blocks transaction", () => {
       .select({ content: schema.documentVersions.content })
       .from(schema.documentVersions)
       .where(eq(schema.documentVersions.documentId, documentId));
-    expect(versions).toEqual([{ content: "Before" }]);
+    expect(versions.map((version) => version.content).sort()).toEqual([
+      "After",
+      "Before",
+    ]);
     expect(
       yDocToProsemirrorJSON(accepted.prepared.ydoc.doc, "default"),
     ).toMatchObject({

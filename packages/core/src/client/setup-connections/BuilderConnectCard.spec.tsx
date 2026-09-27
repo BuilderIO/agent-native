@@ -192,6 +192,59 @@ describe("BuilderConnectCard", () => {
     ).not.toBeNull();
   });
 
+  it("keeps cancellation available after reconnect closes the management menu", () => {
+    const flow = {
+      configured: true,
+      statusResolved: true,
+      envManaged: false,
+      agentNativeProvisioningEnabled: false,
+      codeChangeConfigured: false,
+      builderEnabled: true,
+      orgName: "Acme",
+      connecting: false,
+      error: null,
+      accountExists: false,
+      hasFetchedStatus: true,
+      credentialSource: "user" as const,
+      canDisconnect: true,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
+    });
+    viewModel = {
+      ...viewModel,
+      configured: true,
+      status: { kind: "connected", label: "Connected" },
+      action: null,
+      connectFlow: flow,
+    };
+    mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
+
+    act(() => root.render(<BuilderConnectCard showManage />));
+    act(() => {
+      (
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+    const reconnect = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Reconnect Builder.io"),
+    );
+    act(() => reconnect?.click());
+
+    const cancel = container.querySelector<HTMLButtonElement>(
+      "[data-testid='builder-connection-cancel']",
+    );
+    expect(cancel?.textContent).toBe("Cancel");
+    act(() => cancel?.click());
+    expect(flow.start).toHaveBeenCalledOnce();
+    expect(flow.cancel).toHaveBeenCalledOnce();
+  });
+
   it("hides disconnect for workspace-managed credentials", () => {
     viewModel = {
       ...viewModel,

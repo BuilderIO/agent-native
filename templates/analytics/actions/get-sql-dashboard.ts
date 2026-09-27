@@ -1,5 +1,6 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
+  currentRequestUserIsOrgAdmin,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
@@ -12,7 +13,10 @@ import {
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-import { getDashboard } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  getOrgDashboardForReview,
+} from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
@@ -24,6 +28,12 @@ export default defineAction({
       .optional()
       .describe(
         "If true, include the full dashboard config including panel SQL. Defaults to false to keep agent context compact.",
+      ),
+    reviewPreview: z
+      .boolean()
+      .optional()
+      .describe(
+        "Human Review only: read a dashboard in the current organization. Requires an organization owner or admin.",
       ),
   }),
   http: { method: "GET" },
@@ -61,7 +71,21 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const ctx = { email, orgId };
 
-    const dash = await getDashboard(args.id, ctx);
+    let dash;
+    if (args.reviewPreview) {
+      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+        fail(
+          "Only organization owners and admins can preview reviewed dashboards.",
+          { statusCode: 403 },
+        );
+      }
+      dash = await getOrgDashboardForReview(args.id, orgId);
+    } else {
+      dash = await getDashboard(args.id, ctx);
+    }
+    if (args.reviewPreview && (!dash || dash.kind !== "sql")) {
+      fail("Dashboard not found.", { statusCode: 404 });
+    }
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
       if (seed) {

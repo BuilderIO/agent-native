@@ -17,10 +17,6 @@ function isEnvironmentLaneHost(hostname: string, productionHost: string) {
   );
 }
 
-/**
- * Return the paired environment origin for a known first-party app origin.
- * Custom workspace app hosts intentionally have no inferred lane.
- */
 export function resolveEnvironmentLaneOrigins(origin: string): string[] {
   let parsed: URL;
   try {
@@ -45,11 +41,6 @@ export function resolveEnvironmentLaneOrigins(origin: string): string[] {
   return [alternate.origin];
 }
 
-/**
- * Keep the internal beta/prod switch in the current Electron webview. The
- * host pair is intentionally exact so arbitrary cross-origin links still open
- * in the system browser.
- */
 export function isAllowedEnvironmentNavigation(
   current: URL,
   next: URL,

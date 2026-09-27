@@ -650,6 +650,7 @@ const messages = {
     reviewFeedback: "反馈",
     reviewOutput: "审核回答",
     reviewPreview: "预览回答",
+    reviewPreviewUnavailable: "无法预览",
     closePreview: "隐藏预览",
     addFeedback: "添加反馈",
     draftInstruction: "起草指令",
@@ -671,6 +672,7 @@ const messages = {
     saveUpdate: "保存更新草稿",
     draftSaved: "草稿已保存",
     noReviews: "暂无可审核的代理回答",
+    summarizeWithAgent: "使用智能体总结",
   },
   error: {
     genericTitle: "出了点问题",

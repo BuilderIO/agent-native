@@ -1,12 +1,3 @@
-/**
- * Safe context handoff for React changes that require semantic source edits.
- *
- * This module deliberately does not transform JSX. Compiler/AST tooling may
- * verify an anchor or validate syntax elsewhere, but reparenting, grouping,
- * wrappers, conditional renders, and shared component changes belong to the
- * coding agent, which can inspect the surrounding program before editing it.
- */
-
 import {
   type ElementProvenanceMethod,
   sourcePositionPrecision,
@@ -19,60 +10,32 @@ export type ReactSourceScope =
   | "shared-component-definition"
   | "unknown";
 
-/** Optional while an edit is only a live canvas preview. */
 export interface ReactSourceAnchor {
   id?: string;
   relPath?: string;
   sourceFile?: string;
   line?: number;
   column?: number;
-  /**
-   * Tier that produced line/column. On React 19 it is `debug-stack`, whose
-   * position is the dev server's TRANSFORMED output, not the authored JSX —
-   * see `sourcePositionPrecision`. Absent means the tier was never reported.
-   */
   method?: ElementProvenanceMethod;
   component?: string;
-  /**
-   * Where the nearest enclosing component was INSTANTIATED (`<Card …>` in the
-   * parent), as opposed to `sourceFile`/`line`/`column` above, which are the
-   * element's own authoring site. For a mapped instance this is the only
-   * location that names the call site the agent has to edit.
-   */
   ownerRelPath?: string;
   ownerSourceFile?: string;
   ownerLine?: number;
   ownerColumn?: number;
   ownerComponent?: string;
-  /**
-   * Tier that produced ownerLine/ownerColumn. Distinct from `method`: a
-   * source-plugin element carries an authored position while its owner site
-   * comes from the transformed React 19 owner stack.
-   */
   ownerMethod?: ElementProvenanceMethod;
-  /**
-   * React key of the nearest component instance. `.map()`-produced siblings
-   * share one authored call site, so line/column plus runtimeMultiplicity says
-   * "one of N instances" while this says WHICH one.
-   */
   ownerKey?: string;
   runtimeMultiplicity?: number;
   reason?: string;
   scope?: ReactSourceScope;
 }
 
-/**
- * An anchor with a complete, path-safe location. "Exact" here means every
- * field is present and validated — NOT that line/column are the authored JSX
- * coordinates. `positionPrecision` is the field that says which.
- */
 export interface ExactReactSourceAnchor {
   id: string;
   relPath: string;
   sourceFile: string;
   line: number;
   column: number;
-  /** "transformed" = the dev server's line, approximate against the source. */
   positionPrecision: SourcePositionPrecision;
   method?: ElementProvenanceMethod;
   component?: string;
@@ -82,7 +45,6 @@ export interface ExactReactSourceAnchor {
   ownerColumn?: number;
   ownerComponent?: string;
   ownerMethod?: ElementProvenanceMethod;
-  /** Precision of ownerLine/ownerColumn; absent when there is no owner site. */
   ownerPositionPrecision?: SourcePositionPrecision;
   ownerKey?: string;
   runtimeMultiplicity: number;
@@ -239,24 +201,7 @@ export function resolveRuntimeStructureMoveExecutionMode(input: {
   targetRuntimeOnly: boolean;
   sourceScreenId: string;
   targetScreenId: string;
-  /**
-   * The DESTINATION screen renders a live localhost app. Node-level
-   * `runtimeOnly` cannot stand in for this: a live drop anchor usually has no
-   * stored layer owner at all, so both `runtimeOnly` flags read false and the
-   * move looks like an ordinary source edit — except the destination's stored
-   * "content" is the bridge URL, so that edit writes an HTML document over the
-   * URL and never reaches the running DOM.
-   */
   targetScreenIsLive?: boolean;
-  /**
-   * The SUBJECT comes off the board surface, whose primitives are loose markup
-   * with no screen of their own. Only that route may be reinterpreted as an
-   * insert: dropping a real screen's element into a live app is a MOVE, and
-   * turning it into an insert would duplicate the element while leaving the
-   * original in its source screen. A board node can still be runtime-only when
-   * it was dragged out of a live screen; the board remains the source surface
-   * for this operation and the destination must receive the DOM insert.
-   */
   sourceScreenIsBoard?: boolean;
 }): RuntimeStructureMoveExecutionMode {
   if (
@@ -266,9 +211,6 @@ export function resolveRuntimeStructureMoveExecutionMode(input: {
   ) {
     return "screen-bridge-insert";
   }
-  // A live destination has no editable stored document, so any other move into
-  // one belongs to the coding agent — never to the stored-source path, which
-  // would write an HTML document over the destination's bridge URL.
   if (input.targetScreenIsLive && input.sourceScreenId !== input.targetScreenId)
     return "semantic-handoff";
   if (!input.subjectRuntimeOnly && !input.targetRuntimeOnly)
@@ -307,14 +249,6 @@ function safeRelativePath(value: string | undefined): string | null {
   return normalized;
 }
 
-/**
- * Owner-site fields, path-redacted exactly like the element location. The
- * owner position carries its OWN precision: a source-plugin element has an
- * authored `method` while its owner line comes from the transformed React 19
- * owner stack, so reusing `positionPrecision` here would overstate it.
- * `ownerComponent`/`ownerKey` survive an unsafe owner path — they are not
- * locations, and the key is what separates `.map()` siblings.
- */
 function ownerAnchorFields(anchor: ReactSourceAnchor) {
   const ownerPath =
     safeRelativePath(anchor.ownerRelPath) ??
@@ -364,21 +298,12 @@ function ownerAnchorFields(anchor: ReactSourceAnchor) {
   };
 }
 
-/** What prompt serialization emits: the anchor plus its honest precision. */
 export type RedactedReactSourceAnchor = ReactSourceAnchor & {
   positionPrecision: SourcePositionPrecision;
   sourcePathStatus?: "outside-connected-root";
   ownerSourcePathStatus?: "outside-connected-root";
 };
 
-/**
- * Bound an optional live-preview anchor for prompt serialization. Absolute
- * Fiber paths use the bridge-safe relPath when available; otherwise the
- * bounded absolute path remains visible with an explicit root-status marker.
- *
- * `positionPrecision` always ships with the coordinates: a reader that sees
- * `line` without it would take a React 19 stack line for the authored one.
- */
 export function redactReactSourceAnchor(
   anchor: ReactSourceAnchor | undefined,
 ): RedactedReactSourceAnchor | undefined {
@@ -442,9 +367,6 @@ function exactAnchor(
   const ownerSourceFile = safeRelativePath(anchor.ownerSourceFile);
   const leafPath = leafRelPath ?? leafSourceFile;
   const ownerPath = ownerRelPath ?? ownerSourceFile;
-  // A toolkit-rendered leaf can be outside the connected root while its
-  // owning app component is inside it. In that case the owner coordinates are
-  // the only source location this handoff can safely give the coding agent.
   const useOwnerPath = !leafPath && Boolean(ownerPath);
   const canonicalPath = leafPath ?? ownerPath;
   const sourceFile =
@@ -487,8 +409,6 @@ function exactAnchor(
   return {
     id,
     relPath: canonicalPath,
-    // Never forward an absolute jsxDEV/Fiber path. The verified root-relative
-    // path is exact for the bridge and safe to include in an agent prompt.
     sourceFile: sourceFile ?? canonicalPath,
     line: line!,
     column: column!,
@@ -541,10 +461,6 @@ function inferredDeterministicRejection(
   };
 }
 
-/**
- * Build a bounded, path-redacted context packet for the coding agent.
- * Validation failures never echo an unsafe path back to the caller.
- */
 export function buildReactSemanticHandoff(
   input: BuildReactSemanticHandoffInput,
 ): ReactSemanticHandoffBuildResult {
@@ -580,9 +496,6 @@ export function buildReactSemanticHandoff(
     input.runtimeRelationship.targetAnchorId,
     MAX_ID_LENGTH,
   );
-  // An insert's subject is new markup, not an existing runtime node, so it has
-  // no source anchor to reference. Every other operation acts on something
-  // that already exists in the program and must name it.
   if (
     (input.operation !== "insert" && subjectAnchorIds.length === 0) ||
     subjectAnchorIds.some((id) => !id || !anchorIds.has(id)) ||
@@ -689,8 +602,6 @@ export function buildReactSemanticHandoff(
       },
       instructions: [
         "Read every target file and verify each source anchor against the surrounding React control flow before editing.",
-        // React 19's only tier is the owner stack, so this branch is the norm
-        // on a modern dev server, not an edge case.
         ...(sourceAnchors.some(
           (anchor) =>
             anchor.positionPrecision !== "authored" ||
@@ -717,10 +628,6 @@ export function buildReactSemanticHandoff(
   };
 }
 
-/** Build the safe coding-agent packet for a runtime Layers-panel move that a
- * screen-scoped StructureMove bridge cannot execute. Both runtime endpoints
- * must already have complete compiler provenance; the generic builder rejects
- * either missing/unsafe anchor rather than guessing from a selector. */
 export function buildRuntimeReactStructureMoveHandoff(
   input: BuildRuntimeReactStructureMoveHandoffInput,
 ): ReactSemanticHandoffBuildResult {
@@ -746,8 +653,6 @@ export function buildRuntimeReactStructureMoveHandoff(
       kind: input.placement,
       subjectAnchorIds: ["subject"],
       targetAnchorId: "target",
-      // Keep the legacy singular field pointed at the destination while also
-      // carrying both endpoints explicitly for cross-screen execution.
       screenId: targetScreenId,
       sourceScreenId,
       targetScreenId,
@@ -757,11 +662,6 @@ export function buildRuntimeReactStructureMoveHandoff(
   });
 }
 
-/** Build the safe coding-agent packet for a runtime-only layer state toggle.
- * The JSX host element receives durable source metadata which survives
- * HMR and is preserved by the runtime Layers snapshot. This is deliberately a
- * semantic handoff: compiler provenance identifies the opening element, but no
- * generic AST transform is authorized to mutate the source. */
 export function buildRuntimeReactLayerStateHandoff(
   input: BuildRuntimeReactLayerStateHandoffInput,
 ): ReactSemanticHandoffBuildResult {

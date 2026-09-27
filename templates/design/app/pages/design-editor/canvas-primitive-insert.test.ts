@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import { applyVisualEdit } from "@shared/code-layer";
-import { createCornerNode, type PenPath } from "@shared/pen-path";
+import {
+  closePenPath,
+  createCornerNode,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
 import {
   VECTOR_END_ENDPOINT_PROPERTY,
   VECTOR_START_ENDPOINT_PROPERTY,
@@ -24,10 +29,6 @@ describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
 
   it("is a free canvas: no centering grid and no <main> wrapper", () => {
-    // The centering grid + <main> wrapper trapped drawn shapes at center and,
-    // once dragged, flow-inserted them (converting the wrapper to auto layout
-    // and stripping their absolute position). A blank screen must be a plain
-    // free canvas so absolute children keep their x,y.
     expect(html).not.toMatch(/display:\s*grid/);
     expect(html).not.toMatch(/place-items:\s*center/);
     expect(html).not.toContain("<main");
@@ -57,10 +58,6 @@ describe("blankScreenHtml", () => {
   });
 });
 
-// BUG F4: a live/localhost screen stores its route URL in `design_files.content`.
-// DOMParser turns that URL into body text, so appending a primitive returned a
-// full HTML document that the caller persisted OVER the URL — the screen stopped
-// being live and the route was destroyed.
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
   const rect: CanvasPrimitiveInsert = {
     kind: "rectangle",
@@ -180,8 +177,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
         nodeId: "outer",
         geometry: { x: 100, y: 100, width: 400, height: 400 },
       }) ?? "";
-    // Nested frame's inline left/top are relative to `outer`, so a primitive
-    // at document 180,180 lands inside it only if offsets accumulate.
     const nested =
       appendCanvasPrimitiveToHtml(outer, {
         kind: "frame",
@@ -218,8 +213,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       }) ?? "";
     const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
     const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
-    // Screen-absolute values here render the vector offset by the frame's own
-    // origin — 60,120 is 100,240 expressed inside a frame at 40,120.
     expect(style).toContain("left:60px");
     expect(style).toContain("top:120px");
   });
@@ -322,8 +315,6 @@ describe("a freshly drawn frame is visible", () => {
     "";
 
   it("carries a background on a light destination", () => {
-    // Deselecting a bare frame leaves nothing on screen, and a second one
-    // drawn next to it is invisible too.
     expect(frameStyle(drawFrame(false))).toMatch(
       /background(-color)?:\s*#fff/i,
     );
@@ -375,8 +366,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
         geometry: { x: 150, y: 150, width: 50, height: 50 },
       }) ?? "";
     const style = styleOf(withRect, "r");
-    // 150 - 100 frame origin - 5 border: an absolute child starts inside the
-    // border, so ignoring it shifts everything dropped into the frame.
     expect(px(style, "left")).toBe(45);
     expect(px(style, "top")).toBe(45);
   });
@@ -402,7 +391,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
 
     const rect = styleOf(withRect, "r");
     const line = styleOf(withLine, "l");
-    // Both land inside the same host, so both must be in the host's space.
     expect(px(rect, "left")).toBe(60);
     expect(px(rect, "top")).toBe(80);
     expect(px(line, "left")).toBe(px(rect, "left"));
@@ -456,8 +444,6 @@ describe("every primitive kind shares one coordinate space", () => {
       const top = Number(
         /(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1] ?? NaN,
       );
-      // Absolute canvas coords (160/180) would put it outside the host, which
-      // clips its content — the shape then exists in Layers and nowhere else.
       expect(left, `${kind} left`).toBe(60);
       expect(top, `${kind} top`).toBe(80);
     },
@@ -490,7 +476,6 @@ describe("text takes its colour from what it lands on", () => {
     ).exec(html)?.[1] ?? "";
 
   it("is not white when dropped into a white frame on the board", () => {
-    // isBoardTarget describes the surface BEHIND the frame, not the frame.
     const withFrame =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -516,8 +501,6 @@ describe("text takes its colour from what it lands on", () => {
   });
 
   it("ignores a background on the board body, which is never painted", () => {
-    // The board renderer forces its document transparent, so this white is
-    // invisible: judging it would put dark text on the dark canvas in front.
     const whiteBody =
       "<!doctype html><html><head><title>S</title></head>" +
       '<body style="background-color: #ffffff"></body></html>';
@@ -551,9 +534,6 @@ describe("text takes its colour from what it lands on", () => {
   });
 
   it("inherits instead of going white on a light canvas", () => {
-    // The board document is transparent, so its colour can only arrive from
-    // the host — without it the light canvas reads as the old dark board and
-    // the text lands white-on-light.
     const html =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -578,7 +558,6 @@ describe("nesting follows where you started, not whether the box fits", () => {
         nodeId: "host",
         geometry: { x: 100, y: 100, width: 115, height: 71 },
       }) ?? "";
-    // Origin inside the frame, right edge past it — a click-created text.
     const html =
       appendCanvasPrimitiveToHtml(base, {
         kind: "text",
@@ -659,13 +638,47 @@ describe("pen path paint defaults", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
-    // A fill added later must not paint the chord (Figma).
-    expect(path.getAttribute("fill-opacity")).toBe("0");
+    expect(path.getAttribute("fill-opacity")).toBeNull();
+    expect(path.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(path.style.getPropertyPriority("fill-opacity")).toBe("important");
     expect(
       committedPath(penPath("M 10 10 L 90 10 L 50 70 Z")).getAttribute(
         "fill-opacity",
       ),
     ).toBeNull();
+  });
+
+  it("restores fresh open-path opacity on its first close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 90, y: 10 }),
+        createCornerNode({ x: 50, y: 70 }),
+      ],
+    };
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      ...penPath(serializePenPath(openPath)),
+    });
+    if (!html) throw new Error("open pen path did not commit");
+    const openElement = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path")!;
+    expect(openElement.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openElement.hasAttribute("data-an-open-fill-opacity")).toBe(true);
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "pen-1",
+      closePenPath(openPath),
+    );
+    if (!closed) throw new Error("first close did not commit");
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path")!;
+    expect(closedElement.getAttribute("fill-opacity")).toBeNull();
+    expect(closedElement.style.getPropertyValue("fill-opacity")).toBe("");
+    expect(closedElement.hasAttribute("data-an-open-fill-opacity")).toBe(false);
   });
 
   it("still honours an explicitly chosen fill and stroke", () => {
@@ -742,8 +755,6 @@ describe("reopening and reclosing a pen path", () => {
   };
 
   it("drops the stroke it added for visibility when the path closes again", () => {
-    // A path drawn closed commits unstroked; reopening has to paint something,
-    // but reclosing must land back on the closed default, not keep the outline.
     const reopened = writeBackVectorEditedPenPath(
       svgHtml("rgb(218 218 218)", "none"),
       "pen-1",
@@ -754,12 +765,14 @@ describe("reopening and reclosing a pen path", () => {
       fill: "rgb(218 218 218)",
       stroke: "#000000",
     });
-    expect(
-      new DOMParser()
-        .parseFromString(reopened, "text/html")
-        .querySelector("path")
-        ?.getAttribute("fill-opacity"),
-    ).toBe("0");
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(reopenedPath.getAttribute("fill-opacity")).toBeNull();
+    expect(reopenedPath.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(reopenedPath.style.getPropertyPriority("fill-opacity")).toBe(
+      "important",
+    );
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -786,7 +799,9 @@ describe("reopening and reclosing a pen path", () => {
     const openEl = new DOMParser()
       .parseFromString(reopened, "text/html")
       .querySelector("path")!;
-    expect(openEl.getAttribute("fill-opacity")).toBe("0");
+    expect(openEl.getAttribute("fill-opacity")).toBeNull();
+    expect(openEl.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openEl.style.getPropertyPriority("fill-opacity")).toBe("important");
     expect(openEl.style.fill).toBe("#ff0000");
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -946,9 +961,6 @@ describe("reopening and reclosing a pen path", () => {
 
 describe("arrow paint target", () => {
   it("is the shaft, not the arrowhead buried in <defs>", () => {
-    // The marker's <path> is appended before the shaft, so a descendant
-    // search finds the arrowhead first — the bridge must match direct
-    // children only, like code-layer's childIndexes walk.
     const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
       kind: "arrow",
       nodeId: "arrow-1",
@@ -1141,15 +1153,6 @@ describe("arrow paint target", () => {
   );
 });
 
-// search-icon-2: a freshly drawn shape must expose a `backgroundColor` the
-// Fill inspector can read once the selection is refreshed from SOURCE (not
-// the live iframe) — e.g. right after the draw commits new file content.
-// refreshElementInfoFromContent re-derives computedStyles by parsing the
-// raw inline `style` attribute (parseInlineStyleAttribute) through
-// cssStyleAliases, which only aliases hyphenated longhands
-// (`border-color` -> `borderColor`) — it never expands a shorthand like
-// `background: <color>` into the `backgroundColor` key FillProperties
-// reads, so the shape appeared to have no fill at all after that refresh.
 describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyles refresh", () => {
   it("an ellipse's background survives cssStyleAliases as backgroundColor", () => {
     const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {

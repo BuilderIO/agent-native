@@ -1,20 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-// Google Slides PPTX-importer calibration deck generator.
-// Run with: pnpm exec tsx generate-calibration.ts --template <deck.pptx>
-// (from templates/slides, so node_modules resolve)
-//
-// Strategy: reuse a real exported deck's package parts (presentation.xml,
-// slideLayouts, slideMaster, theme, content types) and replace only the
-// slides with hand-written DrawingML calibration boxes. Embedded fonts and
-// now-orphaned media/chart/embedding parts are stripped since nothing new
-// references them.
 import { fileURLToPath } from "node:url";
 
 import { XMLParser } from "fast-xml-parser";
-// Bare specifiers resolve via templates/slides' own package.json deps now
-// that this script lives inside that package (both ship their own types, so
-// this also gets real type-checking instead of an untyped deep import).
 import JSZip from "jszip";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -34,10 +22,6 @@ const SLIDE_W_PT = 960;
 const SLIDE_H_PT = 540;
 const emu = (pt: number) => Math.round(pt * EMU_PER_POINT);
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type LnSpc =
   | { kind: "pts"; val: number }
   | { kind: "pct"; val: number }
@@ -56,13 +40,13 @@ interface BoxDef {
   sizePt: number;
   lnSpc: LnSpc;
   anchor: Anchor;
-  tIns: number; // pt
-  lIns: number; // pt
+  tIns: number;
+  lIns: number;
   autofit: Autofit;
-  spc?: number; // hundredths of a point, undefined = attribute omitted
-  lines: string[]; // per-line/per-paragraph text, first entry already carries the label prefix
+  spc?: number;
+  lines: string[];
   breakType: BreakType;
-  spcBefLines?: boolean[]; // 'p' mode only: true = that paragraph gets spcBef 1200
+  spcBefLines?: boolean[];
 }
 
 const lnSpcStr = (l: LnSpc) =>
@@ -75,11 +59,6 @@ const threeLineBr = (label: string) => [
 const twoLineBr = (label: string) => [`${label} L1 Alpha`, "L2 Bravo"];
 const oneLine = (label: string, text: string) => [`${label} ${text}`];
 
-// ---------------------------------------------------------------------------
-// Slide layout grids
-// ---------------------------------------------------------------------------
-
-// 3 cols x 2 rows, 300x200pt boxes (slides 1-4: 6 boxes each).
 const GRID_A = [
   { x: 20, y: 60 },
   { x: 330, y: 60 },
@@ -90,7 +69,6 @@ const GRID_A = [
 ];
 const GRID_A_SIZE = { w: 300, h: 200 };
 
-// 3 cols x 2 rows, 300x120pt boxes (slide 5, size stated explicitly).
 const GRID_B = [
   { x: 20, y: 100 },
   { x: 330, y: 100 },
@@ -131,9 +109,6 @@ function gridBoxes(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Slide 1: Inter 40pt, 3 lines via <a:br/>, lnSpc sweep
-// ---------------------------------------------------------------------------
 function slide1(): BoxDef[] {
   const font = "Inter";
   const sizePt = 40;
@@ -166,9 +141,6 @@ function slide1(): BoxDef[] {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Slide 2: same as slide 1 but Inter 16pt, different lnSpc sweep
-// ---------------------------------------------------------------------------
 function slide2(): BoxDef[] {
   const font = "Inter";
   const sizePt = 16;
@@ -201,9 +173,6 @@ function slide2(): BoxDef[] {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Slide 3: Geist Mono 12pt, lnSpc sweep + one 3-paragraph (no <a:br/>) box
-// ---------------------------------------------------------------------------
 function slide3(): BoxDef[] {
   const font = "Geist Mono";
   const sizePt = 12;
@@ -235,7 +204,6 @@ function slide3(): BoxDef[] {
       breakType: "br",
     };
   });
-  // 6th box: three separate <a:p> paragraphs (no <a:br/>), spcPts 1800.
   const label6 = `${labelPrefix}B6`;
   const pos6 = GRID_A[5];
   boxes.push({
@@ -257,9 +225,6 @@ function slide3(): BoxDef[] {
   return boxes;
 }
 
-// ---------------------------------------------------------------------------
-// Slide 4: Arial 20pt lnSpc sweep (single line) + Inter cross-font control
-// ---------------------------------------------------------------------------
 function slide4(): BoxDef[] {
   const sizePt = 20;
   const labelPrefix = "S4";
@@ -290,7 +255,6 @@ function slide4(): BoxDef[] {
       breakType: "br",
     };
   });
-  // 6th box: Inter cross-font control, spcPts 3000.
   const label6 = `${labelPrefix}B6`;
   const pos6 = GRID_A[5];
   boxes.push({
@@ -312,9 +276,6 @@ function slide4(): BoxDef[] {
   return boxes;
 }
 
-// ---------------------------------------------------------------------------
-// Slide 5: Insets/anchors, Inter 18pt, spcPts 2700, 2 lines via <a:br/>
-// ---------------------------------------------------------------------------
 function slide5(): BoxDef[] {
   const font = "Inter";
   const sizePt = 18;
@@ -347,14 +308,11 @@ function slide5(): BoxDef[] {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Slide 6: width/tracking + paragraph spacing
-// ---------------------------------------------------------------------------
 function slide6(): BoxDef[] {
   const labelPrefix = "S6";
   const interText = "Hamburgefonstiv Quarterly";
   const monoText = "HAMBURGEFONSTIV QUARTERLY";
-  const rowY = [10, 74, 138, 202, 266]; // 5 stacked 800x60 rows, 4pt gaps
+  const rowY = [10, 74, 138, 202, 266];
   const common = {
     w: 800,
     h: 60,
@@ -456,11 +414,6 @@ const SLIDES: BoxDef[][] = [
   slide6(),
 ];
 
-// ---------------------------------------------------------------------------
-// Hard geometry check: no two boxes on the same slide may overlap, and every
-// box must sit fully inside the 960x540pt slide. Fail fast if the layout data
-// above is wrong, rather than shipping a bad calibration deck.
-// ---------------------------------------------------------------------------
 function assertNoOverlaps() {
   SLIDES.forEach((boxes, slideIdx) => {
     for (const b of boxes) {
@@ -494,9 +447,6 @@ function assertNoOverlaps() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// DrawingML builders
-// ---------------------------------------------------------------------------
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -600,9 +550,6 @@ const SLIDE_RELS_XML =
   `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>` +
   `</Relationships>`;
 
-// ---------------------------------------------------------------------------
-// Package surgery
-// ---------------------------------------------------------------------------
 const STRIP_PREFIXES = [
   "ppt/slides/",
   "ppt/notesSlides/",
@@ -618,11 +565,6 @@ async function main() {
   const templateBuf = await fs.readFile(TEMPLATE_PPTX);
   const zip = await JSZip.loadAsync(templateBuf);
 
-  // Read the template's true declared slide size for the full-bleed
-  // background rects. It doesn't cleanly equal 960pt*12700 on the width axis
-  // (12188952 vs 12192000 EMU - a ~0.24pt rounding artifact from whatever
-  // produced the source deck), so derive it from the part itself rather than
-  // from the 960x540pt calibration grid used for box coordinates.
   const presentationBefore = await zip
     .file("ppt/presentation.xml")!
     .async("string");
@@ -632,17 +574,12 @@ async function main() {
   const slideCxEmu = Number(sldSzMatch[1]);
   const slideCyEmu = Number(sldSzMatch[2]);
 
-  // Drop old slides/notes and now-orphaned media/chart/embedding/font parts.
-  // (Confirmed the sole slideLayout + slideMaster reference nothing under
-  // these prefixes, so removing them leaves no dangling relationships.)
   for (const relPath of Object.keys(zip.files)) {
     if (STRIP_PREFIXES.some((p) => relPath.startsWith(p))) {
       zip.remove(relPath);
     }
   }
 
-  // Write the 6 calibration slides + their rels (each points at the one
-  // surviving slide layout).
   SLIDES.forEach((boxes, i) => {
     const n = i + 1;
     zip.file(
@@ -652,8 +589,6 @@ async function main() {
     zip.file(`ppt/slides/_rels/slide${n}.xml.rels`, SLIDE_RELS_XML);
   });
 
-  // --- [Content_Types].xml: drop old slide/notesSlide overrides + fntdata
-  // default, add overrides for the 6 new slides.
   let contentTypes = await zip.file("[Content_Types].xml")!.async("string");
   contentTypes = contentTypes
     .replace(/<Override PartName="\/ppt\/slides\/slide\d+\.xml"[^>]*\/>/g, "")
@@ -672,9 +607,6 @@ async function main() {
   );
   zip.file("[Content_Types].xml", contentTypes);
 
-  // --- ppt/_rels/presentation.xml.rels: drop old slide + font rels, add new.
-  // Done before the sldIdLst below, because the ids the slides get are
-  // whatever these leave free.
   let presRels = await zip
     .file("ppt/_rels/presentation.xml.rels")!
     .async("string");
@@ -684,9 +616,6 @@ async function main() {
       "",
     )
     .replace(/<Relationship Id="rId201314"[^>]*\/>/g, "");
-  // The template's own master, theme, notesMaster and tableStyles rels survive
-  // here, and commonly sit on rId2..rId7 — numbering the slides from rId2
-  // would duplicate those ids and point a slide entry at the theme.
   const firstSlideRel =
     Math.max(
       0,
@@ -702,7 +631,6 @@ async function main() {
   );
   zip.file("ppt/_rels/presentation.xml.rels", presRels);
 
-  // --- ppt/presentation.xml: replace sldIdLst, drop embeddedFontLst.
   let presentation = await zip.file("ppt/presentation.xml")!.async("string");
   const newSldIdLst =
     "<p:sldIdLst>" +
@@ -715,14 +643,12 @@ async function main() {
     .replace(/<p:embeddedFontLst>[\s\S]*?<\/p:embeddedFontLst>/, "");
   zip.file("ppt/presentation.xml", presentation);
 
-  // --- write the pptx
   const outBuf = await zip.generateAsync({
     type: "nodebuffer",
     compression: "DEFLATE",
   });
   await fs.writeFile(OUT_PPTX, outBuf);
 
-  // --- write cases.json
   const cases = SLIDES.flatMap((boxes, i) =>
     boxes.map((b) => ({
       slide: i + 1,
@@ -745,8 +671,6 @@ async function main() {
   );
   await fs.writeFile(OUT_CASES, JSON.stringify(cases, null, 2));
 
-  // --- validate the ACTUAL written file (re-read from disk, not the
-  // in-memory zip) so a serialization bug wouldn't slip past.
   const errors = await validatePackage(OUT_PPTX);
   if (errors.length > 0) {
     console.error(`VALIDATION FAILED (${errors.length} issue(s)):`);
@@ -760,10 +684,6 @@ async function main() {
   console.log(`Cases: ${OUT_CASES}`);
 }
 
-// ---------------------------------------------------------------------------
-// Validation: every .rels target must resolve to a real part, and every .xml
-// part must parse cleanly.
-// ---------------------------------------------------------------------------
 async function validatePackage(pptxPath: string): Promise<string[]> {
   const errors: string[] = [];
   const buf = await fs.readFile(pptxPath);
@@ -811,8 +731,6 @@ async function validatePackage(pptxPath: string): Promise<string[]> {
     }
   }
 
-  // Sanity: exactly 6 slide overrides in Content_Types, 6 slide rels in
-  // presentation.xml.rels, 6 sldId entries in presentation.xml.
   const contentTypes = await zip.file("[Content_Types].xml")!.async("string");
   const slideOverrideCount = (
     contentTypes.match(

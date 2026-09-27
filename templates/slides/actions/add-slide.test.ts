@@ -7,6 +7,7 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
+const mockTrack = vi.fn();
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -114,6 +115,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
@@ -123,8 +128,6 @@ vi.mock("@agent-native/core/collab", () => ({
   agentTouchDocument: (...args: unknown[]) => mockAgentTouchDocument(...args),
 }));
 
-// Real per-deck lock just runs the fn; a passthrough keeps the unit test focused
-// on add-slide's own logic without exercising the shared lock module.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
   isAgentPatchCaller: (caller: string | undefined) =>
@@ -165,6 +168,7 @@ import action from "./add-slide";
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
+  mockTrack.mockReset();
   deckData = {
     title: "Test deck",
     slides: [
@@ -178,6 +182,191 @@ beforeEach(() => {
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
+  });
+
+  it("carries a generation attempt id into slide writes", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 3,
+      generationAttemptId: "attempt-1",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    });
+
+    const edited = mockTrack.mock.calls.find(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      slide_count: 3,
+    });
+  });
+
+  it("closes an incremental generation on its final slide", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      output_type: "deck",
+      slide_count: 3,
+      generation_mode: "incremental",
+      source: "add_slide_action",
+    });
+  });
+
+  it("requires an explicit completion flag for each action-owned incremental write", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-intermediate",
+        content: "<div>Intermediate</div>",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "generation_completion_flag_required",
+    });
+
+    expect(transactionFn).not.toHaveBeenCalled();
+  });
+
+  it("rejects completion before a valid target override without writing", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 2,
+      generationAttemptId: "attempt-1",
+    };
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-premature",
+          content: "<div>Not final</div>",
+          generationComplete: true,
+          targetSlideCountOverride: 4,
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "generation_completed_before_target_reached",
+      details: {
+        deckId: "deck-1",
+        currentSlideCount: 2,
+        postWriteSlideCount: 3,
+        targetSlideCount: 4,
+      },
+    });
+
+    expect(transactionFn).not.toHaveBeenCalled();
+    expect(updateFn).not.toHaveBeenCalled();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
+  it("completes when the final slide reaches the persisted target", async () => {
+    deckData.generationContext = {
+      targetSlideCount: 3,
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-1",
+      output_id: "deck-1",
+      slide_count: 3,
+      outcome: "completed",
+    });
+    expect(transactionFn).toHaveBeenCalledOnce();
+  });
+
+  it("does not emit action completion for a browser-owned generation", async () => {
+    deckData.generationContext = {
+      mode: "new",
+      generationAttemptId: "attempt-browser",
+    };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-final",
+        content: "<div>Final</div>",
+        generationComplete: true,
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
+  it("returns a persisted-write warning and tracks completion when notification fails", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: "action",
+    };
+    mockNotifyClients.mockRejectedValueOnce(new Error("broadcast failed"));
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    expect(transactionFn).toHaveBeenCalledOnce();
+    expect(updatedFields).toBeDefined();
+    expect(result).toMatchObject({
+      slideId: "slide-final",
+      notificationStatus: "failed",
+      notificationErrorType: "Error",
+    });
+    expect(result).not.toHaveProperty("error");
+    expect(mockTrack).toHaveBeenCalledWith(
+      "deck_change_notification_failed",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        failure_stage: "client_notification",
+        error_type: "Error",
+      }),
+      undefined,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(true);
   });
 
   it.each(["tool", "webmcp"] as const)(
@@ -251,6 +440,43 @@ describe("add-slide", () => {
         targetSlideCountOverride: input.targetSlideCountOverride,
       },
     });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
+  it("adds a legacy slide that stores contenteditable=false, and an exact duplicate", async () => {
+    const legacy =
+      '<div class="fmd-slide"><h2 contenteditable="false" data-builder-id="b-2">Kept</h2></div>';
+    deckData.slides = [{ id: "slide-1", content: legacy }];
+    await expect(
+      action.run(
+        { deckId: "deck-1", slideId: "slide-dup", content: legacy },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-legacy",
+          content:
+            '<div class="fmd-slide"><p contenteditable="false">x</p></div>',
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("refuses a new slide that carries rendered editor markup", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: '<div contenteditable="true">New</div>',
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
     expect(updateFn).not.toHaveBeenCalled();
   });
 
@@ -393,14 +619,10 @@ describe("add-slide", () => {
       "slide-2",
     ]);
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
-    // The broadcast now carries the new slideId + agent actor (backwards-
-    // compatible payload — the { type, deckId } fields are still present).
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-new",
       actor: "agent",
     });
-    // The agent's presence is recorded on the DECK presence doc for the new
-    // slide so the editor can light it up + show a lingering "AI edited" tag.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
       expect.objectContaining({
@@ -442,7 +664,6 @@ describe("add-slide", () => {
   });
 
   it('appends for position "end" instead of failing validation', async () => {
-    // "end" is the word an agent reaches for; it used to fail zod as NaN.
     const result = await action.run({
       deckId: "deck-1",
       slideId: "slide-new",

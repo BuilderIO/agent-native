@@ -1,44 +1,17 @@
-/**
- * Hub consume — fetches a remote agent-native app's org-scope MCP servers
- * and projects them into the local MCP manager's config shape.
- *
- * Opt-in via env:
- *   AGENT_NATIVE_MCP_HUB_URL   = https://dispatch.example.com
- *   AGENT_NATIVE_MCP_HUB_TOKEN = <shared secret, matches hub's token>
- *
- * Failures are non-fatal — if the hub is unreachable or the token is
- * wrong, the app boots with just its local MCP config and logs a warning.
- */
-
 import type { McpHttpServerConfig, McpServerConfig } from "./config.js";
 import type { HubServersResponse } from "./hub-routes.js";
 import { isHubConsumeEnabled } from "./hub-routes.js";
 
 const FETCH_TIMEOUT_MS = 5_000;
 
-/**
- * Normalize an orgId to the canonical form used by the visibility gate.
- * Must match `isMcpToolAllowedForRequest()` in `visibility.ts` — otherwise
- * a hub server published under "ACME-Corp" would build a key
- * `hub_ACME-Corp_...` that can never match a request whose active org is
- * normalized to "acme-corp", and the tool would be invisible to everyone.
- */
 function normalizeOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
-/** Merged-config key prefix for hub-sourced servers — avoids collision with
- * the consuming app's own `org_<orgId>_<name>` entries. */
 function hubMergedKey(orgId: string, name: string): string {
   return `hub_${normalizeOrgId(orgId)}_${name}`;
 }
 
-/**
- * Last successful fetch, cached in-memory. A transient hub outage during a
- * local reconfigure() call must NOT wipe loaded hub servers from the running
- * MCP manager — we keep serving the last good snapshot until the hub is
- * reachable again.
- */
 let lastGoodServers: Record<string, McpServerConfig> | null = null;
 
 export type HubFetchResult =
@@ -46,16 +19,10 @@ export type HubFetchResult =
   | { state: "ok"; servers: Record<string, McpServerConfig> }
   | {
       state: "unreachable";
-      /** Last-known-good servers if we have them, otherwise an empty map. */
       servers: Record<string, McpServerConfig>;
       error: string;
     };
 
-/**
- * Fetch the remote hub's org-scope servers. Returns a tri-state so callers
- * can distinguish "hub said empty" from "hub is unreachable" and keep the
- * last-known-good set live across transient failures.
- */
 export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
   if (!isHubConsumeEnabled()) return { state: "disabled" };
   const base = process.env.AGENT_NATIVE_MCP_HUB_URL!.trim();
@@ -147,11 +114,6 @@ export async function fetchHubServersDetailed(): Promise<HubFetchResult> {
   return { state: "ok", servers: out };
 }
 
-/**
- * Back-compat convenience that always returns a server map. On unreachable,
- * callers get the last-known-good set (empty on first-fetch failure) so one
- * flaky hub call can't wipe loaded servers from the running manager.
- */
 export async function fetchHubServers(): Promise<
   Record<string, McpServerConfig>
 > {
@@ -160,7 +122,6 @@ export async function fetchHubServers(): Promise<
   return result.servers;
 }
 
-/** Reset the in-memory cache. Exposed for tests only. */
 export function _resetHubCacheForTests(): void {
   lastGoodServers = null;
 }

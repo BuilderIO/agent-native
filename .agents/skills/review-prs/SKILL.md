@@ -118,8 +118,7 @@ The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
- - Shomix (`shomix`) - Clips, only when the PR is specific to the Clips
-   app
+ - Shomix (`shomix`, GitHub user ID `100691266`) - any app or framework area
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
@@ -140,12 +139,14 @@ Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
 
-For a verified PR authored by Shomix (`shomix`) and limited to Clips app or
-template behavior, including supporting shared framework or Desktop plumbing
-required by that Clips feature, auto-approve by default. This includes that
-owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
-human or bot feedback. The owner exception overrides the normal UX-owner,
-narrow-refactor, check, and review-resolution gates.
+For a verified PR authored by Shomix (`shomix`, GitHub user ID `100691266`),
+auto-approve by default regardless of app scope, UX implications, refactors,
+failed or pending checks, or ordinary unresolved human or bot feedback. Verify
+both the login and immutable GitHub user ID; do not rely on the mutable login
+alone. This exception does not waive the ultra-scary safety gate, the
+external-author prohibition, or the independent review requirement for PRs
+changing review or approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls.
 
 For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
 Factory-specific, auto-approve by default, including that owner's UX changes,
@@ -319,10 +320,16 @@ A worktree-created branch is a normal, valid PR source. Do not ask an agent to
 copy its changes into the shared checkout before reviewing or approving. Read
 the remote PR diff as the source of truth. If this skill needs to update a PR
 from a worktree, keep all GitHub and Git commands in that worktree's cwd and
-current branch, publish the complete nonignored snapshot with
-`corepack pnpm ship:push`, and update the existing PR instead of creating a
-second one. Never reset, rebase, stash, or overwrite local work without
-explicit authorization.
+current branch, batch all currently known actionable fixes into one complete
+snapshot, and publish it with `corepack pnpm ship:push -m` plus a subject
+naming the actual fix (for example, `fix: deduplicate chat start checkpoints`).
+The helper refuses an omitted or generic subject. Update the existing PR
+instead of creating a second one. Never reset, rebase, stash, or overwrite
+local work without explicit authorization.
+
+Rebase or merge `origin/main` only when GitHub reports an actual conflict; for
+a shared branch, prefer a normal merge. Never sync just to clear a behind
+count or restart checks.
 
 ## End-of-run recap
 

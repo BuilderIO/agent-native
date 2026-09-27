@@ -180,6 +180,18 @@ export default {
     notFoundBackToDesigns: "العودة إلى التصاميم",
     teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   chat: {
     emptyState: "صف تصميمًا لإنشائه",
     suggestionLandingPage: "صمم صفحة هبوط لشركتي الناشئة",
@@ -575,6 +587,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "التعاون المباشر",
+      description:
+        "اسمح للأشخاص الذين لا يستطيعون الوصول إلى localhost الخاص بالمالك بمشاهدة نسخة مباشرة من هذا التصميم وتحريرها.",
+      enabled: "مفعّل",
+      disabled: "متوقف",
+      saving: "جارٍ الحفظ…",
+      enableError: "تعذّر تحديث إعداد التعاون المباشر.",
+    },
     vectorEndpoints: {
       startPoint: "نقطة البداية",
       endPoint: "نقطة النهاية",
@@ -942,6 +963,9 @@ export default {
     signUpToSaveDescription:
       "انشئ حسابا مجانيا لحفظ التصاميم وتخطيطات الشاشة وانشاء اتجاهات جديدة.",
     signUpToShare: "سجل للمشاركة",
+    signUpToShareLiveCanvas: "سجّل لمشاركة لوحة مباشرة",
+    liveCanvasLink: "رابط اللوحة المباشرة",
+    liveCanvasWaitingForOwner: "بانتظار لقطة لوحة المالك المباشرة.",
     shareEditorLink: "رابط محرر التصميم",
     shareEditorLinkDescription:
       "يمكن لاي شخص لديه صلاحية الوصول فتح هذا التصميم في المحرر.",
@@ -1212,12 +1236,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
       applyButton: "تطبيق الأنماط",
+      applySharedEdits: "تطبيق التعديلات",
       previewLabel: "معاينة مرئية معلقة",
       applyDesignUpdates: "تطبيق تحديثات التصميم",
       applying: "جارٍ التطبيق…",
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
       sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
@@ -1229,6 +1255,8 @@ export default {
       sourceCheckFailedToast:
         "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
       copiedToast: "تم نسخ موجه النمط",
+      copiedToastDescription:
+        "الصقه في وكيل البرمجة واطلب منه تطبيق التغييرات المرئية.",
       abortedToast: "تم تجاهل المعاينة المعلقة",
       interactBlocked:
         "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
@@ -1292,6 +1320,8 @@ export default {
       annotationSendError:
         "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
       codingHandoffError: "تعذر إنشاء تسليم الترميز",
+      visualEditPendingConflict:
+        "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
@@ -1606,7 +1636,65 @@ export default {
       "تم تجاهل {{count}} مسودة تعليق غير مرسلة عند مغادرة هذا العرض.",
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
+  homeContext: {
+    websiteReference: "إرفاق موقع ويب",
+    websiteUrlLabel: "عنوان URL لموقع الويب",
+    websiteUrl: "الصق عنوان URL لموقع ويب",
+    figmaUrlLabel: "رابط Figma",
+    invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+    tooMany: "اختر ما يصل إلى 20 مرجعًا.",
+    invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
+    createSystem: "إنشاء نظام تصميم",
+    noSystems:
+      "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+    searchSystems: "البحث في أنظمة التصميم…",
+    searchFrames: "البحث في إطارات Figma…",
+    searchDesigns: "البحث في التصاميم…",
+    searchPresentations: "البحث في العروض التقديمية…",
+    searchDesign: "البحث في التصميم…",
+    useDesignSystem: "استخدام نظام تصميم",
+    notReady:
+      "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
+    search: "البحث في السياق…",
+    figmaUrl: "ألصق رابط Figma",
+    browse: "تصفح الإطارات",
+    loadFailed: "تعذّر تحميل هذا المرجع.",
+    retry: "إعادة المحاولة",
+    empty: "لا توجد مراجع مطابقة.",
+    none: "بلا",
+    design: "التصميم",
+    slides: "الشرائح",
+    referenceDesign: "استخدام تصميم كمرجع",
+    figmaReference: "إرفاق Figma",
+    referenceDeck: "استخدام عرض تقديمي كمرجع",
+    quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
+    quickDashboard: "إنشاء لوحة معلومات",
+    quickDeck: "إنشاء عرض تقديمي",
+    deckPrompt:
+      "أنشئ عرضًا تقديميًا أنيقًا يتضمن شريحة عنوان وسردًا واضحًا وبيانات مرئية وشريحة ختامية موجزة.",
+  },
   home: {
+    suggestedPrompts: "الاقتراحات المقترحة",
+    import: "استيراد",
+    importOptions: "خيارات الاستيراد",
+    figmaLink: "رابط Figma",
+    importFromFigma: "الاستيراد من Figma",
+    figmaFile: "ملف Figma (.fig)",
+    openImport: "فتح الاستيراد",
+    importSelectedFile: "استيراد الملف المحدد",
+    starterSaasPrompt:
+      "صفحة هبوط حديثة لخدمة SaaS بتصميم داكن، وقسم رئيسي، وثلاث بطاقات للميزات، وقسم أخير يحث على اتخاذ إجراء.",
+    starterDashboardPrompt:
+      "لوحة تحليلات واضحة تضم تنقلاً جانبياً وأربع بطاقات للمؤشرات الرئيسية ومخططاً وجدولاً للنشاط الأخير.",
+    starterMobilePrompt:
+      "نموذج أولي لتطبيق جوال داخل إطار هاتف، مع شريط تبويبات في الأسفل وثلاث بطاقات قوائم على الشاشة الرئيسية.",
+    starterPricingPrompt:
+      "صفحة أسعار بثلاث خطط، مع التبديل بين الدفع الشهري والسنوي، وقوائم للميزات، وإبراز الخطة الموصى بها.",
+    designPromptTitle: "لنصمم أول تصميم لك",
+    recent: "الأخيرة",
+    browseAllTemplates: "تصفح الكل",
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
@@ -1672,6 +1760,8 @@ export default {
     layoutLabel: "تخطيط الشاشة جاهز للحفظ",
   },
   templatesPage: {
+    previewEmpty: "لا توجد شاشات قابلة للمعاينة في هذا القالب.",
+    loading: "جارٍ تحميل القوالب",
     title: "القوالب",
     description:
       "ابدأ بالأبعاد والإعدادات الصحيحة، ثم عدّل المحتوى غير المقفل باستخدام مطالبة.",
@@ -1698,7 +1788,7 @@ export default {
     deleteTitle: "حذف القالب؟",
     deleteDescription:
       "سيؤدي هذا إلى حذف {{title}} نهائيًا. لن تتأثر التصاميم التي تم إنشاؤها بالفعل.",
-    templateActions: "إجراءات القالب",
+    templateActions: "إجراءات {{title}}",
     lockedCount: "{{count}} مقفلة",
     categories: {
       ad: "إعلان",

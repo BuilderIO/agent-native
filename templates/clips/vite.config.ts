@@ -17,9 +17,6 @@ const ffmpegDir = path.resolve(
   "../..",
 );
 
-// Self-host the MediaPipe WASM at /mediapipe/wasm by copying it out of the
-// installed package at dev/build start, rather than committing ~21MB or loading
-// from a CDN. Gitignored; the small model is vendored in public/mediapipe/.
 const MEDIAPIPE_WASM_FILES = [
   "vision_wasm_internal.js",
   "vision_wasm_internal.wasm",
@@ -45,7 +42,6 @@ function copyMediapipeWasm(): Plugin {
           fs.copyFileSync(path.join(wasmSrc, file), path.join(wasmDest, file));
         }
       } catch (err) {
-        // Don't fail the build — camera blur degrades to recording un-blurred.
         this.warn(
           `could not copy MediaPipe WASM assets: ${err instanceof Error ? err.message : (JSON.stringify(err) ?? "")}`,
         );
@@ -58,8 +54,6 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
       fsAllow: [ffmpegDir],
     }),

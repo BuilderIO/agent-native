@@ -13,11 +13,6 @@ type MigrationRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
 };
 
-/**
- * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
- * durable background workers, which are off the request path and may take as
- * long as they need. Claimed with {@link withMigrationRuntime}.
- */
 export function isMigrationAuthorizedRuntime(): boolean {
   return (
     (globalThis as MigrationRuntimeGlobal)
@@ -25,12 +20,6 @@ export function isMigrationAuthorizedRuntime(): boolean {
   );
 }
 
-/**
- * Run an explicit release-time migration job with migration duty enabled.
- *
- * The flag is process-local and restored even when the job fails, so a build
- * step can opt in without creating a permanent escape hatch for request code.
- */
 export async function withMigrationRuntime<T>(
   run: () => Promise<T>,
 ): Promise<T> {

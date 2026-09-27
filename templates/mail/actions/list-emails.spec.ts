@@ -1,12 +1,3 @@
-/**
- * Behavioral tests for the `list-emails` agent action's Gmail-connected
- * path. Before the shared `server/lib/list-inbox-emails.ts` core existed,
- * this action re-implemented Gmail listing independently from the REST
- * `listEmails` handler and diverged from it in two ways: it never filtered
- * out snoozed threads, and an all-accounts Gmail 429/quota failure threw an
- * unhandled error instead of a graceful result. These tests pin down the
- * fix so the agent's inbox always matches what the human UI shows.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -44,7 +35,6 @@ vi.mock("../server/lib/google-auth.js", () => ({
   getClients: vi.fn(),
   getConnectedAccountsWithErrors: vi.fn(),
   fetchGmailLabelMap: vi.fn(),
-  // Consumed internally by the real (unmocked) shared list-inbox-emails.js core.
   DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT: 100,
   gmailToEmailMessage: vi.fn(),
   listGmailMessages: vi.fn(),
@@ -426,9 +416,6 @@ describe("list-emails action — coverage-aware inventory", () => {
   });
 
   it("classifies a whole-account quota cooldown as rate_limited in the inventory path", async () => {
-    // The `!listResult.ok` branch (single account, total failure) must carry
-    // isQuotaError through to inventoryError instead of relying on the
-    // message text, which is deliberately jargon-free for a real cooldown.
     vi.mocked(listGmailMessages).mockResolvedValue({
       messages: [],
       errors: [

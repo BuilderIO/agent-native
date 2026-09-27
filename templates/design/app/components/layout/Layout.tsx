@@ -56,14 +56,8 @@ export function useOpenMobileSidebar() {
   return useContext(MobileSidebarContext);
 }
 
-/** Routes that render with no app shell at all (no sidebar, no header). */
 const BARE_PREFIXES = ["/present/"];
 
-/**
- * Routes where the page renders its own toolbar instead of the global Header
- * on a standalone page. Embedded surfaces opt into this mode when they own
- * the canvas chrome.
- */
 const EDITOR_PREFIXES = ["/design/", "/visual-edit/", "/extensions"];
 
 type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";
@@ -120,24 +114,34 @@ export function Layout({ children }: LayoutProps) {
     onComposerTextChange: handleComposerTextChange,
   } = useDetectedFigmaComposerLink();
 
-  // Bind chat to the currently-open design. Same pattern as slides — the
-  // route is `/design/:id` for the editor and `/present/:id` for preview
-  // (which we already short-circuit as BARE). Anywhere else (list,
-  // design-systems, settings) leaves scope null so general chats keep working.
   const designScope = useMemo(() => {
     const designId = designEditorRoute(location.pathname)?.designId;
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
+  const flushDesignEditorSaves = useCallback(async () => {
+    const flushes: Promise<void>[] = [];
+    window.dispatchEvent(
+      new CustomEvent("agent-native:design-flush-pending-saves", {
+        detail: flushes,
+      }),
+    );
+    await Promise.all(flushes);
+  }, []);
   const designChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {
     if (!designScope) return undefined;
     const designId = designScope.id;
     return {
+      beforeStart: flushDesignEditorSaves,
       list: {
         action: "list-design-versions",
-        args: { designId, limit: 100 },
+        args: (threadId) => ({
+          designId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -154,9 +158,10 @@ export function Layout({ children }: LayoutProps) {
           designId,
           versionId: version.id,
         }),
+        beforeRestore: flushDesignEditorSaves,
       },
     };
-  }, [designScope]);
+  }, [designScope, flushDesignEditorSaves]);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: DESIGN_CHAT_STORAGE_KEY,
     activePath: location.pathname,
@@ -176,6 +181,7 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
+    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,

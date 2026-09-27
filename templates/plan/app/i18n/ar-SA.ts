@@ -384,6 +384,12 @@ const messages = {
       shareAria: "مشاركة {{noun}}",
       share: "مشاركة {{noun}}",
       shareThis: "شارك هذا {{noun}}",
+      teammateSuggestion: {
+        message: "ادعُ فريقك إلى Plan.",
+        invite: "دعوة الفريق",
+        enableDomain: "السماح لأي شخص من @{{domain}} بالانضمام",
+        enableFailed: "تعذّر تفعيل الانضمام عبر النطاق. حاول مرة أخرى.",
+      },
       hostedCopy:
         "يحتوي {{noun}} المحلي على نسخة مستضافة للمشاركة. افتح {{noun}} المستضاف لإدارة الوصول.",
       publishDescription:
@@ -663,6 +669,7 @@ const messages = {
       createAccount: "إنشاء حساب",
       signIn: "تسجيل الدخول",
       haveAccount: "لدي حساب بالفعل",
+      storageStatusUnavailable: "تعذّر التحقق من تخزين الملفات.",
       retry: "حاول ثانية",
       sendFeedback: "إرسال الملاحظات",
       feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ الخطة هذا.",

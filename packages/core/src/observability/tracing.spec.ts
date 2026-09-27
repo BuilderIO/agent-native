@@ -15,11 +15,6 @@ import {
   withAgentSpanContext,
 } from "./tracing.js";
 
-/**
- * In-memory test tracer standing in for a registered OpenTelemetry provider.
- * Records every span and its attributes/status so we can assert the helper
- * emits the expected span names and attributes when a provider IS present.
- */
 interface RecordedSpan {
   name: string;
   attributes: Record<string, string | number | boolean>;
@@ -83,7 +78,6 @@ describe("tracing helper — no provider registered", () => {
   });
 
   it("endAgentSpan no-ops safely on a null span", () => {
-    // Must not throw.
     expect(() =>
       endAgentSpan(null, { status: "error", errorMessage: "boom" }),
     ).not.toThrow();

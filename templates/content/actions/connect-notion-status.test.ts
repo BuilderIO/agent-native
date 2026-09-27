@@ -96,9 +96,6 @@ describe("connect-notion-status MCP surface", () => {
     scope: "user",
   };
 
-  // Reported 2026-09-03: Settings > Integrations showed "Connected - 42 tools"
-  // while the agent answered "Notion is not connected", twice, because this
-  // action only ever consulted the per-user OAuth account registry.
   it("reports the connected Notion MCP server when no OAuth account exists", async () => {
     mocks.findConnectedMcpServersForProvider.mockResolvedValue({
       servers: [notionMcpServer],
@@ -121,7 +118,6 @@ describe("connect-notion-status MCP surface", () => {
       unreadableScopes: [],
     });
 
-    // `connected` gates the link/sync UI, which cannot run on an MCP grant.
     await expect(connectNotionStatus.run({})).resolves.toMatchObject({
       connected: false,
       mode: null,

@@ -4,9 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
-// This is only a lost-signal recovery guard. Large design prompts can
-// legitimately take several minutes, so avoid treating normal latency as
-// failure.
 const GENERATION_ORPHAN_TIMEOUT_MS = 30 * 60_000;
 const GENERATION_STATUS_POLL_START_DELAY_MS = 3_000;
 const GENERATION_STATUS_POLL_INTERVAL_MS = 5_000;
@@ -17,25 +14,17 @@ const TERMINAL_RUN_STATUSES = new Set([
   "aborted",
   "truncated",
 ]);
-// Auto-continue briefly sets isRunning=false between gateway continuations.
-// Debounce stop handling so we do not flash "generation complete" mid-turn.
 const CHAT_STOP_DEBOUNCE_MS = 4_000;
 
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
   onStopped?: (tabId: string | null) => void;
   onStale?: (tabId: string | null) => void;
-  /** When chat starts on a tab we did not open, adopt it if this returns true. */
   shouldAdoptRunningTab?: () => boolean;
   onAdoptRunningTab?: (tabId: string) => void;
   onRunning?: (tabId: string | null) => void;
 }
 
-/**
- * Tracks whether an agent chat submission is in progress.
- * Design generation is scoped to the tab opened by this hook so unrelated or
- * stale chat runs do not leave the design UI stuck in a generating state.
- */
 export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
   const [generating, setGenerating] = useState(false);
   const activeTabIdRef = useRef<string | null>(null);
@@ -148,7 +137,6 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             return;
           }
         } catch {
-          // An unavailable status endpoint is not evidence that the run ended.
           generationIdlePollCountRef.current = 0;
         }
         if (

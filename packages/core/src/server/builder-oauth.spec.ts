@@ -104,7 +104,6 @@ beforeEach(() => {
   getRawTokensMock.mockReset();
   getRawTokensMock.mockResolvedValue(null);
   resolveOrgMock.mockReset();
-  // Every user belongs to an org; individual tests override the org id.
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
 });
 
@@ -230,8 +229,6 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
-  // Without this the grant's scopes would have to be guessed on every later
-  // read, and a new two-scope grant is indistinguishable from a legacy one.
   it("records the requested scopes when the token response omits them", async () => {
     const finished = credentials({
       tokens: {
@@ -447,7 +444,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("stores under the org captured at start, not the active org at callback", async () => {
-    // A switched active org must not win over the org authorized at start.
     resolveOrgMock.mockResolvedValue("org-switched");
     const finished = credentials();
     finishMock.mockResolvedValue({ credentials: finished });
@@ -494,8 +490,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("does not return a stored access token after reconnect is required", async () => {
-    // reconnect_required lives on the credential now; the generic resolver
-    // returns no token for it.
     getAccessTokenMock.mockResolvedValue(null);
 
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
@@ -609,10 +603,6 @@ describe("Builder hosted user OAuth", () => {
     expect(getAccessTokenMock).not.toHaveBeenCalled();
   });
 
-  // A stored credential with no `scope` claim predates both Builder always
-  // setting one and this flow recording it, so it can only be an AI-only grant.
-  // Crediting it with the upload scope would trade a clear local error for an
-  // opaque 403 from Builder.
   it("keeps a scope-less legacy credential AI-only", async () => {
     getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
@@ -691,8 +681,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("returns no session and does not double-mark when the resolver yields no token", async () => {
-    // The credential lifecycle owns reconnect latching on a failed refresh, so
-    // Builder just reports no session instead of writing its own flag.
     readMock.mockResolvedValue(
       credentials({ tokenExpiresAt: Date.now() + 1_000 }),
     );

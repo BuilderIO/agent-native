@@ -198,18 +198,6 @@ function reportDate(snapshot: ReportSnapshot): string {
   });
 }
 
-/**
- * Renders and emails one dashboard report entirely on the server: each panel's
- * query runs through the same source dispatcher the UI uses, charts are drawn
- * as SVG and rasterized, and everything else becomes real email HTML.
- *
- * There is deliberately no headless browser here. The previous implementation
- * screenshotted the live React dashboard in 4-panel chunks inside one
- * serverless invocation, so a single slow panel abandoned every later chunk and
- * shipped an email full of "image part N was unavailable" placeholders. Do not
- * reintroduce a browser, a chunk loop, or a mode that emails a report the
- * caller cannot tell apart from a complete one.
- */
 export async function sendDashboardReportSubscription(
   sub: DashboardReportSubscription,
   options: {
@@ -237,9 +225,6 @@ export async function sendDashboardReportSubscription(
       : {}),
   });
 
-  // Only panels that were actually queried can vote on total failure. Counting
-  // never-queryable panels (extensions) as survivors would let a dashboard of
-  // pure placeholders pass this guard and ship as "complete".
   const attemptedPanelIds = [...panelData.keys()].filter(
     (panelId) => panelData.get(panelId)?.status !== "not-emailable",
   );
@@ -273,10 +258,6 @@ export async function sendDashboardReportSubscription(
     () => renderReportEmail({ snapshot, panelData }),
     options.deadlineAt ? options.deadlineAt - emailReserveMs : undefined,
   );
-  // A dashboard whose only reportable panels are extensions renders nothing but
-  // "open the dashboard" links. Nothing failed, so degradedPanelIds is empty —
-  // but the report is not backed by data and must not claim to be complete. A
-  // section-only dashboard (panelData empty) has nothing to render and is fine.
   const noPanelBackedByData =
     panelData.size > 0 && attemptedPanelIds.length === 0;
   const reportMode: DashboardReportMode =

@@ -1,10 +1,12 @@
 import {
   AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildResourceSocialMeta,
   normalizeDocumentTitle,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
+import { summarizeSlideContent } from "@shared/deck-title";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useParams } from "react-router";
 
@@ -12,7 +14,12 @@ import messages from "@/i18n/en-US";
 import SharedPresentation from "@/pages/SharedPresentation";
 
 type LoaderData =
-  | { deck: SharedDeckResponse; error?: undefined; basePath: string }
+  | {
+      deck: SharedDeckResponse;
+      error?: undefined;
+      basePath: string;
+      origin: string;
+    }
   | { deck: null; error: string };
 
 function normalizeBasePath(value: string | undefined): string {
@@ -48,19 +55,35 @@ export async function loader({
     };
   }
 
-  return { deck: data as SharedDeckResponse, basePath };
+  return {
+    deck: data as SharedDeckResponse,
+    basePath,
+    origin: new URL(requestUrl).origin,
+  };
 }
 
-export const meta: MetaFunction<typeof loader> = ({ loaderData }) => [
-  {
-    title: loaderData?.deck?.title
-      ? `${normalizeDocumentTitle(
-          loaderData.deck.title,
-          messages.raw.routeSharedTitle,
-        )} — Slides`
-      : messages.raw.routeSharedTitle,
-  },
-];
+export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
+  const title = loaderData?.deck?.title
+    ? normalizeDocumentTitle(
+        loaderData.deck.title,
+        messages.raw.routeSharedTitle,
+      )
+    : messages.raw.routeSharedTitle;
+  const description = summarizeSlideContent(
+    loaderData?.deck?.slides[0]?.content,
+  );
+  return [
+    { title: `${title} — Slides` },
+    ...(loaderData?.deck
+      ? buildResourceSocialMeta({
+          title,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : []),
+  ];
+};
 
 export default function SharedPresentationRoute() {
   const data = useLoaderData<typeof loader>();

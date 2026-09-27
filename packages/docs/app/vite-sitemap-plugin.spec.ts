@@ -75,8 +75,6 @@ describe("docs agent web generation", () => {
     () => {
       const gettingStarted = pages.find((page) => page.path === "/docs/");
 
-      // lastmod must be a valid Date regardless of whether git log returns a
-      // commit timestamp or we fall back to fs mtime
       expect(gettingStarted?.lastmod).toBeInstanceOf(Date);
       expect(Number.isFinite((gettingStarted?.lastmod as Date).getTime())).toBe(
         true,
@@ -123,8 +121,6 @@ describe("docs agent web generation", () => {
     expect(redirected).toEqual([]);
   });
 
-  // The twins are handed to agents verbatim, so a bare link in the body sends
-  // them through a redirect and, for a translation, drops the locale.
   it("canonicalizes docs links inside the Markdown mirrors", () => {
     const withLinks = pages.filter(
       (page) => page.markdown?.includes("](/") && page.path.includes("/docs/"),
@@ -134,8 +130,6 @@ describe("docs agent web generation", () => {
 
     const bare: string[] = [];
     for (const page of withLinks) {
-      // Fenced examples are literal samples and stay exactly as authored, so
-      // scanning them would flag the very links the rewrite must not touch.
       const prose = page.markdown!.replace(/```[\s\S]*?(?:```|$)/g, "");
       for (const [, href] of prose.matchAll(/\]\((\/[a-zA-Z][^)\s]*)\)/g)) {
         if (!href.includes("/docs/")) continue;

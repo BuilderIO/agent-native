@@ -13,9 +13,6 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 export { schema };
 
-// Core data-program tables live outside analytics/schema.ts; register the
-// sharing type here so get-data-program / resolveAccess work in dev, CLI, and
-// extension iframes (same side-effect pattern as dashboard/analysis below).
 registerDataProgramsShareable();
 
 registerShareableResource({

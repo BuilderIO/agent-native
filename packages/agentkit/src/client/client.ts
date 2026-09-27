@@ -58,17 +58,7 @@ type TerminalRunState = AgentRunState & {
 
 export interface AgentKitClientOptions {
   transport: AgentTransport;
-  /**
-   * Borrowed transports are never disposed by the client and are the safe
-   * default for shared application services. Choose `owned` only when this
-   * client created the transport exclusively for its own lifecycle.
-   */
   transportOwnership?: "borrowed" | "owned";
-  /**
-   * Keep accepted run subscriptions alive when their last visible thread lease
-   * releases. Chat shells use this so navigation changes presentation without
-   * cancelling agent work; disposal still stops every retained consumer.
-   */
   retainActiveRunsOnThreadRelease?: boolean;
   createId?: (prefix: string) => string;
   now?: () => string;
@@ -77,11 +67,6 @@ export interface AgentKitClientOptions {
     delayMs?: (attempt: number) => number;
   };
   onError?: (error: AgentError) => void;
-  /**
-   * Called for stream integrity problems the client detects but cannot fix.
-   * Hosts route these to their own counters; failures here are swallowed so
-   * observability can never break the run it observes.
-   */
   onIntegrityReport?: (report: AgentStreamIntegrityReport) => void;
   upload?: AgentKitUploadDriver;
 }
@@ -99,11 +84,6 @@ export type AgentKitUploadDriver = (
   context?: AgentRequestContext,
 ) => Promise<void>;
 
-/**
- * Creates the deterministic AgentKit controller used by every UI binding.
- * Prefer this factory at application boundaries; the class remains public for
- * dependency injection, extension, and test harnesses.
- */
 export function createAgentKitClient(
   options: AgentKitClientOptions,
 ): AgentKitClient {
@@ -229,7 +209,6 @@ export interface AgentThreadLease {
   readonly threadId: ThreadId;
   getSnapshot(): AgentThreadState;
   release(): void;
-  /** Alias for hosts whose lifecycle primitive uses disposable resources. */
   dispose(): void;
 }
 
@@ -258,7 +237,6 @@ export interface AgentKitController {
     input: SendMessageInput,
     context?: AgentRequestContext,
   ): Promise<AgentRunHandle>;
-  /** Reattaches to an existing run stream; it never retries agent work. */
   resubscribeRun(threadId: ThreadId, runId: RunId): Promise<void>;
   cancelRun(
     threadId: ThreadId,
@@ -344,12 +322,7 @@ export interface AgentKitController {
     threadId: ThreadId,
     context?: AgentRequestContext,
   ): Promise<void>;
-  /**
-   * Stops client work and awaits cleanup of an owned transport. Borrowed
-   * transports remain untouched.
-   */
   shutdown(): Promise<void>;
-  /** Alias for hosts whose lifecycle primitive uses disposable resources. */
   dispose(): Promise<void>;
 }
 
@@ -676,9 +649,6 @@ export class AgentKitClient implements AgentKitController {
     if (existing) {
       return this.invokeRequest(requestContext, () => existing);
     }
-    // Durable projections can lag an accepted stream. Preserve the local
-    // cursor and event boundaries so refresh cannot reorder the transcript or
-    // turn the next streamed event into an artificial sequence gap.
     const load = this.loadThreadProjection(threadId, requestContext, true);
     this.threadLoads.set(threadId, load);
     try {
@@ -791,9 +761,6 @@ export class AgentKitClient implements AgentKitController {
       if (snapshot) {
         thread = this.hydrateThread(snapshot, hydratedRuns, activeRunIds);
       } else if (getThreadSnapshot) {
-        // A null durable snapshot is an authoritative missing thread, which is
-        // also the expected initial state for a client-generated new-chat id.
-        // Only transports without snapshot support need the legacy split reads.
         thread = createAgentThreadState(threadId);
       } else {
         const listQueuedMessages = this.transport.listQueuedMessages;
@@ -821,9 +788,6 @@ export class AgentKitClient implements AgentKitController {
         const current = this.getThread(threadId);
         thread = this.mergeLoadedThread(baseline, current, thread);
         if (queuedOverrideMessages) {
-          // Queue mutations are already optimistic and independently durable.
-          // A completed-run snapshot can lag the accepted steer/remove write,
-          // so it must not resurrect work the client has already promoted.
           thread = { ...thread, queuedMessages: queuedOverrideMessages };
         }
       }
@@ -975,9 +939,6 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
     const thread = this.getThread(threadId);
     const status = thread.runs[runId]?.status;
-    // A failed stream can be explicitly reattached to recover from a
-    // transient disconnect. Completed and cancelled runs have no live work to
-    // resume.
     if (
       status === "completed" ||
       status === "cancelled" ||
@@ -1035,9 +996,6 @@ export class AgentKitClient implements AgentKitController {
     if (result.runId !== input.runId) {
       this.retireInterruptedRun(input.threadId, input.runId);
     }
-    // A runtime that suspends rather than terminates answers with the run that
-    // was already streaming, so adopting it blindly would open a second reader
-    // on one stream.
     const key = this.runKey(input.threadId, result.runId);
     if (this.consumers.has(key)) return;
     this.markRunStarted(input.threadId, result.runId);
@@ -1627,10 +1585,6 @@ export class AgentKitClient implements AgentKitController {
     completed: Promise<void>,
   ): void {
     this.consumers.set(this.runKey(threadId, runId), completed);
-    // `consume` reports failures through snapshot state and `onError` before it
-    // rejects. Observe internally-owned continuations here so a caller that
-    // cannot receive their completion promise never triggers an unhandled
-    // rejection; APIs that return `completed` still expose the original promise.
     void completed.catch(() => undefined);
   }
 
@@ -1898,17 +1852,11 @@ export class AgentKitClient implements AgentKitController {
         snapshot.runs.every((run) => this.isTerminalStatus(run.status)));
     if (!snapshotHasNoActiveRuns) return settled;
 
-    // A snapshot can outlive the event association for its assistant message.
-    // If any known run failed or was cancelled, settle an unassociated message
-    // as an error rather than presenting a partial response as successful.
     const settledMessageStatus =
       terminalRuns.length > 0 &&
       terminalRuns.every((run) => run.status === "completed")
         ? "complete"
         : "error";
-    // Lifecycle events can age out independently of the message projection.
-    // Once the snapshot proves that no run remains active, any assistant
-    // message still marked streaming is stale rather than in-flight work.
     return {
       ...settled,
       messages: settled.messages.map((message) =>
@@ -1968,8 +1916,6 @@ export class AgentKitClient implements AgentKitController {
     const projected: AgentThreadState = {
       ...hydrated,
       thread: snapshot,
-      // The snapshot projection is authoritative. The event log rebuilds all
-      // rich, non-message state without replaying text deltas twice.
       messages: snapshot.messages,
       queuedMessages: snapshot.queuedMessages ?? hydrated.queuedMessages,
       runs: mergedRuns,
@@ -2079,9 +2025,6 @@ export class AgentKitClient implements AgentKitController {
         ? this.reconcileMessages(current.messages, loaded.messages)
         : undefined;
     const hasMessageIdRemap = (reconciliation?.idRemap.size ?? 0) > 0;
-    // Keep the live projection as the winner only for identities accepted by
-    // a concurrent stream. A content match still needs the durable identity
-    // when the stream finished before this refresh established its baseline.
     const live = reconciliation
       ? this.remapThreadMessageReferences(current, reconciliation.idRemap)
       : current;
@@ -2340,8 +2283,6 @@ export class AgentKitClient implements AgentKitController {
     const currentIds = new Set(current.map((message) => message.id));
     const unmatchedContent = new Map<string, AgentMessage[]>();
     for (const message of durable) {
-      // An explicit durable identity already present in the local projection
-      // owns its match. Content fallback is only for still-unidentified work.
       if (currentIds.has(message.id)) continue;
       const key = this.messageContentKey(message);
       unmatchedContent.set(key, [
@@ -2540,15 +2481,10 @@ export class AgentKitClient implements AgentKitController {
         indexByKey.set(key, merged.length);
         merged.push(event);
       } else {
-        // The second projection is the live stream. It may contain richer
-        // payloads than a snapshot captured before that event was persisted.
         merged[existingIndex] = event;
       }
     }
 
-    // Sequences are scoped to a run, so there is no valid global numeric sort.
-    // Keep cross-run interleaving stable while repairing each run's local
-    // order in the slots it already occupies.
     const positionsByRun = new Map<string, number[]>();
     merged.forEach((event, index) => {
       const positions = positionsByRun.get(event.runId) ?? [];
@@ -2717,8 +2653,6 @@ export class AgentKitClient implements AgentKitController {
     if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
     if (!queued) return;
-    // Reached only after a terminal event, so a queued follow-up that cannot
-    // be promoted here is stranded rather than merely waiting.
     if (!this.transport.steerQueuedMessage) {
       this.reportIntegrity({
         code: "queue_promotion_dropped",
@@ -2772,8 +2706,6 @@ export class AgentKitClient implements AgentKitController {
     }
     const next = reduceAgentEvent(thread, event);
     if (event.type === "queue.updated") {
-      // A replayed queue snapshot is the ordered server view. It supersedes
-      // the temporary protection used while a queue mutation catches up.
       this.queuedMessageOverrides.delete(event.threadId);
     }
     this.setThread(event.threadId, next);

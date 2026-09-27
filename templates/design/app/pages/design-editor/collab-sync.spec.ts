@@ -101,7 +101,6 @@ describe("writeCollabText multi-region diffs", () => {
     writeCollabText(doc, ytext, "XbcdeY", "local");
 
     expect(ytext.toString()).toBe("XbcdeY");
-    // One splice would have spanned all six characters and taken "bcde" with it.
     expect(seen.every(([, text]) => text.length <= 2)).toBe(true);
   });
 
@@ -114,7 +113,6 @@ describe("writeCollabText multi-region diffs", () => {
     const right = new Y.Doc();
     Y.applyUpdate(right, state);
 
-    // Left rewrites both ends; right edits the middle nobody touched.
     writeCollabText(
       left,
       left.getText("content"),
@@ -176,8 +174,6 @@ describe("writeCollabText preserves short untouched runs", () => {
     writeCollabText(doc, ytext, "1-x-2", "local");
 
     expect(ytext.toString()).toBe("1-x-2");
-    // diff_cleanupEfficiency merges edits across equal runs shorter than 4,
-    // which would delete the untouched "-x-" and any edit anchored in it.
     expect(deleted.every((count) => Number(count) <= 1)).toBe(true);
   });
 });

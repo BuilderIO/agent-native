@@ -1,11 +1,3 @@
-/**
- * Dev-mode script registry.
- *
- * Provides shared coding and database tools for the agent
- * when running in development mode. These tools should NEVER be
- * registered in production.
- */
-
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
@@ -24,10 +16,6 @@ import {
 import { tool as shellTool, run as shellRun } from "./shell.js";
 import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 
-/**
- * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout.
- */
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -47,7 +35,6 @@ function wrapCliScript(
         cliArgs.push(`--${k}`, value);
       }
 
-      // Capture console.log output
       const logs: string[] = [];
       const origLog = console.log;
       console.log = (...a: unknown[]) => {
@@ -112,23 +99,16 @@ function unauthorizedActionFromBash(
   return null;
 }
 
-/**
- * Creates the dev-mode script registry with shared bash/read/edit/write
- * coding tools and database tools. Call this and merge with your app's registry
- * when NODE_ENV !== "production".
- */
 export async function createDevScriptRegistry(
   options: {
     legacyAliases?: boolean;
     databaseTools?: DatabaseToolsOption;
   } = {},
 ): Promise<Record<string, ActionEntry>> {
-  // Lazy-import DB scripts so non-database commands do not load their runtime.
   let dbEntries: Record<string, ActionEntry> = {};
   const databaseToolsMode = normalizeDatabaseToolsMode(options.databaseTools);
   const databaseWriteToolsEnabled = databaseToolsMode === "write";
   if (databaseToolsMode !== "off") {
-    // Dynamic imports — these are part of @agent-native/core
     const [dbSchema, dbQuery, dbCheckScoping] = await Promise.all([
       import("../db/schema.js"),
       import("../db/query.js"),

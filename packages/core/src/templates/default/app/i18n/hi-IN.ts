@@ -670,6 +670,7 @@ const messages = {
     reviewFeedback: "फ़ीडबैक",
     reviewOutput: "उत्तर की समीक्षा",
     reviewPreview: "उत्तर का पूर्वावलोकन",
+    reviewPreviewUnavailable: "पूर्वावलोकन उपलब्ध नहीं है",
     closePreview: "पूर्वावलोकन छिपाएँ",
     addFeedback: "फ़ीडबैक जोड़ें",
     draftInstruction: "निर्देश का मसौदा",
@@ -691,6 +692,7 @@ const messages = {
     saveUpdate: "अपडेट मसौदा सहेजें",
     draftSaved: "मसौदा सहेजा गया",
     noReviews: "अभी समीक्षा के लिए कोई एजेंट उत्तर नहीं है",
+    summarizeWithAgent: "एजेंट से सारांश बनाएं",
   },
   error: {
     genericTitle: "कुछ गलत हुआ",

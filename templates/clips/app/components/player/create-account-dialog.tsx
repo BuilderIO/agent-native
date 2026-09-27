@@ -24,13 +24,9 @@ import { AccountGateHeader } from "./account-gate-header";
 export interface CreateAccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Same-origin viewer path to restore after the account is created. */
   returnTo: string;
-  /** The action that brought an anonymous viewer into the account flow. */
   intent?: AccountGateIntent;
-  /** Fired when the viewer chooses the returning-user path. */
   onSignIn?: () => void;
-  /** Refresh the viewer after the auth flow establishes a session. */
   onAuthenticated: () => void;
 }
 
@@ -118,11 +114,6 @@ function createOAuthVerifier(): string {
   );
 }
 
-/**
- * Public-share account gating composes the framework's shared auth pattern:
- * magic-link first, the standard Google entry point, and email/password as a
- * fallback. Clips owns only the intent copy and continuation callback.
- */
 export function AccountGateDialog({
   open,
   onOpenChange,

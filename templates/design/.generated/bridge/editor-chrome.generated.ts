@@ -943,12 +943,45 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    function isCanvasFocusTransferSafe() {
+      if (activeTextEditEl) return false;
+      var active = document.activeElement;
+      var visited = /* @__PURE__ */ new Set();
+      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+      while (active && !visited.has(active)) {
+        visited.add(active);
+        if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
+          return false;
+        }
+        var shadowActive = active.shadowRoot?.activeElement;
+        if (shadowActive) {
+          active = shadowActive;
+          continue;
+        }
+        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
+          return false;
+        }
+        return true;
+      }
+      return true;
+    }
+    function reportCanvasFocusState() {
+      if (readOnly || interactionMode) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          focusSafe: isCanvasFocusTransferSafe()
+        },
+        "*"
+      );
+    }
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
           routePath: window.location.pathname + window.location.search,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe()
         },
         "*"
       );
@@ -1917,7 +1950,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
+    var runtimeLayerSnapshotReservationRequestId = 0;
+    var runtimeLayerSnapshotReservationInFlight = false;
+    var runtimeLayerSnapshotReservationDirty = false;
     var lastRuntimeLayerSnapshotHtml = "";
+    var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
     function runtimeLayerHash(value) {
       var hash = 2166136261;
@@ -2184,7 +2221,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot() {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2198,18 +2235,64 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: {
+              ...snapshot,
+              requestId,
+              documentId: runtimeDocumentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
         return;
       }
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      var snapshotReservationToken = reservationToken || "";
+      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: {
+              requestId,
+              documentId: snapshot.documentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
+        return;
+      }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
+      lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
+      if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot",
           payload: snapshot
+        },
+        "*"
+      );
+    }
+    function requestRuntimeLayerSnapshot() {
+      if (runtimeLayerSnapshotTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotTimer);
+        runtimeLayerSnapshotTimer = null;
+      }
+      if (runtimeLayerSnapshotMaxTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+        runtimeLayerSnapshotMaxTimer = null;
+      }
+      if (runtimeLayerSnapshotReservationInFlight) {
+        runtimeLayerSnapshotReservationDirty = true;
+        return;
+      }
+      runtimeLayerSnapshotReservationInFlight = true;
+      runtimeLayerSnapshotReservationRequestId += 1;
+      window.parent.postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-reservation-request",
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -2219,12 +2302,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
       runtimeLayerSnapshotTimer = window.setTimeout(
-        postRuntimeLayerSnapshot,
+        requestRuntimeLayerSnapshot,
         300
       );
       if (runtimeLayerSnapshotMaxTimer === null) {
         runtimeLayerSnapshotMaxTimer = window.setTimeout(
-          postRuntimeLayerSnapshot,
+          requestRuntimeLayerSnapshot,
           1500
         );
       }
@@ -3697,18 +3780,75 @@ export const editorChromeBridgeScript: string = `"use strict";
         (el.getAttribute("fill") || "") + (el.getAttribute("stroke") || "") + (el.style.cssText || "")
       );
     }
-    function portableSizeIsLayoutResolved(el, property, cs) {
+    function typedStyleValue(el, property) {
+      var typedElement = el;
+      if (typeof typedElement.computedStyleMap !== "function") {
+        return { status: "available", value: void 0 };
+      }
+      try {
+        return {
+          status: "available",
+          value: typedElement.computedStyleMap().get(property)?.toString().trim()
+        };
+      } catch (error) {
+        return { status: "failed", error };
+      }
+    }
+    function dimensionHasAutoMargin(el, property) {
+      var margins = property === "width" ? ["margin-left", "margin-right"] : ["margin-top", "margin-bottom"];
+      return margins.some(function(margin) {
+        var value = typedStyleValue(el, margin);
+        return value.status === "failed" || value.value === void 0 || value.value.toLowerCase() === "auto";
+      });
+    }
+    function flexMainAxisDimension(parentStyle) {
+      var inlineAxis = /^(vertical|sideways)/.test(parentStyle.writingMode) ? "height" : "width";
+      if (!/^column/.test(parentStyle.flexDirection)) return inlineAxis;
+      return inlineAxis === "width" ? "height" : "width";
+    }
+    function gridItemDimensionIsStretched(el, property, cs, parentStyle, typedSize) {
+      if (typedSize.status === "failed" || typedSize.value?.toLowerCase() !== "auto" || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = property === "width" ? cs.justifySelf : cs.alignSelf;
+      if (alignment === "auto") {
+        alignment = property === "width" ? parentStyle.justifyItems : parentStyle.alignItems;
+      }
+      if (alignment === "stretch") return true;
+      if (alignment !== "normal" || cs.aspectRatio !== "auto") return false;
+      return !/^(audio|canvas|embed|iframe|img|object|video)$/.test(
+        el.tagName.toLowerCase()
+      );
+    }
+    function flexItemDimensionIsStretched(el, property, cs, parentStyle) {
+      var mainAxis = flexMainAxisDimension(parentStyle);
+      if (property === mainAxis || dimensionHasAutoMargin(el, property)) {
+        return false;
+      }
+      var alignment = cs.alignSelf === "auto" ? parentStyle.alignItems : cs.alignSelf;
+      return alignment === "normal" || alignment === "stretch";
+    }
+    function portableSizeIsLayoutResolved(el, property, cs, typedSize) {
       if (el.style?.getPropertyValue(property)) return false;
-      if (property !== "width" || cs.position !== "static") return false;
+      if (typedSize !== cs[property]) return false;
+      if (cs.position === "absolute" || cs.position === "fixed") return false;
       var parent = el.parentElement;
       if (!parent) return false;
       var parentStyle = window.getComputedStyle(parent);
       if (/^(inline-)?flex$/.test(parentStyle.display)) {
-        return cs.flexBasis !== "auto" && cs.flexBasis !== "content";
+        var mainAxis = flexMainAxisDimension(parentStyle);
+        return property === mainAxis ? cs.flexBasis !== "auto" && cs.flexBasis !== "content" : flexItemDimensionIsStretched(el, property, cs, parentStyle);
       }
       if (/^(inline-)?grid$/.test(parentStyle.display)) {
-        return cs.justifySelf === "normal" || cs.justifySelf === "stretch";
+        return gridItemDimensionIsStretched(
+          el,
+          property,
+          cs,
+          parentStyle,
+          typedSize
+        );
       }
+      if (property !== "width") return false;
       if (cs.display !== "block" && cs.display !== "flow-root") return false;
       var parentContentWidth = parent.clientWidth - parseFloat(parentStyle.paddingLeft || "0") - parseFloat(parentStyle.paddingRight || "0");
       return parentContentWidth > 0 && Math.abs(el.getBoundingClientRect().width - parentContentWidth) < 1;
@@ -3757,7 +3897,10 @@ export const editorChromeBridgeScript: string = `"use strict";
             return cacheFailure();
           }
           var size = String(typedValue).trim();
-          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && !portableSizeIsLayoutResolved(el, property, cs)) {
+          var preservesSizingMode = /%|calc\\(|clamp\\(|(?:min|max)\\(|(?:fit|fill)-content|(?:min|max)-content/i.test(
+            size
+          );
+          if (size && (size !== "auto" || hostStyle?.getPropertyValue(property)) && (!portableSizeIsLayoutResolved(el, property, cs, size) || preservesSizingMode)) {
             styles[property] = size;
           }
         }
@@ -5047,6 +5190,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       removeRepeatInstanceOverlays();
     }
     var selectedEl = null;
+    var runtimeStructureInsertTransactionKey = /* @__PURE__ */ Symbol(
+      "agent-native-runtime-structure-transaction"
+    );
     var selectionContainerScope = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
@@ -5150,6 +5296,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
+    var activeCrossScreenComputedSize;
+    var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -8325,7 +8473,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+        'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]'
       );
     }
     var ALT_CODE_KEYS = {
@@ -9355,6 +9503,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return false;
       }
+      if (typeof requestId === "string" && requestId) {
+        restorePendingRuntimeDeleteStyle(target, requestId);
+      }
       if (typeof requestId === "string" && requestId && target.parentElement) {
         pendingStructureMoves[requestId] = {
           requestId,
@@ -9393,6 +9544,86 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideMeasurements();
       refreshOverlays();
       return true;
+    }
+    function restorePendingRuntimeDeleteStyle(target, requestId) {
+      if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+        return;
+      }
+      var attribute = "data-agent-native-pending-delete-style";
+      var encoded = target.getAttribute(attribute);
+      if (!encoded) return;
+      var snapshot;
+      try {
+        snapshot = JSON.parse(encoded);
+      } catch (error) {
+        console.warn("[design:bridge] pending delete style is invalid", error);
+        return;
+      }
+      if (!snapshot.properties || typeof snapshot.requestId !== "string") {
+        console.warn("[design:bridge] pending delete style is incomplete");
+        return;
+      }
+      if (snapshot.requestId !== requestId) return;
+      var originalTransition = snapshot.properties.transition;
+      target.style.setProperty("transition", "none", "important");
+      Object.entries(snapshot.properties).forEach(([property, original]) => {
+        if (property === "transition") return;
+        if (original.value) {
+          target.style.setProperty(property, original.value, original.priority);
+        } else {
+          target.style.removeProperty(property);
+        }
+      });
+      target.removeAttribute(attribute);
+      target.getBoundingClientRect();
+      requestAnimationFrame(function() {
+        if (originalTransition.value) {
+          target.style.setProperty(
+            "transition",
+            originalTransition.value,
+            originalTransition.priority
+          );
+        } else {
+          target.style.removeProperty("transition");
+        }
+      });
+    }
+    function concealPendingRuntimeDelete(selector, selectorCandidates, requestId) {
+      if (typeof requestId !== "string" || !requestId) return;
+      var target = findRuntimeTarget(selector, selectorCandidates);
+      if (!(target instanceof HTMLElement || target instanceof SVGElement))
+        return;
+      var attribute = "data-agent-native-pending-delete-style";
+      var encoded = target.getAttribute(attribute);
+      if (encoded) {
+        try {
+          var existing = JSON.parse(encoded);
+          if (existing.requestId === requestId) return;
+          restorePendingRuntimeDeleteStyle(target, existing.requestId);
+        } catch (error) {
+          console.warn("[design:bridge] pending delete style is invalid", error);
+          target.removeAttribute(attribute);
+        }
+      }
+      var properties = ["opacity", "pointer-events", "transition"];
+      var snapshot = {
+        requestId,
+        properties: Object.fromEntries(
+          properties.map(function(property) {
+            return [
+              property,
+              {
+                value: target.style.getPropertyValue(property),
+                priority: target.style.getPropertyPriority(property)
+              }
+            ];
+          })
+        )
+      };
+      target.setAttribute(attribute, JSON.stringify(snapshot));
+      target.style.setProperty("opacity", "0", "important");
+      target.style.setProperty("pointer-events", "none", "important");
+      target.style.setProperty("transition", "none", "important");
     }
     function readPx(value) {
       var num = parseFloat(value);
@@ -10137,7 +10368,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keyup", onKey, true);
       setActiveDragCancel(cancelSpacingDrag);
     }
-    function postTextContentChange(el, value, html, originalValue, originalHtml) {
+    function postTextContentChange(el, value, html, originalValue, originalHtml, relativeOperations) {
       claimContentAsSource(el);
       publishSourceDocumentProvenance(void 0, true);
       window.parent.postMessage(
@@ -10148,6 +10379,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           html,
           originalValue: typeof originalValue === "string" ? originalValue : void 0,
           originalHtml: typeof originalHtml === "string" ? originalHtml : void 0,
+          relativeOperations: relativeOperations && typeof relativeOperations === "object" ? relativeOperations : void 0,
           payload: getElementInfo(el)
         },
         "*"
@@ -11567,6 +11799,91 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
+    function computedSizeInPixels(value) {
+      var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(value);
+      if (!match) return void 0;
+      var size = Number(match[1]);
+      return Number.isFinite(size) ? size : void 0;
+    }
+    function flexItemMainSizeChangesWithoutFlexing(el, property) {
+      var style = el.style;
+      if (!style) return false;
+      var originalSize = el.getBoundingClientRect()[property];
+      var declarations = ["flex-grow", "flex-shrink", "transition"].map(
+        function(name) {
+          return {
+            name,
+            value: style.getPropertyValue(name),
+            priority: style.getPropertyPriority(name)
+          };
+        }
+      );
+      try {
+        style.setProperty("transition", "none", "important");
+        style.setProperty("flex-grow", "0", "important");
+        style.setProperty("flex-shrink", "0", "important");
+        return Math.abs(el.getBoundingClientRect()[property] - originalSize) > 0.5;
+      } finally {
+        declarations.forEach(function(declaration) {
+          if (declaration.value) {
+            style.setProperty(
+              declaration.name,
+              declaration.value,
+              declaration.priority
+            );
+          } else {
+            style.removeProperty(declaration.name);
+          }
+        });
+      }
+    }
+    function crossScreenAutoLayoutSizeFallback(el, snapshot, computed) {
+      if (!el || !computed || computed.position === "absolute" || computed.position === "fixed") {
+        return void 0;
+      }
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var parentStyle = window.getComputedStyle(parent);
+      var isFlex = /^(inline-)?flex$/.test(parentStyle.display);
+      var isGrid = /^(inline-)?grid$/.test(parentStyle.display);
+      if (!isFlex && !isGrid) return void 0;
+      var snapshotRoot = snapshot?.nodes?.find(
+        (node) => Array.isArray(node.path) && node.path.length === 0
+      );
+      var styles = snapshotRoot?.styles;
+      if (!styles || typeof styles !== "object") return void 0;
+      var mainAxis = isFlex ? flexMainAxisDimension(parentStyle) : void 0;
+      var flexMainSizeIsResolved = false;
+      if (isFlex && mainAxis) {
+        flexMainSizeIsResolved = computed.flexBasis !== "auto" && computed.flexBasis !== "content" || (Number(computed.flexGrow) > 0 || Number(computed.flexShrink) > 0) && flexItemMainSizeChangesWithoutFlexing(el, mainAxis);
+      }
+      var resolvedByAutoLayout = function(property) {
+        if (isGrid) {
+          return gridItemDimensionIsStretched(
+            el,
+            property,
+            computed,
+            parentStyle,
+            typedStyleValue(el, property)
+          );
+        }
+        if (property === mainAxis) {
+          return flexMainSizeIsResolved;
+        }
+        return flexItemDimensionIsStretched(el, property, computed, parentStyle);
+      };
+      var result = {};
+      ["width", "height"].forEach((property) => {
+        var snapshotSize = styles[property];
+        var snapshotSizeIsAuto = typeof snapshotSize === "string" && snapshotSize.trim().toLowerCase() === "auto";
+        if (Object.prototype.hasOwnProperty.call(styles, property) && !snapshotSizeIsAuto || !resolvedByAutoLayout(property)) {
+          return;
+        }
+        var size = computedSizeInPixels(computed[property]);
+        if (size !== void 0) result[property] = size;
+      });
+      return result.width !== void 0 || result.height !== void 0 ? result : void 0;
+    }
     function eventEpochMilliseconds(ev) {
       if (ev?.isTrusted === false) {
         return performance.timeOrigin + performance.now();
@@ -11581,7 +11898,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (phase === "cancel") {
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
+        activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
           { type: "agent-native:cross-screen-drag", phase: "cancel" },
           "*"
@@ -11589,8 +11908,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
+        activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
+        var computed = el ? window.getComputedStyle(el) : null;
+        activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
+          el ?? null,
+          activeCrossScreenStyleSnapshot,
+          computed
+        );
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -11617,6 +11943,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           boardSurface: designCanvasBoardSurface,
           selector: dragIdentity?.selector ?? getSelector(el ?? null),
           sourceId: dragIdentity?.sourceId ?? getSourceId(el ?? null),
+          sourceDeleteRequestId: activeCrossScreenDeleteRequestId,
           sourceProvenance: dragIdentity?.sourceProvenance,
           iframeX: ev?.clientX ?? 0,
           iframeY: ev?.clientY ?? 0,
@@ -11630,6 +11957,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           } : void 0,
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
+          sourceComputedSize: activeCrossScreenComputedSize,
           // Explicit sibling flag, not just \`styleSnapshot === null\` — the
           // host must not have to infer capture-failed from a value shape
           // that could change; see collectPortableStyleSnapshot's doc.
@@ -11642,7 +11970,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Use the pre-lift snapshot: during a drag the bridge may temporarily
           // add a translate() transform to the source element, and that
           // editor-only transform must never become destination markup.
-          sourceCloneHtml: phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          // Send it from "start": the host can finalize from its own window
+          // mouseup, in which case this iframe never sees the release and no
+          // "end" is posted.
+          sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
@@ -11651,7 +11982,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         bridgeIgnoreAutoLayoutKeyPressed = false;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
+        activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
+        activeCrossScreenDeleteRequestId = void 0;
       }
     }
     var BRIDGE_CONTAINER_TAGS = [
@@ -12110,6 +12443,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -12126,7 +12460,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          var before = placementPointer < center;
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -12317,7 +12653,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "flow-insert"
         };
       }
-      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var receivingContainer = currentParent.parentElement;
+      var target = null;
+      if (pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+        target = nearestChildInsertionTarget(
+          receivingContainer,
+          clientX,
+          clientY,
+          dragged
+        ) || {
+          anchor: receivingContainer,
+          placement: "inside",
+          axis: parentFlowAxis(receivingContainer),
+          dropMode: "flow-insert"
+        };
+      } else {
+        target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
@@ -12341,21 +12693,46 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
           dropMode: "absolute-container"
         };
       }
-      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+      var unnestPromotedBoardRootTarget = target?.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget) {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && target.anchor?.parentElement !== document.body && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
@@ -12567,16 +12944,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-      var parent = el && el.parentElement;
-      if (!parent || parent === document.body || parent === document.documentElement) {
+      var child = el && el.parentElement;
+      var childRect = child && child.getBoundingClientRect();
+      if (!child || child === document.body || child === document.documentElement || !childRect || clientX >= childRect.left && clientX <= childRect.right && clientY >= childRect.top && clientY <= childRect.bottom) {
         return null;
       }
-      var parentRect = parent.getBoundingClientRect();
-      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
-        return null;
+      var parent = child.parentElement;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        var parentRect = parent.getBoundingClientRect();
+        if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+          return {
+            anchor: child,
+            placement: "after",
+            axis: parentFlowAxis(parent),
+            dropMode: "absolute-container"
+          };
+        }
+        child = parent;
+        parent = parent.parentElement;
       }
       return {
-        anchor: parent,
+        anchor: child,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container"
@@ -17048,6 +17436,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (rawHit && rawHit !== el) return false;
       if (isDocumentRootElement(el)) return false;
       if (outermostSvgAncestor(el) === el) return false;
+      if (!isContainerDropTarget(el)) return false;
       var child = el.firstElementChild;
       if (child && child === el.lastElementChild && child.hasAttribute && child.hasAttribute("data-an-text")) {
         return false;
@@ -17365,6 +17754,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
+    document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener(
+      "focusout",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerup",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
     shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
     selectionOverlay.addEventListener(
@@ -18480,6 +18884,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         sendEditorChromeReady();
         return;
       }
+      if (e.data.type === "agent-native:canvas-focus-state-probe") {
+        reportCanvasFocusState();
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
@@ -18548,7 +18956,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           setSelectionOverlayResizeChromeVisible(false);
         }
         syncShieldPointerEvents();
-        setSelectionOverlayResizeChromeVisible(!readOnly && !interactionMode);
+        setSelectionOverlayResizeChromeVisible(
+          !readOnly && !interactionMode && !activeTextEditEl
+        );
         if (interactionMode) hideSelectionOverlay();
         else if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
@@ -18583,6 +18993,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
+          window.setTimeout(reportCanvasFocusState, 0);
         }
         return;
       }
@@ -19274,6 +19685,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           acknowledgeInsert(existingInsertEl, runtimeMutationApplied);
           return;
         }
+        var insertTransactionId = typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+        if (insertTransactionId) {
+          parsedInsertEl[runtimeStructureInsertTransactionKey] = insertTransactionId;
+        }
         if (replaceInsertAnchor) {
           var replaceParent = insertAnchor.parentElement;
           if (!replaceParent) {
@@ -19344,8 +19759,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19366,6 +19804,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19383,6 +19822,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19407,6 +19849,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19429,6 +19872,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {
@@ -19462,13 +19906,38 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
+      if (e.data.type === "pending-delete-element") {
+        concealPendingRuntimeDelete(
+          e.data.selector,
+          e.data.selectorCandidates,
+          e.data.requestId
+        );
+        return;
+      }
+      if (e.data.type === "cancel-pending-delete-element") {
+        var pendingDeleteTarget = findRuntimeTarget(
+          e.data.selector,
+          e.data.selectorCandidates
+        );
+        if (pendingDeleteTarget) {
+          restorePendingRuntimeDeleteStyle(pendingDeleteTarget, e.data.requestId);
+        }
+        return;
+      }
       if (e.data.type === "runtime-structure-rollback-insert") {
         var rollbackRequestId = String(e.data.requestId || "");
-        var rollbackTarget = findUniqueRuntimeStructureTarget(
-          String(e.data.selector || ""),
-          typeof e.data.sourceId === "string" ? e.data.sourceId : ""
-        );
-        if (!rollbackRequestId || !rollbackTarget || !rollbackTarget.parentElement) {
+        var rollbackTransactionId = typeof e.data.transactionId === "string" ? e.data.transactionId : "";
+        var rollbackTargets = rollbackTransactionId ? Array.from(document.querySelectorAll("*")).filter(
+          (element) => element[runtimeStructureInsertTransactionKey] === rollbackTransactionId
+        ) : [];
+        if (rollbackTargets.length === 0) {
+          var rollbackTarget = findUniqueRuntimeStructureTarget(
+            String(e.data.selector || ""),
+            typeof e.data.sourceId === "string" ? e.data.sourceId : ""
+          );
+          if (rollbackTarget) rollbackTargets = [rollbackTarget];
+        }
+        if (!rollbackRequestId || rollbackTargets.length === 0) {
           window.parent.postMessage(
             {
               type: "runtime-structure-rollback-result",
@@ -19481,7 +19950,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
-        rollbackTarget.parentElement.removeChild(rollbackTarget);
+        for (var rollbackTarget of rollbackTargets) {
+          if (rollbackTarget === selectedEl || rollbackTarget.contains(selectedEl)) {
+            selectedEl = null;
+          }
+          if (rollbackTarget === hoveredEl || rollbackTarget.contains(hoveredEl)) {
+            hoveredEl = null;
+          }
+          rollbackTarget.parentElement?.removeChild(rollbackTarget);
+        }
         publishSourceDocumentProvenance(void 0, true);
         refreshOverlays();
         window.parent.postMessage(
@@ -19512,7 +19989,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "request-runtime-layer-snapshot") {
-        postRuntimeLayerSnapshot();
+        requestRuntimeLayerSnapshot();
+        return;
+      }
+      if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
+        runtimeLayerSnapshotReservationInFlight = false;
+        if (runtimeLayerSnapshotReservationDirty) {
+          runtimeLayerSnapshotReservationDirty = false;
+          requestRuntimeLayerSnapshot();
+          return;
+        }
+        postRuntimeLayerSnapshot(
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
+        );
         return;
       }
       if (e.data.type === "runtime-layer-rename") {
@@ -19575,7 +20068,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           textEditStyleTarget.textContent || "",
           textEditStyleTarget.innerHTML || "",
           void 0,
-          void 0
+          void 0,
+          prop && e.data.relativeOperation ? { [prop]: e.data.relativeOperation } : void 0
         );
         postTextEditingState(
           textEditStyleTarget,
@@ -19803,17 +20297,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
         var nextTextEditingEnabledFlag = typeof next.textEditingEnabled === "boolean" ? next.textEditingEnabled : textEditingEnabledFlag;
-        var wasTextEditingEnabled = textEditingEnabled;
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
-            if (activeTextEditEl) activeTextEditEl.blur();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }
         }
         textEditingEnabledFlag = nextTextEditingEnabledFlag;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
+        if (activeTextEditEl && (readOnly || !textEditingEnabled)) {
+          activeTextEditEl.blur();
+        }
         if (interactionMode) {
           setSelectionOverlayResizeChromeVisible(false);
           hideSelectionOverlay();
@@ -19821,13 +20316,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           marqueeSelectionOverlay.style.display = "none";
           syncShieldPointerEvents();
         } else {
-          setSelectionOverlayResizeChromeVisible(!readOnly);
+          setSelectionOverlayResizeChromeVisible(!readOnly && !activeTextEditEl);
           syncShieldPointerEvents();
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
-        }
-        if (!textEditingEnabled && wasTextEditingEnabled && activeTextEditEl) {
-          activeTextEditEl.blur();
         }
         if (typeof next.screenId === "string") {
           designCanvasScreenId = next.screenId;

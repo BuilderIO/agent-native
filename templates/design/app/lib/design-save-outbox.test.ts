@@ -135,6 +135,18 @@ describe("design save outbox", () => {
     ).toBe(2);
   });
 
+  it("clears an older journal entry after a newer operation persisted", async () => {
+    const storage = new MemoryOutboxStorage();
+    const older = fileEntry(1);
+    const persisted = fileEntry(2);
+    await journalDesignSaveOutboxEntry(older, storage);
+
+    await expect(
+      acknowledgeDesignSaveOutboxEntry(persisted, storage),
+    ).resolves.toBe(true);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
   it("does not let a stale cancellation discard a newer queued edit", async () => {
     const storage = new MemoryOutboxStorage();
     const cancelled = fileEntry(4);
@@ -415,8 +427,6 @@ describe("design save outbox", () => {
       storage,
     });
 
-    // A permanent failure is dropped (never retried), unlike a 409 conflict
-    // which stays queued — otherwise an orphaned screen loops 500s forever.
     expect(result.dropped).toHaveLength(1);
     expect(result.failed).toEqual([]);
     expect(await storage.list("design-1", "user-1")).toEqual([]);
@@ -437,8 +447,6 @@ describe("design save outbox", () => {
       storage,
     });
 
-    // Superseded base: removed from the queue, but into `rebased` — the editor
-    // refetches; it must NOT land in `dropped` (which warns "changes discarded").
     expect(result.rebased).toHaveLength(1);
     expect(result.dropped).toEqual([]);
     expect(result.failed).toEqual([]);
@@ -448,8 +456,6 @@ describe("design save outbox", () => {
   it("retries (never drops) a bare 404 that does not name a missing file", async () => {
     const storage = new MemoryOutboxStorage();
     await journalDesignSaveOutboxEntry(fileEntry(1), storage);
-    // A cold-start action route can 404 transiently; the message does not name
-    // a missing file, so the edit must stay queued for retry, never discarded.
     const routeMiss = Object.assign(new Error("Not Found"), { status: 404 });
 
     const result = await drainDesignSaveOutbox({

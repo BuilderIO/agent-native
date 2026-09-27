@@ -11,22 +11,13 @@ import {
 } from "./media-shared";
 
 export interface VideoData {
-  /** Direct video file URL (mp4/webm), not a third-party embed iframe. */
   src: string;
   alt: string;
   align?: MediaAlign;
   width?: number;
   caption?: string;
-  /** Markdown paired text shown beside the video when aligned left/right. */
   text?: string;
-  /**
-   * Autoplay on load. The renderer always forces `muted` alongside this
-   * (browsers block autoplay with sound) and skips autoplaying entirely for
-   * viewers with `prefers-reduced-motion: reduce`, who instead get a normal
-   * paused player with full (unmuted) playback once they press play.
-   */
   autoplay?: boolean;
-  /** Restart from the beginning on end, independent of `autoplay`. */
   loop?: boolean;
 }
 
@@ -41,11 +32,6 @@ export const videoSchema = z.object({
   loop: z.boolean().optional(),
 }) as unknown as z.ZodType<VideoData>;
 
-/**
- * MDX config: `<Video src alt align width caption autoplay loop>text</Video>`,
- * mirroring `image.config.ts` (minus `autoplay`/`loop`) so the two blocks stay
- * in lockstep.
- */
 export const videoMdx: BlockMdxConfig<VideoData> = {
   tag: "Video",
   childrenField: "text",

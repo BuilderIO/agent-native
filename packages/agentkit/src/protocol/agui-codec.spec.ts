@@ -62,7 +62,6 @@ const message = {
 
 const taskGroup = { id: "group_1", taskIds: ["task_1"] };
 
-/** One event per domain type, so a missed mapping fails rather than hides. */
 function everyEventType(): AgentEvent[] {
   nextSequence = 0;
   return [

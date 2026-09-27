@@ -83,9 +83,6 @@ export default defineAction({
     if (!args.id) throw new Error("--id is required");
 
     const access = await resolveDocumentAccess(args.id);
-    // Not-found is a deterministic client-state condition (deleted or
-    // inaccessible document still referenced by an open tab) — 404, not a
-    // 500 that floods the console as Internal Server Error.
     if (!access) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,

@@ -331,9 +331,6 @@ Record the QA signal.`,
     expect(rejected).toContain("Invalid reasoning effort");
   });
 
-  // `handleDefine` used to silently coerce an unrecognized reasoning_effort
-  // to undefined and report a successful creation using the model default —
-  // the caller's typo vanished instead of erroring, unlike update.
   it("rejects an unrecognized reasoning_effort on define instead of silently dropping it", async () => {
     const result = await tool().run({
       action: "define",

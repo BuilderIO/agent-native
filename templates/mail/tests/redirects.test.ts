@@ -12,6 +12,7 @@ function mockPreferences(
         ok: true;
         pinnedLabels: string[] | undefined;
         googleConnected?: boolean;
+        showAllTab?: boolean;
       }
     | { ok: false; reject?: false }
     | { ok: false; reject: true },
@@ -38,7 +39,10 @@ function mockPreferences(
         );
       }
       return new Response(
-        JSON.stringify({ pinnedLabels: result.pinnedLabels }),
+        JSON.stringify({
+          pinnedLabels: result.pinnedLabels,
+          showAllTab: result.showAllTab,
+        }),
         {
           headers: { "content-type": "application/json" },
         },
@@ -54,6 +58,7 @@ async function expectInboxRedirect(
         ok: true;
         pinnedLabels: string[] | undefined;
         googleConnected?: boolean;
+        showAllTab?: boolean;
       }
     | { ok: false; reject?: false }
     | { ok: false; reject: true },
@@ -83,18 +88,23 @@ describe("Mail private home route", () => {
     );
   });
 
-  it("keeps first-use Important selected on client navigation", () => {
+  it("selects All by default on client navigation", () => {
     return expectInboxRedirect(
       clientLoader,
       { ok: true, pinnedLabels: undefined },
-      "/inbox?label=important",
+      "/inbox?tab=__inbox_all__",
     );
   });
 
-  it("does not synthesize Important when Google status fails", () => {
+  it("keeps a hidden All tab off when Google status is disconnected", () => {
     return expectInboxRedirect(
       clientLoader,
-      { ok: true, pinnedLabels: undefined, googleConnected: false },
+      {
+        ok: true,
+        pinnedLabels: undefined,
+        googleConnected: false,
+        showAllTab: false,
+      },
       "/inbox",
     );
   });
@@ -128,10 +138,14 @@ describe("Mail private home route", () => {
     });
   });
 
-  it("routes to the first top label on client navigation when pins exist", () => {
+  it("routes to the first top label when All is hidden and pins exist", () => {
     return expectInboxRedirect(
       clientLoader,
-      { ok: true, pinnedLabels: ["important", "work"] },
+      {
+        ok: true,
+        pinnedLabels: ["important", "work"],
+        showAllTab: false,
+      },
       "/inbox?label=important",
     );
   });
@@ -139,7 +153,7 @@ describe("Mail private home route", () => {
   it("routes an explicitly saved empty pin list on the client", () => {
     return expectInboxRedirect(
       clientLoader,
-      { ok: true, pinnedLabels: [] },
+      { ok: true, pinnedLabels: [], showAllTab: false },
       "/inbox",
     );
   });

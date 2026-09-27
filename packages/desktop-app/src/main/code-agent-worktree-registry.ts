@@ -466,10 +466,6 @@ export function attachCodeAgentWorktree(input: {
   });
 }
 
-/**
- * Claims the single writer slot for a managed worktree. The registry lock makes
- * this decision atomic across separate Desktop processes.
- */
 export function claimCodeAgentWorktreeRun(input: {
   registryPath: string;
   worktreeId: string;

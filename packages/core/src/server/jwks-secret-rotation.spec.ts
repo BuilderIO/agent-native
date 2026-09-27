@@ -38,8 +38,6 @@ async function insertJwksRow(
   encryptionSecret: string,
   { expiresAt = null as number | null, id = "key-1" } = {},
 ): Promise<void> {
-  // Better Auth stores the encrypted private key JSON-encoded (a quoted
-  // ciphertext string) — mirror that shape exactly.
   const ciphertext = await symmetricEncrypt({
     key: encryptionSecret,
     data: JSON.stringify({ kty: "OKP", crv: "Ed25519", d: "fake-private" }),

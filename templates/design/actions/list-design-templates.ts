@@ -19,10 +19,17 @@ export default defineAction({
   schema: z.object({
     category: designTemplateCategorySchema.optional(),
     includePreview: z.enum(["true", "false"]).optional().default("false"),
+    includeSavedPreview: z
+      .enum(["true", "false"])
+      .optional()
+      .default("true")
+      .describe(
+        "Include saved-template HTML previews when previews are requested",
+      ),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ category, includePreview }) => {
+  run: async ({ category, includePreview, includeSavedPreview }) => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
     const orgId = getRequestOrgId();
@@ -66,7 +73,9 @@ export default defineAction({
       ),
     );
     const [files, accessibleDesignSystems] = await Promise.all([
-      includePreview === "true" && rows.length > 0
+      includePreview === "true" &&
+      includeSavedPreview === "true" &&
+      rows.length > 0
         ? db
             .select({
               templateId: schema.designTemplateFiles.templateId,
@@ -149,7 +158,7 @@ export default defineAction({
         !!userEmail && ownerEmail.toLowerCase() === userEmail.toLowerCase(),
       isBuiltIn: false,
       source: "saved" as const,
-      ...(includePreview === "true"
+      ...(includePreview === "true" && includeSavedPreview === "true"
         ? { previewHtml: previews.get(row.id) ?? null }
         : {}),
     }));

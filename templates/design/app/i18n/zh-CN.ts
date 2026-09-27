@@ -174,6 +174,18 @@ export default {
     notFoundBackToDesigns: "返回设计",
     teamCreateOrgDescription: "设置团队，与同事共享设计。",
   },
+  onboarding: {
+    fileStorage: {
+      title: "连接存储以上传文件",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   chat: {
     emptyState: "描述要创建的设计",
     suggestionLandingPage: "为我的初创公司设计落地页",
@@ -568,6 +580,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "实时协作",
+      description:
+        "允许无法访问所有者 localhost 的人查看和编辑此设计的实时副本。",
+      enabled: "开启",
+      disabled: "关闭",
+      saving: "正在保存…",
+      enableError: "无法更新实时协作。",
+    },
     vectorEndpoints: {
       startPoint: "起点",
       endPoint: "终点",
@@ -925,6 +946,9 @@ export default {
     signUpToSaveDescription:
       "注册免费帐户即可保存设计和屏幕布局，并生成新的方向。",
     signUpToShare: "注册以共享",
+    signUpToShareLiveCanvas: "注册以共享实时画布",
+    liveCanvasLink: "实时画布链接",
+    liveCanvasWaitingForOwner: "正在等待画布所有者的实时快照。",
     shareEditorLink: "设计编辑器链接",
     shareEditorLinkDescription:
       "有访问权限的任何人都可以在编辑器中打开此设计。",
@@ -1194,12 +1218,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
+      applySharedEdits: "应用修改",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",
       verifying: "正在验证源文件和运行时…",
       retryWithAgent: "重试源文件验证",
       copyPrompt: "将提示复制给你的代理",
+      copyFullPrompt: "复制完整提示",
       abortPreview: "中止预览并互动",
       agentMessage: "将待处理的视觉样式编辑应用到源文件。",
       sentToast: "设计更新已发送给代理",
@@ -1211,6 +1237,8 @@ export default {
       sourceCheckFailedToast:
         "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
       copiedToast: "样式提示已复制",
+      copiedToastDescription:
+        "将其粘贴到你的编程代理中，并让它应用这些视觉更改。",
       abortedToast: "待处理的预览已丢弃",
       interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
       leaveTitle: "离开前应用设计更新？",
@@ -1272,6 +1300,8 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      visualEditPendingConflict:
+        "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
       htmlCreateError: "无法创建 HTML 下载",
@@ -1572,7 +1602,63 @@ export default {
       "离开此视图时，{{count}} 个未发送的评论草稿已被丢弃。",
     staleAnchorDetail: "在画布上已找不到原始元素。",
   },
+  homeContext: {
+    websiteReference: "附加网站",
+    websiteUrlLabel: "网站 URL",
+    websiteUrl: "粘贴网站 URL",
+    figmaUrlLabel: "Figma 链接",
+    invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
+    tooMany: "最多选择 20 个参考。",
+    invalidWebsiteUrl: "请输入有效的 HTTP 或 HTTPS URL。",
+    createSystem: "创建设计系统",
+    noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
+    searchSystems: "搜索设计系统…",
+    searchFrames: "搜索 Figma 画框…",
+    searchDesigns: "搜索设计…",
+    searchPresentations: "搜索演示文稿…",
+    searchDesign: "搜索设计…",
+    useDesignSystem: "使用设计系统",
+    notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
+    search: "搜索上下文…",
+    figmaUrl: "粘贴 Figma 链接",
+    browse: "浏览画框",
+    loadFailed: "无法加载此参考。",
+    retry: "重试",
+    empty: "没有匹配的参考。",
+    none: "无",
+    design: "设计",
+    slides: "幻灯片",
+    referenceDesign: "参考设计",
+    figmaReference: "附加 Figma",
+    referenceDeck: "参考演示文稿",
+    quickSaas: "创建 SaaS 落地页",
+    quickDashboard: "创建仪表盘",
+    quickDeck: "创建演示文稿",
+    deckPrompt:
+      "创建精美的演示文稿，包含标题页、清晰的叙事、可视化数据和简洁的结束页。",
+  },
   home: {
+    suggestedPrompts: "推荐提示",
+    import: "导入",
+    importOptions: "导入选项",
+    figmaLink: "Figma 链接",
+    importFromFigma: "从 Figma 导入",
+    figmaFile: "Figma 文件 (.fig)",
+    openImport: "打开导入",
+    importSelectedFile: "导入所选文件",
+    starterSaasPrompt:
+      "一个现代 SaaS 落地页，采用深色主题，包含首屏主视觉、三张功能卡片和最后的行动号召区域。",
+    starterDashboardPrompt:
+      "一个简洁的分析仪表盘，包含侧边导航、四张关键指标卡片、一个图表和最近活动表格。",
+    starterMobilePrompt:
+      "一个展示在手机边框内的移动应用原型，底部带有标签栏，主屏幕上有三张列表卡片。",
+    starterPricingPrompt:
+      "一个三档定价页面，包含月付/年付切换、功能清单，并突出显示推荐方案。",
+    designPromptTitle: "让我们创建你的第一个设计",
+    recent: "最近",
+    browseAllTemplates: "浏览全部",
+    connectBuilderIo: "连接 Builder.io",
+    connectingBuilder: "正在连接 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",
@@ -1637,6 +1723,8 @@ export default {
     layoutLabel: "屏幕布局已可保存",
   },
   templatesPage: {
+    previewEmpty: "此模板中没有可预览的屏幕。",
+    loading: "正在加载模板",
     title: "模板",
     description: "从正确的尺寸和默认值开始，再用提示调整未锁定的内容。",
     searchPlaceholder: "搜索模板...",
@@ -1661,7 +1749,7 @@ export default {
     deleteFailed: "无法删除此模板",
     deleteTitle: "删除模板？",
     deleteDescription: "这将永久删除 {{title}}。已从此模板创建的设计不受影响。",
-    templateActions: "模板操作",
+    templateActions: "{{title}}的操作",
     lockedCount: "已锁定 {{count}} 个",
     categories: {
       ad: "广告",

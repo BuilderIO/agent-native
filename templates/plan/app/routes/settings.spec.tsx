@@ -88,9 +88,6 @@ describe("Plan settings route", () => {
       root.render(<SettingsRoute />);
     });
 
-    // extensions._index.tsx unconditionally redirects to /settings/extensions,
-    // and use-navigation-state.ts maps "extensions" to that same path — without
-    // this, that destination silently falls back to General.
     expect(container.textContent).toContain("Extension management");
   });
 });

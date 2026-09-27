@@ -105,8 +105,6 @@ describe("mounted selected text body interaction", () => {
     fireEvent.pointerDown(object, { button: 0, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(object, { clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
-    // Text interiors are not move candidates. The browser owns the pointer
-    // stream so a drag can select text instead of moving the block.
     fireEvent.click(object);
 
     expect(object.style.left).toBe("0px");
@@ -114,7 +112,6 @@ describe("mounted selected text body interaction", () => {
     expect(object.getAttribute("data-selected")).toBe("true");
     expect(object.getAttribute("data-editing")).toBe("true");
 
-    // A subsequent stationary click remains in text editing as well.
     fireEvent.pointerDown(object, { button: 0, clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
     fireEvent.click(object);

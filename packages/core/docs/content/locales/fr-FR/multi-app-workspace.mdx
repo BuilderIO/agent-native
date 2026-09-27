@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE_PATH=/<name>` et émise via le préréglage Nitro sélectionné. Cloudflare Pages est le préréglage par défaut et utilise un répartiteur chez `dist/_worker.js` plus `_routes.json`. Netlify est pris en charge avec `npx @agent-native/core@latest deploy --preset netlify` ; il émet des fonctions d'application sous `.netlify/functions-internal/<app>-server` et génère des redirections qui laissent les actifs statiques non forcés afin que le CDN serve les fichiers en premier. Vercel est pris en charge avec `npx @agent-native/core@latest deploy --preset vercel` ; il écrit un bundle `.vercel/output` racine à l'aide du Build Output API de Vercel.
+Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE_PATH=/<name>` et émise via le préréglage Nitro sélectionné. **Netlify** est le préréglage par défaut pour la commande unifiée `deploy` ; il émet des fonctions d'application sous `.netlify/functions-internal/<app>-server` et génère des redirections qui laissent les assets statiques non forcés afin que le CDN serve les fichiers en premier. **Vercel** est pris en charge avec `npx @agent-native/core@latest deploy --preset vercel` ; il écrit un bundle `.vercel/output` racine à l'aide du Build Output API de Vercel.
 
 <Diagram id="doc-block-10xvh45" title={"Déploiement unifié : une origine, un chemin par application"} summary={"Chaque application est livrée derrière une seule origine, donc les sessions de connexion et les A2A inter-applications sont gratuites."}>
 
@@ -352,13 +352,14 @@ C'est en étant sur la **même origine** que se trouve le véritable gain :
 - **Zero-config cross-app A2A.** Le balisage `@mail` de `@calendar` devient une récupération de même origine — pas de CORS, pas de signature JWT entre frères et sœurs. Le A2A externe utilise toujours le JWT comme aujourd'hui.
 - **Un enregistrement DNS, un certificat, un cache CDN.**
 
-Publiez la sortie `dist/` :
+Publiez le build pour votre plateforme :
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Pour Netlify :
+Pour Netlify :
 
 ```bash
 npx @agent-native/core@latest deploy --preset netlify --build-only
@@ -405,7 +406,7 @@ Vous préférez chaque application sur son propre domaine (`mail.company.com`, `
 
 ### Base de données partagée, identifiants partagés
 
-Quel que soit votre choix, pointez chaque application vers le même `DATABASE_URL` pour obtenir un état inter-applications prêt à l'emploi : un ensemble de comptes utilisateur, un ensemble d'organisations, un ensemble de paramètres partagés. Si chaque application possède sa propre base de données, le modèle d'espace de travail fonctionne toujours : vous perdez simplement cette histoire à état partagé.
+Pour partager les comptes utilisateur, les organisations, les paramètres et les autres données entre applications, définissez le même `DATABASE_URL` pour chaque application. En développement local, définissez-le dans le fichier `.env` à la racine de l'espace de travail afin que toutes les applications utilisent la même base PostgreSQL. S'il n'est pas défini, chaque application utilise sa propre base PGlite locale au processus. Les utilisateurs et les organisations ne sont alors pas partagés.
 
 La demande de connexions s'additionne entre les processus qui partagent une base de données. Si cinq processus d'applications Node.js de longue durée utilisent chacun un pool partagé pour le même `DATABASE_URL`, ils peuvent utiliser jusqu'à 100 connexions avec la limite par défaut de 20 par pool (`5 × 1 pool × 20`). Pour les espaces de travail sans serveur, estimez le nombre d'instances de fonctions actives par application à partir des limites par défaut propres à l'environnement. Consultez [Base de données du serveur](/docs/server-database) pour `AGENT_NATIVE_DB_POOL_MAX` et les conseils complets de dimensionnement.
 

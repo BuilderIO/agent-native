@@ -56,8 +56,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A deliberately small, retention-bound summary of the current accessibility
-/// surface. This is evidence for local Rewind scenes, not a serialised AX tree.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessibilityFingerprint {
@@ -91,8 +89,6 @@ const MAX_AX_STRING_BYTES: usize = 160;
 const MAX_AX_LABELS: usize = 8;
 const MAX_AX_TOTAL_BYTES: usize = 1_200;
 
-/// Keep text useful for scene continuity without retaining arbitrary field
-/// contents. Password-like controls and credential-shaped values are omitted.
 fn safe_ax_text(value: Option<String>, remaining: &mut usize) -> Option<String> {
     let value = value?;
     let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -153,7 +149,6 @@ fn role_is_secure(role: &str) -> bool {
 
 fn safe_ax_url(url: String, remaining: &mut usize) -> Option<String> {
     let url = url.split(['?', '#']).next()?.to_string();
-    // Never retain a URL that embeds credentials in its authority component.
     let authority = url
         .split_once("://")?
         .1
@@ -207,9 +202,6 @@ pub async fn read_focused_field_text() -> Result<String, String> {
     }
 }
 
-/// Return whether macOS currently exposes a focused text-capable element.
-/// This is intentionally a role check rather than a value check: an empty
-/// text field is still a valid dictation target.
 pub fn focused_text_field_available() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -237,10 +229,6 @@ pub async fn accessibility_check_permission() -> Result<bool, String> {
 pub async fn accessibility_request_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        // Pass prompt=true: if not yet trusted, macOS surfaces a dialog
-        // and opens the Accessibility pane in System Settings. Return
-        // value reflects current state (will be `false` until the user
-        // adds + restarts the app).
         Ok(macos::is_trusted(true))
     }
     #[cfg(not(target_os = "macos"))]
@@ -322,7 +310,6 @@ pub(crate) mod macos {
 
     const AX_ERROR_SUCCESS: AXError = 0;
 
-    // CFStringEncoding for UTF-8 = 0x08000100.
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
     const IGNORED_WINDOW_OWNERS: &[&str] = &[
         "Clips",
@@ -344,7 +331,6 @@ pub(crate) mod macos {
             attribute: CFStringRef,
             value: *mut CFTypeRef,
         ) -> AXError;
-        // Exposed as a constant CFStringRef in ApplicationServices.
         static kAXTrustedCheckOptionPrompt: CFStringRef;
     }
 
@@ -380,31 +366,25 @@ pub(crate) mod macos {
             key_callbacks: *const c_void,
             value_callbacks: *const c_void,
         ) -> CFDictionaryRef;
-        // kCFTypeDictionaryKeyCallBacks / kCFTypeDictionaryValueCallBacks
-        // are exposed as static structs we can pass as opaque pointers.
         static kCFTypeDictionaryKeyCallBacks: c_void;
         static kCFTypeDictionaryValueCallBacks: c_void;
         static kCFBooleanTrue: CFBooleanRef;
     }
 
-    /// Build a CFString from a Rust &str. Caller must CFRelease the result.
     unsafe fn cfstr(s: &str) -> CFStringRef {
         let c = std::ffi::CString::new(s).unwrap();
         CFStringCreateWithCString(ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8)
     }
 
-    /// Convert a CFStringRef to a Rust String. Does NOT release the CFString.
     unsafe fn cfstring_to_string(cfstr: CFStringRef) -> Option<String> {
         if cfstr.is_null() {
             return None;
         }
-        // Fast path: try to get a direct pointer to the underlying UTF-8.
         let direct = CFStringGetCStringPtr(cfstr, K_CF_STRING_ENCODING_UTF8);
         if !direct.is_null() {
             let cstr = std::ffi::CStr::from_ptr(direct);
             return Some(cstr.to_string_lossy().into_owned());
         }
-        // Slow path: copy out via a sized buffer.
         let len = CFStringGetLength(cfstr);
         if len == 0 {
             return Some(String::new());
@@ -427,15 +407,11 @@ pub(crate) mod macos {
         Some(cstr.to_string_lossy().into_owned())
     }
 
-    /// Whether the current process is trusted for Accessibility. If `prompt`
-    /// is true and we are NOT yet trusted, macOS shows a system dialog
-    /// directing the user to System Settings.
     pub fn is_trusted(prompt: bool) -> bool {
         unsafe {
             if !prompt {
                 return AXIsProcessTrustedWithOptions(ptr::null()) != 0;
             }
-            // Build { kAXTrustedCheckOptionPrompt: kCFBooleanTrue }.
             let key: CFStringRef = kAXTrustedCheckOptionPrompt;
             let value: CFBooleanRef = kCFBooleanTrue;
             let keys: [*const c_void; 1] = [key];
@@ -457,13 +433,8 @@ pub(crate) mod macos {
         }
     }
 
-    /// Read AXValue of the system-wide focused element. Returns "" on any
-    /// failure (untrusted, no focus, non-string value, etc.). Never panics.
     pub fn read_focused_field_text_impl() -> String {
         unsafe {
-            // Bail fast (and silently) if the user hasn't trusted us. The
-            // JS treats "" as "couldn't read" and stops polling after a
-            // few empty results.
             if !is_trusted(false) {
                 return String::new();
             }
@@ -504,10 +475,6 @@ pub(crate) mod macos {
                 return String::new();
             }
 
-            // Only return the value if it's a CFString. AXValue can also
-            // come back as CFNumber (sliders/steppers), CFURL, or a
-            // structured AXValue (e.g. CGPoint for AXPosition) — none
-            // useful for us here.
             let is_string = CFGetTypeID(value) == CFStringGetTypeID();
             let result = if is_string {
                 cfstring_to_string(value as CFStringRef).unwrap_or_default()
@@ -558,9 +525,6 @@ pub(crate) mod macos {
         }
     }
 
-    /// Collect the semantic surface from the same application selected by the
-    /// Core Graphics foreground-window sample. This avoids combining an
-    /// ignored Clips utility window's AX tree with the underlying work app.
     pub fn semantic_fingerprint_for_pid_impl(pid: i32) -> Option<AccessibilityFingerprint> {
         unsafe {
             if !is_trusted(false) {
@@ -663,8 +627,6 @@ pub(crate) mod macos {
         if error != AX_ERROR_SUCCESS || value.is_null() {
             return None;
         }
-        // URLs may contain query-string credentials. Keep only the stable
-        // origin/path portion, and omit anything that cannot be read safely.
         let string = if CFGetTypeID(value) == CFStringGetTypeID() {
             value as CFStringRef
         } else if CFGetTypeID(value) == CFURLGetTypeID() {
