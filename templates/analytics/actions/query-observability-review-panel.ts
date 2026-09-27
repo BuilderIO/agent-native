@@ -64,9 +64,10 @@ export default defineAction({
         )
       : [];
     const panel = panels.find((candidate) => candidate.id === panelId);
+    const source = panel?.source;
     if (
       !panel ||
-      !isDashboardPanelSource(panel.source) ||
+      !isDashboardPanelSource(source) ||
       typeof panel.sql !== "string" ||
       panel.chartType === "section" ||
       panel.chartType === "extension" ||
@@ -85,7 +86,7 @@ export default defineAction({
     const resolvedSql = interpolate(serializePanelSql(panel.sql), variables, {
       failClosedTimeVariables: true,
     });
-    const query = normalizeDashboardPanelQuery(panel.source, resolvedSql);
+    const query = normalizeDashboardPanelQuery(source, resolvedSql);
     const context = {
       ...getRequestContext(),
       userEmail: email,
@@ -93,7 +94,7 @@ export default defineAction({
     };
     return runWithRequestContext(context, () =>
       resolveAnalyticsPanelSource(
-        { source: panel.source, query },
+        { source, query },
         { userEmail: email, orgId: dashboard.orgId },
       ),
     );
