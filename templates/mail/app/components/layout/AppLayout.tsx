@@ -1251,14 +1251,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
-        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border/50 bg-card px-2 inbox-zero-header hide-scrollbar">
           <Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>
             {/* Hamburger menu */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <DialogTrigger asChild>
                   <button
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                    className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                     aria-label={t("mail.toolbar.toggleMenu")}
                   >
                     <IconMenu2 className="h-4 w-4" />
@@ -1522,18 +1522,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar">
+              <nav className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-max">
                 {[1, 2, 3].map((i) => (
                   <span
                     key={i}
-                    className="h-4 rounded bg-muted animate-pulse"
+                    className="h-4 shrink-0 rounded bg-muted animate-pulse"
                     style={{ width: `${48 + i * 12}px` }}
                   />
                 ))}
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"
+                className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-max"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1637,7 +1637,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <PopoverTrigger asChild>
                       <button
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          "flex h-9 w-9 items-center justify-center rounded transition-colors sm:h-6 sm:w-6",
                           tabSettingsOpen
                             ? "text-foreground bg-accent/50"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
@@ -1731,7 +1731,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setSearchFocused(true)}
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                   aria-label={t("mail.search.label")}
                 >
                   <IconSearch className="h-4 w-4" />
@@ -1796,7 +1796,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 onClick={handleCompose}
                 variant="outline"
                 size="sm"
-                className="h-9 sm:h-7 px-3 text-[13px]"
+                className="h-9 shrink-0 px-3 text-[13px] sm:h-7"
                 aria-label={t("mail.toolbar.composeEmail")}
               >
                 <span>{t("mail.toolbar.compose")}</span>
@@ -1822,7 +1822,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <button
                       type="button"
                       aria-label={t("mail.toolbar.accounts")}
-                      className="flex items-center hover:opacity-90 transition-opacity ms-1"
+                      className="flex shrink-0 items-center hover:opacity-90 transition-opacity ms-1"
                     >
                       <div
                         className="flex items-center"
