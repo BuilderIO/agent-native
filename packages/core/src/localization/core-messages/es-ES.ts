@@ -1018,6 +1018,10 @@ const messages: AgentChatTranslation = {
     "Uso de proveedores o llamadas antiguas fuera de la facturación de Builder",
   "usage.providerSpendToday": "Uso adicional o sin clasificar hoy: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos de Builder / USD",
+  "billing.builderCreditLimitTitle": "Se agotaron tus créditos de Builder",
+  "billing.builderCreditLimitEmailBody":
+    "Una solicitud de IA se detuvo porque tu cuenta de Builder conectada se quedó sin créditos. Mejora tu plan de Builder para continuar.",
+  "billing.builderCreditUpgrade": "Mejorar el plan",
 };
 
 export default messages;

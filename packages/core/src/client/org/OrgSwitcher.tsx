@@ -2,6 +2,7 @@ import { ResourceIcon } from "@agent-native/toolkit/icons";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconArrowUpRight,
+  IconAlertCircle,
   IconBriefcase,
   IconCheck,
   IconExternalLink,
@@ -23,6 +24,7 @@ import { Link, useNavigate } from "react-router";
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { canInviteOrgMembers } from "../../org/permissions.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import { builderSubscriptionUpgradeUrl } from "../../shared/builder-link-tracking.js";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +33,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
+import { useActionQuery } from "../use-action.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { useSession } from "../use-session.js";
 import {
@@ -142,6 +145,15 @@ export function OrgSwitcher({
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
+  const builderCreditStatus = useActionQuery<{ exhausted: boolean } | null>(
+    "get-builder-credit-status",
+    { orgId: org?.orgId ?? null },
+    {
+      enabled: Boolean(org?.email),
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    },
+  );
   const { session } = useSession();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
@@ -215,59 +227,121 @@ export function OrgSwitcher({
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
+  const showBuilderCreditNotice =
+    !builderCreditStatus.isError &&
+    builderCreditStatus.data?.exhausted === true;
+  const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
+    "builder_credit_limit_sidebar",
+  );
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      {compact ? (
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverPrimitive.Trigger asChild>
-                <button
-                  type="button"
-                  aria-label={triggerLabel}
-                  className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-                >
-                  <ResourceIcon
-                    value={buttonIcon}
-                    size={14}
-                    resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
-                    }
-                    fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
-                  />
-                </button>
-              </PopoverPrimitive.Trigger>
-            </TooltipTrigger>
-            <TooltipContent side="right">{triggerLabel}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : (
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label={triggerLabel}
-            className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-          >
-            <ResourceIcon
-              value={buttonIcon}
-              size={14}
-              resolveImageUrl={(image) =>
-                image.authority === "url" ? image.assetId : undefined
-              }
-              fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
-            />
-            <span className="truncate flex-1 text-start">{buttonLabel}</span>
-            {demoModeEnabled && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                <IconPresentation className="h-3 w-3" aria-hidden="true" />
-                Demo mode
-              </span>
-            )}
-            <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
-          </button>
-        </PopoverPrimitive.Trigger>
-      )}
+      <div
+        className={
+          compact
+            ? "flex flex-col items-center gap-1"
+            : "flex w-full min-w-0 flex-col gap-1.5"
+        }
+      >
+        {showBuilderCreditNotice &&
+          (compact ? (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    href={builderUpgradeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`${t("agentChat.billing.builderCreditLimitTitle")} · ${t("agentChat.billing.builderCreditUpgrade")}`}
+                    className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <IconAlertCircle className="size-4" aria-hidden="true" />
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {t("agentChat.billing.builderCreditLimitTitle")} ·{" "}
+                  {t("agentChat.billing.builderCreditUpgrade")}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <div
+              role="status"
+              className="rounded-md border border-border bg-muted px-2.5 py-2 text-xs"
+            >
+              <div className="flex items-start gap-2">
+                <IconAlertCircle
+                  className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="leading-snug text-foreground">
+                    {t("agentChat.billing.builderCreditLimitTitle")}
+                  </p>
+                  <a
+                    href={builderUpgradeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    {t("agentChat.billing.builderCreditUpgrade")}
+                    <IconArrowUpRight className="size-3" aria-hidden="true" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+        {compact ? (
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverPrimitive.Trigger asChild>
+                  <button
+                    type="button"
+                    aria-label={triggerLabel}
+                    className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+                  >
+                    <ResourceIcon
+                      value={buttonIcon}
+                      size={14}
+                      resolveImageUrl={(image) =>
+                        image.authority === "url" ? image.assetId : undefined
+                      }
+                      fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
+                    />
+                  </button>
+                </PopoverPrimitive.Trigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">{triggerLabel}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <PopoverPrimitive.Trigger asChild>
+            <button
+              type="button"
+              aria-label={triggerLabel}
+              className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+            >
+              <ResourceIcon
+                value={buttonIcon}
+                size={14}
+                resolveImageUrl={(image) =>
+                  image.authority === "url" ? image.assetId : undefined
+                }
+                fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
+              />
+              <span className="truncate flex-1 text-start">{buttonLabel}</span>
+              {demoModeEnabled && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  <IconPresentation className="h-3 w-3" aria-hidden="true" />
+                  Demo mode
+                </span>
+              )}
+              <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
+            </button>
+          </PopoverPrimitive.Trigger>
+        )}
+      </div>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           side="top"

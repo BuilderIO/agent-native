@@ -30,6 +30,17 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
   });
 
+  it("polls inbox notifications and offers browser system popups", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { NotificationsBell } from "@agent-native/core/client/notifications"',
+    );
+    expect(
+      source.match(/<NotificationsBell browserNotifications \/>/g),
+    ).toHaveLength(1);
+  });
+
   it("uses stable router links for tooltip-wrapped tabs and settings gears", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 

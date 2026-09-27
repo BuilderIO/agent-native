@@ -4,7 +4,7 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import { resolveCredential } from "@agent-native/core/credentials";
-import { emit } from "@agent-native/core/event-bus";
+import { emit, listSubscriptions } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
@@ -190,6 +190,104 @@ async function saveProcessedIds(
     ids: arr,
     updatedAt: Date.now(),
   } as any);
+}
+
+function receivedEventSettingKey(
+  accountEmail: string,
+  suffix: "watermark" | "processed-ids",
+): string {
+  return `mail-received-events:${accountEmail.trim().toLowerCase()}:${suffix}`;
+}
+
+async function emitNewReceivedEvents(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+): Promise<number> {
+  const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
+  const storedWatermark = await getUserSetting(ownerEmail, watermarkKey);
+  if (storedWatermark === null || storedWatermark === undefined) {
+    // Do not replay the recent inbox on first poll; only subsequent arrivals start automations.
+    const profile = await gmailGetProfile(accessToken);
+    if (typeof profile.historyId !== "string" || !profile.historyId) {
+      throw new Error("Gmail did not return a history cursor for Mail events.");
+    }
+    await putUserSetting(ownerEmail, watermarkKey, {
+      lastHistoryId: profile.historyId,
+      lastTimestamp: Date.now(),
+    } as any);
+    return 0;
+  }
+  if (
+    typeof storedWatermark !== "object" ||
+    Array.isArray(storedWatermark) ||
+    typeof (storedWatermark as any).lastHistoryId !== "string" ||
+    !(storedWatermark as any).lastHistoryId ||
+    !Number.isFinite((storedWatermark as any).lastTimestamp)
+  ) {
+    throw new Error("The saved Mail event cursor is unreadable.");
+  }
+
+  const storedIds = await getUserSetting(
+    ownerEmail,
+    receivedEventSettingKey(accountEmail, "processed-ids"),
+  );
+  let processedIds = new Set<string>();
+  if (storedIds !== null && storedIds !== undefined) {
+    if (
+      typeof storedIds !== "object" ||
+      Array.isArray(storedIds) ||
+      !Array.isArray((storedIds as any).ids) ||
+      !(storedIds as any).ids.every((id: unknown) => typeof id === "string") ||
+      !Number.isFinite((storedIds as any).updatedAt)
+    ) {
+      throw new Error("The saved Mail event message list is unreadable.");
+    }
+    if (Date.now() - (storedIds as any).updatedAt <= PROCESSED_IDS_MAX_AGE_MS) {
+      processedIds = new Set<string>((storedIds as any).ids);
+    }
+  }
+  const watermark = storedWatermark as unknown as Watermark;
+  const { messages, newHistoryId } = await fetchNewInboxMessages(
+    accessToken,
+    accountEmail,
+    watermark,
+    processedIds,
+  );
+
+  for (const message of messages) {
+    emit(
+      "mail.message.received",
+      {
+        messageId: message.id,
+        accountEmail,
+        from: message.from,
+        to: message.to,
+        subject: message.subject,
+        snippet: message.snippet,
+        labels: message.labelIds,
+        threadId: message.threadId,
+      },
+      { owner: ownerEmail },
+    );
+    processedIds.add(message.id);
+  }
+
+  if (newHistoryId || messages.length > 0) {
+    await putUserSetting(ownerEmail, watermarkKey, {
+      lastHistoryId: newHistoryId || watermark.lastHistoryId,
+      lastTimestamp: Date.now(),
+    } as any);
+  }
+  await putUserSetting(
+    ownerEmail,
+    receivedEventSettingKey(accountEmail, "processed-ids"),
+    {
+      ids: [...processedIds].slice(-MAX_PROCESSED_IDS),
+      updatedAt: Date.now(),
+    } as any,
+  );
+  return messages.length;
 }
 
 async function loadActiveRules(
@@ -1233,6 +1331,18 @@ export async function processAutomationsForAccount(
     suggestionsCreated: 0,
   };
 
+  try {
+    if (listSubscriptions("mail.message.received").length > 0) {
+      await emitNewReceivedEvents(ownerEmail, accountEmail, accessToken);
+    }
+  } catch (error) {
+    console.error(
+      `[automation-engine] Failed to emit received-mail events for ${accountEmail}:`,
+      error,
+    );
+    result.errors += 1;
+  }
+
   const aiFilterState = await getAiFilterState(ownerEmail);
   const rules = (await loadActiveRules(ownerEmail, "mail")).filter(
     (rule) =>
@@ -1252,11 +1362,11 @@ export async function processAutomationsForAccount(
       "[automation-engine] Model availability check failed:",
       error,
     );
-    result.errors = 1;
+    result.errors += 1;
     return result;
   }
   if (!modelAccess.available) {
-    result.errors = 1;
+    result.errors += 1;
     return result;
   }
 
@@ -1281,26 +1391,6 @@ export async function processAutomationsForAccount(
   }
 
   result.messagesProcessed = messages.length;
-
-  for (const msg of messages) {
-    try {
-      emit(
-        "mail.message.received",
-        {
-          messageId: msg.id,
-          from: msg.from,
-          to: msg.to,
-          subject: msg.subject,
-          snippet: msg.snippet,
-          labels: msg.labelIds,
-          threadId: msg.threadId,
-        },
-        { owner: ownerEmail },
-      );
-    } catch {
-      // best-effort — never block the automation run
-    }
-  }
 
   const matches = await evaluateRules(
     messages,
@@ -1337,6 +1427,9 @@ export async function processAutomationsForAccount(
           ownerEmail,
           accountEmail,
           labelCache,
+          from: message.from,
+          subject: message.subject,
+          snippet: message.snippet,
         };
 
         if (rule.kind === "ai-filter") {

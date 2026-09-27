@@ -262,6 +262,8 @@ export default {
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
     eventRules: "Einladungsregeln",
+    eventRulesAutomationLink:
+      "Für weitere Aktionen eine Automatisierung erstellen.",
     eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
     eventRulesFreeBuilderOrApiKey:
       "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",

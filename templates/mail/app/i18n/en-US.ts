@@ -610,6 +610,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} messages restored",
       ruleBackfillReview: "Review matches",
       importantMode: "Important",
+      notifyMode: "Notify",
+      notifyModeHelp:
+        "Marks matches Important and shows a browser popup while Mail is open and notifications are enabled from the bell. Mobile app coming soon.",
+      manageAutomationsLink: "More automation actions",
       notImportantMode: "Not important",
       importantLabel: "AI Important",
       reviewImportant: "View important",
@@ -738,6 +742,7 @@ const messages = {
     markRead: "Mark as read",
     star: "Star",
     trash: "Trash",
+    notify: "Notify",
     labelName: "Label name",
     addAction: "+ Add action",
     ruleName: "Rule name",

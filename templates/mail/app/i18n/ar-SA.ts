@@ -608,6 +608,10 @@ const messages = {
       ruleBackfillUndoComplete: "تمت استعادة {{count}} رسالة",
       ruleBackfillReview: "مراجعة النتائج",
       importantMode: "مهم",
+      notifyMode: "إشعار",
+      notifyModeHelp:
+        "تضع علامة مهم على الرسائل المطابقة وتعرض نافذة منبثقة في المتصفح ما دام Mail مفتوحًا والإشعارات مفعّلة من الجرس. تطبيق الهاتف قادم قريبًا.",
+      manageAutomationsLink: "المزيد من إجراءات الأتمتة",
       notImportantMode: "غير مهم",
       importantLabel: "مهم بالذكاء الاصطناعي",
       reviewImportant: "عرض المهم",
@@ -735,6 +739,7 @@ const messages = {
     markRead: "وضع علامة مقروء",
     star: "تمييز بنجمة",
     trash: "المهملات",
+    notify: "إشعار",
     labelName: "اسم التصنيف",
     addAction: "+ إضافة إجراء",
     ruleName: "اسم القاعدة",

@@ -629,6 +629,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
       ruleBackfillReview: "Treffer prüfen",
       importantMode: "Wichtig",
+      notifyMode: "Benachrichtigen",
+      notifyModeHelp:
+        "Markiert passende E-Mails als wichtig und zeigt ein Browser-Popup, wenn Mail geöffnet und die Glocke aktiviert ist. Die mobile App folgt in Kürze.",
+      manageAutomationsLink: "Weitere Automatisierungsaktionen",
       notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",
       reviewImportant: "Wichtige anzeigen",
@@ -765,6 +769,7 @@ const messages = {
     markRead: "Als gelesen markieren",
     star: "Markieren",
     trash: "Papierkorb",
+    notify: "Benachrichtigen",
     labelName: "Labelname",
     addAction: "+ Aktion hinzufügen",
     ruleName: "Regelname",

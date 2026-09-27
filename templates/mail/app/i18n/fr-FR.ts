@@ -628,6 +628,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} messages restaurés",
       ruleBackfillReview: "Examiner les correspondances",
       importantMode: "Important",
+      notifyMode: "Notifier",
+      notifyModeHelp:
+        "Marque les messages correspondants comme importants et affiche une fenêtre du navigateur lorsque Mail est ouvert et que les notifications sont activées depuis la cloche. Application mobile bientôt disponible.",
+      manageAutomationsLink: "Autres actions d’automatisation",
       notImportantMode: "Pas important",
       importantLabel: "Important par IA",
       reviewImportant: "Voir les importants",
@@ -762,6 +766,7 @@ const messages = {
     markRead: "Marquer comme lu",
     star: "Ajouter une étoile",
     trash: "Corbeille",
+    notify: "Notifier",
     labelName: "Nom du libellé",
     addAction: "+ Ajouter une action",
     ruleName: "Nom de la règle",

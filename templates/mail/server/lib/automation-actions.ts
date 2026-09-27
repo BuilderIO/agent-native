@@ -1,3 +1,4 @@
+import { notify } from "@agent-native/core/notifications";
 import type { AutomationAction } from "@shared/types.js";
 
 import {
@@ -15,6 +16,9 @@ export interface ActionContext {
   ownerEmail: string;
   accountEmail: string;
   labelCache: Map<string, string>;
+  from?: string;
+  subject?: string;
+  snippet?: string;
 }
 
 export async function buildLabelCache(
@@ -87,6 +91,24 @@ export async function executeAction(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     switch (action.type) {
+      case "notify": {
+        await notify(
+          {
+            severity: "info",
+            channels: ["inbox"],
+            title: ctx.subject?.trim() || "Important email",
+            body: [ctx.from?.trim(), ctx.snippet?.trim()]
+              .filter(Boolean)
+              .join(" · "),
+            metadata: {
+              accountEmail: ctx.accountEmail,
+              messageId: ctx.messageId,
+            },
+          },
+          { owner: ctx.ownerEmail },
+        );
+        return { success: true };
+      }
       case "label": {
         const labelId = await ensureGmailLabel(
           ctx.accessToken,

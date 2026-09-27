@@ -963,6 +963,10 @@ const messages = {
     "Provider or older calls outside Builder billing",
   "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
   "usage.driverCreditsAndUsd": "Builder credits / USD",
+  "billing.builderCreditLimitTitle": "Your Builder credits are used up",
+  "billing.builderCreditLimitEmailBody":
+    "An AI request stopped because your connected Builder account has run out of credits. Upgrade your Builder plan to continue.",
+  "billing.builderCreditUpgrade": "Upgrade plan",
 } as const;
 
 export default messages;

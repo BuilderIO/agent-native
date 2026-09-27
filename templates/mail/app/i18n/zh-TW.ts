@@ -587,6 +587,10 @@ const messages = {
       ruleBackfillUndoComplete: "已還原 {{count}} 封郵件",
       ruleBackfillReview: "檢視符合項目",
       importantMode: "重要",
+      notifyMode: "通知",
+      notifyModeHelp:
+        "將符合條件的郵件標示為重要，並在 Mail 保持開啟且鈴鐺通知已啟用時顯示瀏覽器彈出通知。行動應用程式即將推出。",
+      manageAutomationsLink: "更多自動化動作",
       notImportantMode: "不重要",
       importantLabel: "AI 重要",
       reviewImportant: "查看重要郵件",
@@ -710,6 +714,7 @@ const messages = {
     markRead: "標為已讀",
     star: "加星號",
     trash: "移到垃圾桶",
+    notify: "通知",
     labelName: "標籤名稱",
     addAction: "+ 新增操作",
     ruleName: "規則名稱",

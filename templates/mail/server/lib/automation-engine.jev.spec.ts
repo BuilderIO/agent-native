@@ -3,8 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   dbSelect: vi.fn(),
   getAiFilterState: vi.fn(),
+  emit: vi.fn(),
+  listSubscriptions: vi.fn(),
+  activeRules: [] as Array<Record<string, unknown>>,
+  userSettings: new Map<string, unknown>(),
   getJevContextCredentials: vi.fn(),
   getUserSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+  gmailGetProfile: vi.fn(),
+  gmailListHistory: vi.fn(),
+  gmailBatchGetMessages: vi.fn(),
   isResolvedEngineUsableForRequest: vi.fn(),
   isJevEnabled: vi.fn(),
   readDeployCredentialEnv: vi.fn(),
@@ -34,7 +42,11 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
-  putUserSetting: vi.fn(),
+  putUserSetting: mocks.putUserSetting,
+}));
+vi.mock("@agent-native/core/event-bus", () => ({
+  emit: mocks.emit,
+  listSubscriptions: mocks.listSubscriptions,
 }));
 vi.mock("drizzle-orm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("drizzle-orm")>()),
@@ -65,7 +77,11 @@ vi.mock("./automation-model.js", () => ({
   TYPESAFE_AUTOMATION_ENGINE: "typesafe",
   TYPESAFE_AUTOMATION_MODEL: "jev-latest",
 }));
-vi.mock("./google-api.js", () => ({}));
+vi.mock("./google-api.js", () => ({
+  gmailGetProfile: mocks.gmailGetProfile,
+  gmailListHistory: mocks.gmailListHistory,
+  gmailBatchGetMessages: mocks.gmailBatchGetMessages,
+}));
 vi.mock("./google-auth.js", () => ({}));
 
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
@@ -94,6 +110,9 @@ const email = {
 describe("Mail Jev automation routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.userSettings.clear();
+    mocks.listSubscriptions.mockReturnValue([]);
+    mocks.activeRules = [{ id: "rule-1", kind: "automation", actions: "[]" }];
     mocks.getJevContextCredentials.mockResolvedValue({
       apiKey: undefined,
       personalApiKey: undefined,
@@ -101,7 +120,18 @@ describe("Mail Jev automation routing", () => {
     });
     mocks.isJevEnabled.mockResolvedValue(true);
     mocks.getAiFilterState.mockResolvedValue({ enabled: false, feedback: [] });
-    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.getUserSetting.mockImplementation(
+      async (owner: string, key: string) =>
+        mocks.userSettings.get(`${owner}:${key}`) ?? null,
+    );
+    mocks.putUserSetting.mockImplementation(
+      async (owner: string, key: string, value: unknown) => {
+        mocks.userSettings.set(`${owner}:${key}`, value);
+      },
+    );
+    mocks.gmailGetProfile.mockResolvedValue({ historyId: "history-1" });
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "history-2" });
+    mocks.gmailBatchGetMessages.mockResolvedValue([]);
     mocks.resolveCredential.mockResolvedValue(undefined);
     mocks.resolveEngine.mockImplementation(
       async (options: { apiKey?: string }) => ({
@@ -116,9 +146,7 @@ describe("Mail Jev automation routing", () => {
     mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.dbSelect.mockReturnValue({
       from: () => ({
-        where: async () => [
-          { id: "rule-1", kind: "automation", actions: "[]" },
-        ],
+        where: async () => [...mocks.activeRules],
       }),
     });
     mocks.requestJevThroughBuilder.mockResolvedValue({
@@ -548,5 +576,79 @@ describe("Mail Jev automation routing", () => {
       messagesProcessed: 0,
       errors: 1,
     });
+  });
+
+  it("emits received-mail events for new arrivals without local rules or Jev", async () => {
+    mocks.activeRules = [];
+    mocks.listSubscriptions.mockReturnValue([
+      { id: "received-mail", event: "mail.message.received" },
+    ]);
+    const ownerEmail = "owner@example.com";
+    const accountEmail = "mailbox@example.com";
+
+    await processAutomationsForAccount(
+      ownerEmail,
+      accountEmail,
+      "google-access-token",
+    );
+
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [
+            { message: { id: "incoming-1", labelIds: ["INBOX"] } },
+          ],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "incoming-1",
+        data: {
+          id: "incoming-1",
+          threadId: "thread-1",
+          labelIds: ["INBOX"],
+          snippet: "The agenda is attached.",
+          payload: {
+            headers: [
+              { name: "From", value: "person@example.test" },
+              { name: "To", value: accountEmail },
+              { name: "Subject", value: "Meeting agenda" },
+            ],
+          },
+        },
+      },
+    ]);
+
+    await processAutomationsForAccount(
+      ownerEmail,
+      accountEmail,
+      "google-access-token",
+    );
+
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "mail.message.received",
+      expect.objectContaining({
+        messageId: "incoming-1",
+        accountEmail,
+        subject: "Meeting agenda",
+      }),
+      { owner: ownerEmail },
+    );
+    expect(mocks.isJevEnabled).not.toHaveBeenCalled();
+  });
+
+  it("skips received-mail polling until an event automation subscribes", async () => {
+    mocks.activeRules = [];
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.gmailGetProfile).not.toHaveBeenCalled();
+    expect(mocks.gmailListHistory).not.toHaveBeenCalled();
   });
 });

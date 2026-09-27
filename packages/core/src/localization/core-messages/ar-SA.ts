@@ -988,6 +988,10 @@ const messages: AgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
+  "billing.builderCreditLimitTitle": "نفدت أرصدة Builder لديك",
+  "billing.builderCreditLimitEmailBody":
+    "توقف طلب الذكاء الاصطناعي لأن أرصدة حساب Builder المتصل بك قد نفدت. قم بترقية خطة Builder للمتابعة.",
+  "billing.builderCreditUpgrade": "ترقية الخطة",
 };
 
 export default messages;

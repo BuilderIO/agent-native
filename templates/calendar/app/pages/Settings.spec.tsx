@@ -424,6 +424,24 @@ describe("Calendar Settings", () => {
     });
   });
 
+  it("links invitation rules to Automations for other actions", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    const automationLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/agent/automations"]',
+    );
+    expect(automationLink?.textContent).toBe(
+      "settings.eventRulesAutomationLink",
+    );
+  });
+
   it("shows Builder and API key connection options and disables rule editing without Jev", async () => {
     eventRulesStatusMock.data = {
       ...eventRulesStatusMock.data,

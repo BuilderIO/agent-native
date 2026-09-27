@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   useOrg: vi.fn(),
   useSession: vi.fn(),
   useDemoModeStatus: vi.fn(),
+  useActionQuery: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -52,12 +53,19 @@ vi.mock("../use-demo-mode-status.js", () => ({
   useDemoModeStatus: mocks.useDemoModeStatus,
 }));
 
+vi.mock("../use-action.js", () => ({
+  useActionQuery: mocks.useActionQuery,
+}));
+
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string, options?: { defaultValue?: string }) => {
     const messages: Record<string, string> = {
       "contextXray.provenance.tools": "Tools",
       "settings.profileMenuItem": "Profile",
       "settings.profileTitle": "Account",
+      "agentChat.billing.builderCreditLimitTitle":
+        "Your Builder credits are used up",
+      "agentChat.billing.builderCreditUpgrade": "Upgrade plan",
     };
     return messages[key] ?? options?.defaultValue ?? key;
   },
@@ -77,6 +85,7 @@ describe("OrgSwitcher", () => {
     mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
     mocks.useDemoModeStatus.mockReset();
+    mocks.useActionQuery.mockReset();
     mocks.navigate.mockReset();
     mocks.useSession.mockReturnValue({ session: null, isLoading: false });
     mocks.useDemoModeStatus.mockReturnValue({
@@ -84,6 +93,7 @@ describe("OrgSwitcher", () => {
       forced: false,
       isLoading: false,
     });
+    mocks.useActionQuery.mockReturnValue({ data: null, isError: false });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -161,6 +171,68 @@ describe("OrgSwitcher", () => {
         (node) => node.textContent,
       ),
     ).toContain("Brent's workspace");
+  });
+
+  it("shows a localized upgrade notice when Builder credits are exhausted", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+    mocks.useActionQuery.mockReturnValue({
+      data: { exhausted: true },
+      isError: false,
+    });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).toContain("Your Builder credits are used up");
+    expect(
+      container.querySelector('[role="status"]')?.parentElement?.className,
+    ).toContain("flex-col");
+    const upgrade = container.querySelector<HTMLAnchorElement>(
+      'a[href^="https://builder.io/account/subscription"]',
+    );
+    expect(upgrade?.textContent).toContain("Upgrade plan");
+    expect(upgrade?.getAttribute("target")).toBe("_blank");
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "get-builder-credit-status",
+      { orgId: "org-1" },
+      expect.objectContaining({ refetchInterval: 60_000 }),
+    );
+  });
+
+  it("hides the notice when live credit status is unreadable", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        orgs: [{ orgId: "org-1", orgName: "Acme", role: "owner" }],
+        domainMatches: [],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+    mocks.useActionQuery.mockReturnValue({
+      data: { exhausted: true },
+      isError: true,
+    });
+
+    render(<OrgSwitcher />);
+
+    expect(container.textContent).not.toContain("Builder credits are used up");
+    expect(
+      container.querySelector('a[href^="https://builder.io/"]'),
+    ).toBeNull();
   });
 
   it("renders app utility links in the account menu", () => {

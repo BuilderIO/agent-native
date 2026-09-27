@@ -408,8 +408,13 @@ function AliasesSection() {
 }
 
 function ActionBadge({ action }: { action: AutomationAction }) {
+  const t = useT();
   const label =
-    action.type === "label" ? `label: ${action.labelName}` : action.type;
+    action.type === "label"
+      ? `label: ${action.labelName}`
+      : action.type === "notify"
+        ? t("settings.notify")
+        : action.type;
   return (
     <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
       {label}
@@ -418,6 +423,7 @@ function ActionBadge({ action }: { action: AutomationAction }) {
 }
 
 const ACTION_TYPES = [
+  { value: "notify", labelKey: "settings.notify" },
   { value: "label", labelKey: "settings.applyLabel" },
   { value: "archive", labelKey: "settings.archive" },
   { value: "mark_read", labelKey: "settings.markRead" },

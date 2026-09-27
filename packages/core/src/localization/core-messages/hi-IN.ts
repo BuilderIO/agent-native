@@ -948,6 +948,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "billing.builderCreditLimitTitle": "आपके Builder क्रेडिट खत्म हो गए हैं",
+  "billing.builderCreditLimitEmailBody":
+    "आपके कनेक्ट किए गए Builder खाते में क्रेडिट खत्म होने के कारण AI अनुरोध रुक गया। जारी रखने के लिए अपना Builder प्लान अपग्रेड करें।",
+  "billing.builderCreditUpgrade": "प्लान अपग्रेड करें",
 };
 
 export default messages;

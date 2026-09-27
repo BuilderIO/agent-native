@@ -264,6 +264,7 @@ export default {
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",
     eventRules: "قواعد الدعوات",
+    eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
     eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
     eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
     eventRulesConnectBuilder: "ربط Builder.io",

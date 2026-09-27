@@ -27,6 +27,7 @@ import type { CalendarWeekStart } from "@shared/calendar-week";
 import { isCalendarWeekStart } from "@shared/calendar-week";
 import {
   IconBrandZoom,
+  IconCalendarCheck,
   IconExternalLink,
   IconLink,
   IconUnlink,
@@ -382,6 +383,7 @@ export default function Settings() {
     {
       id: "event-rules",
       label: t("settings.eventRules"),
+      icon: IconCalendarCheck,
       keywords: "jev invitation rules accept decline hide",
       content: (
         <Card
@@ -523,6 +525,12 @@ export default function Settings() {
                 >
                   {t("settings.eventRulesSave")}
                 </Button>
+                <Link
+                  to={buildSettingsRoute("agent:automations")}
+                  className="inline-block text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  {t("settings.eventRulesAutomationLink")}
+                </Link>
                 {!eventRulesStatus.isLoading &&
                 !eventRulesStatus.isError &&
                 !jevConfigured &&

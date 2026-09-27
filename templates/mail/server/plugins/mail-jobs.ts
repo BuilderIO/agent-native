@@ -84,9 +84,10 @@ export default () => {
   registerEvent({
     name: "mail.message.received",
     description:
-      "A new email was received in the user's inbox. Fires once per message during the polling sync cycle.",
+      "A new email was received in the user's inbox. Fires once per message and includes the accountEmail and messageId for exact message lookup.",
     payloadSchema: z.object({
       messageId: z.string(),
+      accountEmail: z.string(),
       from: z.string(),
       to: z.string(),
       subject: z.string(),
@@ -94,6 +95,16 @@ export default () => {
       labels: z.array(z.string()).optional(),
       threadId: z.string().optional(),
     }) as any,
+    example: {
+      messageId: "message_123",
+      accountEmail: "person@example.com",
+      from: "sender@example.com",
+      to: "person@example.com",
+      subject: "A new message",
+      snippet: "Message preview",
+      labels: ["INBOX"],
+      threadId: "thread_123",
+    },
   });
 
   registerEvent({

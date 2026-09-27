@@ -589,6 +589,10 @@ const messages = {
       ruleBackfillUndoComplete: "已恢复 {{count}} 封邮件",
       ruleBackfillReview: "查看匹配项",
       importantMode: "重要",
+      notifyMode: "通知",
+      notifyModeHelp:
+        "将匹配的邮件标记为重要，并在 Mail 保持打开且铃铛通知已启用时显示浏览器弹窗。移动应用即将推出。",
+      manageAutomationsLink: "更多自动化操作",
       notImportantMode: "不重要",
       importantLabel: "AI 重要",
       reviewImportant: "查看重要邮件",
@@ -713,6 +717,7 @@ const messages = {
     markRead: "标为已读",
     star: "加星标",
     trash: "移到垃圾箱",
+    notify: "通知",
     labelName: "标签名称",
     addAction: "+ 添加操作",
     ruleName: "规则名称",

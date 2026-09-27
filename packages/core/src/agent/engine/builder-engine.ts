@@ -15,14 +15,19 @@ import {
 } from "../../server/credential-provider.js";
 import {
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
-import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import { builderSubscriptionUpgradeUrl } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import {
+  clearBuilderCreditLimitNotice,
+  sendBuilderCreditLimitNotice,
+} from "../../usage/builder-credit-notice.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
@@ -111,15 +116,43 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
 }
 
 async function buildUpgradeUrl(): Promise<string> {
-  const url = new URL("https://builder.io/account/subscription");
-  url.searchParams.set("signupSource", "agent-native");
-  url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
-  url.searchParams.set("agentNativeFlow", "connect_llm");
-  url.searchParams.set("framework", "agent-native");
-  applyBuilderUtmTrackingParams(url.searchParams, {
-    content: "gateway_quota_upgrade",
+  return builderSubscriptionUpgradeUrl("gateway_quota_upgrade");
+}
+
+async function notifyBuilderCreditLimit(): Promise<void> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return;
+  const promise = sendBuilderCreditLimitNotice({
+    ownerEmail,
+    orgId: getRequestOrgId(),
   });
-  return url.toString();
+  const waitUntil = getRequestRunContext()?.waitUntil;
+  if (waitUntil) {
+    try {
+      waitUntil(promise);
+      return;
+    } catch (error) {
+      console.warn("[builder-engine] could not register credit email", error);
+    }
+  }
+  await promise;
+}
+
+function isExplicitBuilderCreditsLimitCode(errorCode?: string): boolean {
+  return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
+}
+
+async function clearBuilderCreditLimitAfterSuccess(): Promise<void> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return;
+  try {
+    await clearBuilderCreditLimitNotice(ownerEmail, getRequestOrgId());
+  } catch (error) {
+    console.warn(
+      "[builder-engine] could not clear credit limit notice after success",
+      error,
+    );
+  }
 }
 
 interface GatewayErrorBody {
@@ -567,6 +600,9 @@ async function* emitHttpError(
   const quotaErrorCode =
     status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
   if (isCreditsLimitErrorCode(code) || status === 402) {
+    if (isExplicitBuilderCreditsLimitCode(quotaErrorCode)) {
+      await notifyBuilderCreditLimit();
+    }
     yield stop({
       error: message,
       errorCode: quotaErrorCode,
@@ -896,6 +932,9 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
             );
+            if (isExplicitBuilderCreditsLimitCode(errCode)) {
+              await notifyBuilderCreditLimit();
+            }
             yield stop({
               error: errMsg,
               errorCode: errCode,
@@ -957,6 +996,9 @@ async function* parseJsonlStream(
                 message: String(errMsg),
               });
             }
+            if (isExplicitBuilderCreditsLimitCode(errCode)) {
+              await notifyBuilderCreditLimit();
+            }
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({
                 requestId: gatewayRequestId,
@@ -985,6 +1027,7 @@ async function* parseJsonlStream(
             reason === "max_tokens" ||
             reason === "stop_sequence"
           ) {
+            await clearBuilderCreditLimitAfterSuccess();
             yield { type: "stop", reason };
           } else {
             yield stop({ error: `Unknown stop reason: ${reason}` });

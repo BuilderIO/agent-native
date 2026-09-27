@@ -102,6 +102,36 @@ export function renderInviteEmail(
   };
 }
 
+export function renderBuilderCreditLimitEmail(args: {
+  subject: string;
+  heading: string;
+  body: string;
+  upgradeLabel: string;
+  upgradeUrl: string;
+}): RenderedEmailMessage {
+  const brand = resolveBrand();
+  const { html, text } = renderEmail({
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: args.body,
+    heading: args.heading,
+    paragraphs: [args.body],
+    cta: { label: args.upgradeLabel, url: args.upgradeUrl },
+  });
+  return {
+    subject: args.subject,
+    html,
+    text,
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
+      : undefined,
+  };
+}
+
 export interface RenderVerifySignupEmailArgs {
   email: string;
   verifyUrl: string;

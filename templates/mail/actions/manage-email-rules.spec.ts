@@ -352,6 +352,33 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
+  it("creates a Notify rule that highlights matches and queues backfill", async () => {
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      mode: "notify",
+      sentence: "Messages from my child's school",
+    });
+
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({
+        name: "AI notify: Messages from my child's school",
+        condition: "Messages from my child's school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+      }),
+    );
+    expect(result).toMatchObject({
+      mode: "notify",
+      sentence: "Messages from my child's school",
+      backfillStatus: "queued",
+    });
+  });
+
   it("creates an AI tag from a mode, sentence, and label name", async () => {
     const action = createManageEmailRulesAction(true);
     const result = await action.run({

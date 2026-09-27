@@ -213,6 +213,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
   "get-builder-credit-usage": "automation",
+  "get-builder-credit-status": "automation",
   "get-builder-referral-info": "automation",
 
   "context-manifest-get": "contextXray",

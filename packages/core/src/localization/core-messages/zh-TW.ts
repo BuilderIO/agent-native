@@ -921,6 +921,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 計費以外的供應商使用量或舊呼叫",
   "usage.providerSpendToday": "今日其他或未分類的使用量：{{amount}}",
   "usage.driverCreditsAndUsd": "Builder 點數 / USD",
+  "billing.builderCreditLimitTitle": "Builder 點數已用完",
+  "billing.builderCreditLimitEmailBody":
+    "由於您連結的 Builder 帳戶點數已用完，一項 AI 請求已停止。升級 Builder 方案即可繼續使用。",
+  "billing.builderCreditUpgrade": "升級方案",
 };
 
 export default messages;

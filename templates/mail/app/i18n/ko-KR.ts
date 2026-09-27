@@ -608,6 +608,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}}개 메시지 복원됨",
       ruleBackfillReview: "일치 항목 검토",
       importantMode: "중요",
+      notifyMode: "알림",
+      notifyModeHelp:
+        "일치하는 메일을 중요 표시하고 Mail을 열어 두고 종 모양 메뉴에서 알림을 켜면 브라우저 팝업을 표시합니다. 모바일 앱은 곧 제공될 예정입니다.",
+      manageAutomationsLink: "더 많은 자동화 작업",
       notImportantMode: "중요하지 않음",
       importantLabel: "AI 중요",
       reviewImportant: "중요 메일 보기",
@@ -736,6 +740,7 @@ const messages = {
     markRead: "읽음으로 표시",
     star: "별표",
     trash: "휴지통",
+    notify: "알림",
     labelName: "라벨 이름",
     addAction: "+ 작업 추가",
     ruleName: "규칙 이름",

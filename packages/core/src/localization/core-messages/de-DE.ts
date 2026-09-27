@@ -1018,6 +1018,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder-Credits / USD",
+  "billing.builderCreditLimitTitle": "Deine Builder-Credits sind aufgebraucht",
+  "billing.builderCreditLimitEmailBody":
+    "Eine KI-Anfrage wurde gestoppt, weil dein verbundenes Builder-Konto keine Credits mehr hat. Führe ein Upgrade deines Builder-Tarifs durch, um fortzufahren.",
+  "billing.builderCreditUpgrade": "Tarif upgraden",
 };
 
 export default messages;
