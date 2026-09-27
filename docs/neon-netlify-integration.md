@@ -1,13 +1,13 @@
 # GitHub Actions Netlify PR previews
 
-PRs do not deploy previews automatically. To preview one site, the internal
-author of an open, same-repository PR targeting `main` manually runs the
-`Manage Netlify PR previews` workflow from `main`, selects the PR number and one
-eligible site, and dispatches the run. GitHub checks the author is an
-organization member or owner and is the person who started the run. The build
-job has no deployment secrets; the upload job checks out the trusted base
-revision, builds its trusted Functions, and receives only the PR's static
-artifact. PR-controlled Functions are never deployed.
+PRs do not deploy previews automatically. To preview one site, an organization
+owner or member comments `/preview <site>` on an open, same-repository PR
+targeting `main`, for example `/preview analytics`. GitHub runs the workflow
+from the default branch. It checks that both the commenter and PR author are
+organization members or owners. The build job has no deployment secrets; the
+upload job checks out the trusted base revision, builds its trusted Functions,
+and receives only the PR's static artifact. PR-controlled Functions are never
+deployed.
 
 Preview deploys do not create an isolated database. Before each GitHub Actions
 upload, the workflow copies the production PostgreSQL URL from the matching
@@ -22,9 +22,9 @@ cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
-1. **Manual preview** - select one eligible site for an open PR targeting
-   `main`. The workflow validates the PR and its internal author, then builds
-   the exact PR head revision and publishes a PR alias.
+1. **Manual preview** - comment `/preview <site>` on an open PR targeting
+   `main`. The workflow validates the internal commenter and PR author, then
+   builds the exact PR head revision and publishes a PR alias for that app.
 
 2. **Preview URL** - the workflow smoke-tests the uploaded deploy and records
    its URL as a GitHub deployment on the PR commit.
@@ -51,12 +51,12 @@ effects.
 
 ## Required GitHub secrets
 
-| Secret                                    | Where to get it                                                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                              |
-| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                    |
-| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                  |
-| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database. Used only by a manually dispatched preview upload. |
+| Secret                                    | Where to get it                                                                                                                                     |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEON_API_KEY`                            | Neon dashboard → Account → API Keys                                                                                                                 |
+| `NETLIFY_AUTH_TOKEN`                      | Netlify User Settings → Personal Access Token                                                                                                       |
+| `NETLIFY_ACCOUNT_ID`                      | Netlify team settings → Team ID                                                                                                                     |
+| `NETLIFY_PREVIEW_DATABASE_URL_<TEMPLATE>` | Matching production `templates/<template>/.env` URL; `CHAT` uses the production Netlify database. Used only by a manually requested preview upload. |
 
 ## Restoring production env vars
 

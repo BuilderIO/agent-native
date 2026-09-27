@@ -1,30 +1,8 @@
 name: Manage Netlify PR previews
 
 on:
-  workflow_dispatch:
-    inputs:
-      pull_request_number:
-        description: Open pull request targeting main
-        required: true
-        type: number
-      site:
-        description: One app site to preview
-        required: true
-        type: choice
-        options:
-          - analytics
-          - assets
-          - calendar
-          - clips
-          - content
-          - design
-          - dispatch
-          - forms
-          - mail
-          - plan
-          - slides
-          - starter
-          - fw
+  issue_comment:
+    types: [created]
   pull_request_target:
     branches: [main]
     types: [closed]
@@ -33,13 +11,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: netlify-pr-preview-${{ github.event.pull_request.number || inputs.pull_request_number || 'cleanup' }}-${{ inputs.site || 'cleanup' }}
-  cancel-in-progress: true
+  group: netlify-pr-preview-${{ github.event.pull_request.number || github.event.issue.number }}-${{ (github.event_name == 'pull_request_target' || (startsWith(github.event.comment.body, '/preview ') && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))) && 'shared' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   authorize:
     name: Authorize internal PR preview
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/preview ')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,32 +40,44 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify the selected app is preview eligible
-        env:
-          SITE_NAME: ${{ inputs.site }}
+      - name: Parse the selected app
+        id: command
         run: |
           set -euo pipefail
-          node --experimental-strip-types --input-type=module - "$SITE_NAME" <<'NODE'
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
           import { previewEligibleSiteNames } from "./scripts/netlify-pr-preview-targets.ts";
 
-          const site = process.argv[2];
+          const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+          const match = event.comment.body.match(/^\/preview ([a-z][a-z0-9-]*)$/);
+          if (!match) {
+            throw new Error("Use /preview <site> as the entire PR comment.");
+          }
+          const site = match[1];
           if (!previewEligibleSiteNames().includes(site)) {
             throw new Error(`Site is not eligible for PR previews: ${site}`);
           }
+          appendFileSync(process.env.GITHUB_OUTPUT, `site=${site}\n`);
           NODE
 
-      - name: Verify the open PR and its internal author
+      - name: Verify the open PR and internal authors
         id: authorize
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
-          SITE_NAME: ${{ inputs.site }}
+          PULL_REQUEST_NUMBER: ${{ github.event.issue.number }}
+          SITE_NAME: ${{ steps.command.outputs.site }}
         with:
           github-token: ${{ github.token }}
           script: |
             const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
             if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
               throw new Error('Pull request number must be a positive integer.');
+            }
+            if (
+              context.payload.comment.user?.type !== 'User' ||
+              !['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)
+            ) {
+              throw new Error('Only organization owners and members can request previews.');
             }
 
             const { data: pullRequest } = await github.rest.pulls.get({
@@ -104,10 +100,6 @@ jobs:
             ) {
               throw new Error('Only PRs authored by an organization owner or member can receive previews.');
             }
-            if (context.actor.toLowerCase() !== pullRequest.user.login.toLowerCase()) {
-              throw new Error('Only the internal PR author can dispatch its preview.');
-            }
-
             core.setOutput('pull_request_number', String(pullRequest.number));
             core.setOutput('source_ref', pullRequest.head.sha);
             core.setOutput('checkout_ref', pullRequest.base.sha);

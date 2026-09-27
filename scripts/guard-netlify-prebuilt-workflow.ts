@@ -233,15 +233,18 @@ export function validateNetlifyPrPreviewWorkflow(
   const issues: string[] = [];
   const triggers = asRecord(workflow.on);
   const jobs = asRecord(workflow.jobs);
-  const dispatch = asRecord(triggers?.workflow_dispatch);
-  const dispatchInputs = asRecord(dispatch?.inputs);
-  const pullRequestNumberInput = asRecord(dispatchInputs?.pull_request_number);
-  const siteInput = asRecord(dispatchInputs?.site);
+  const issueComment = asRecord(triggers?.issue_comment);
+  const issueCommentTypes = issueComment?.types;
   const pullRequestTarget = asRecord(triggers?.pull_request_target);
   const pullRequestTargetTypes = pullRequestTarget?.types;
+  const concurrency = asRecord(workflow.concurrency);
   const authorize = asRecord(jobs?.authorize);
   const authorizeSteps =
     (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
+  const commandScript = String(
+    authorizeSteps.find((step) => step.name === "Parse the selected app")
+      ?.run ?? "",
+  );
   const authorizeScript = String(
     authorizeSteps
       .map((step) => asRecord(step.with))
@@ -266,19 +269,15 @@ export function validateNetlifyPrPreviewWorkflow(
     "createDeploymentStatus",
   );
 
-  if (!dispatch) {
-    issues.push(`${pullRequestPath} must support manual workflow_dispatch`);
-  }
   if (
-    pullRequestNumberInput?.type !== "number" ||
-    pullRequestNumberInput?.required !== true ||
-    siteInput?.type !== "choice" ||
-    siteInput?.required !== true ||
-    JSON.stringify(siteInput?.options) !==
-      JSON.stringify(previewEligibleSiteNames())
+    asRecord(triggers?.workflow_dispatch) ||
+    !issueComment ||
+    !Array.isArray(issueCommentTypes) ||
+    issueCommentTypes.length !== 1 ||
+    issueCommentTypes[0] !== "created"
   ) {
     issues.push(
-      `${pullRequestPath} must require a PR number and one preview-eligible site`,
+      `${pullRequestPath} must use a default-branch PR comment as its manual preview trigger`,
     );
   }
   if (
@@ -296,18 +295,37 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
+    typeof concurrency?.group !== "string" ||
+    !concurrency.group.includes("github.event.pull_request.number") ||
+    !concurrency.group.includes("github.event.issue.number") ||
+    concurrency["cancel-in-progress"] !==
+      "${{ github.event_name == 'pull_request_target' }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} previews and closed-PR cleanup must share a PR queue that lets cleanup cancel an upload`,
+    );
+  }
+  const authorizeIf = String(authorize?.if ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (
     !authorize ||
     authorize["runs-on"] !== "ubuntu-latest" ||
-    authorize.if !==
-      "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" ||
+    !authorizeIf.includes("github.event_name == 'issue_comment'") ||
+    !authorizeIf.includes("github.event.action == 'created'") ||
+    !authorizeIf.includes("github.event.issue.pull_request") ||
+    !authorizeIf.includes("github.event.comment.author_association") ||
+    !authorizeIf.includes("github.event.comment.user.type == 'User'") ||
+    !authorizeIf.includes(
+      "startsWith(github.event.comment.body, '/preview ')",
+    ) ||
     asRecord(authorize.permissions)?.contents !== "read" ||
     asRecord(authorize.permissions)?.["pull-requests"] !== "read" ||
     Object.keys(asRecord(authorize.permissions) ?? {}).some(
       (permission) => !["contents", "pull-requests"].includes(permission),
     ) ||
-    !source.includes(
-      "context.actor.toLowerCase() !== pullRequest.user.login.toLowerCase()",
-    ) ||
+    !source.includes("context.payload.comment.author_association") ||
+    !source.includes("context.payload.comment.user?.type !== 'User'") ||
     !source.includes("pullRequest.author_association") ||
     !source.includes("['OWNER', 'MEMBER']") ||
     !source.includes("pullRequest.user?.type !== 'User'") ||
@@ -316,10 +334,15 @@ export function validateNetlifyPrPreviewWorkflow(
     !source.includes(
       "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
     ) ||
-    !source.includes("previewEligibleSiteNames().includes(site)")
+    !commandScript.includes("event.comment.body.match(/^\\/preview ") ||
+    !commandScript.includes("readFileSync(process.env.GITHUB_EVENT_PATH") ||
+    !commandScript.includes("previewEligibleSiteNames().includes(site)") ||
+    !commandScript.includes("process.env.GITHUB_OUTPUT") ||
+    !source.includes("github.event.issue.number") ||
+    !source.includes("steps.command.outputs.site")
   ) {
     issues.push(
-      `${pullRequestPath} must gate dispatches to the internal PR author and one valid main-targeting PR`,
+      `${pullRequestPath} must gate internal comments to one eligible site and an internal, open, same-repository PR targeting main`,
     );
   }
   if (

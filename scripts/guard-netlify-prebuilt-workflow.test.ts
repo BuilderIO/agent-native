@@ -174,7 +174,7 @@ describe("Google callback deploy verification guard", () => {
 });
 
 describe("Netlify PR preview workflow guard", () => {
-  it("requires an internal PR author to manually deploy one secret-free prebuilt app", () => {
+  it("requires an internal PR comment to manually deploy one secret-free prebuilt app", () => {
     assert.deepEqual(
       validateNetlifyPrPreviewWorkflow(
         readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
@@ -208,31 +208,42 @@ describe("Netlify PR preview workflow guard", () => {
       ["closed"],
     );
     assert.deepEqual(
-      ((preview.on as Workflow).workflow_dispatch as Workflow).inputs &&
-        ((
-          ((preview.on as Workflow).workflow_dispatch as Workflow)
-            .inputs as Workflow
-        ).site as Workflow),
-      {
-        description: "One app site to preview",
-        required: true,
-        type: "choice",
-        options: [
-          "analytics",
-          "assets",
-          "calendar",
-          "clips",
-          "content",
-          "design",
-          "dispatch",
-          "forms",
-          "mail",
-          "plan",
-          "slides",
-          "starter",
-          "fw",
-        ],
-      },
+      ((preview.on as Workflow).issue_comment as Workflow).types,
+      ["created"],
+    );
+    assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
+    assert.match(
+      String(preview.concurrency.group),
+      /github\.event\.issue\.number/,
+    );
+    assert.match(
+      String(preview.concurrency.group),
+      /github\.event\.pull_request\.number/,
+    );
+    assert.equal(
+      preview.concurrency["cancel-in-progress"],
+      "${{ github.event_name == 'pull_request_target' }}",
+    );
+    const authorize = previewJobs.authorize;
+    assert.match(
+      String(authorize.if),
+      /github\.event\.comment\.author_association/,
+    );
+    assert.match(
+      String(authorize.if),
+      /startsWith\(github\.event\.comment\.body, '\/preview '\)/,
+    );
+    const command = (authorize.steps as Array<Workflow>).find(
+      (step) => step.name === "Parse the selected app",
+    );
+    assert.match(String(command?.run), /GITHUB_EVENT_PATH/);
+    assert.match(
+      String(command?.run),
+      /event\.comment\.body\.match\(\/\^\\\/preview /,
+    );
+    assert.match(
+      String(command?.run),
+      /previewEligibleSiteNames\(\)\.includes\(site\)/,
     );
     assert.match(
       reusableSource,
@@ -298,8 +309,13 @@ describe("Netlify PR preview workflow guard", () => {
         "false",
       ],
       [
-        "context.actor.toLowerCase() !== pullRequest.user.login.toLowerCase()",
+        "!['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)",
         "false",
+      ],
+      ["issue_comment:", "workflow_dispatch:"],
+      [
+        "${{ github.event_name == 'pull_request_target' }}",
+        "${{ github.event_name == 'issue_comment' }}",
       ],
       ["types: [closed]", "types: [opened]"],
     ]) {
