@@ -81,6 +81,8 @@ const acceptanceActionFixtures = [
     "response-insights",
     "query-agent-native-analytics",
     "create-event",
+    "find-a-time",
+    "create-booking-link",
   ].map((name) => ({
     name,
     source: path.join(
@@ -1305,7 +1307,7 @@ const helloPrompt =
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
 const widgetPrompt =
-  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, and Calendar event in that order, then summarize them.";
+  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, best shared time, and booking link in that order, then summarize them.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
 const rejectedSteerPrompt =
@@ -1361,6 +1363,16 @@ const widgetToolCalls: Array<{
       startTimeZone: "America/Los_Angeles",
       location: "Conference room 4A",
     },
+  },
+  {
+    id: "call_agentkit_widget_calendar_time_choice",
+    name: "find-a-time",
+    arguments: { date: "2026-04-23" },
+  },
+  {
+    id: "call_agentkit_widget_calendar_booking_link",
+    name: "create-booking-link",
+    arguments: { duration: 30 },
   },
 ];
 
@@ -1673,7 +1685,7 @@ async function handleLoopbackCompletion(
     await streamTextResponse(
       response,
       requestNumber,
-      ["All five local sample widgets are ready."],
+      ["All seven local sample widgets are ready."],
       state,
     );
     state.widgetRunCompleted = true;
@@ -2228,16 +2240,16 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByText("agentkit-recipient@example.test", { exact: false })
     .waitFor({ state: "visible" });
   const draftLink = draftCard.getByRole("link", {
-    name: "Review",
+    name: "Review / edit",
     exact: true,
   });
   await draftLink.waitFor({ state: "visible" });
   assert.equal(
     new URL((await draftLink.getAttribute("href")) ?? "", page.url()).pathname,
     "/_agent-native/open",
-    "the draft widget must keep its Review link",
+    "the draft widget must keep its review and edit link",
   );
-  await draftCard.getByText("Draft", { exact: true }).waitFor({
+  await draftCard.getByText("Awaiting review", { exact: true }).waitFor({
     state: "visible",
   });
 
@@ -2274,6 +2286,33 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
   await eventCard.getByText("Conference room 4A", { exact: false }).waitFor({
+    state: "visible",
+  });
+
+  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  const timeChoiceCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "Best shared time" });
+  await timeChoiceCard.getByText("Suggested", { exact: true }).waitFor({
+    state: "visible",
+  });
+  const useTimeLink = timeChoiceCard.getByRole("link", {
+    name: "Use this time",
+    exact: true,
+  });
+  await useTimeLink.waitFor({ state: "visible" });
+  assert.equal(
+    new URL((await useTimeLink.getAttribute("href")) ?? "", page.url())
+      .pathname,
+    "/_agent-native/open",
+    "the time-choice widget must open its Calendar draft link",
+  );
+
+  await assertActionWidgetOutsideActivity(page, "Booking link");
+  const bookingLinkCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "Booking link" });
+  await bookingLinkCard.getByText("30 min", { exact: true }).waitFor({
     state: "visible",
   });
 }
@@ -2654,7 +2693,7 @@ async function assertAgentKitChatAcceptance(
 
   await fillAndSubmitComposer(page, widgetPrompt);
   await waitForLoopbackState(
-    "sequential completion of all five sample widget actions",
+    "sequential completion of all seven sample widget actions",
     () => provider.widgetRunCompleted,
     30_000,
   );
@@ -2665,7 +2704,7 @@ async function assertAgentKitChatAcceptance(
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page
-    .getByText("All five local sample widgets are ready.", { exact: true })
+    .getByText("All seven local sample widgets are ready.", { exact: true })
     .waitFor({ state: "visible" });
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
@@ -2754,6 +2793,8 @@ async function assertAgentKitChatAcceptance(
     ["AgentKit sample form insights", "agentkit-forms-data-widget-history.png"],
     ["Sample analytics table", "agentkit-analytics-table-widget-history.png"],
     ["AgentKit acceptance event", "agentkit-calendar-event-widget-history.png"],
+    ["Best shared time", "agentkit-calendar-time-choice-widget-history.png"],
+    ["Booking link", "agentkit-calendar-booking-link-widget-history.png"],
   ]) {
     await screenshotActionWidget(
       page,

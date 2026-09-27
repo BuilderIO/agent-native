@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -150,6 +151,20 @@ export default defineAction({
       },
       actionContext,
     );
-    return rowToBookingLink(created[0]);
+    const bookingLink = rowToBookingLink(created[0]);
+    return {
+      ...bookingLink,
+      change: {
+        verb: "created",
+        kind: "booking-link",
+        title: bookingLink.title.trim().slice(0, 180) || "Booking link",
+        detail: String(durationInput.duration),
+        url: buildDeepLink({
+          app: "calendar",
+          view: "booking-links",
+          params: { bookingLinkId: id },
+        }),
+      },
+    };
   },
 });

@@ -107,6 +107,10 @@ import {
 } from "@/lib/calendar-event-identity";
 import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
+  createCalendarSlotDraft,
+  type CalendarSlotPrefill,
+} from "@/lib/calendar-slot-prefill";
+import {
   addCalendarDays,
   dateKeyToDate,
   dateToCalendarDateKey,
@@ -427,7 +431,11 @@ function deletePersistedCalendarDraft(id: string) {
   ).catch(() => {});
 }
 
-export default function CalendarView() {
+export default function CalendarView({
+  slotPrefill,
+}: {
+  slotPrefill: CalendarSlotPrefill | null;
+}) {
   const t = useT();
   const isMobile = useIsMobile();
   const {
@@ -460,6 +468,7 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const appliedSlotPrefillRef = useRef<string | null>(null);
   const preserveDraftViewRef = useRef(false);
   const committingDraftIdsRef = useRef<Set<string>>(new Set());
   const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
@@ -481,6 +490,29 @@ export default function CalendarView() {
   }, [commandPaletteOpen]);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
+
+  useEffect(() => {
+    if (!slotPrefill) {
+      appliedSlotPrefillRef.current = null;
+      return;
+    }
+
+    const prefillKey = `${slotPrefill.start}|${slotPrefill.end}|${slotPrefill.timezone}`;
+    if (appliedSlotPrefillRef.current === prefillKey) return;
+    appliedSlotPrefillRef.current = prefillKey;
+
+    const draft = createCalendarSlotDraft(
+      slotPrefill,
+      `slot-${Date.parse(slotPrefill.start)}-${Date.parse(slotPrefill.end)}`,
+    );
+    persistCalendarDraft(draft);
+    setEventDraft(draft);
+  }, [
+    setEventDraft,
+    slotPrefill?.end,
+    slotPrefill?.start,
+    slotPrefill?.timezone,
+  ]);
 
   useEffect(() => {
     trackEvent("calendar_viewed", {

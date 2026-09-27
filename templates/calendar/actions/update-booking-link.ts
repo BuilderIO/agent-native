@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
@@ -166,6 +167,21 @@ export default defineAction({
       .where(eq(schema.bookingLinks.id, args.id));
 
     if (!updated) throw new Error("Booking link not found");
-    return { ...rowToBookingLink(updated), accessRole: access.role };
+    const bookingLink = rowToBookingLink(updated);
+    return {
+      ...bookingLink,
+      accessRole: access.role,
+      change: {
+        verb: "updated",
+        kind: "booking-link",
+        title: bookingLink.title.trim().slice(0, 180) || "Booking link",
+        detail: String(durationInput.duration),
+        url: buildDeepLink({
+          app: "calendar",
+          view: "booking-links",
+          params: { bookingLinkId: args.id },
+        }),
+      },
+    };
   },
 });

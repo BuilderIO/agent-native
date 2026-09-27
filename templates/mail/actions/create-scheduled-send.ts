@@ -161,7 +161,8 @@ export default defineAction({
       change: {
         verb: "scheduled",
         kind: "scheduled-email",
-        title: new Date(job.runAt).toISOString(),
+        title: payload.subject.trim().slice(0, 180) || "Scheduled email",
+        detail: new Date(job.runAt).toISOString(),
         url: buildDeepLink({ app: "mail", view: "scheduled" }),
       },
     };

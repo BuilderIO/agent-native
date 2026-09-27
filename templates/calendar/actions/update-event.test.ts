@@ -131,8 +131,44 @@ describe("update-event working locations", () => {
       replacedId: "google-event-1",
       accountEmail: "secondary@example.com",
       updated: ["accountEmail"],
+      change: {
+        verb: "updated",
+        kind: "calendar-event",
+        title: "Team meeting",
+      },
     });
+    expect(
+      new URL(result.change.url, "https://calendar.test").searchParams.get(
+        "eventId",
+      ),
+    ).toBe("google-moved-event");
     expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a compact event change without exposing private fields", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          title: "Renamed meeting",
+          description: "Sensitive agenda",
+          attendees: "guest@example.com",
+        }),
+    );
+
+    expect(result.change).toMatchObject({
+      verb: "updated",
+      kind: "calendar-event",
+      title: "Renamed meeting",
+    });
+    expect(
+      new URL(result.change.url, "https://calendar.test").searchParams.get(
+        "eventId",
+      ),
+    ).toBe("google-event-1");
+    expect(JSON.stringify(result.change)).not.toContain("Sensitive agenda");
+    expect(JSON.stringify(result.change)).not.toContain("guest@example.com");
   });
 
   it("rejects moving an event when the current user is not its organizer", async () => {
