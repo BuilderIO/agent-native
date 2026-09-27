@@ -76,37 +76,41 @@ const BETA_OVERUSE_RE =
   /\b(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed|no need|(?:don['’]?t|do not)\s+(?:need|add|get|test|check|verify|run)|stop\s+(?:testing|checking|running))\b/i;
 const BETA_ENDORSE_SKIP_RE =
   /\b(?:don['’]?t|do not)\s+need\s+(?:to\s+)?skip\b/i;
-const BETA_FOLLOWUP_OVERUSE_RE =
-  /\b(?:running|doing|testing|checking|verifying)\b[^.!?;:\n]{0,40}\b(?:it|them|those|these)\b[^.!?;:\n]{0,80}\b(?:every|each|all|routine|always|by default|repeatedly)\b[^.!?;:\n]{0,80}\b(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed|no need)\b/i;
+const BETA_REFERENTIAL_RE = /\b(?:it|them|those|these|that|this)\b/i;
 const BETA_OVERVERIFICATION_RE = {
   test(text) {
     let previousBetaChecks = false;
-    for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
-      let currentBetaChecks = false;
-      for (const clause of sentence.split(
-        /[;:]|\b(?:but|however|whereas|although)\b/i,
-      )) {
-        const betaIndex = clause.search(/\b(?:beta|staging)\b/i);
-        if (betaIndex < 0) continue;
-
-        const context = clause.slice(
-          Math.max(0, betaIndex - 35),
-          betaIndex + 80,
-        );
-        if (!BETA_VERIFICATION_RE.test(context)) continue;
-        currentBetaChecks = true;
-        if (
-          BETA_REPETITION_RE.test(context) &&
-          BETA_OVERUSE_RE.test(context) &&
-          !BETA_ENDORSE_SKIP_RE.test(context)
-        ) {
-          return true;
-        }
-      }
-      if (previousBetaChecks && BETA_FOLLOWUP_OVERUSE_RE.test(sentence)) {
+    let previousBetaRoutine = false;
+    for (const clause of text.split(
+      /[.!?;:\n,]|\b(?:but|however|whereas|although)\b/i,
+    )) {
+      if (
+        previousBetaChecks &&
+        BETA_REFERENTIAL_RE.test(clause) &&
+        BETA_OVERUSE_RE.test(clause) &&
+        (previousBetaRoutine || BETA_REPETITION_RE.test(clause))
+      ) {
         return true;
       }
-      previousBetaChecks = currentBetaChecks;
+
+      const betaIndex = clause.search(/\b(?:beta|staging)\b/i);
+      if (betaIndex < 0) {
+        previousBetaChecks = false;
+        previousBetaRoutine = false;
+        continue;
+      }
+
+      const context = clause.slice(Math.max(0, betaIndex - 35), betaIndex + 80);
+      previousBetaChecks = BETA_VERIFICATION_RE.test(context);
+      previousBetaRoutine =
+        previousBetaChecks && BETA_REPETITION_RE.test(context);
+      if (
+        previousBetaRoutine &&
+        BETA_OVERUSE_RE.test(context) &&
+        !BETA_ENDORSE_SKIP_RE.test(context)
+      ) {
+        return true;
+      }
     }
     return false;
   },
@@ -122,11 +126,16 @@ const BETA_OVERVERIFICATION_REGEX_CASES = [
   [true, "All tasks get E2E on beta, and it's too much."],
   [true, "Don't test beta E2E on every small change."],
   [true, "Beta E2E runs on every PR. Running them on every PR is overkill."],
+  [true, "All threads are testing beta right now, and it's extensive."],
   [false, "Don't skip beta E2E checks for every task."],
   [false, "You don't need to skip beta checks."],
   [false, "You don't need to skip beta checks on every PR."],
   [false, "Don't run production tests but always run beta E2E for every page."],
   [false, "Don't run production tests and always run beta E2E for every page."],
+  [
+    false,
+    "No need to change deployment, but always run beta E2E for every page.",
+  ],
   [false, "Beta E2E is required for every auth callback."],
   [false, "All beta E2E checks passed."],
   [false, "Production tests are unnecessary; the beta check passed."],
