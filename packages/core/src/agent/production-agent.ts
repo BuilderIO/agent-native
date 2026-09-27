@@ -3123,7 +3123,7 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
-        (part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER) ||
+        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
           (part.isError === true && isToolCallTimeoutResult(part.content)))
       ) {
         const key = toolCallCacheKey(call.name, call.input);

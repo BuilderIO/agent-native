@@ -340,6 +340,61 @@ describe("tool-call result ledger", () => {
     );
   });
 
+  it("does not treat successful output mentioning the interruption marker as interrupted", async () => {
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "retry" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "save this" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "orig-marker-text",
+              name: "save-data",
+              input: { content: "retry" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "orig-marker-text",
+              toolName: "save-data",
+              toolInput: '{"content":"retry"}',
+              content:
+                "Saved successfully; earlier note said Interrupted before this tool returned a result.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: retry`,
+            },
+          ],
+        },
+      ],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-marker-text",
+    });
+
+    expect(readLedgerMock).not.toHaveBeenCalled();
+    expect(action.run).toHaveBeenCalledOnce();
+  });
+
   it("recovers a timed out write from its late zombie ledger result", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
