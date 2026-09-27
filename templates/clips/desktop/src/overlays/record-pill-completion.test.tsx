@@ -264,11 +264,21 @@ describe("completion card actions", () => {
       });
     });
     await act(async () => button("Open restart confirmation").click());
+    const eventStart = tauriEvents.emit.mock.calls.length;
     const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
       await import("../lib/recording-shortcut-stop");
     const unlistenAcks = await listenForRecordingShortcutStopAcks();
     await act(async () => requestRecordingShortcutStop());
     unlistenAcks();
+    const shortcutEvents = tauriEvents.emit.mock.calls
+      .slice(eventStart)
+      .map(([event]) => event);
+    expect(
+      shortcutEvents.indexOf("clips:recorder-stop"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(shortcutEvents.indexOf("clips:tray-stop-ack")).toBeGreaterThan(
+      shortcutEvents.indexOf("clips:recorder-stop"),
+    );
     expect(tauriEvents.emit).toHaveBeenCalledWith(
       "clips:tray-stop-ack",
       expect.any(String),

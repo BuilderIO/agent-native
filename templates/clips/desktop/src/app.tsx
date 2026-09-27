@@ -3650,29 +3650,24 @@ export function App({
     let cancelled = false;
     let unlistenAcks: (() => void) | undefined;
     let unlistenShortcut: (() => void) | undefined;
-    void (async () => {
-      try {
-        unlistenAcks = await listenForRecordingShortcutStopAcks();
-      } catch (error) {
+    void listenForRecordingShortcutStopAcks()
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenAcks = unlisten;
+      })
+      .catch((error) => {
         console.error("[clips] stop acknowledgement listener failed:", error);
-      }
-      if (cancelled) {
-        unlistenAcks?.();
-        return;
-      }
-      try {
-        const unlisten = await listen("clips:record-shortcut", () => {
-          recordShortcutHandlerRef.current();
-        });
-        if (cancelled) {
-          unlisten();
-          return;
-        }
-        unlistenShortcut = unlisten;
-      } catch (error) {
+      });
+    void listen("clips:record-shortcut", () => {
+      recordShortcutHandlerRef.current();
+    })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenShortcut = unlisten;
+      })
+      .catch((error) => {
         console.error("[clips] record shortcut listener failed:", error);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
       unlistenShortcut?.();

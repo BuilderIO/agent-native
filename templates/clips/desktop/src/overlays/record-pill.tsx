@@ -209,6 +209,7 @@ export function RecordingPill() {
     null,
   );
   const playheadConfirmOpenRef = useRef(false);
+  const stopDispatchRef = useRef<Promise<void> | null>(null);
 
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -554,9 +555,14 @@ export function RecordingPill() {
     completionActionsRef.current = null;
     setCompletionActionError(null);
     setCompletionActionBusy(false);
-    void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
-      void safeEmit("clips:recorder-stop");
-    });
+    const stopDispatch = (async () => {
+      await safeInvoke("set_toolbar_finishing", { hold: true });
+      await safeEmit("clips:recorder-stop");
+    })();
+    stopDispatchRef.current = stopDispatch;
+    void stopDispatch.catch((error) =>
+      console.error("[record-pill] recorder stop dispatch failed:", error),
+    );
     resizeWindowTo(340, 180);
     setMode("done");
     if (demoMode) {
@@ -902,7 +908,7 @@ export function RecordingPill() {
     track(
       safeListen<{ requestId?: string }>(
         "clips:tray-stop-request",
-        (payload) => {
+        async (payload) => {
           const requestId = payload?.requestId;
           const alreadyDone = modeRef.current === "done";
           if (!alreadyDone && (!enabledRef.current || !stop())) {
@@ -913,7 +919,17 @@ export function RecordingPill() {
             void safeInvoke("show_popover");
             return;
           }
-          if (requestId) void safeEmit("clips:tray-stop-ack", requestId);
+          if (requestId) {
+            try {
+              if (stopDispatchRef.current) await stopDispatchRef.current;
+              await safeEmit("clips:tray-stop-ack", requestId);
+            } catch (error) {
+              console.error(
+                "[record-pill] shortcut stop acknowledgement failed:",
+                error,
+              );
+            }
+          }
         },
       ),
     );
