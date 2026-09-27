@@ -174,7 +174,7 @@ describe("Google callback deploy verification guard", () => {
 });
 
 describe("Netlify PR preview workflow guard", () => {
-  it("keeps PR builds secret-free and uploads through the trusted prebuilt lane", () => {
+  it("requires an internal PR author to manually deploy one secret-free prebuilt app", () => {
     assert.deepEqual(
       validateNetlifyPrPreviewWorkflow(
         readWorkflow(".github/workflows/deploy-netlify-pr-previews.yml"),
@@ -185,22 +185,54 @@ describe("Netlify PR preview workflow guard", () => {
     const preview = readWorkflow(
       ".github/workflows/deploy-netlify-pr-previews.yml",
     );
-    const previewDeploy = (preview.jobs as Record<string, Workflow>).deploy;
+    const previewJobs = preview.jobs as Record<string, Workflow>;
+    const previewDeploy = previewJobs.deploy;
     assert.equal(
       (previewDeploy.with as Workflow).checkout_ref,
-      "${{ github.event.pull_request.base.sha }}",
-    );
-    const previewDiscover = (preview.jobs as Record<string, Workflow>).discover;
-    const previewDiscoverCheckout = (
-      previewDiscover.steps as Array<Workflow>
-    ).find(
-      (step) =>
-        typeof step.uses === "string" &&
-        step.uses.startsWith("actions/checkout@"),
+      "${{ needs.authorize.outputs.checkout_ref }}",
     );
     assert.equal(
-      (previewDiscoverCheckout?.with as Workflow).ref,
-      "${{ github.event.pull_request.base.sha }}",
+      (previewJobs.build.with as Workflow).source_ref,
+      "${{ needs.authorize.outputs.source_ref }}",
+    );
+    assert.equal(
+      (previewDeploy.with as Workflow).pull_request_number,
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}",
+    );
+    assert.equal(previewJobs.discover, undefined);
+    assert.equal(previewJobs.fork, undefined);
+    assert.equal(previewJobs.comment, undefined);
+    assert.deepEqual(
+      (preview.on as Workflow).pull_request_target &&
+        ((preview.on as Workflow).pull_request_target as Workflow).types,
+      ["closed"],
+    );
+    assert.deepEqual(
+      ((preview.on as Workflow).workflow_dispatch as Workflow).inputs &&
+        ((
+          ((preview.on as Workflow).workflow_dispatch as Workflow)
+            .inputs as Workflow
+        ).site as Workflow),
+      {
+        description: "One app site to preview",
+        required: true,
+        type: "choice",
+        options: [
+          "analytics",
+          "assets",
+          "calendar",
+          "clips",
+          "content",
+          "design",
+          "dispatch",
+          "forms",
+          "mail",
+          "plan",
+          "slides",
+          "starter",
+          "fw",
+        ],
+      },
     );
     assert.match(
       reusableSource,
@@ -225,8 +257,6 @@ describe("Netlify PR preview workflow guard", () => {
       pullRequestPreviewSource,
       /issues: write|pull-requests: write|createComment/,
     );
-    const previewJobs = preview.jobs as Record<string, Workflow>;
-    assert.equal(previewJobs.comment, undefined);
     assert.deepEqual(previewJobs.deployment?.permissions, {
       actions: "read",
       contents: "read",
@@ -263,6 +293,15 @@ describe("Netlify PR preview workflow guard", () => {
       ["auto_merge: false", "auto_merge: true"],
       ["state: 'success'", "state: 'failure'"],
       ["createDeployment(", "createDeploymentStatus("],
+      [
+        "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+        "false",
+      ],
+      [
+        "context.actor.toLowerCase() !== pullRequest.user.login.toLowerCase()",
+        "false",
+      ],
+      ["types: [closed]", "types: [opened]"],
     ]) {
       assert.notDeepEqual(mutate(needle, replacement), []);
     }
@@ -351,6 +390,23 @@ describe("Reusable workflow permission guard", () => {
         ".github/workflows/future-caller.yml",
       ).join("\n"),
       /future_caller reusable deploy job must explicitly retain contents access/,
+    );
+    const betaJobs = beta.jobs as Workflow;
+    assert.match(
+      validateReusableCallerPermissions(
+        {
+          ...beta,
+          jobs: {
+            ...betaJobs,
+            deploy: {
+              ...(betaJobs.deploy as Workflow),
+              with: { target: "preview" },
+            },
+          },
+        },
+        ".github/workflows/deploy-beta-sites-prebuilt.yml",
+      ).join("\n"),
+      /must not call the PR preview target/,
     );
   });
 

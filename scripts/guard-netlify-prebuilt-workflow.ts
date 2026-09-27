@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
+import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
+
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
 const crmNetlifyPath = "templates/crm/netlify.toml";
@@ -126,6 +128,11 @@ export function validateReusableCallerPermissions(
   )) {
     const job = asRecord(value);
     if (job?.uses !== `./${reusablePath}`) continue;
+    if (asRecord(job.with)?.target === "preview" && path !== pullRequestPath) {
+      issues.push(
+        `${path} ${jobName} must not call the PR preview target outside ${pullRequestPath}`,
+      );
+    }
     const permissions = asRecord(job.permissions) ?? workflowPermissions;
     if (
       !permissions ||
@@ -226,18 +233,25 @@ export function validateNetlifyPrPreviewWorkflow(
   const issues: string[] = [];
   const triggers = asRecord(workflow.on);
   const jobs = asRecord(workflow.jobs);
+  const dispatch = asRecord(triggers?.workflow_dispatch);
+  const dispatchInputs = asRecord(dispatch?.inputs);
+  const pullRequestNumberInput = asRecord(dispatchInputs?.pull_request_number);
+  const siteInput = asRecord(dispatchInputs?.site);
+  const pullRequestTarget = asRecord(triggers?.pull_request_target);
+  const pullRequestTargetTypes = pullRequestTarget?.types;
+  const authorize = asRecord(jobs?.authorize);
+  const authorizeSteps =
+    (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
+  const authorizeScript = String(
+    authorizeSteps
+      .map((step) => asRecord(step.with))
+      .find((withValues) =>
+        String(withValues?.script ?? "").includes("github.rest.pulls.get"),
+      )?.script ?? "",
+  );
   const build = asRecord(jobs?.build);
   const buildWith = asRecord(build?.with);
   const buildPermissions = asRecord(build?.permissions);
-  const discover = asRecord(jobs?.discover);
-  const discoverCheckout = (
-    (discover?.steps as Array<Record<string, unknown>> | undefined) ?? []
-  ).find(
-    (step) =>
-      typeof step.uses === "string" &&
-      step.uses.startsWith("actions/checkout@"),
-  );
-  const discoverCheckoutWith = asRecord(discoverCheckout?.with);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
   const deployment = asRecord(jobs?.deployment);
@@ -252,24 +266,73 @@ export function validateNetlifyPrPreviewWorkflow(
     "createDeploymentStatus",
   );
 
-  if (!asRecord(triggers?.pull_request_target)) {
-    issues.push(`${pullRequestPath} must be triggered by pull_request_target`);
-  }
-  if (asRecord(triggers?.pull_request) || source.includes("pull_request:")) {
-    issues.push(`${pullRequestPath} must not use pull_request for previews`);
+  if (!dispatch) {
+    issues.push(`${pullRequestPath} must support manual workflow_dispatch`);
   }
   if (
+    pullRequestNumberInput?.type !== "number" ||
+    pullRequestNumberInput?.required !== true ||
+    siteInput?.type !== "choice" ||
+    siteInput?.required !== true ||
+    JSON.stringify(siteInput?.options) !==
+      JSON.stringify(previewEligibleSiteNames())
+  ) {
+    issues.push(
+      `${pullRequestPath} must require a PR number and one preview-eligible site`,
+    );
+  }
+  if (
+    asRecord(triggers?.pull_request) ||
+    source.includes("pull_request:") ||
+    !pullRequestTarget ||
+    !Array.isArray(pullRequestTargetTypes) ||
+    pullRequestTargetTypes.length !== 1 ||
+    pullRequestTargetTypes[0] !== "closed" ||
+    !Array.isArray(pullRequestTarget.branches) ||
+    !pullRequestTarget.branches.includes("main")
+  ) {
+    issues.push(
+      `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
+    );
+  }
+  if (
+    !authorize ||
+    authorize["runs-on"] !== "ubuntu-latest" ||
+    authorize.if !==
+      "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" ||
+    asRecord(authorize.permissions)?.contents !== "read" ||
+    asRecord(authorize.permissions)?.["pull-requests"] !== "read" ||
+    Object.keys(asRecord(authorize.permissions) ?? {}).some(
+      (permission) => !["contents", "pull-requests"].includes(permission),
+    ) ||
     !source.includes(
-      "github.event.pull_request.head.repo.full_name == github.repository",
+      "context.actor.toLowerCase() !== pullRequest.user.login.toLowerCase()",
+    ) ||
+    !source.includes("pullRequest.author_association") ||
+    !source.includes("['OWNER', 'MEMBER']") ||
+    !source.includes("pullRequest.user?.type !== 'User'") ||
+    !source.includes("pullRequest.state !== 'open'") ||
+    !source.includes("pullRequest.base.ref !== 'main'") ||
+    !source.includes(
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !source.includes("previewEligibleSiteNames().includes(site)")
+  ) {
+    issues.push(
+      `${pullRequestPath} must gate dispatches to the internal PR author and one valid main-targeting PR`,
+    );
+  }
+  if (
+    !authorizeScript.includes("github.rest.pulls.get") ||
+    !authorizeScript.includes(
+      "core.setOutput('source_ref', pullRequest.head.sha)",
+    ) ||
+    !authorizeScript.includes(
+      "core.setOutput('checkout_ref', pullRequest.base.sha)",
     )
   ) {
     issues.push(
-      `${pullRequestPath} must restrict deployment jobs to same-repository PRs`,
-    );
-  }
-  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
-    issues.push(
-      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
+      `${pullRequestPath} must resolve the PR and pin its head and base revisions before deployment`,
     );
   }
   if (build?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
@@ -277,16 +340,9 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} build job must call the reusable Netlify workflow`,
     );
   }
-  if (
-    discoverCheckoutWith?.ref !== "${{ github.event.pull_request.base.sha }}"
-  ) {
+  if (deploy?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
     issues.push(
-      `${pullRequestPath} discover job must load its helper from the trusted pull request base`,
-    );
-  }
-  if (!source.includes('git fetch --no-tags origin "$HEAD_SHA"')) {
-    issues.push(
-      `${pullRequestPath} discover job must fetch the pull request head for its path diff`,
+      `${pullRequestPath} deploy job must call the reusable Netlify workflow`,
     );
   }
   if (buildWith?.target !== "preview" || buildWith?.deploy !== false) {
@@ -311,10 +367,22 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
+    !Array.isArray(build?.needs) ||
+    !build.needs.includes("authorize") ||
+    !String(build.if ?? "").includes("needs.authorize.result == 'success'") ||
+    buildWith?.site !== "${{ needs.authorize.outputs.site }}" ||
+    buildWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}"
+  ) {
+    issues.push(
+      `${pullRequestPath} build job must depend on authorization and use its pinned PR source`,
+    );
+  }
+  if (
     !deployment ||
     deployment["runs-on"] !== "ubuntu-latest" ||
     !Array.isArray(deployment.needs) ||
     !deployment.needs.includes("deploy") ||
+    !deployment.needs.includes("authorize") ||
     deploymentPermissions?.actions !== "read" ||
     deploymentPermissions?.contents !== "read" ||
     deploymentPermissions?.deployments !== "write" ||
@@ -347,7 +415,7 @@ export function validateNetlifyPrPreviewWorkflow(
     ) ||
     !createDeploymentStatusOptions.includes("log_url:") ||
     !deploymentScript.includes(
-      "const environment = `pr-${context.issue.number}-${record.siteName}`",
+      "const environment = `pr-${process.env.PULL_REQUEST_NUMBER}-${record.siteName}`",
     ) ||
     source.includes("issues: write") ||
     source.includes("pull-requests: write") ||
@@ -377,7 +445,7 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
-    deployWith?.checkout_ref !== "${{ github.event.pull_request.base.sha }}"
+    deployWith?.checkout_ref !== "${{ needs.authorize.outputs.checkout_ref }}"
   ) {
     issues.push(
       `${pullRequestPath} deploy job must use the trusted pull request base checkout`,
@@ -385,19 +453,17 @@ export function validateNetlifyPrPreviewWorkflow(
   }
   if (
     !Array.isArray(deploy?.needs) ||
-    !deploy.needs.includes("discover") ||
-    !deploy.needs.includes("build")
+    !deploy.needs.includes("authorize") ||
+    !deploy.needs.includes("build") ||
+    !String(deploy.if ?? "").includes("needs.authorize.result == 'success'") ||
+    !String(deploy.if ?? "").includes("needs.build.result == 'success'") ||
+    deployWith?.site !== "${{ needs.authorize.outputs.site }}" ||
+    deployWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}" ||
+    deployWith?.pull_request_number !==
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}"
   ) {
     issues.push(
-      `${pullRequestPath} deploy job must wait for discovery and the secret-free build`,
-    );
-  }
-  if (
-    !source.includes("needs.discover.outputs.has_targets == 'true'") ||
-    !source.includes("has_targets: ${{ steps.targets.outputs.has_targets }}")
-  ) {
-    issues.push(
-      `${pullRequestPath} must skip preview matrices with no buildable targets`,
+      `${pullRequestPath} deploy job must wait for authorization and the secret-free build`,
     );
   }
   if (
@@ -409,12 +475,15 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   const cleanup = asRecord(jobs?.cleanup);
-  if (!cleanup) {
+  if (
+    !cleanup ||
+    cleanup["timeout-minutes"] !== 15 ||
+    !String(cleanup.if ?? "").includes("github.event.action == 'closed'") ||
+    !String(cleanup.if ?? "").includes(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    )
+  ) {
     issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
-  } else if (cleanup["timeout-minutes"] !== 15) {
-    issues.push(
-      `${pullRequestPath} cleanup job must declare a 15-minute timeout`,
-    );
   }
   if (
     !source.includes("cleanup-netlify-pr-previews.ts") ||
