@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
 
 import {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
@@ -60,11 +60,15 @@ const LazyWorkspaceFileWidget = lazy(() =>
     default: module.WorkspaceFileWidget,
   })),
 );
-const LazyRecordChangeWidget = lazy(() =>
-  import("./RecordChangeWidget.js").then((module) => ({
-    default: module.RecordChangeWidget,
-  })),
-);
+const LazyRecordChangeWidget: ComponentType<{
+  context: ToolRendererContext;
+}> = import.meta.env.SSR
+  ? () => null
+  : lazy(() =>
+      import("./RecordChangeWidget.js").then((module) => ({
+        default: module.RecordChangeWidget,
+      })),
+    );
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);

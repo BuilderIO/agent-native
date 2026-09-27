@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   createEventMock,
   getAuthStatusMock,
+  getUserSettingMock,
   isConnectedMock,
   prepareZoomMeetingPatchMock,
 } = vi.hoisted(() => ({
   createEventMock: vi.fn(),
   getAuthStatusMock: vi.fn(),
+  getUserSettingMock: vi.fn(),
   isConnectedMock: vi.fn(),
   prepareZoomMeetingPatchMock: vi.fn(),
 }));
@@ -24,6 +26,10 @@ vi.mock("@agent-native/core/server", () => ({
   ),
   getRequestOrgId: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: getUserSettingMock,
 }));
 
 vi.mock("../server/lib/event-video-conferencing.js", () => ({
@@ -46,6 +52,7 @@ describe("create-event recurrence", () => {
     vi.clearAllMocks();
     isConnectedMock.mockResolvedValue(true);
     getAuthStatusMock.mockResolvedValue({ accounts: [] });
+    getUserSettingMock.mockResolvedValue(undefined);
     createEventMock.mockResolvedValue({ id: "event-123" });
   });
 
@@ -101,7 +108,8 @@ describe("create-event recurrence", () => {
         verb: "created",
         kind: "calendar-event",
         title: "Late planning",
-        detail: "2026-10-02 23:30–23:50 America/Los_Angeles · Conference room",
+        detail:
+          "Oct 2, 2026 · 11:30 PM–11:50 PM America/Los_Angeles · Conference room",
         url: "https://calendar.example.test/event?date=2026-10-02",
       },
     });
@@ -125,9 +133,74 @@ describe("create-event recurrence", () => {
       verb: "created",
       kind: "calendar-event",
       title: "Home",
-      detail: "2026-10-31–2026-11-02",
+      detail: "Oct 31, 2026–Nov 2, 2026",
       url: "https://calendar.example.test/event?date=2026-10-31",
     });
+  });
+
+  it("formats event timing using the saved interface locale", async () => {
+    getUserSettingMock.mockResolvedValue({ locale: "de-DE" });
+    const result = await createEventAction.run({
+      title: "Lokales Meeting",
+      start: "2026-10-03T06:30:00.000Z",
+      end: "2026-10-03T06:50:00.000Z",
+      startTimeZone: "America/Los_Angeles",
+    });
+
+    const date = new Intl.DateTimeFormat("de-DE", {
+      dateStyle: "medium",
+      timeZone: "UTC",
+    }).format(new Date("2026-10-02T12:00:00.000Z"));
+    const time = new Intl.DateTimeFormat("de-DE", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date("2026-10-03T06:30:00.000Z"));
+
+    expect(result.change.detail).toContain(`${date} · ${time}`);
+    expect(result.change.detail).not.toContain("2026-10-02");
+    expect(result.change.detail).not.toContain("11:30 PM");
+  });
+
+  it("keeps a Google Meet join link in the card and event result", async () => {
+    const meetLink = "https://meet.google.com/abc-defg-hij";
+    const conferenceData = {
+      entryPoints: [{ entryPointType: "video", uri: meetLink }],
+    };
+    createEventMock.mockResolvedValue({
+      id: "event-123",
+      meetLink,
+      conferenceData,
+    });
+
+    const result = await createEventAction.run({
+      title: "Meet call",
+      start: "2026-08-17T16:00:00.000Z",
+      end: "2026-08-17T16:30:00.000Z",
+      addGoogleMeet: true,
+    });
+
+    expect(result.hangoutLink).toBe(meetLink);
+    expect(result.conferenceData).toEqual(conferenceData);
+    expect(result.change.detail).toContain(meetLink);
+  });
+
+  it("keeps a Zoom join link in the card and event result", async () => {
+    const meetingLink = "https://zoom.us/j/123456789";
+    prepareZoomMeetingPatchMock.mockResolvedValue({
+      meetingLink,
+      patch: { location: meetingLink },
+    });
+
+    const result = await createEventAction.run({
+      title: "Zoom call",
+      start: "2026-08-17T16:00:00.000Z",
+      end: "2026-08-17T16:30:00.000Z",
+      addZoom: true,
+    });
+
+    expect(result.meetingLink).toBe(meetingLink);
+    expect(result.change.detail).toContain(meetingLink);
   });
 
   it("persists the event when Zoom provisioning fails", async () => {
@@ -135,6 +208,7 @@ describe("create-event recurrence", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     prepareZoomMeetingPatchMock.mockRejectedValue(new Error("Zoom 401"));
+    getUserSettingMock.mockResolvedValue({ locale: "es-ES" });
 
     try {
       const result = await createEventAction.run({
@@ -151,6 +225,7 @@ describe("create-event recurrence", () => {
         videoConferenceError: "zoom",
       });
       expect(result.meetingLink).toBeUndefined();
+      expect(result.change.detail).toContain("No se pudo agregar Zoom");
     } finally {
       consoleError.mockRestore();
     }

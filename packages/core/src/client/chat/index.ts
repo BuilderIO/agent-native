@@ -183,7 +183,7 @@ export {
   type ActionChangeVerb,
   type ActionChatUIConfig,
 } from "../../action-ui.js";
-export { ActionCard } from "./widgets/RecordChangeWidget.js";
+export { ActionCard } from "./widgets/ActionCard.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

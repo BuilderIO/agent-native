@@ -8,7 +8,7 @@ import {
 } from "@agent-native/agentkit/react/context";
 import { IconShieldCheck } from "@tabler/icons-react";
 
-import { ActionCard } from "../chat/widgets/RecordChangeWidget.js";
+import { ActionCard } from "../chat/widgets/ActionCard.js";
 import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
 import { useT } from "../i18n.js";
 
@@ -42,20 +42,25 @@ function SimpleToolApproval({
   const { requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const resolution = useAgentKitMutation(
-    async (decision: "approve" | "deny") => {
+    async (options: {
+      decision: "approve" | "deny";
+      requestRevision?: boolean;
+    }) => {
       await control.resolveApproval(runId, request.id, {
-        decision,
-        optionIds: [decision],
+        decision: options.decision,
+        optionIds: [options.decision],
       });
-      if (decision === "deny") await control.send(t("approval.editPrompt"));
+      if (options.requestRevision) {
+        await control.send(t("agentChat.approval.editPrompt"));
+      }
     },
   );
-  const question = t("approval.question", {
-    tool: toolName ?? t("approval.action"),
+  const question = t("agentChat.approval.question", {
+    tool: toolName ?? t("agentChat.approval.action"),
   });
-  const resolve = (decision: "approve" | "deny") =>
+  const resolve = (decision: "approve" | "deny", requestRevision = false) =>
     void resolution
-      .execute(decision)
+      .execute({ decision, requestRevision })
       .catch(() => undefined)
       .finally(() => requestComposerFocus(threadId));
 
@@ -69,7 +74,7 @@ function SimpleToolApproval({
       <ActionCard
         icon={<IconShieldCheck aria-hidden="true" className="size-4" />}
         title={question}
-        status={t("approval.pending")}
+        status={t("agentChat.approval.pending")}
         className="border-0 bg-transparent shadow-none"
         action={
           <div className="flex shrink-0 items-center gap-2">
@@ -79,7 +84,7 @@ function SimpleToolApproval({
               onClick={() => resolve("approve")}
               className="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
             >
-              {t("approval.approve")}
+              {t("agentChat.approval.approve")}
             </button>
             <button
               type="button"
@@ -87,7 +92,15 @@ function SimpleToolApproval({
               onClick={() => resolve("deny")}
               className={compactOutlineButtonClassName}
             >
-              {t("approval.edit")}
+              {t("agentChat.approval.deny")}
+            </button>
+            <button
+              type="button"
+              disabled={resolution.pending}
+              onClick={() => resolve("deny", true)}
+              className={compactOutlineButtonClassName}
+            >
+              {t("agentChat.approval.edit")}
             </button>
           </div>
         }

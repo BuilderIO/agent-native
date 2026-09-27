@@ -47,13 +47,6 @@ export function AgentKitActionWidget({
             thread.widgetMessageIds[candidate.id] === messageId,
         )
       : [];
-  if (
-    attachedChangeWidgets.length > 1 &&
-    attachedChangeWidgets[0]?.id !== widget.id
-  ) {
-    return null;
-  }
-
   const relatedResults: Array<{ widgetId: string; result: unknown }> =
     attachedChangeWidgets
       .map((candidate) => {
@@ -63,7 +56,8 @@ export function AgentKitActionWidget({
           typeof candidateToolCallId === "string"
             ? thread.tools[candidateToolCallId]
             : null;
-        return candidateTool?.output === undefined
+        return candidateTool?.status !== "completed" ||
+          candidateTool.output === undefined
           ? null
           : { widgetId: candidate.id, result: candidateTool.output as unknown };
       })
@@ -71,6 +65,12 @@ export function AgentKitActionWidget({
         (entry): entry is { widgetId: string; result: unknown } =>
           entry !== null && normalizeActionChangeResult(entry.result) !== null,
       );
+  const primaryChangeWidgetId =
+    relatedResults[0]?.widgetId ?? attachedChangeWidgets[0]?.id;
+  if (attachedChangeWidgets.length > 1 && primaryChangeWidgetId !== widget.id) {
+    return null;
+  }
+
   const context: ToolRendererContext = {
     toolName: tool.name,
     args: asRecord(tool.input) ?? {},

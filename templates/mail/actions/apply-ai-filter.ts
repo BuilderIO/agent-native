@@ -309,7 +309,7 @@ export default defineAction({
       change: {
         verb: "updated",
         kind: "mail-filter",
-        title: AI_FILTER_RULE_NAME,
+        title: action === "filter" ? "Filtered email" : "Kept email",
         detail: String(changed),
       },
     };

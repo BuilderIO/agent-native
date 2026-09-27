@@ -1,10 +1,19 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { emit } from "@agent-native/core/event-bus";
+import {
+  DEFAULT_LOCALE,
+  LOCALIZATION_SETTING_KEY,
+  normalizeLocalizationPreference,
+  resolveLocaleFromRequest,
+  type LocaleCode,
+} from "@agent-native/core/localization";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { i18nCatalog } from "../app/i18n/index.js";
 import {
   prepareZoomMeetingPatch,
   shouldAutoAddGoogleMeet,
@@ -24,6 +33,7 @@ import {
   buildReminderOverrides,
   buildStatusEventFields,
   cliBoolean,
+  extractVideoLink,
   eventTypeInput,
   googleColorIdInput,
   ensureOrganizerInAttendees,
@@ -54,16 +64,61 @@ function eventDate(value: string, timezone: string | null): string | undefined {
     : undefined;
 }
 
-function eventTime(value: string, timezone: string): string | undefined {
+function eventTime(
+  value: string,
+  timezone: string,
+  locale: string,
+): string | undefined {
   const instant = new Date(value);
   return Number.isNaN(instant.getTime())
     ? undefined
-    : new Intl.DateTimeFormat("en-GB", {
+    : new Intl.DateTimeFormat(locale, {
         timeZone: timezone,
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
-        hourCycle: "h23",
       }).format(instant);
+}
+
+function localizedDate(value: string, locale: string): string | undefined {
+  if (!DATE_ONLY_PATTERN.test(value)) return undefined;
+  const instant = new Date(`${value}T12:00:00.000Z`);
+  return Number.isNaN(instant.getTime())
+    ? undefined
+    : new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeZone: "UTC",
+      }).format(instant);
+}
+
+async function getActionLocale(
+  email: string,
+  requestHeaders: Headers | undefined,
+): Promise<LocaleCode> {
+  const preference = normalizeLocalizationPreference(
+    await getUserSetting(email, LOCALIZATION_SETTING_KEY),
+  );
+  return resolveLocaleFromRequest({
+    preference,
+    request: requestHeaders ? { headers: requestHeaders } : undefined,
+    fallback: DEFAULT_LOCALE,
+  }).locale;
+}
+
+async function getZoomFailureMessage(locale: LocaleCode): Promise<string> {
+  const messages =
+    locale === DEFAULT_LOCALE
+      ? i18nCatalog.messages
+      : ((await i18nCatalog.loadMessages?.(locale)) ?? i18nCatalog.messages);
+  const message = (
+    messages.eventForm as { zoomAddFailed?: unknown } | undefined
+  )?.zoomAddFailed;
+  const fallback = (
+    i18nCatalog.messages.eventForm as { zoomAddFailed?: unknown } | undefined
+  )?.zoomAddFailed;
+  if (typeof fallback !== "string") {
+    throw new Error("Calendar i18n catalog is missing its Zoom warning.");
+  }
+  return typeof message === "string" ? message : fallback;
 }
 
 function eventChangeTitle(event: CalendarEvent): string {
@@ -82,6 +137,8 @@ function eventChangeTitle(event: CalendarEvent): string {
 function eventChangeDetail(
   event: CalendarEvent,
   args: { eventType?: string; fullDay?: boolean; start: string; end: string },
+  locale: string,
+  additions: Array<string | undefined> = [],
 ): string | undefined {
   const startTimezone = eventTimezone(event.startTimeZone);
   const endTimezone = eventTimezone(event.endTimeZone ?? event.startTimeZone);
@@ -94,7 +151,11 @@ function eventChangeDetail(
     DATE_ONLY_PATTERN.test(args.start) &&
     DATE_ONLY_PATTERN.test(args.end)
   ) {
-    when = `${args.start}${args.start === args.end ? "" : `–${args.end}`} ${startTimezone ?? "UTC"}`;
+    const start = localizedDate(args.start, locale);
+    const end = localizedDate(args.end, locale);
+    if (start && end) {
+      when = `${start}${start === end ? "" : `–${end}`} ${startTimezone ?? "UTC"}`;
+    }
   } else if (
     event.allDay ||
     (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
@@ -103,22 +164,31 @@ function eventChangeDetail(
     const endExclusive = eventDate(event.end, endTimezone);
     if (start && endExclusive) {
       const end = addDaysToDateKey(endExclusive, -1);
-      when = start === end ? start : `${start}–${end}`;
+      const localizedStart = localizedDate(start, locale);
+      const localizedEnd = localizedDate(end, locale);
+      if (localizedStart && localizedEnd) {
+        when =
+          start === end ? localizedStart : `${localizedStart}–${localizedEnd}`;
+      }
     }
   } else if (startTimezone && endTimezone) {
     const startDate = eventDate(event.start, startTimezone);
     const endDate = eventDate(event.end, endTimezone);
-    const startTime = eventTime(event.start, startTimezone);
-    const endTime = eventTime(event.end, endTimezone);
+    const startTime = eventTime(event.start, startTimezone, locale);
+    const endTime = eventTime(event.end, endTimezone, locale);
     if (startDate && endDate && startTime && endTime) {
-      when =
-        startDate === endDate && startTimezone === endTimezone
-          ? `${startDate} ${startTime}–${endTime} ${startTimezone}`
-          : `${startDate} ${startTime} ${startTimezone}–${endDate} ${endTime} ${endTimezone}`;
+      const localizedStart = localizedDate(startDate, locale);
+      const localizedEnd = localizedDate(endDate, locale);
+      if (localizedStart && localizedEnd) {
+        when =
+          startDate === endDate && startTimezone === endTimezone
+            ? `${localizedStart} · ${startTime}–${endTime} ${startTimezone}`
+            : `${localizedStart} ${startTime} ${startTimezone}–${localizedEnd} ${endTime} ${endTimezone}`;
+      }
     }
   }
 
-  const detail = [when, event.location?.trim()]
+  const detail = [when, ...additions, event.location?.trim()]
     .filter((value): value is string => Boolean(value))
     .join(" · ")
     .slice(0, 500);
@@ -280,6 +350,7 @@ export default defineAction({
       normalizeAttendees(args.attendees),
       acctEmail,
     );
+    const locale = await getActionLocale(email, actionContext?.requestHeaders);
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,
@@ -324,6 +395,7 @@ export default defineAction({
 
     let zoomMeetingLink: string | undefined;
     let videoConferenceError: CalendarEvent["videoConferenceError"];
+    let videoConferenceWarning: string | undefined;
     if (args.addZoom) {
       try {
         const zoom = await prepareZoomMeetingPatch(email, calEvent);
@@ -331,6 +403,7 @@ export default defineAction({
         Object.assign(calEvent, zoom.patch);
       } catch (error) {
         videoConferenceError = "zoom";
+        videoConferenceWarning = await getZoomFailureMessage(locale);
         console.error("[create-event] Zoom meeting provisioning failed", error);
       }
     }
@@ -390,7 +463,13 @@ export default defineAction({
     );
 
     const url = eventDeepLink(calEvent);
-    const detail = eventChangeDetail(calEvent, args);
+    const conferenceLink = calEvent.meetingLink ?? extractVideoLink(calEvent);
+    const detail = eventChangeDetail(calEvent, args, locale, [
+      conferenceLink && !calEvent.location?.includes(conferenceLink)
+        ? conferenceLink
+        : undefined,
+      videoConferenceWarning,
+    ]);
     return {
       ...calEvent,
       change: {

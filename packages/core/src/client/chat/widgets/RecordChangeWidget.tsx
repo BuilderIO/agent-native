@@ -4,22 +4,18 @@ import {
   IconFilter,
   IconMail,
 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import {
   normalizeActionChangeResult,
   type ActionChange,
 } from "../../../action-ui.js";
-import {
-  deleteClientAppState,
-  readClientAppState,
-  writeClientAppState,
-} from "../../application-state.js";
+import { readClientAppState } from "../../application-state.js";
 import { compactOutlineButtonClassName } from "../../components/ui/button-classes.js";
 import { useT } from "../../i18n.js";
-import { callAction } from "../../use-action.js";
 import { cn } from "../../utils.js";
 import type { ToolRendererProps } from "../tool-render-registry.js";
+import { ActionCard } from "./ActionCard.js";
 
 const kindIcons = {
   "email-draft": IconMail,
@@ -61,52 +57,6 @@ function undoStateKey(widgetId: string | undefined): string | undefined {
     : undefined;
 }
 
-export function ActionCard({
-  icon,
-  title,
-  detail,
-  status,
-  action,
-  className,
-}: {
-  icon: ReactNode;
-  title: string;
-  detail?: string;
-  status: string;
-  action?: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      data-action-card
-      className={cn(
-        "flex min-w-0 items-center gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm",
-        className,
-      )}
-    >
-      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <p className="min-w-0 truncate text-sm font-medium" title={title}>
-            {title}
-          </p>
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            {status}
-          </span>
-        </div>
-        {detail ? (
-          <p className="truncate text-xs text-muted-foreground" title={detail}>
-            {detail}
-          </p>
-        ) : null}
-      </div>
-      {action}
-    </div>
-  );
-}
-
 export function ActionCardSkeleton() {
   const t = useT();
   return (
@@ -135,9 +85,11 @@ function ActionChangeCard({
   grouped?: boolean;
 }) {
   const t = useT();
+  // Older clients persisted this marker before dispatching a result-provided
+  // inverse action. Read it only to keep interrupted attempts visibly locked.
   const stateKey = change.undo ? undoStateKey(widgetId) : undefined;
   const [undoState, setUndoState] = useState<
-    "checking" | "ready" | "undoing" | "undone" | "failed" | "unknown"
+    "checking" | "ready" | "undone" | "unknown"
   >(() => (stateKey ? "checking" : "ready"));
   const Icon = kindIcons[change.kind as keyof typeof kindIcons] ?? IconCheck;
   const status =
@@ -160,7 +112,7 @@ function ActionChangeCard({
         setUndoState(
           stored?.status === "undone"
             ? "undone"
-            : stored?.status === "pending"
+            : stored?.status === "pending" || stored?.status === "unknown"
               ? "unknown"
               : "ready",
         );
@@ -173,60 +125,15 @@ function ActionChangeCard({
     };
   }, [stateKey]);
 
-  async function undoChange() {
-    if (
-      !change.undo ||
-      !stateKey ||
-      (undoState !== "ready" && undoState !== "failed")
-    ) {
-      return;
-    }
-    setUndoState("undoing");
-    try {
-      await writeClientAppState(stateKey, { status: "pending" });
-    } catch {
-      setUndoState("unknown");
-      return;
-    }
-    try {
-      await callAction(change.undo.action, change.undo.args);
-    } catch {
-      try {
-        await deleteClientAppState(stateKey);
-        setUndoState("failed");
-      } catch {
-        setUndoState("unknown");
-      }
-      return;
-    }
-    try {
-      await writeClientAppState(stateKey, { status: "undone" });
-      setUndoState("undone");
-    } catch {
-      setUndoState("unknown");
-    }
-  }
-
   const action =
-    change.undo && stateKey && undoState !== "undone" ? (
+    stateKey && undoState === "unknown" ? (
       <button
         type="button"
-        disabled={
-          undoState === "checking" ||
-          undoState === "undoing" ||
-          undoState === "unknown"
-        }
-        onClick={() => void undoChange()}
+        disabled
         className={compactOutlineButtonClassName}
         aria-live="polite"
       >
-        {undoState === "checking" || undoState === "undoing"
-          ? t("agentChat.widget.actionUndoing")
-          : undoState === "unknown"
-            ? t("agentChat.widget.actionUndoUnknown")
-            : undoState === "failed"
-              ? t("agentChat.widget.actionUndoFailed")
-              : t("agentChat.widget.actionUndo")}
+        {t("agentChat.widget.actionUndoUnknown")}
       </button>
     ) : href ? (
       <a
@@ -268,7 +175,11 @@ export function RecordChangeWidget({ context }: ToolRendererProps) {
   )
     .map(({ widgetId, result }) => {
       const normalized = normalizeActionChangeResult(result);
-      return normalized ? { ...normalized, widgetId } : null;
+      if (!normalized) return null;
+      return {
+        change: normalized.change,
+        widgetId,
+      };
     })
     .filter(
       (result): result is { change: ActionChange; widgetId: string } =>
@@ -276,12 +187,7 @@ export function RecordChangeWidget({ context }: ToolRendererProps) {
     );
   if (changes.length === 0 && context.isRunning) return <ActionCardSkeleton />;
   if (changes.length > 1) return <RecordChangeGroup changes={changes} />;
-  return changes[0] ? (
-    <ActionChangeCard
-      change={changes[0].change}
-      widgetId={changes[0].widgetId}
-    />
-  ) : null;
+  return changes[0] ? <ActionChangeCard {...changes[0]} /> : null;
 }
 
 export function RecordChangeGroup({
@@ -291,12 +197,7 @@ export function RecordChangeGroup({
 }) {
   const t = useT();
   if (changes.length < 2) {
-    return changes[0] ? (
-      <ActionChangeCard
-        change={changes[0].change}
-        widgetId={changes[0].widgetId}
-      />
-    ) : null;
+    return changes[0] ? <ActionChangeCard {...changes[0]} /> : null;
   }
   return (
     <div

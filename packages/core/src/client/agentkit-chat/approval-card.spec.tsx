@@ -18,13 +18,21 @@ import { CoreAgentKitRoot } from "./root.js";
 
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
-    key === "approval.question"
+    key === "agentChat.approval.question"
       ? `Approve to run ${String(options?.tool)}?`
-      : key === "approval.editPrompt"
+      : key === "agentChat.approval.editPrompt"
         ? "Ask me how I want to revise this action before trying again."
-        : key === "approval.action"
+        : key === "agentChat.approval.action"
           ? "the requested action"
-          : key,
+          : key === "agentChat.approval.approve"
+            ? "Approve"
+            : key === "agentChat.approval.deny"
+              ? "Deny"
+              : key === "agentChat.approval.edit"
+                ? "Edit"
+                : key === "agentChat.approval.pending"
+                  ? "Approval needed"
+                  : key,
 }));
 
 const request: AgentApprovalRequest = {
@@ -100,7 +108,7 @@ describe("CoreAgentKitApproval", () => {
     });
     renderApproval(client);
 
-    await clickButton("approval.approve");
+    await clickButton("Approve");
 
     expect(resolveApproval).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -147,7 +155,7 @@ describe("CoreAgentKitApproval", () => {
     });
     renderApproval(client);
 
-    await clickButton("approval.edit");
+    await clickButton("Edit");
 
     expect(resolveApproval).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -169,6 +177,35 @@ describe("CoreAgentKitApproval", () => {
         },
       ],
     });
+  });
+
+  it("denies without asking for a revised action", async () => {
+    const callOrder: string[] = [];
+    const resolveApproval = vi.fn(async () => {
+      callOrder.push("resolve");
+    });
+    const startRun = vi.fn(async () => {
+      callOrder.push("send");
+      return { runId: "revised-run" };
+    });
+    const client = new AgentKitClient({
+      transport: createTransport({ resolveApproval, startRun }),
+    });
+    renderApproval(client);
+
+    await clickButton("Deny");
+
+    expect(resolveApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        runId: "pending-run",
+        approvalId: "approval-1",
+        response: { decision: "deny", optionIds: ["deny"] },
+      }),
+      expect.any(Object),
+    );
+    expect(callOrder).toEqual(["resolve"]);
+    expect(startRun).not.toHaveBeenCalled();
   });
 
   it("restores a pending approval from a thread snapshot in the transcript", async () => {
@@ -198,8 +235,9 @@ describe("CoreAgentKitApproval", () => {
     expect(markup).toContain("agentkit-transcript");
     expect(markup).toContain('class="agentkit-approval"');
     expect(markup).toContain("Approve to run send email?");
-    expect(markup).toContain("approval.approve");
-    expect(markup).toContain("approval.edit");
+    expect(markup).toContain("Approve");
+    expect(markup).toContain("Deny");
+    expect(markup).toContain("Edit");
     expect(markup).not.toContain("SECRET_MESSAGE_BODY");
     expect(markup).not.toContain("SECRET_RAW_ARGS");
 
@@ -214,7 +252,7 @@ describe("CoreAgentKitApproval", () => {
       </CoreAgentKitRoot>,
     );
     expect(customMarkup).toContain("Custom approval slot");
-    expect(customMarkup).not.toContain("approval.edit");
+    expect(customMarkup).not.toContain("Edit");
   });
 
   it("keeps choice and input approvals on AgentKit's existing prompt", () => {

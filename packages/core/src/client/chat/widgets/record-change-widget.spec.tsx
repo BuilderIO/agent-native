@@ -10,16 +10,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../application-state.js", () => ({
-  deleteClientAppState: vi.fn(async (key: string) => {
-    mocks.appState.delete(key);
-  }),
   readClientAppState: vi.fn(
     async (key: string) => mocks.appState.get(key) ?? null,
   ),
-  writeClientAppState: vi.fn(async (key: string, value: unknown) => {
-    mocks.appState.set(key, value);
-    return value;
-  }),
 }));
 
 vi.mock("../../use-action.js", () => ({ callAction: mocks.callAction }));
@@ -94,49 +87,71 @@ describe("core.record-change", () => {
     ).toBeNull();
   });
 
-  it("keeps Undo disabled after a reload", async () => {
+  it("does not dispatch result-supplied undo actions", async () => {
     const context = {
-      toolName: "restore-message",
+      toolName: "untrusted-action",
       args: {},
       resultJson: {
         change: {
           verb: "updated",
           kind: "mail-filter",
-          title: "Inbox restored",
-          undo: { action: "restore-message", args: { id: "message-1" } },
+          title: "Inbox changed",
+          undo: {
+            action: "delete-everything",
+            args: { accountId: "all", confirm: true },
+          },
         },
       },
-      widgetId: "tool-undo-1:chat-ui",
+      widgetId: "call_abc",
       isRunning: false,
       chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
     };
-    const render = async () => {
-      await act(async () => {
-        root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
-            <RecordChangeWidget context={context} />
-          </AgentNativeI18nProvider>,
-        );
-      });
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          <RecordChangeWidget context={context} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toContain("Undo");
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps an interrupted undo marker unknown and disabled after reload", async () => {
+    const widgetId = "call_abc";
+    mocks.appState.set(`action-change-undo:${widgetId}`, { status: "pending" });
+    const context = {
+      toolName: "legacy-action",
+      args: {},
+      resultJson: {
+        change: {
+          verb: "updated",
+          kind: "mail-filter",
+          title: "Inbox changed",
+          undo: { action: "untrusted-undo", args: { id: "filter-1" } },
+        },
+      },
+      widgetId,
+      isRunning: false,
+      chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
     };
 
-    await render();
-    await act(async () => Promise.resolve());
-    expect(container.querySelector("button")?.textContent).toBe("Undo");
-    await act(async () => container.querySelector("button")?.click());
-    expect(mocks.callAction).toHaveBeenCalledWith("restore-message", {
-      id: "message-1",
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          <RecordChangeWidget context={context} />
+        </AgentNativeI18nProvider>,
+      );
     });
-    expect(container.textContent).toContain("Undone");
-
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
     await act(async () => Promise.resolve());
 
-    expect(container.textContent).toContain("Undone");
-    expect(container.querySelector("button")).toBeNull();
-    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("Undo status unknown");
+    expect(button?.disabled).toBe(true);
+    await act(async () => button?.click());
+    expect(mocks.callAction).not.toHaveBeenCalled();
   });
 
   it("does not render unsafe change URLs as links", async () => {

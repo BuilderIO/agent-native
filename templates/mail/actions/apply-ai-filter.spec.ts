@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertMailJevEnabled: vi.fn(),
   createAutomationRule: vi.fn(),
+  getAccessTokens: vi.fn(),
+  gmailGetMessage: vi.fn(),
   getAiFilterState: vi.fn(),
   getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -48,7 +50,7 @@ vi.mock("../server/lib/automations.js", () => ({
 }));
 
 vi.mock("../server/lib/google-api.js", () => ({
-  gmailGetMessage: vi.fn(),
+  gmailGetMessage: mocks.gmailGetMessage,
   gmailModifyThread: vi.fn(),
 }));
 
@@ -63,7 +65,7 @@ vi.mock("../server/lib/local-email-store.js", () => ({
   withLocalEmailMutationLock: mocks.withLocalEmailMutationLock,
   writeLocalEmails: mocks.writeLocalEmails,
 }));
-vi.mock("./helpers.js", () => ({ getAccessTokens: vi.fn() }));
+vi.mock("./helpers.js", () => ({ getAccessTokens: mocks.getAccessTokens }));
 
 import action from "./apply-ai-filter.js";
 
@@ -99,6 +101,7 @@ describe("apply-ai-filter Jev gate", () => {
     mocks.createAutomationRule.mockResolvedValue(undefined);
     mocks.listAutomationRules.mockResolvedValue([]);
     mocks.isConnected.mockResolvedValue(false);
+    mocks.getAccessTokens.mockResolvedValue([]);
     mocks.readLocalEmails.mockResolvedValue([]);
     mocks.withLocalEmailMutationLock.mockImplementation(
       (_ownerEmail: string, mutate: () => Promise<unknown>) => mutate(),
@@ -174,12 +177,29 @@ describe("apply-ai-filter Jev gate", () => {
       expect(result.change).toEqual({
         verb: "updated",
         kind: "mail-filter",
-        title: "AI filter learned examples",
+        title: mode === "filter" ? "Filtered email" : "Kept email",
         detail: "1",
       });
       expect(JSON.stringify(result.change)).not.toContain("Private subject");
     },
   );
+
+  it("preserves a Gmail failure without returning a success change", async () => {
+    mocks.assertMailJevEnabled.mockResolvedValue(undefined);
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.getAccessTokens.mockResolvedValue([
+      { email: "owner@example.test", accessToken: "token" },
+    ]);
+    mocks.gmailGetMessage.mockRejectedValue(new Error("Gmail update failed"));
+
+    await expect(
+      action.run({ mode: "filter", targets: [{ id: "message-1" }] }),
+    ).rejects.toThrow("Gmail update failed");
+
+    expect(mocks.recordAiFilterFeedback).not.toHaveBeenCalled();
+    expect(mocks.createAutomationRule).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["automatic filtering", { autoFilter: true }],
