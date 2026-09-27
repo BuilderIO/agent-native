@@ -62,13 +62,14 @@ const LazyWorkspaceFileWidget = lazy(() =>
 );
 const LazyRecordChangeWidget: ComponentType<{
   context: ToolRendererContext;
-}> = import.meta.env.SSR
-  ? () => null
-  : lazy(() =>
-      import("./RecordChangeWidget.js").then((module) => ({
-        default: module.RecordChangeWidget,
-      })),
-    );
+}> =
+  (import.meta.env?.SSR ?? typeof window === "undefined")
+    ? () => null
+    : lazy(() =>
+        import("./RecordChangeWidget.js").then((module) => ({
+          default: module.RecordChangeWidget,
+        })),
+      );
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);

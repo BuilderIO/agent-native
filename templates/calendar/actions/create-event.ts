@@ -13,7 +13,6 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { i18nCatalog } from "../app/i18n/index.js";
 import {
   prepareZoomMeetingPatch,
   shouldAutoAddGoogleMeet,
@@ -25,6 +24,7 @@ import {
   dateKeyInTimezone,
   isCalendarTimezone,
 } from "../shared/timezone.js";
+import { zoomAddFailedMessages } from "../shared/zoom-add-failed-messages.js";
 import {
   availabilityInput,
   autoDeclineModeInput,
@@ -104,21 +104,11 @@ async function getActionLocale(
   }).locale;
 }
 
-async function getZoomFailureMessage(locale: LocaleCode): Promise<string> {
-  const messages =
-    locale === DEFAULT_LOCALE
-      ? i18nCatalog.messages
-      : ((await i18nCatalog.loadMessages?.(locale)) ?? i18nCatalog.messages);
-  const message = (
-    messages.eventForm as { zoomAddFailed?: unknown } | undefined
-  )?.zoomAddFailed;
-  const fallback = (
-    i18nCatalog.messages.eventForm as { zoomAddFailed?: unknown } | undefined
-  )?.zoomAddFailed;
-  if (typeof fallback !== "string") {
-    throw new Error("Calendar i18n catalog is missing its Zoom warning.");
-  }
-  return typeof message === "string" ? message : fallback;
+function getZoomFailureMessage(locale: LocaleCode): string {
+  return (
+    zoomAddFailedMessages[locale as keyof typeof zoomAddFailedMessages] ??
+    zoomAddFailedMessages[DEFAULT_LOCALE]
+  );
 }
 
 function eventChangeTitle(event: CalendarEvent): string {
@@ -403,7 +393,7 @@ export default defineAction({
         Object.assign(calEvent, zoom.patch);
       } catch (error) {
         videoConferenceError = "zoom";
-        videoConferenceWarning = await getZoomFailureMessage(locale);
+        videoConferenceWarning = getZoomFailureMessage(locale);
         console.error("[create-event] Zoom meeting provisioning failed", error);
       }
     }

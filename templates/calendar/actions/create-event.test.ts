@@ -92,6 +92,30 @@ describe("create-event recurrence", () => {
     );
   });
 
+  it("localizes the Zoom warning without loading the client catalog", async () => {
+    getUserSettingMock.mockResolvedValue({ locale: "de-DE" });
+    prepareZoomMeetingPatchMock.mockRejectedValue(
+      new Error("Zoom unavailable"),
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const result = await createEventAction.run({
+        title: "Planning",
+        start: "2026-10-03T06:30:00.000Z",
+        end: "2026-10-03T06:50:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        addZoom: true,
+      });
+
+      expect(result.change?.detail).toContain(
+        "Zoom konnte nicht hinzugefügt werden",
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("returns a record change with event-local timing and a Calendar deep link", async () => {
     const result = await createEventAction.run({
       title: "Late planning",

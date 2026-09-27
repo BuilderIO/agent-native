@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connect",
@@ -1008,7 +1010,7 @@ export default {
     year: "year",
     zoom: "Zoom",
     zoomAdded: "Zoom added",
-    zoomAddFailed: "Failed to add Zoom",
+    zoomAddFailed: zoomAddFailedMessages["en-US"],
     zoomConnectFailed: "Could not connect Zoom",
     zoomConnectionOpened: "Zoom connection opened",
     zoomNotConfigured: "Zoom OAuth is not configured.",

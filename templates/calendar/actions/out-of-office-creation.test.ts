@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const isConnectedMock = vi.hoisted(() => vi.fn());
 const getAuthStatusMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 const createGoogleEventMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const writeAppStateMock = vi.hoisted(() => vi.fn());
@@ -17,6 +18,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
   registerEvent: registerEventMock,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: getUserSettingMock,
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
@@ -37,6 +42,7 @@ describe("out-of-office action parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isConnectedMock.mockResolvedValue(true);
+    getUserSettingMock.mockResolvedValue(undefined);
     getAuthStatusMock.mockResolvedValue({
       accounts: [{ email: "owner@example.com" }],
     });
@@ -83,7 +89,7 @@ describe("out-of-office action parity", () => {
       verb: "created",
       kind: "calendar-event",
       title: "Out of office",
-      detail: "2026-10-31–2026-11-01 America/New_York",
+      detail: "Oct 31, 2026–Nov 1, 2026 America/New_York",
     });
     expect(
       new URL(
