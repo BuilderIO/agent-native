@@ -148,11 +148,12 @@ replies ending in `?`. Open only threads with a human reply.
 reply's timestamp; acting on it targets the wrong message.
 
 Find new replies even when their parent is older than the five-day scan. Search
-all channel messages after the last completed recap cursor, sorted oldest-first,
-and paginate until exhausted. Resolve each hit to its parent's `thread_ts` and
-read the full thread. Use Slack search's `after` timestamp, ascending sort, and
-`next_cursor` arguments. Record the last processed timestamp as the next recap
-cursor only after every page is handled. This catches replies on older parents.
+all channel messages over an overlapping date window, sorted oldest-first, and
+filter hits to timestamps after the last completed recap cursor. Resolve each
+hit to its parent's `thread_ts` and read the full thread. Slack's `after:` takes
+a date, not a message timestamp; start at least one day before the cursor date.
+Follow `next_cursor` until exhausted. Record the last processed timestamp only
+after every page is handled. This catches replies on older parents.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
@@ -255,9 +256,8 @@ version and name Sid or Alice in the recap. Add `👀` before investigation or
 delegation and read it back. Keep an evidence-limited disposition until Phase
 2's four bars hold; only then use **Shipped** with `✅`.
 
-Phase 0 already claimed these with `👀`. If this workflow earlier eyed
-something out of scope, keep our `👀`; do not add another reaction or post a
-compensating message.
+If Phase 0 eyed an item later found out of scope, keep `👀` and post **Skipped**
+once if absent; add no reaction.
 
 Every run, exhaust oldest-first `has::eyes:` pages. Revisit active/waiting
 claims at any age, even without replies; terminal claims reopen on new evidence:
