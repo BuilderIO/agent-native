@@ -26,12 +26,12 @@ const candidate = {
 const readiness = {
   status: "ready" as const,
   ready: true,
-  configuredProviders: ["gemini"],
+  configuredProviders: ["gemini", "builder"],
   unavailableProviders: [],
-  configuredFamilies: 1,
-  provider: "gemini",
-  model: "gemini-embedding-2",
-  embeddingSetId: "gemini:gemini-embedding-2:1024",
+  configuredFamilies: 2,
+  provider: "builder",
+  model: "builder-multimodal-embedding",
+  embeddingSetId: "builder:builder-multimodal-embedding:1024",
   dimensions: 1024,
   warning: null,
 };
@@ -275,10 +275,10 @@ describe("backfill-search-embeddings", () => {
   it("fails closed before execution when provider readiness is invalid", async () => {
     mocks.readEmbeddingReadiness.mockResolvedValue({
       ...readiness,
-      status: "ambiguous",
+      status: "not-configured",
       ready: false,
       embeddingSetId: null,
-      warning: "Configure exactly one embedding provider.",
+      warning: "Configure Builder embeddings to enable semantic retrieval.",
     });
 
     await expect(
@@ -288,7 +288,9 @@ describe("backfill-search-embeddings", () => {
         force: false,
         limit: 25,
       }),
-    ).rejects.toThrow("Configure exactly one embedding provider.");
+    ).rejects.toThrow(
+      "Configure Builder embeddings to enable semantic retrieval.",
+    );
     expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
   });
 

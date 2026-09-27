@@ -402,7 +402,7 @@ export interface BrainHealthResponse {
     };
     embeddings: {
       readiness: {
-        status: "ready" | "not-configured" | "ambiguous" | "unavailable";
+        status: "ready" | "not-configured" | "unavailable";
         ready: boolean;
         configuredProviders: string[];
         unavailableProviders: string[];

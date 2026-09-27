@@ -1,7 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
-  availableEmbeddingFamilies,
-  defaultEmbeddingFamily,
   type EmbeddingFamily,
   readEmbeddingFamilyAvailability,
 } from "@agent-native/core/embeddings";
@@ -21,6 +19,7 @@ import { nanoid, nowIso } from "./brain.js";
 import {
   BRAIN_SEARCH_INDEX_VERSION,
   BRAIN_SENSITIVITY_POLICY_VERSION,
+  selectBrainEmbeddingFamily,
   type BrainSearchStalenessKey,
 } from "./search-index-contracts.js";
 
@@ -43,7 +42,6 @@ export type BrainSearchArtifact = z.infer<typeof artifactSchema>;
 export type BrainEmbeddingReadinessStatus =
   | "ready"
   | "not-configured"
-  | "ambiguous"
   | "unavailable";
 
 export interface BrainEmbeddingReadiness {
@@ -271,49 +269,35 @@ export function embeddingReadinessFromFamilies(
   const configuredProviders = Array.from(
     new Set(families.map((candidate) => candidate.provider)),
   );
-  if (unavailableProviders.length) {
+  if (unavailableProviders.includes("builder")) {
     return {
       status: "unavailable",
       ready: false,
       configuredProviders,
-      unavailableProviders: [...unavailableProviders],
+      unavailableProviders: ["builder"],
       configuredFamilies: families.length,
       provider: null,
       model: null,
       embeddingSetId: null,
       dimensions: null,
       warning:
-        "Embedding credential status is temporarily unavailable. Retry before indexing.",
+        "Builder embedding credential status is temporarily unavailable. Retry before indexing.",
     };
   }
-  const family = defaultEmbeddingFamily(families);
-  if (family) {
-    return {
-      status: "ready",
-      ready: true,
-      configuredProviders: [family.provider],
-      unavailableProviders: [],
-      configuredFamilies: 1,
-      provider: family.provider,
-      model: family.model,
-      embeddingSetId: family.id,
-      dimensions: family.dimensions,
-      warning: null,
-    };
-  }
+  const family = selectBrainEmbeddingFamily(families);
   return {
-    status: families.length ? "ambiguous" : "not-configured",
-    ready: false,
+    status: family ? "ready" : "not-configured",
+    ready: Boolean(family),
     configuredProviders,
     unavailableProviders: [],
     configuredFamilies: families.length,
-    provider: null,
-    model: null,
-    embeddingSetId: null,
-    dimensions: null,
-    warning: families.length
-      ? "Configure exactly one embedding provider."
-      : "Configure one embedding provider to enable semantic retrieval.",
+    provider: family?.provider ?? null,
+    model: family?.model ?? null,
+    embeddingSetId: family?.id ?? null,
+    dimensions: family?.dimensions ?? null,
+    warning: family
+      ? null
+      : "Configure Builder embeddings to enable semantic retrieval.",
   };
 }
 
@@ -326,8 +310,11 @@ export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness>
 }
 
 async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
-  const families = await availableEmbeddingFamilies();
-  return defaultEmbeddingFamily(families);
+  const availability = await readEmbeddingFamilyAvailability();
+  if (availability.unavailableProviders.includes("builder")) {
+    throw new Error("Builder embedding credential status is unavailable.");
+  }
+  return selectBrainEmbeddingFamily(availability.families);
 }
 
 export interface CaptureEmbeddingCoverage {
