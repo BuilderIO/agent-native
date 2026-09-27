@@ -15,7 +15,10 @@
  *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
  */
 
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
@@ -68,27 +71,134 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  trustedPrivateOrigin?: string,
 ): Promise<Response> {
-  try {
-    return await ssrfSafeFetch(
-      url,
-      {
-        ...init,
-        signal: AbortSignal.timeout(timeoutMs),
-      },
-      {
-        followRedirects: false,
-        requireDispatcher: true,
-        allowedPrivateOrigins: [new URL(url).origin],
-      },
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const createTimeoutError = () => {
+    const error = new Error(
+      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
     );
-  } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") {
-      const timeoutError = new Error(
-        `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
+    error.name = "TimeoutError";
+    return error;
+  };
+  const clearTimeoutIfRunning = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+  };
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      const timeoutError = createTimeoutError();
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  try {
+    const request = (async () => {
+      const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
+      if (controller.signal.aborted) throw controller.signal.reason;
+      const allowedPrivateOrigins =
+        isPrivateDestination &&
+        trustedPrivateOrigin === new URL(url).origin &&
+        trustedPrivateOrigin
+          ? [trustedPrivateOrigin]
+          : [];
+      if (isPrivateDestination && allowedPrivateOrigins.length === 0) {
+        throw new Error(
+          `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
+        );
+      }
+      return ssrfSafeFetch(
+        url,
+        {
+          ...init,
+          signal: controller.signal,
+        },
+        {
+          followRedirects: false,
+          requireDispatcher: true,
+          allowedPrivateOrigins,
+        },
       );
-      timeoutError.name = "TimeoutError";
-      throw timeoutError;
+    })();
+    const response = await Promise.race([request, timeoutPromise]);
+    clearTimeoutIfRunning();
+    if (!response.body) {
+      return response;
+    }
+
+    const reader = response.body.getReader();
+    let idleTimeout: ReturnType<typeof setTimeout> | undefined;
+    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let bodySettled = false;
+    const clearIdleTimeout = () => {
+      if (idleTimeout) {
+        clearTimeout(idleTimeout);
+        idleTimeout = undefined;
+      }
+    };
+    const timeOutBody = () => {
+      if (bodySettled) return;
+      const timeoutError = createTimeoutError();
+      bodySettled = true;
+      clearIdleTimeout();
+      controller.abort(timeoutError);
+      bodyController?.error(timeoutError);
+    };
+    const resetIdleTimeout = () => {
+      clearIdleTimeout();
+      idleTimeout = setTimeout(timeOutBody, timeoutMs);
+      if (idleTimeout.unref) idleTimeout.unref();
+    };
+    const body = new ReadableStream<Uint8Array>(
+      {
+        start(streamController) {
+          bodyController = streamController;
+          resetIdleTimeout();
+        },
+        async pull(streamController) {
+          try {
+            if (controller.signal.aborted) throw controller.signal.reason;
+            const { done, value } = await reader.read();
+            if (bodySettled) return;
+            if (controller.signal.aborted) throw controller.signal.reason;
+            if (done) {
+              bodySettled = true;
+              clearIdleTimeout();
+              streamController.close();
+            } else {
+              streamController.enqueue(value);
+              resetIdleTimeout();
+            }
+          } catch (error) {
+            if (bodySettled) return;
+            bodySettled = true;
+            clearIdleTimeout();
+            streamController.error(
+              controller.signal.aborted ? controller.signal.reason : error,
+            );
+          }
+        },
+        async cancel(reason) {
+          bodySettled = true;
+          clearIdleTimeout();
+          await reader.cancel(reason);
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  } catch (err) {
+    clearTimeoutIfRunning();
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw createTimeoutError();
     }
     if (err instanceof Error && err.name === "AbortError") {
       const abortError = new Error(
@@ -99,6 +209,32 @@ async function fetchWithTimeout(
     }
     throw err;
   }
+}
+
+async function cancelS3ResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
+function trustedDeploymentS3Origin(endpoint: string): string | undefined {
+  const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
+  if (!configuredEndpoint) return undefined;
+  if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
+    return undefined;
+  }
+  const endpointUrl = new URL(endpoint);
+  const configuredUrl = new URL(configuredEndpoint);
+  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
+  if (
+    endpointUrl.origin !== configuredUrl.origin ||
+    normalizePath(endpointUrl.pathname) !==
+      normalizePath(configuredUrl.pathname) ||
+    endpointUrl.search !== configuredUrl.search ||
+    endpointUrl.username !== configuredUrl.username ||
+    endpointUrl.password !== configuredUrl.password
+  ) {
+    return undefined;
+  }
+  return endpointUrl.origin;
 }
 
 function buildS3Config(values: {
@@ -284,7 +420,17 @@ function rfc3986(str: string): string {
 }
 
 function objectUri(cfg: S3Config, key: string): string {
-  return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
+  const keySegments = key.split("/");
+  if (
+    cfg.bucket.includes("/") ||
+    cfg.bucket.includes("\\") ||
+    cfg.bucket === "." ||
+    cfg.bucket === ".." ||
+    keySegments.some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error("S3 object path contains an unsafe URL path segment");
+  }
+  return `/${rfc3986(cfg.bucket)}/${keySegments.map(rfc3986).join("/")}`;
 }
 
 export class S3MultipartStartError extends Error {
@@ -393,6 +539,7 @@ async function signedS3Request(
         : {}),
     },
     options.timeoutMs,
+    trustedDeploymentS3Origin(cfg.endpoint),
   );
 }
 
@@ -415,6 +562,7 @@ async function putObject(
       `S3 PutObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
+  await cancelS3ResponseBody(res);
 
   return cfg.publicBaseUrl
     ? `${cfg.publicBaseUrl}/${key}`
@@ -508,6 +656,7 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
       `S3 DeleteObject failed (${res.status}): ${text || res.statusText}`,
     );
   }
+  await cancelS3ResponseBody(res);
 }
 
 async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
@@ -775,6 +924,7 @@ async function uploadMultipartPart(
     );
   }
   const etag = res.headers.get("etag");
+  await cancelS3ResponseBody(res);
   if (!etag) throw new Error("S3 UploadPart did not return an ETag");
   return { partNumber, etag, sizeBytes: bytes.byteLength };
 }
@@ -793,7 +943,10 @@ async function verifyCompletedMultipartObject(
     method: "HEAD",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
-  if (res.status === 404) return false;
+  if (res.status === 404) {
+    await cancelS3ResponseBody(res);
+    return false;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
@@ -816,6 +969,7 @@ async function verifyCompletedMultipartObject(
     0,
   );
   const contentLength = Number(res.headers.get("content-length"));
+  await cancelS3ResponseBody(res);
   return Number.isSafeInteger(contentLength) && contentLength === expectedBytes;
 }
 
@@ -1094,6 +1248,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
           `S3 AbortMultipartUpload failed (${abortRes.status}): ${body || abortRes.statusText}`,
         );
       }
+      await cancelS3ResponseBody(abortRes);
       await deleteObject(cfg, meta.stagingKey).catch((err) => {
         console.warn(
           "[s3-upload] failed to delete aborted multipart staging object:",
