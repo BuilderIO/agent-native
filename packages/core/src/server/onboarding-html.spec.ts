@@ -92,6 +92,7 @@ describe("getOnboardingHtml", () => {
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
     expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("@media not all and (min-width: 901px)");
     expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 

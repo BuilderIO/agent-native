@@ -2114,7 +2114,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     border-inline-start: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
   }
   .auth-marketing-home .form-panel > .card { margin-block: auto; }
-  @media (max-width: 900px) {
+  @media not all and (min-width: 901px) {
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
@@ -2371,7 +2371,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       filter: grayscale(1) brightness(0);
     }
   }
-  @media (max-width: 900px) {
+  @media not all and (min-width: 901px) {
     .auth-marketing-home {
       min-height: 100vh;
       min-height: 100svh;
