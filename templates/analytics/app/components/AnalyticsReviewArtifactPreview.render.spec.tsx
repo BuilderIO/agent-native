@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sqlChartProps: null as Record<string, unknown> | null,
   markdownContent: null as string | null,
-  queries: [] as Array<{ action: string; args: Record<string, unknown> }>,
+  queries: [] as Array<{
+    action: string;
+    args: Record<string, unknown>;
+    enabled?: boolean;
+  }>,
   query: {
     data: {
       panels: [
@@ -36,8 +40,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (action: string, args: Record<string, unknown>) => {
-    mocks.queries.push({ action, args });
+  useActionQuery: (
+    action: string,
+    args: Record<string, unknown>,
+    options?: { enabled?: boolean },
+  ) => {
+    mocks.queries.push({
+      action,
+      args,
+      ...(options?.enabled === undefined ? {} : { enabled: options.enabled }),
+    });
     return action === "query-observability-review-panel"
       ? mocks.panelQuery
       : mocks.query;
@@ -134,6 +146,7 @@ describe("Analytics review artifact preview rendering", () => {
         panelId: "ga4-chart",
         reviewOrgId: "customer-org",
       },
+      enabled: true,
     });
   });
 
@@ -165,5 +178,27 @@ describe("Analytics review artifact preview rendering", () => {
       },
     });
     expect(mocks.markdownContent).toBe("# Actual saved findings");
+  });
+
+  it("keeps compact dashboard queries disabled when viewport observation is unavailable", async () => {
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.queries).toContainEqual({
+      action: "query-observability-review-panel",
+      args: {
+        dashboardId: "dashboard-1",
+        panelId: "ga4-chart",
+        reviewOrgId: "customer-org",
+      },
+      enabled: false,
+    });
   });
 });

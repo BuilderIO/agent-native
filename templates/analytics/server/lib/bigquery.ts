@@ -420,7 +420,7 @@ export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
-  assertReadOnlySql(sql);
+  assertReadOnlySql(sql, "bigquery");
   const { signal } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();

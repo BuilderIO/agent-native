@@ -19,4 +19,22 @@ describe("assertReadOnlySql", () => {
   ])("rejects mutating or multi-statement SQL: %s", (sql) => {
     expect(() => assertReadOnlySql(sql)).toThrow();
   });
+
+  it("rejects BigQuery backslash escapes before they can hide another statement", () => {
+    expect(() =>
+      assertReadOnlySql(
+        String.raw`SELECT 'it\'s'; DELETE FROM target`,
+        "bigquery",
+      ),
+    ).toThrow(/escapes are not supported/);
+  });
+
+  it("inspects BigQuery triple-quoted string contents without treating them as SQL", () => {
+    expect(() =>
+      assertReadOnlySql(`SELECT '''delete; update''' AS note`, "bigquery"),
+    ).not.toThrow();
+    expect(() =>
+      assertReadOnlySql(`SELECT '''safe'''; DELETE FROM target`, "bigquery"),
+    ).toThrow();
+  });
 });

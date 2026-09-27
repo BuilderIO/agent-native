@@ -221,17 +221,13 @@ function ReviewDashboardPanel({
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [nearViewport, setNearViewport] = useState(
-    compact || typeof IntersectionObserver === "undefined",
+    !compact && typeof IntersectionObserver === "undefined",
   );
 
   useEffect(() => {
-    if (compact) {
-      setNearViewport(true);
-      return;
-    }
     const container = containerRef.current;
     if (!container || typeof IntersectionObserver === "undefined") {
-      setNearViewport(true);
+      setNearViewport(!compact);
       return;
     }
     const observer = new IntersectionObserver(
