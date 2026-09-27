@@ -457,6 +457,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="mail"
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
         toaster={MAIL_TOASTER}

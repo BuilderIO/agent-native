@@ -287,6 +287,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="calendar"
         isPublicPath={isPublicPath}
         sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}
