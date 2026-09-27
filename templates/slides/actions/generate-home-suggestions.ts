@@ -73,7 +73,23 @@ function parseSuggestions(text: string) {
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
-  let parsedJson = false;
+  let parsedJson: unknown;
+  let hasTopLevelJson = false;
+  try {
+    parsedJson = JSON.parse(unwrapped);
+    hasTopLevelJson = true;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  if (hasTopLevelJson) {
+    const result = suggestionsSchema.safeParse(parsedJson);
+    if (!result.success) {
+      throw new Error("Home suggestions returned an invalid shape.");
+    }
+    return result.data;
+  }
+
+  let parsedCandidateJson = false;
   for (
     let start = unwrapped.indexOf("[");
     start >= 0;
@@ -89,19 +105,11 @@ function parseSuggestions(text: string) {
       if (!(error instanceof SyntaxError)) throw error;
       continue;
     }
-    parsedJson = true;
+    parsedCandidateJson = true;
     const result = suggestionsSchema.safeParse(parsed);
     if (result.success) return result.data;
   }
-  if (!parsedJson) {
-    try {
-      JSON.parse(unwrapped);
-      parsedJson = true;
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-    }
-  }
-  if (parsedJson) {
+  if (parsedCandidateJson) {
     throw new Error("Home suggestions returned an invalid shape.");
   }
   throw new Error("Home suggestions returned invalid JSON.");

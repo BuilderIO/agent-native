@@ -112,6 +112,16 @@ describe("generate-home-suggestions", () => {
     ).resolves.toEqual({ suggestions });
   });
 
+  it("rejects a JSON object containing a nested suggestions array", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify({ suggestions }),
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toThrow("invalid shape");
+  });
+
   it("keeps rejecting invalid JSON instead of hiding a model failure", async () => {
     mocks.completeText.mockResolvedValue({ text: "not a JSON array" });
 
