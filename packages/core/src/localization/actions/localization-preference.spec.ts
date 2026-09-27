@@ -79,6 +79,22 @@ describe("localization preference actions", () => {
     expect(setPreference.chatUI?.when?.({}, result)).toBe(false);
   });
 
+  it("keeps system preference values for localized card rendering", async () => {
+    store.settings.set("a@example.com:localization", {
+      locale: "fr-FR",
+      timezone: "America/Los_Angeles",
+    });
+
+    await expect(
+      setPreference.run(
+        { locale: "system", timezone: "system" },
+        { caller: "frontend", userEmail: "a@example.com" },
+      ),
+    ).resolves.toMatchObject({
+      change: { kind: "preference", title: "system · system" },
+    });
+  });
+
   it("rejects malformed locales", async () => {
     await expect(
       setPreference.run(

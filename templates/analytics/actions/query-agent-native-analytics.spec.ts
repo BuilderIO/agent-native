@@ -62,6 +62,30 @@ describe("query-agent-native-analytics", () => {
     });
   });
 
+  it("preserves truncation and omits a complete-looking scalar card", async () => {
+    const result = {
+      rows: [{ events: 3 }],
+      schema: [{ name: "events", type: "number" }],
+      truncated: true,
+    };
+    mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(result);
+
+    await expect(
+      action.run({ sql: "SELECT events FROM analytics_events" }),
+    ).resolves.toEqual(result);
+    expect(action.chatUI.when({}, result)).toBe(false);
+
+    mocks.queryFirstPartyAnalytics.mockResolvedValueOnce(result);
+    await expect(
+      action.run({
+        sql: "SELECT events FROM analytics_events",
+        showTable: true,
+      }),
+    ).resolves.toMatchObject({
+      table: { rows: result.rows, truncated: true },
+    });
+  });
+
   it("attaches the result renderer only for a single numeric value or a requested table", () => {
     expect(action.outputSchema).toBeDefined();
     expect(action.chatUI).toEqual({

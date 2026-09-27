@@ -23,6 +23,7 @@ function resolveScope() {
 function toDataTableResult(result: {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }) {
   const numericTypes = new Set([
     "number",
@@ -44,6 +45,7 @@ function toDataTableResult(result: {
         ...(numericTypes.has(type.toLowerCase()) ? { align: "right" } : {}),
       })),
       rows: result.rows,
+      ...(result.truncated ? { truncated: true } : {}),
     },
   });
 }
@@ -69,6 +71,7 @@ export default defineAction({
     z.object({
       rows: z.array(z.record(z.string(), z.unknown())),
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
+      truncated: z.boolean().optional(),
     }),
   ]),
   chatUI: {

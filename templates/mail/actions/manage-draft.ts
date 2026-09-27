@@ -34,6 +34,22 @@ function composeDeepLink(draft: Record<string, string>): string {
   });
 }
 
+function draftChange(
+  verb: "created" | "updated",
+  draft: Record<string, string>,
+  url: string,
+) {
+  const subject = draft.subject.trim();
+  const recipient = draft.to.trim();
+  return {
+    verb,
+    kind: "email-draft",
+    title: (subject || recipient || draft.id).slice(0, 180),
+    ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+    url,
+  };
+}
+
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
@@ -300,20 +316,12 @@ export default defineAction({
         ctx,
       );
       const deepLink = composeDeepLink(draft);
-      const subject = draft.subject.trim();
-      const recipient = draft.to.trim();
       return {
         id,
         draft,
         deepLink,
         message: `Created draft ${id}`,
-        change: {
-          verb: "created",
-          kind: "email-draft",
-          title: (subject || recipient || id).slice(0, 180),
-          ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
-          url: deepLink,
-        },
+        change: draftChange("created", draft, deepLink),
       };
     }
 
@@ -439,11 +447,13 @@ export default defineAction({
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
       await writeAppState(`compose-${safeId}`, draft);
+      const deepLink = composeDeepLink(draft);
       return {
         id: safeId,
         draft,
-        deepLink: composeDeepLink(draft as Record<string, string>),
+        deepLink,
         message: `Updated draft ${safeId}`,
+        change: draftChange("updated", draft, deepLink),
       };
     }
 

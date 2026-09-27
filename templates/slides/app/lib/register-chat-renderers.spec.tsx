@@ -50,7 +50,11 @@ describe("Slides deck result card", () => {
         id: "deck/1",
         title: "Launch brief",
         slideCount: 12,
-        slides: [{ content: "<script>untrusted</script>" }],
+        slides: Array.from({ length: 4 }, (_, index) => ({
+          id: `slide-${index + 1}`,
+          layout: "content",
+          content: `<div class="fmd-slide"><h1>Slide ${index + 1}</h1><script>untrusted</script></div>`,
+        })),
       },
       isRunning: false,
       chatUI: { renderer: SLIDES_DECK_RESULT_RENDERER },
@@ -70,6 +74,11 @@ describe("Slides deck result card", () => {
     expect(container.textContent).toContain("Launch brief");
     expect(container.textContent).toContain("12 slides");
     expect(container.querySelector("script")).toBeNull();
+    const previewStrip = container.querySelector(
+      "[data-slides-deck-preview-strip]",
+    );
+    expect(previewStrip?.hasAttribute("inert")).toBe(true);
+    expect(previewStrip?.querySelectorAll(":scope > div")).toHaveLength(3);
     const link = container.querySelector("a");
     expect(link?.getAttribute("href")).toBe("/deck/deck%2F1");
     expect(link?.className).toContain("transition-none");

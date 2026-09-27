@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withDbExec, type DbExec } from "../db/client.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -146,6 +147,12 @@ beforeEach(async () => {
       joined_at BIGINT NOT NULL,
       federation_removal_pending_at INTEGER
     );
+    CREATE TABLE org_invitations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL
+    );
     CREATE TABLE workspace_user_groups (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
@@ -173,6 +180,138 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("requires approval only for public or external access changes", async () => {
+    await insertDoc({ id: "doc-share-approval" });
+    await addOrgMember(orgId, viewerEmail);
+    const needsShareApproval = shareResource.needsApproval;
+    if (typeof needsShareApproval !== "function") {
+      throw new Error("share-resource approval predicate is missing");
+    }
+    const dbExec: DbExec = {
+      execute: async (statement) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        const rows = await pglite.prepare(sql).all(...args);
+        return { rows, rowsAffected: 0 };
+      },
+    };
+    const shareApproval = (
+      userEmail: string,
+      principalType: "user" | "group" | "org",
+      principalId: string,
+      role: "viewer" | "commenter" | "editor" | "admin" = "viewer",
+    ) =>
+      runWithRequestContext({ userEmail, orgId }, () =>
+        withDbExec(dbExec, () =>
+          needsShareApproval({
+            resourceType,
+            resourceId: "doc-share-approval",
+            principalType,
+            principalId,
+            role,
+          }),
+        ),
+      );
+
+    await expect(shareApproval(ownerEmail, "user", viewerEmail)).resolves.toBe(
+      false,
+    );
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail),
+    ).resolves.toBe(true);
+    await expect(shareApproval(ownerEmail, "org", orgId)).resolves.toBe(false);
+    await expect(shareApproval(ownerEmail, "org", otherOrgId)).resolves.toBe(
+      true,
+    );
+    await expect(shareApproval(ownerEmail, "group", "team-id")).resolves.toBe(
+      false,
+    );
+
+    await db.insert(docShares).values({
+      id: "share-external-noop",
+      resourceId: "doc-share-approval",
+      principalType: "user",
+      principalId: outsiderEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail),
+    ).resolves.toBe(false);
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail, "editor"),
+    ).resolves.toBe(true);
+    await expect(
+      shareApproval(outsiderEmail, "user", "someone@example.test"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      requireOrgMemberForUserShares: true,
+    });
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail, "editor"),
+    ).resolves.toBe(false);
+  });
+
+  it("requires approval only when public visibility expands access", async () => {
+    await insertDoc({ id: "doc-public-approval" });
+    await insertDoc({
+      id: "doc-already-public",
+      visibility: "public",
+    });
+    const needsVisibilityApproval = setResourceVisibility.needsApproval;
+    if (typeof needsVisibilityApproval !== "function") {
+      throw new Error("set-resource-visibility approval predicate is missing");
+    }
+
+    const visibilityApproval = (userEmail: string, resourceId: string) =>
+      runWithRequestContext({ userEmail, orgId }, () =>
+        needsVisibilityApproval({
+          resourceType,
+          resourceId,
+          visibility: "public",
+        }),
+      );
+
+    await expect(
+      visibilityApproval(ownerEmail, "doc-public-approval"),
+    ).resolves.toBe(true);
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        needsVisibilityApproval({
+          resourceType,
+          resourceId: "doc-public-approval",
+          visibility: "org",
+        }),
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      visibilityApproval(ownerEmail, "doc-already-public"),
+    ).resolves.toBe(false);
+    await expect(
+      visibilityApproval(outsiderEmail, "doc-public-approval"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      allowPublic: false,
+    });
+    await expect(
+      visibilityApproval(ownerEmail, "doc-public-approval"),
+    ).resolves.toBe(false);
+  });
+
   it("keeps viewer read-only while granting commenter comment capability", () => {
     expect(ROLE_RANK.commenter).toBeGreaterThan(ROLE_RANK.viewer);
     expect(roleSatisfies("viewer", "commenter")).toBe(false);
@@ -950,14 +1089,17 @@ describe("shareable resource access helpers", () => {
         title: "doc-share-card",
         detail: `user:${viewerEmail} · viewer`,
       });
+      expect(created.updated).toBe(false);
 
       const unchanged = (await shareResource.run(share)) as Record<string, any>;
+      expect(unchanged.updated).toBe(false);
       expect(unchanged).not.toHaveProperty("change");
 
       const updated = (await shareResource.run({
         ...share,
         role: "editor",
       })) as Record<string, any>;
+      expect(updated.updated).toBe(true);
       expect(updated.change).toEqual({
         verb: "updated",
         kind: "resource-share",

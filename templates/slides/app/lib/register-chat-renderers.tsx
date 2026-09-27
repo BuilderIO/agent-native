@@ -11,7 +11,9 @@ import {
 import { IconPresentation } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
+import type { Slide } from "@/context/DeckContext";
 
 export function SlidesDeckResultCard({ context }: ToolRendererProps) {
   const t = useT();
@@ -19,25 +21,53 @@ export function SlidesDeckResultCard({ context }: ToolRendererProps) {
   if (!deck) return null;
 
   return (
-    <ActionCard
-      icon={<IconPresentation aria-hidden="true" />}
-      title={deck.title}
-      detail={t("history.slideCount", { count: deck.slideCount })}
-      status={t("deckResult.saved")}
-      className="border-0 bg-transparent p-0 shadow-none"
-      action={
-        <Button
-          asChild
-          size="sm"
-          variant="outline"
-          className="transition-none active:scale-100"
+    <div className="rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm">
+      <ActionCard
+        icon={<IconPresentation aria-hidden="true" />}
+        title={deck.title}
+        detail={t("history.slideCount", { count: deck.slideCount })}
+        status={t("deckResult.saved")}
+        className="border-0 bg-transparent p-0 shadow-none"
+        action={
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="transition-none active:scale-100"
+          >
+            <Link to={`/deck/${encodeURIComponent(deck.id)}`}>
+              {t("deckEditor.accessApprovalOpenDeck")}
+            </Link>
+          </Button>
+        }
+      />
+      {deck.previews.length > 0 ? (
+        <div
+          className="mt-3 grid grid-cols-3 gap-2 overflow-hidden"
+          data-slides-deck-preview-strip
+          inert
+          aria-hidden="true"
         >
-          <Link to={`/deck/${encodeURIComponent(deck.id)}`}>
-            {t("deckEditor.accessApprovalOpenDeck")}
-          </Link>
-        </Button>
-      }
-    />
+          {deck.previews.map((preview) => (
+            <div
+              key={preview.id}
+              className="min-w-0 overflow-hidden rounded-md border border-border bg-muted"
+            >
+              <SlideRenderer
+                slide={
+                  {
+                    id: preview.id,
+                    content: preview.content,
+                    notes: "",
+                    layout: preview.layout,
+                  } satisfies Slide
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

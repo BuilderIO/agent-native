@@ -30,6 +30,19 @@ export default defineAction({
     resourceId: z.string(),
     visibility: z.enum(["private", "org", "public"]),
   }),
+  needsApproval: async (args) => {
+    if (args.visibility !== "public") return false;
+    const reg = requireShareableResource(args.resourceType);
+    if (reg.allowPublic === false) return false;
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+      undefined,
+      { skipResourceBody: true },
+    );
+    return access.resource.visibility !== "public";
+  },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {

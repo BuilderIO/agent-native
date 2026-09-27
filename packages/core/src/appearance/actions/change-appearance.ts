@@ -53,7 +53,7 @@ export default defineAction({
       change: {
         verb: "updated",
         kind: "appearance",
-        title: preset.charAt(0).toUpperCase() + preset.slice(1),
+        title: preset,
       },
     };
   },

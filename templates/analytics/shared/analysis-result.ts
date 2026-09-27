@@ -13,6 +13,7 @@ export function getSingleNumericAnalysisResult(
   }
 
   const record = result as Record<string, unknown>;
+  if (record.truncated === true) return null;
   const rows = record.rows;
   const schema = record.schema;
   if (!Array.isArray(rows) || rows.length !== 1 || !Array.isArray(schema)) {

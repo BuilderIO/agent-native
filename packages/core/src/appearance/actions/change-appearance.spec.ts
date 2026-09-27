@@ -31,7 +31,7 @@ describe("change-appearance action cards", () => {
       change: {
         verb: "updated",
         kind: "appearance",
-        title: "Ocean",
+        title: "ocean",
       },
     });
     expect(action.chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);

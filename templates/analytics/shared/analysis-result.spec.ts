@@ -12,6 +12,16 @@ describe("getSingleNumericAnalysisResult", () => {
     ).toEqual({ label: "active_users", value: 0 });
   });
 
+  it("does not summarize a truncated numeric result", () => {
+    expect(
+      getSingleNumericAnalysisResult({
+        rows: [{ active_users: 12 }],
+        schema: [{ name: "active_users", type: "number" }],
+        truncated: true,
+      }),
+    ).toBeNull();
+  });
+
   it.each([
     { rows: [], schema: [{ name: "count", type: "number" }] },
     {

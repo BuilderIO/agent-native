@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   getBuilderCredentialAuthFailure: vi.fn(),
   getBuilderBrowserConnectUrlForOwner: vi.fn(),
+  getAgentTeamRunDispatchState: vi.fn(),
+  getTask: vi.fn(),
+  listTasks: vi.fn(),
   resolveBuilderBranchProjectId: vi.fn(),
   resolveBuilderCredentials: vi.fn(),
 }));
@@ -28,6 +31,15 @@ vi.mock("../builder-browser.js", () => ({
 vi.mock("../credential-provider.js", () => ({
   getBuilderCredentialAuthFailure: mocks.getBuilderCredentialAuthFailure,
   resolveBuilderCredentials: mocks.resolveBuilderCredentials,
+}));
+
+vi.mock("../agent-teams.js", () => ({
+  getTask: mocks.getTask,
+  listTasks: mocks.listTasks,
+}));
+
+vi.mock("../agent-teams-run-queue.js", () => ({
+  getAgentTeamRunDispatchState: mocks.getAgentTeamRunDispatchState,
 }));
 
 const extension = {
@@ -222,7 +234,7 @@ describe("createTeamTools Plan-mode effects", () => {
 });
 
 describe("createTeamTools progress cards", () => {
-  it("projects only task progress results from visible coordination actions", () => {
+  it("projects only task progress results from visible coordination actions", async () => {
     const entry = createTeamTools({
       getOwner: () => "owner@example.test",
       getSystemPrompt: () => "",
@@ -260,6 +272,7 @@ describe("createTeamTools progress cards", () => {
     expect(chatUI?.when?.({ action: "list" }, result)).toBe(true);
     expect(chatUI?.when?.({ action: "spawn" }, result)).toBe(false);
     expect(chatUI?.when?.({ action: "send" }, result)).toBe(false);
+    expect(chatUI?.when?.({ action: "read-result" }, result)).toBe(false);
     expect(chatUI?.when?.({ action: "list" }, "No background tasks.")).toBe(
       false,
     );
@@ -286,5 +299,155 @@ describe("createTeamTools progress cards", () => {
         },
       ],
     });
+
+    mocks.getTask.mockResolvedValue({
+      taskId: "task-2",
+      threadId: "thread-2",
+      parentThreadId: "thread-1",
+      name: "Find launch feedback",
+      status: "completed",
+      summary: "Full requested findings from the completed task.",
+      preview: "Preview of the findings.",
+    });
+    const readResult = await entry.run({
+      action: "read-result",
+      taskId: "task-2",
+    });
+
+    expect(JSON.parse(readResult as string)).toMatchObject({
+      summary: "Full requested findings from the completed task.",
+    });
+    expect(chatUI?.when?.({ action: "read-result" }, readResult)).toBe(false);
+  });
+
+  it("reconciles large lists and caps the card with an overflow count", async () => {
+    mocks.listTasks.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        taskId: `task-${index + 1}`,
+        threadId: `thread-${index + 1}`,
+        name: `Task ${index + 1}`,
+        description: `Task description ${index + 1}`,
+        status: "running",
+        currentStep: `Step ${index + 1}`,
+        summary: "",
+      })),
+    );
+    mocks.getAgentTeamRunDispatchState.mockImplementation(
+      async (taskId: string) =>
+        taskId === "task-3" || taskId === "task-5"
+          ? { status: "queued" }
+          : null,
+    );
+
+    const entry = createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as any,
+      getModel: () => "test-model",
+      getParentThreadId: () => "thread-parent",
+      getSend: () => null,
+    })["agent-teams"];
+    const rawResult = await entry.run({ action: "list" });
+    const tasks = JSON.parse(rawResult as string) as Array<{
+      taskId: string;
+      status: string;
+    }>;
+    const chatUI = entry.chatUI;
+
+    expect(mocks.listTasks).toHaveBeenCalledTimes(1);
+    expect(tasks).toHaveLength(5);
+    expect(mocks.getAgentTeamRunDispatchState).toHaveBeenCalledTimes(5);
+    expect(tasks.find((task) => task.taskId === "task-3")?.status).toBe(
+      "queued",
+    );
+    expect(tasks.find((task) => task.taskId === "task-5")?.status).toBe(
+      "queued",
+    );
+    expect(chatUI?.when?.({ action: "list" }, rawResult)).toBe(true);
+    expect(chatUI?.projectResult?.({ action: "list" }, rawResult)).toEqual({
+      tasks: [
+        {
+          taskId: "task-1",
+          threadId: "thread-1",
+          title: "Task 1",
+          detail: "Step 1",
+          status: "running",
+        },
+        {
+          taskId: "task-2",
+          threadId: "thread-2",
+          title: "Task 2",
+          detail: "Step 2",
+          status: "running",
+        },
+        {
+          taskId: "task-3",
+          threadId: "thread-3",
+          title: "Task 3",
+          detail: "Step 3 · … +2",
+          status: "queued",
+        },
+      ],
+    });
+  });
+
+  it("keeps the overflow count when the last visible task step is long", async () => {
+    const entry = createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as any,
+      getModel: () => "test-model",
+      getParentThreadId: () => "thread-parent",
+      getSend: () => null,
+    })["agent-teams"];
+    const result = JSON.stringify({
+      tasks: Array.from({ length: 4 }, (_, index) => ({
+        taskId: `task-${index + 1}`,
+        threadId: `thread-${index + 1}`,
+        title: `Task ${index + 1}`,
+        currentStep: index === 2 ? "x".repeat(300) : `Step ${index + 1}`,
+        status: "running",
+      })),
+    });
+
+    const projected = entry.chatUI?.projectResult?.({ action: "list" }, result);
+    const tasks = (projected as { tasks: Array<{ detail?: string }> }).tasks;
+
+    expect(tasks).toHaveLength(3);
+    expect(tasks[2]?.detail).toHaveLength(240);
+    expect(tasks[2]?.detail).toMatch(/… \+1$/);
+  });
+
+  it("fails the list when queue status is unreadable", async () => {
+    mocks.listTasks.mockResolvedValue([
+      {
+        taskId: "task-1",
+        threadId: "thread-1",
+        name: "Task 1",
+        description: "Task description",
+        status: "running",
+        currentStep: "Working",
+        summary: "",
+      },
+    ]);
+    mocks.getAgentTeamRunDispatchState.mockRejectedValue(
+      new Error("Queue status unavailable"),
+    );
+
+    const entry = createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as any,
+      getModel: () => "test-model",
+      getParentThreadId: () => "thread-parent",
+      getSend: () => null,
+    })["agent-teams"];
+
+    await expect(entry.run({ action: "list" })).rejects.toThrow(
+      "Queue status unavailable",
+    );
   });
 });

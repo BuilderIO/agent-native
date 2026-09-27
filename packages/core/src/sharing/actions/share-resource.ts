@@ -141,6 +141,56 @@ async function isOrgMemberOrInvited(
   return invited.rows.length > 0;
 }
 
+async function needsExternalShareApproval(args: {
+  resourceType: string;
+  resourceId: string;
+  principalType: "user" | "group" | "org";
+  principalId: string;
+  role: "viewer" | "commenter" | "editor" | "admin";
+}): Promise<boolean> {
+  if (args.principalType === "group") return false;
+  const reg = requireShareableResource(args.resourceType);
+  if (reg.requireOrgMemberForUserShares) return false;
+
+  const access = await assertAccess(
+    args.resourceType,
+    args.resourceId,
+    "admin",
+    undefined,
+    { skipResourceBody: true },
+  );
+  const resourceOrgId = access.resource.orgId as string | null | undefined;
+  const db = reg.getDb() as any;
+  if (args.principalType === "org") {
+    if (resourceOrgId && args.principalId === resourceOrgId) return false;
+  } else {
+    if (!isEmailPrincipalId(args.principalId)) return false;
+    const recipient = normalizePrincipalId("user", args.principalId);
+    if (
+      resourceOrgId &&
+      (await isOrgMemberOrInvited(resourceOrgId, recipient))
+    ) {
+      return false;
+    }
+  }
+
+  const [existing] = await db
+    .select({ role: reg.sharesTable.role })
+    .from(reg.sharesTable)
+    .where(
+      and(
+        eq(reg.sharesTable.resourceId, args.resourceId),
+        eq(reg.sharesTable.principalType, args.principalType),
+        principalIdMatches(
+          reg.sharesTable,
+          args.principalType,
+          normalizePrincipalId(args.principalType, args.principalId),
+        ),
+      ),
+    );
+  return existing?.role !== args.role;
+}
+
 export default defineAction({
   description:
     "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
@@ -187,6 +237,7 @@ export default defineAction({
         "Optional short note included in the notification email to an individual recipient.",
       ),
   }),
+  needsApproval: needsExternalShareApproval,
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     const access = await assertAccess(
@@ -286,7 +337,7 @@ export default defineAction({
       );
       return {
         id: existing.id,
-        updated: true,
+        updated: Boolean(updated),
         ...(updated
           ? {
               change: resourceSharingChange(
@@ -350,7 +401,7 @@ export default defineAction({
       );
       return {
         id: existingAfterConflict.id,
-        updated: true,
+        updated: Boolean(updated),
         ...(updated
           ? {
               change: resourceSharingChange(

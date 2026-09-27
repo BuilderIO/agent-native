@@ -11,9 +11,14 @@ import {
   normalizeActionChangeResult,
   type ActionChange,
 } from "../../../action-ui.js";
-import { readClientAppState } from "../../application-state.js";
+import {
+  compareAndSetClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "../../application-state.js";
 import { compactOutlineButtonClassName } from "../../components/ui/button-classes.js";
 import { useT } from "../../i18n.js";
+import { callAction } from "../../use-action.js";
 import { cn } from "../../utils.js";
 import type { ToolRendererProps } from "../tool-render-registry.js";
 import { ActionCard } from "./ActionCard.js";
@@ -30,6 +35,15 @@ const kindIcons = {
   "resource-share": IconShare3,
   "calendar-event": IconCalendarEvent,
 } as const;
+
+const appearancePresetLabelKeys: Record<string, string> = {
+  default: "agentChat.widget.appearancePreset.default",
+  warm: "agentChat.widget.appearancePreset.warm",
+  ocean: "agentChat.widget.appearancePreset.ocean",
+  forest: "agentChat.widget.appearancePreset.forest",
+  rose: "agentChat.widget.appearancePreset.rose",
+  slate: "agentChat.widget.appearancePreset.slate",
+};
 
 function formatResourceShareDetail(
   value: string,
@@ -127,18 +141,19 @@ export function ActionCardSkeleton() {
 function ActionChangeCard({
   change,
   widgetId,
+  toolName,
   grouped = false,
 }: {
   change: ActionChange;
   widgetId?: string;
+  toolName: string;
   grouped?: boolean;
 }) {
   const t = useT();
-  // Older clients persisted this marker before dispatching a result-provided
-  // inverse action. Read it only to keep interrupted attempts visibly locked.
-  const stateKey = change.undo ? undoStateKey(widgetId) : undefined;
+  const undo = change.undo?.action === toolName ? change.undo : undefined;
+  const stateKey = undo ? undoStateKey(widgetId) : undefined;
   const [undoState, setUndoState] = useState<
-    "checking" | "ready" | "undone" | "unknown"
+    "checking" | "ready" | "undoing" | "undone" | "unknown"
   >(() => (stateKey ? "checking" : "ready"));
   const Icon = kindIcons[change.kind as keyof typeof kindIcons] ?? IconCheck;
   const status =
@@ -150,14 +165,31 @@ function ActionChangeCard({
           ? t("agentChat.widget.actionStatus.draftReview")
           : t(`agentChat.widget.actionStatus.${change.verb}`);
   const href = safeActionUrl(change.url);
+  const preferenceTitle =
+    change.kind === "preference"
+      ? change.title
+          .split(" · ")
+          .map((part) =>
+            part === "system"
+              ? t("agentChat.widget.preferenceAutomatic")
+              : part,
+          )
+          .join(" · ")
+      : undefined;
+  const appearanceTitleKey =
+    change.kind === "appearance"
+      ? appearancePresetLabelKeys[change.title]
+      : undefined;
   const title =
     change.kind === "calendar-time-choice"
       ? t("agentChat.widget.actionBestSharedTime")
-      : change.kind === "booking-link" && change.titleIsFallback
-        ? t("agentChat.widget.actionBookingLink")
-        : change.kind === "scheduled-email" && change.titleIsFallback
-          ? t("agentChat.widget.actionScheduledEmail")
-          : change.title;
+      : appearanceTitleKey
+        ? t(appearanceTitleKey)
+        : change.kind === "booking-link" && change.titleIsFallback
+          ? t("agentChat.widget.actionBookingLink")
+          : change.kind === "scheduled-email" && change.titleIsFallback
+            ? t("agentChat.widget.actionScheduledEmail")
+            : (preferenceTitle ?? change.title);
   const detail =
     change.kind === "email-draft" && change.verb === "created"
       ? change.detail
@@ -178,6 +210,37 @@ function ActionChangeCard({
             count: Number(change.detail),
           })
         : detail;
+
+  async function runUndo() {
+    if (!stateKey || !undo || undoState !== "ready") return;
+    setUndoState("undoing");
+    try {
+      const claimed = await compareAndSetClientAppState(stateKey, null, {
+        status: "pending",
+      });
+      if (!claimed) {
+        const stored = await readClientAppState<{ status?: string }>(stateKey);
+        setUndoState(stored?.status === "undone" ? "undone" : "unknown");
+        return;
+      }
+    } catch {
+      setUndoState("unknown");
+      return;
+    }
+    try {
+      await callAction(undo.action, undo.args);
+    } catch {
+      setUndoState("unknown");
+      await setClientAppState(stateKey, { status: "unknown" }).catch(() => {});
+      return;
+    }
+    try {
+      await setClientAppState(stateKey, { status: "undone" });
+      setUndoState("undone");
+    } catch {
+      setUndoState("unknown");
+    }
+  }
 
   useEffect(() => {
     if (!stateKey) {
@@ -205,14 +268,26 @@ function ActionChangeCard({
   }, [stateKey]);
 
   const action =
-    stateKey && undoState === "unknown" ? (
+    stateKey && undoState !== "ready" && undoState !== "undone" ? (
       <button
         type="button"
         disabled
         className={compactOutlineButtonClassName}
         aria-live="polite"
       >
-        {t("agentChat.widget.actionUndoUnknown")}
+        {t(
+          undoState === "undoing"
+            ? "agentChat.widget.actionUndoing"
+            : "agentChat.widget.actionUndoUnknown",
+        )}
+      </button>
+    ) : stateKey && undoState === "ready" ? (
+      <button
+        type="button"
+        className={compactOutlineButtonClassName}
+        onClick={() => void runUndo()}
+      >
+        {t("agentChat.widget.actionUndo")}
       </button>
     ) : href ? (
       <a
@@ -251,20 +326,30 @@ function ActionChangeCard({
 export function RecordChangeWidget({ context }: ToolRendererProps) {
   const changes = (
     context.relatedResults ?? [
-      { widgetId: context.widgetId ?? "", result: context.resultJson },
+      {
+        widgetId: context.widgetId ?? "",
+        result: context.resultJson,
+        toolName: context.toolName,
+      },
     ]
   )
-    .map(({ widgetId, result }) => {
+    .map(({ widgetId, result, toolName }) => {
       const normalized = normalizeActionChangeResult(result);
       if (!normalized) return null;
       return {
         change: normalized.change,
         widgetId,
+        toolName: toolName ?? context.toolName,
       };
     })
     .filter(
-      (result): result is { change: ActionChange; widgetId: string } =>
-        result !== null,
+      (
+        result,
+      ): result is {
+        change: ActionChange;
+        widgetId: string;
+        toolName: string;
+      } => result !== null,
     );
   if (changes.length === 0 && context.isRunning) return <ActionCardSkeleton />;
   if (changes.length > 1) return <RecordChangeGroup changes={changes} />;
@@ -274,7 +359,11 @@ export function RecordChangeWidget({ context }: ToolRendererProps) {
 export function RecordChangeGroup({
   changes,
 }: {
-  changes: Array<{ change: ActionChange; widgetId: string }>;
+  changes: Array<{
+    change: ActionChange;
+    widgetId: string;
+    toolName: string;
+  }>;
 }) {
   const t = useT();
   if (changes.length < 2) {
@@ -292,11 +381,12 @@ export function RecordChangeGroup({
         {t("agentChat.widget.actionChanges", { count: changes.length })}
       </p>
       <div className="divide-y divide-border px-3 pb-2">
-        {changes.map(({ change, widgetId }, index) => (
+        {changes.map(({ change, widgetId, toolName }, index) => (
           <ActionChangeCard
             key={`${widgetId}:${change.kind}:${index}`}
             change={change}
             widgetId={widgetId}
+            toolName={toolName}
             grouped
           />
         ))}
