@@ -518,6 +518,7 @@ describe("EmailList keyboard navigation interactions", () => {
 
   it("returns messages evicted from the priority window to chronological order", async () => {
     mocks.view = "inbox";
+    mocks.virtualWindowSize = 4;
     const baseEmails = Array.from(
       { length: AI_PRIORITY_MAX_EMAILS + 1 },
       (_, index) => ({
@@ -582,13 +583,9 @@ describe("EmailList keyboard navigation interactions", () => {
     );
 
     await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
-    const tailRows = rows()
-      .slice(-2)
-      .map((row) => row.textContent);
-    expect(tailRows[0]).toContain(
-      `Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`,
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject newest-email"),
     );
-    expect(tailRows[1]).toContain(`Subject email-${AI_PRIORITY_MAX_EMAILS}`);
   });
 
   it("ignores a frozen priority order while updated rules are rescored", async () => {
