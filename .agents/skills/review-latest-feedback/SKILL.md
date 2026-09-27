@@ -147,13 +147,14 @@ replies ending in `?`. Open only threads with a human reply.
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
 
-Find new replies even when their parent is older than the five-day scan. Search
-all channel messages over an overlapping date window, sorted oldest-first, and
-filter hits to timestamps after the last completed recap cursor. Resolve each
-hit to its parent's `thread_ts` and read the full thread. Slack's `after:` takes
-a date, not a message timestamp; start at least one day before the cursor date.
-Follow `next_cursor` until exhausted. Record the last processed timestamp only
-after every page is handled. This catches replies on older parents.
+Find new replies even when their parent is older than the five-day scan. Before
+searching, read the `Reply scan cursor` from the previous recap; if absent,
+scan all available history. Search all channel messages over an overlapping
+date window, sorted oldest-first, and filter hits to timestamps after that
+cursor. Resolve each hit to its parent's `thread_ts` and read the full thread.
+Slack's `after:` takes a date, not a message timestamp; start at least one day
+before the cursor date. Follow `next_cursor` until exhausted. Record the last
+processed timestamp only after every page is handled.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
@@ -256,9 +257,6 @@ version and name Sid or Alice in the recap. Add `👀` before investigation or
 delegation and read it back. Keep an evidence-limited disposition until Phase
 2's four bars hold; only then use **Shipped** with `✅`.
 
-If Phase 0 eyed an item later found out of scope, keep `👀` and post **Skipped**
-once if absent; add no reaction.
-
 Every run, exhaust oldest-first `has::eyes:` pages. Revisit active/waiting
 claims at any age, even without replies; terminal claims reopen on new evidence:
 
@@ -267,9 +265,10 @@ slack_search: has::eyes: in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Read each parent and its reaction metadata. Mark **Owned elsewhere** only
-when thread status or linked work confirms an active owner. New evidence after
-a terminal status reopens the report; keep existing reactions.
+Read each full thread and linked work before classifying its current status;
+use reaction metadata only as history. Mark **Owned elsewhere** only when
+thread status or linked work confirms an active owner. New evidence after
+terminal status reopens the report; keep reactions.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,
@@ -551,7 +550,7 @@ on - that is how silence stays auditable.
 ```md
 ## Feedback sweep
 Start cursor: [Slack message](...)
-Reply scan cursor (next run's `after`): <last timestamp fully processed>
+Reply scan cursor (read from prior recap; use next run): <last timestamp fully processed>
 Messages enumerated: N · Claimed: N · Answered since last run: N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
