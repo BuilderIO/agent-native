@@ -893,7 +893,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-actions",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
       await expect(
         shareResource.run({
           resourceType,
@@ -910,7 +910,7 @@ describe("shareable resource access helpers", () => {
           principalType: "org",
           principalId: otherOrgId,
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toMatchObject({ ok: true });
     });
 
     const shares = await db
@@ -928,6 +928,120 @@ describe("shareable resource access helpers", () => {
       .from(docs)
       .where(eq(docs.id, "doc-actions"));
     expect(doc).toMatchObject({ visibility: "org" });
+  });
+
+  it("emits share cards only for created or changed grants", async () => {
+    await insertDoc({ id: "doc-share-card" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const share = {
+        resourceType,
+        resourceId: "doc-share-card",
+        principalType: "user" as const,
+        principalId: viewerEmail,
+        role: "viewer" as const,
+        notify: false,
+      };
+
+      const created = (await shareResource.run(share)) as Record<string, any>;
+      expect(created.change).toEqual({
+        verb: "created",
+        kind: "resource-share",
+        title: "doc-share-card",
+        detail: `user:${viewerEmail} · viewer`,
+      });
+
+      const unchanged = (await shareResource.run(share)) as Record<string, any>;
+      expect(unchanged).not.toHaveProperty("change");
+
+      const updated = (await shareResource.run({
+        ...share,
+        role: "editor",
+      })) as Record<string, any>;
+      expect(updated.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-share-card",
+        detail: `user:${viewerEmail} · editor`,
+      });
+    });
+  });
+
+  it("emits an unshare card only when a grant is removed", async () => {
+    await insertDoc({ id: "doc-unshare-card" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await shareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+        role: "viewer",
+        notify: false,
+      });
+
+      const removed = (await unshareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+      })) as Record<string, any>;
+      expect(removed.change).toEqual({
+        verb: "deleted",
+        kind: "resource-share",
+        title: "doc-unshare-card",
+        detail: `user:${viewerEmail}`,
+      });
+
+      const unchanged = (await unshareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+      })) as Record<string, any>;
+      expect(unchanged).not.toHaveProperty("change");
+    });
+  });
+
+  it("emits a visibility card only when visibility or organization scope changes", async () => {
+    await insertDoc({
+      id: "doc-visibility-card",
+      orgId: null,
+      visibility: "org",
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const attached = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "org",
+      })) as Record<string, any>;
+      expect(attached.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-visibility-card",
+        detail: "org",
+      });
+
+      const unchanged = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "org",
+      })) as Record<string, any>;
+      expect(unchanged).not.toHaveProperty("change");
+
+      const changed = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "private",
+      })) as Record<string, any>;
+      expect(changed.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-visibility-card",
+        detail: "private",
+      });
+    });
   });
 
   it("delegates visibility persistence to a resource-owned hook", async () => {
@@ -950,7 +1064,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-hook",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     expect(persistVisibilityChange).toHaveBeenCalledWith(
@@ -1010,7 +1124,7 @@ describe("shareable resource access helpers", () => {
           principalType: "user",
           principalId: "VIEWER+QA@EXAMPLE.COM",
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toMatchObject({ ok: true });
     });
 
     shares = await db
@@ -1067,7 +1181,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-legacy-solo",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     const [row] = await db
@@ -1097,7 +1211,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-local-solo",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     const [row] = await db

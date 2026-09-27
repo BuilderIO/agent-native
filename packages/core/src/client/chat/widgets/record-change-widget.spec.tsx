@@ -276,6 +276,62 @@ describe("core.record-change", () => {
     );
   });
 
+  it("localizes sharing roles and visibility in action cards", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          <RecordChangeWidget
+            context={{
+              toolName: "share-resource",
+              args: {},
+              resultJson: {
+                change: {
+                  verb: "created",
+                  kind: "resource-share",
+                  title: "Product plan",
+                  detail: "user:ana@example.test · editor",
+                },
+              },
+              isRunning: false,
+              chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("ana@example.test · Editor");
+    expect(container.textContent).not.toContain("user:");
+    expect(container.querySelector("svg")?.getAttribute("class")).toMatch(
+      /share/i,
+    );
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          <RecordChangeWidget
+            context={{
+              toolName: "set-resource-visibility",
+              args: {},
+              resultJson: {
+                change: {
+                  verb: "updated",
+                  kind: "resource-share",
+                  title: "Product plan",
+                  detail: "org",
+                },
+              },
+              isRunning: false,
+              chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Organization");
+  });
+
   it("renders an available Calendar time with a use-time action", async () => {
     await act(async () => {
       root.render(

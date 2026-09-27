@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
@@ -21,6 +21,7 @@ import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
+import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -267,17 +268,36 @@ export default defineAction({
       );
 
     if (existing) {
-      await db
+      const [updated] = await db
         .update(reg.sharesTable)
         .set({ role: args.role })
-        .where(eq(reg.sharesTable.id, existing.id));
+        .where(
+          and(
+            eq(reg.sharesTable.id, existing.id),
+            ne(reg.sharesTable.role, args.role),
+          ),
+        )
+        .returning({ id: reg.sharesTable.id });
       invalidateCollabAccessCache(args.resourceType, args.resourceId);
       await notifyExtensionShareChanged(
         args.resourceType,
         args.resourceId,
         beforeExtensionTargets,
       );
-      return { id: existing.id, updated: true };
+      return {
+        id: existing.id,
+        updated: true,
+        ...(updated
+          ? {
+              change: resourceSharingChange(
+                reg,
+                access.resource,
+                "updated",
+                `${args.principalType}:${principalId} · ${args.role}`,
+              ).change,
+            }
+          : {}),
+      };
     }
 
     const id = nanoid();
@@ -312,17 +332,36 @@ export default defineAction({
       if (!existingAfterConflict) {
         throw new Error("Share conflict could not be resolved.");
       }
-      await db
+      const [updated] = await db
         .update(reg.sharesTable)
         .set({ role: args.role })
-        .where(eq(reg.sharesTable.id, existingAfterConflict.id));
+        .where(
+          and(
+            eq(reg.sharesTable.id, existingAfterConflict.id),
+            ne(reg.sharesTable.role, args.role),
+          ),
+        )
+        .returning({ id: reg.sharesTable.id });
       invalidateCollabAccessCache(args.resourceType, args.resourceId);
       await notifyExtensionShareChanged(
         args.resourceType,
         args.resourceId,
         beforeExtensionTargets,
       );
-      return { id: existingAfterConflict.id, updated: true };
+      return {
+        id: existingAfterConflict.id,
+        updated: true,
+        ...(updated
+          ? {
+              change: resourceSharingChange(
+                reg,
+                access.resource,
+                "updated",
+                `${args.principalType}:${principalId} · ${args.role}`,
+              ).change,
+            }
+          : {}),
+      };
     }
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
@@ -512,6 +551,15 @@ export default defineAction({
       );
     }
 
-    return { id, updated: false };
+    return {
+      id,
+      updated: false,
+      change: resourceSharingChange(
+        reg,
+        access.resource,
+        "created",
+        `${args.principalType}:${principalId} · ${args.role}`,
+      ).change,
+    };
   },
 });

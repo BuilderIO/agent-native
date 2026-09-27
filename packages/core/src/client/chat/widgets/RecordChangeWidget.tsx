@@ -3,6 +3,7 @@ import {
   IconCheck,
   IconFilter,
   IconMail,
+  IconShare3,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -26,8 +27,42 @@ const kindIcons = {
   "mail-rule": IconFilter,
   "gmail-filter": IconFilter,
   "mail-filter": IconFilter,
+  "resource-share": IconShare3,
   "calendar-event": IconCalendarEvent,
 } as const;
+
+function formatResourceShareDetail(
+  value: string,
+  t: ReturnType<typeof useT>,
+): string {
+  const visibilityLabel: Record<string, string> = {
+    private: "agentChat.share.private",
+    org: "agentChat.share.organization",
+    public: "agentChat.share.public",
+  };
+  const visibilityKey = visibilityLabel[value];
+  if (visibilityKey) return t(visibilityKey);
+
+  const [principal = "", role] = value.split(" · ", 2);
+  const separator = principal.indexOf(":");
+  if (separator < 0) return value;
+
+  const type = principal.slice(0, separator);
+  const id = principal.slice(separator + 1);
+  const audience =
+    type === "user"
+      ? id
+      : type === "group"
+        ? t("agentChat.share.userGroup")
+        : type === "org"
+          ? t("agentChat.share.organization")
+          : id;
+  const roleKey =
+    role && ["viewer", "commenter", "editor", "admin"].includes(role)
+      ? `agentChat.share.${role}`
+      : undefined;
+  return [audience, roleKey ? t(roleKey) : role].filter(Boolean).join(" · ");
+}
 
 function safeActionUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -130,7 +165,9 @@ function ActionChangeCard({
             recipient: change.detail,
           })
         : t("agentChat.widget.actionDraftSaved")
-      : change.detail;
+      : change.kind === "resource-share" && change.detail
+        ? formatResourceShareDetail(change.detail, t)
+        : change.detail;
   const formattedDetail =
     change.kind === "scheduled-email"
       ? formatScheduledDate(change.detail)
