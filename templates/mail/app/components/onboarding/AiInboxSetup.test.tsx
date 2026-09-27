@@ -234,11 +234,24 @@ describe("AiInboxSetup", () => {
     expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
     expect(spamInput.value).toBe("");
     expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
+    expect(
+      screen
+        .getAllByRole("switch")
+        .map((toggle) => toggle.getAttribute("aria-checked")),
+    ).toEqual(["false", "false"]);
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
     );
 
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
     await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
     expect(mocks.createRule).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -457,6 +470,14 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
     );
 
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
     expect(mocks.startBackfill).not.toHaveBeenCalled();
     expect(mocks.createRule).not.toHaveBeenCalled();
   });
@@ -683,6 +704,9 @@ describe("AiInboxSetup", () => {
       }),
       { target: { value: "Skip bot notifications" } },
     );
+    for (const toggle of screen.getAllByRole("switch")) {
+      fireEvent.click(toggle);
+    }
     fireEvent.click(
       await screen.findByRole("button", {
         name: "mail.sort.aiSetupSortInbox",

@@ -404,9 +404,9 @@ export function AiInboxSetup({
   const [customTagPrompt, setCustomTagPrompt] = useState("");
   const [importantPrompt, setImportantPrompt] = useState("");
   const [archivePrompt, setArchivePrompt] = useState("");
-  const [archiveEnabled, setArchiveEnabled] = useState(true);
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
   const [spamPrompt, setSpamPrompt] = useState("");
-  const [spamEnabled, setSpamEnabled] = useState(true);
+  const [spamEnabled, setSpamEnabled] = useState(false);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
   const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
   const [customCleanupMode, setCustomCleanupMode] = useState<
