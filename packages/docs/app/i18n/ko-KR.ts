@@ -1691,6 +1691,7 @@ const koKR = {
       heroDescription:
         "Jev에게 자연어로 중요한 항목을 알려 주세요. 사람이 작성한 GitHub 댓글은 남기고, 매니저의 메일은 우선 표시하며, 봇 알림은 정리하고, 피드백을 통해 학습합니다.",
       heroCta: "받은편지함 관리하기",
+      mobileArchiveToast: "봇 알림 1,167개 보관 · PR 댓글 4개 유지",
       useCasesHeading: "Jev가 더 똑똑하게 관리하는 받은편지함",
       useCasesBody:
         "자연어로 규칙을 설정하세요. Jev가 중요한 사람과 대화를 우선 처리하고, 알맞은 라벨을 붙이며, 반복되는 메일은 도착 즉시 보관합니다.",

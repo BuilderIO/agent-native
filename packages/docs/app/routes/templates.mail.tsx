@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import { useRef, type MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
@@ -131,6 +131,13 @@ export default function MailTemplate() {
   const shouldAutoplay = current === false && !autoplayStopped;
   const shouldMute = initial !== true;
 
+  useEffect(() => {
+    if (!shouldAutoplay) return;
+    void videoRef.current?.play().catch((error: unknown) => {
+      console.error("Mail story video could not autoplay", error);
+    });
+  }, [shouldAutoplay]);
+
   return (
     <div className="builder-brand-tokens">
       {/* Lead with Jev's inbox cleanup story, then show the recreated app below. */}
@@ -170,7 +177,7 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+            <div className="mx-4 aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black sm:mx-0">
               <video
                 ref={videoRef}
                 src="/videos/mail-jev-story.mp4"
@@ -230,6 +237,9 @@ export default function MailTemplate() {
                         : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
                     }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
+                    mobileArchiveToast={t(
+                      "templateLanding.mail.mobileArchiveToast",
+                    )}
                   />
                 </div>
               );
