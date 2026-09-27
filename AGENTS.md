@@ -31,8 +31,9 @@ A few are entry points rather than area guides:
 - `concurrent-agents` — read before working in a shared checkout.
 - `ship` — normal guarded ship through merge and branch rotation; beta and docs
   production deploys are automatic, while other production promotion is manual.
-- `ship-and-monitor` — read when the normal ship flow also needs post-merge
-  beta/release monitoring or explicit production-promotion verification.
+- `ship-and-monitor` — read for requested post-merge beta/live, docs, release,
+  or production checks. Run beta behavior checks only when requested or when a
+  concrete deployment-specific risk needs proof local checks cannot provide.
 - `ship-now` — fast admin-merge path with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
@@ -56,11 +57,14 @@ contract.
   sole automatic beta publisher. It builds in GitHub Actions and uploads
   prebuilt artifacts to the independent Netlify beta sites at
   `beta.*.agent-native.com`; Netlify Git-connected auto-builds are disabled.
-  Do not wait for Netlify build queues or deploy-preview checks. Verify the
-  GitHub Actions run and its per-site smoke checks instead. Normal `/ship` does
-  not monitor post-merge deployments or claim beta health; use
-  `/ship-and-monitor` to verify beta. The public docs site is the temporary
-  production exception: `.github/workflows/deploy-docs-production.yml` builds
+  Do not wait for Netlify build queues or deploy-preview checks. When beta
+  deployment status is in scope, verify the GitHub Actions run and its
+  per-site smoke checks. Normal `/ship` does not monitor post-merge deployments
+  or claim beta health. Run an extra beta behavior check only when requested or
+  when a concrete beta-specific risk
+  local proof cannot cover; use `/ship-and-monitor` then. The public docs site
+  is the temporary production exception:
+  `.github/workflows/deploy-docs-production.yml` builds
   and publishes `fw` / `www.agent-native.com` from matching `main` changes,
   then disables the site's Git-connected Netlify builds. There is no beta docs
   site or beta docs hostname today. Other production promotion is manual, and

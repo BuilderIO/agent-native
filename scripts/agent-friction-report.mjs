@@ -1306,6 +1306,12 @@ const PATTERNS = [
     re: /\b(?:netlify\s+lock|(?:remove|clear|unlock).*\b(?:netlify|production)\s+lock|\b(?:main|merge|merged)\b[^.!?]{0,70}\b(?:auto[- ]?deploy|deploys?|go(?:es)? live)\b[^.!?]{0,50}\bproduction\b|\bproduction\b[^.!?]{0,70}\b(?:manual|not auto|doesn['’]t auto|isn['’]t auto)|\bbeta\b[^.!?]{0,70}\bproduction\b[^.!?]{0,40}\b(?:split|manual|not automatic)\b)/i,
   },
   {
+    key: "beta-oververification",
+    label: "Had to stop routine beta behavior checks",
+    fixedBy: ".agents/skills/verifying-changes + ship-and-monitor (2026-09-27)",
+    re: /\b(?:stop|don['’]?t|do not|no need to|skip)\b[^.!?]{0,100}\b(?:beta|staging)\b[^.!?]{0,80}\b(?:test|check|verify|smoke|e2e)\b|\b(?:all|every)\s+(?:the\s+)?(?:threads?|tasks?)\b[^.!?]{0,120}\b(?:test|check|verify|smoke)\w*\b[^.!?]{0,60}\bbeta\b|\b(?:beta|staging)\b[^.!?]{0,100}\b(?:test|check|verify|smoke|e2e)\b[^.!?]{0,80}\b(?:every|each|all|routine|unnecessary|not needed|too much|extensive)\b/i,
+  },
+  {
     key: "beta-publisher-run-interference",
     label: "Had to stop manual beta publisher run interference",
     fixedBy: ".agents/skills/ship-and-monitor (2026-09-26)",
