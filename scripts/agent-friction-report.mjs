@@ -58,10 +58,12 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
-    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b(?!(?:(?!\bbeta\b)[^.!?;\n]){0,100}\bproduction[\s-]+deploy\w*\b)[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
-    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b[^.!?;\n]{0,80}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b`,
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:${BETA_PUBLISHER_OPERATION})\b(?:(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)\b(?:${BETA_PUBLISHER_OPERATION})\b){0,2}(?!(?:(?!\bbeta\s+publisher\b)[^.!?;\n]){0,120}\bbeta\s+production[\s-]+deploy\w*\b)(?:\s+(?:(?:the|a|an|duplicate|stale|queued|old|pending|obsolete|current|any|all|our|those|these))){0,3}\s+\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:${BETA_PUBLISHER_OPERATION})\b[^.!?;\n]{0,120}\b(?:including|and|or)\b[^.!?;\n]{0,60}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b(?:\s+(?:runs?|jobs?))?(?:\s+(?:from\s+being|being|be|is|are)\s+\b(?:${BETA_PUBLISHER_OPERATION})\b|\s+(?:cancellations?|cancelations?|canceling|cancelling|re-?dispatching|pinning)\b)`,
   ].join("|"),
   "i",
 );
@@ -699,6 +701,20 @@ const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
   [
     true,
     "Don't cancel beta publisher runs, since the production deployment is for beta sites.",
+  ],
+  [
+    true,
+    "Don't cancel runs while the production deploy is underway, including queued beta publisher runs.",
+  ],
+  [true, "Don't cancel production deployment or beta publisher runs."],
+  [
+    true,
+    "Don't cancel beta publisher runs while the production deployment is running, beta still needs to finish.",
+  ],
+  [false, "Don't let the beta publisher cancel the production deployment."],
+  [
+    false,
+    "Don't cancel the beta production deploy while the beta publisher is running.",
   ],
   [
     false,
