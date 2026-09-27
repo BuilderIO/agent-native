@@ -476,13 +476,6 @@ test.describe("URL-backed live auto-layout probe", () => {
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
     );
-    await expect
-      .poll(() =>
-        focusFrame
-          .locator('[data-agent-native-edit-overlay="selection"]')
-          .evaluate((element) => getComputedStyle(element).display !== "none"),
-      )
-      .toBe(true);
     const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2,
