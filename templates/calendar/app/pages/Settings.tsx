@@ -369,8 +369,6 @@ export default function Settings() {
             >
               <AppearancePicker
                 onChange={(preset: AppearancePresetId) => {
-                  // Persist server-side so the choice survives reload and syncs
-                  // across devices; the local UI has already updated optimistically.
                   callAction(
                     "change-appearance" as any,
                     { preset } as any,

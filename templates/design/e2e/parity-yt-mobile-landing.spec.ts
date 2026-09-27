@@ -92,9 +92,6 @@ async function clickLayerRow(page: Page, name: string): Promise<void> {
   await button.click({ force: true });
 }
 
-/** Select a node by clicking its center twice (matches the working pattern
- * used elsewhere in this suite for the container-first click model: a
- * top-level screen child needs the settle-then-commit double click). */
 async function selectByNodeId(page: Page, nodeId: string) {
   const el = designFrame(page).locator(
     `[data-agent-native-node-id="${nodeId}"]`,
@@ -109,9 +106,6 @@ async function selectByNodeId(page: Page, nodeId: string) {
   return box;
 }
 
-/** Dispatch a real `contextmenu` event inside the iframe (the shield only
- * handles clicks, so the canvas context menu is wired to the bridge's own
- * document-level contextmenu listener) — matches parity-context-menu.spec.ts. */
 async function rightClickCanvasNode(page: Page, nodeId: string): Promise<void> {
   const frame = designFrame(page);
   const node = frame.locator(`[data-agent-native-node-id="${nodeId}"]`);
@@ -133,9 +127,6 @@ async function rightClickCanvasNode(page: Page, nodeId: string): Promise<void> {
   }, point);
 }
 
-// --- Fixture: a slice of tutorial #1's "Home" screen — Header (with a
-// title text child) and one restaurant Card (with a title text child), the
-// elements steps 18/20 duplicate and rename. ---
 const MOBILE_HOME_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Home</title></head>
@@ -153,13 +144,6 @@ const MOBILE_HOME_HTML = `<!doctype html>
   </body>
 </html>`;
 
-// --- Fixture: a slice of tutorial #2's Landing Page — Navbar (top) and a
-// Hero containing HeroImage, the element step 18 alt-drags. min-height is
-// deliberately much taller than the Navbar+Hero content itself (720px): step
-// 20 asserts zoom-to-selection on the full-width Navbar is tighter than
-// zoom-to-fit on the page, which only has room to differ once the page is
-// tall enough that fit-to-page is height-bound rather than width-bound like
-// the full-width Navbar always is. ---
 const LANDING_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Landing Page</title></head>
@@ -203,7 +187,6 @@ async function deleteDesign(request: APIRequestContext, designId: string) {
   await action(request, "delete-design", { id: designId }).catch(() => {});
 }
 
-/** Frame is the primary tool; Screen lives in its dropdown. */
 async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page
     .locator(
@@ -229,7 +212,6 @@ async function drawFrameTool(
   await page.mouse.up();
 }
 
-/** A point on the board that is not over any screen card. */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -315,18 +297,12 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         newFile,
         "Screen tool must create a new screen file, not draw into the existing one",
       ).toBeTruthy();
-      // A freshly drawn Screen must match Figma's Frame-tool defaults: white
-      // fill and clips content — not the bare, unstyled body a plain board
-      // Frame primitive gets.
       expect(newFile.content.toLowerCase()).toContain("#ffffff");
       expect(newFile.content.toLowerCase()).toMatch(/overflow\s*:\s*hidden/);
 
       await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 10_000,
       });
-      // Both are top-level siblings on the board, not one nested in the
-      // other: two independent screen cards, neither inside the other's
-      // iframe document.
       await expect(page.locator("[data-screen-card]")).toHaveCount(2);
     } finally {
       await deleteDesign(request, designId);
@@ -391,11 +367,6 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
           .toBe(i + 2);
       }
 
-      // The three Cmd+D presses' saves are debounced — a single read here
-      // races that debounce and can catch the persisted content mid-save,
-      // one or two Cards short (the layers-panel polls above already wait
-      // out the same debounce for the LIVE tree; this is the same wait for
-      // the PERSISTED file).
       let html = "";
       let cardIds: string[] = [];
       await expect
@@ -413,9 +384,6 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         )
         .toBe(4);
       expect(cardIds, `trace: ${await dumpTrace(page)}`).toHaveLength(4);
-      // Directly above the previous each time == DOM order is newest-first
-      // among the Card siblings (each Cmd+D inserts immediately above the
-      // node it copied).
       const bodyOrder = [
         ...html.matchAll(/data-agent-native-node-id="([^"]+)"/g),
       ].map((m) => m[1]);
@@ -426,14 +394,6 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         "newest copy must sit directly above the one it duplicated",
       ).toEqual(sorted);
 
-      // Selection ended on the newest (4th) copy. Layer rows are keyed by
-      // the code-layer projection's own hashed id (see
-      // parity-alt-drag-duplicate.spec.ts's matching note), not the raw
-      // data-agent-native-node-id cardIds is built from, so identify the
-      // row by tree position instead of comparing ids across those two
-      // spaces: the panel lists the highest z-order item first, and each
-      // Cmd+D inserts its copy directly above (higher z than) the one it
-      // duplicated, so the newest copy is the FIRST "Card" row.
       const cardRows = layerTree(page)
         .locator("[data-layer-row-button][data-layer-node-id]")
         .filter({ has: page.locator('span[title="Card"]') });
@@ -465,10 +425,6 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
           { timeout: 10_000 },
         )
         .toBe(2);
-      // The duplicate Card is a fresh insertion and its own children start
-      // collapsed — the expandAllLayers above only expanded what existed
-      // BEFORE ⌘D, so the duplicate's own title row never rendered without
-      // a second pass.
       await expandAllLayers(page);
 
       const titleRows = layerTree(page).locator(
@@ -494,16 +450,12 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
           '[data-layer-row-button] span[title="Sunrise Cafe"]',
         ),
       ).toHaveCount(1);
-      // Unrelated sibling text (Header's greeting) is untouched.
       await expect(
         layerTree(page).locator(
           '[data-layer-row-button] span[title="Good Morning"]',
         ),
       ).toHaveCount(1);
 
-      // The rename's save is debounced — the layers panel already shows the
-      // new name, but a single unpolled read here can catch the persisted
-      // source before that save lands.
       let html = "";
       await expect
         .poll(
@@ -535,9 +487,6 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
         .boundingBox())!;
       const boardPoint = await emptyBoardPoint(page);
 
-      // Same technique as the proven screen-to-board drag elsewhere in this
-      // suite: mousedown on the target, a small first move to arm the drag,
-      // then a big jump to a point that is guaranteed off every screen card.
       await page.mouse.move(
         before.x + before.width / 2,
         before.y + before.height / 2,
@@ -641,9 +590,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
         "alt-drag must persist a generated copy node",
       ).toBeTruthy();
 
-      // The tutorial calls this "preview alternate spacing" then "undo the
-      // nudge" — but Figma's alt-drag is a duplicate gesture, so the
-      // original must not have moved (the DUPLICATE carries the offset).
       const originalAfter = await frame
         .locator('[data-agent-native-node-id="heroimage"]')
         .boundingBox();
@@ -715,11 +661,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
         .first()
         .boundingBox())!;
 
-      // Zoom-to-fit shows the whole 1440-wide screen; zoom-to-selection
-      // scales up so the much-smaller Navbar fills a similar viewport share
-      // — the rendered iframe (screen) width itself does not change, but the
-      // ON-SCREEN scale of its content does. Assert via canvasZoom-style
-      // ratio: content-px-per-screen-px must increase after Shift+2.
       const fitContentWidth = await page
         .locator("iframe[data-design-preview-iframe]")
         .first()
@@ -751,10 +692,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
     try {
       await gotoEditor(page, designId);
       await selectByNodeId(page, "navbar");
-      // Real Figma documents Duplicate only as ⌘D and Alt-drag ("Copy and
-      // paste objects"); its canvas right-click menu has Copy / Paste here /
-      // Paste to replace / Copy/Paste as, not Duplicate. The canvas menu
-      // here matches that, so the gesture under test is ⌘D.
       await rightClickCanvasNode(page, "navbar");
       const menu = page.getByRole("menu").last();
       await expect(menu).toBeVisible({ timeout: 5_000 });
@@ -771,8 +708,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
       await expect(
         layerTree(page).locator('[data-layer-row-button] span[title="Navbar"]'),
       ).toHaveCount(2, { timeout: 10_000 });
-      // The panel reflects the copy before the debounced save lands, so poll
-      // the persisted source instead of reading it once.
       const navbarIdsIn = (html: string) =>
         [
           ...html.matchAll(
@@ -789,11 +724,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
         })
         .toBe(2);
       const copyId = navbarIds.find((id) => id !== "navbar")!;
-      // Figma places a ⌘D copy directly above the original in the layer
-      // list; the panel's top row is the last DOM child, so "directly above"
-      // is the very next SIBLING in source order (same rule as
-      // parity-clipboard-duplicate.spec.ts). Compare siblings, not every
-      // stamped descendant.
       const siblingIds = await designFrame(page)
         .locator("body")
         .evaluate((body) =>
@@ -803,10 +733,6 @@ test.describe("YT #2 (landing page tutorial)", () => {
         );
       expect(siblingIds[siblingIds.indexOf("navbar") + 1]).toBe(copyId);
 
-      // Panel rows are keyed by projection id, not by the stamped node id, and
-      // the top row is the last DOM child — so Figma's "directly above,
-      // becomes the selection" reads as: the first Navbar row is the copy and
-      // it alone is primary. Expand first: a collapsed subtree renders no row.
       await expandAllLayers(page);
       const navbarRows = layerTree(page)
         .locator("[data-layer-row-content]")

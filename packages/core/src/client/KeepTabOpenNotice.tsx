@@ -4,67 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
 import { cn } from "./utils.js";
 
-/** Continuous foreground running time before the notice appears — just
- *  before the hosted ~40s soft-timeout chunk boundary. */
 export const DEFAULT_KEEP_TAB_OPEN_AFTER_MS = 30_000;
 
-/**
- * Subtle, non-blocking notice that a long-running client-continued foreground
- * agent turn depends on this tab staying open.
- *
- * On hosted deployments a foreground turn runs in ~40s chunks and the CLIENT
- * may need to re-POST `auto_continue` to start each next chunk. Server-owned
- * runs (`dispatchMode` starting with "background" or equal to
- * "foreground-self-chain") survive a closed tab, and for those this notice
- * never shows.
- *
- * Visibility rules (show only while the condition is true — no new
- * always-visible chrome):
- *   - a client-continued foreground run for this thread has been continuously
- *     running for `showAfterMs` (default 30s — approaching the hosted ~40s
- *     chunk boundary where the client-driven continuation starts), and
- *   - the run is not server-continued (hidden immediately when the server owns
- *     recovery), and
- *   - this is a production client bundle (`hosted` auto-detect): local dev
- *     runs a turn unbounded in a single chunk that survives a closed tab,
- *     so the notice would be wrong there.
- * Brief non-running blips (the sub-second gap between continuation chunks)
- * are debounced so the notice does not flicker across chunk boundaries.
- */
 export interface KeepTabOpenNoticeProps {
-  /** The thread to monitor. Pass null/undefined to disable. */
   threadId: string | null | undefined;
-  /**
-   * Set false to skip polling entirely — used when this notice is mounted
-   * for a background tab kept alive via display:none. Only the active tab
-   * should poll `/runs/active`. Defaults to true.
-   */
   enabled?: boolean;
-  /** API base path. Default `/_agent-native/agent-chat`. */
   apiUrl?: string;
-  /**
-   * How long a foreground run must have been continuously running before
-   * the notice appears. Default 30s — just before the hosted ~40s
-   * soft-timeout chunk boundary, so short turns never see it.
-   */
   showAfterMs?: number;
-  /**
-   * Whether this client is talking to a hosted (serverless) deployment
-   * whose foreground turns run in client-driven chunks. Defaults to
-   * auto-detection from the bundle mode (a dev bundle → not hosted).
-   */
   hosted?: boolean;
-  /** Extra class on the outer container. */
   className?: string;
 }
 
-/** How long the notice lingers through a non-running poll result before
- *  hiding — covers the brief idle gap between continuation chunks. */
 const IDLE_LINGER_MS = 12_000;
 
-/** Poll interval for the notice's `/runs/active` loop. Deliberately slower
- *  than the stuck-detector's default — the notice is passive, so freshness
- *  matters less than keeping the extra polling cheap. */
 const NOTICE_POLL_INTERVAL_MS = 8_000;
 
 function isDevClientBundle(): boolean {
@@ -106,8 +58,6 @@ export function KeepTabOpenNotice({
   const [visible, setVisible] = useState(false);
   const runningSinceRef = useRef<number | null>(null);
 
-  // Reset tracking whenever the monitored thread changes so a long run on
-  // the previous thread cannot leak the notice onto the new one.
   useEffect(() => {
     runningSinceRef.current = null;
     setVisible(false);
@@ -115,8 +65,6 @@ export function KeepTabOpenNotice({
 
   useEffect(() => {
     if (!effectiveHosted || isServerContinued) {
-      // Server-owned turn (or non-hosted client): the tab is not load-bearing.
-      // Hide immediately and reset — no linger.
       runningSinceRef.current = null;
       setVisible(false);
       return;
@@ -137,9 +85,6 @@ export function KeepTabOpenNotice({
       runningSinceRef.current = null;
       return;
     }
-    // The run left "running" while the notice is up. Linger briefly — the
-    // gap between continuation chunks is sub-second, and hiding/re-showing
-    // across every boundary would flicker — then reset.
     const timer = setTimeout(() => {
       runningSinceRef.current = null;
       setVisible(false);

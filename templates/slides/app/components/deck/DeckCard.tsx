@@ -204,11 +204,6 @@ export default function DeckCard({
                 pendingRenameRef.current = false;
                 setIsRenaming(true);
               }
-              // Opening a modal dialog while this menu is still tearing down
-              // leaves `pointer-events: none` stuck on <body>: two dismissable
-              // layers overlap and the survivor never restores the style. Wait
-              // for the menu to finish closing, and keep focus off the trigger
-              // so the dialog owns it.
               if (pendingWorkspaceDefaultRef.current) {
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;

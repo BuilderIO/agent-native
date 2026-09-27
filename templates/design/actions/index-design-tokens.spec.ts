@@ -15,16 +15,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mock the sharing module so we can simulate access scenarios.
-// ---------------------------------------------------------------------------
 const mockResolveAccess = vi.fn();
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
-// Mock the DB so we never hit a real database.
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
@@ -63,7 +59,6 @@ describe("index-design-tokens design-system access boundary", () => {
   });
 
   it("skips design-system tokens when the caller has no design-system access", async () => {
-    // The design itself resolves fine.
     const fakeDesign = {
       id: "design_1",
       data: JSON.stringify({}),
@@ -74,22 +69,19 @@ describe("index-design-tokens design-system access boundary", () => {
       (resourceType: string, _id: string) => {
         if (resourceType === "design")
           return Promise.resolve({ role: "viewer", resource: fakeDesign });
-        if (resourceType === "design-system") return Promise.resolve(null); // no access
+        if (resourceType === "design-system") return Promise.resolve(null);
         return Promise.resolve(null);
       },
     );
 
-    // DB: return empty files list (no CSS vars to parse)
     mockFrom.mockReturnValue({
       where: () => Promise.resolve([]),
     });
 
     const result = await action.run({ designId: "design_1" });
 
-    // Design system tokens must NOT appear in the output.
     expect(result.tokens).toEqual([]);
     expect(result.groups).toEqual([]);
-    // resolveAccess should have been called for BOTH the design AND the design system.
     expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
     expect(mockResolveAccess).toHaveBeenCalledWith("design-system", "ds_1");
   });
@@ -115,12 +107,10 @@ describe("index-design-tokens design-system access boundary", () => {
       },
     );
 
-    // DB for files: empty; DB for design-system row: fakeDs
     let callCount = 0;
     mockFrom.mockImplementation(() => ({
       where: (_: unknown) => {
         callCount++;
-        // First call is for design files (empty), second is for design system data
         if (callCount === 1) return Promise.resolve([]);
         return { limit: () => Promise.resolve([fakeDs]) };
       },
@@ -128,7 +118,6 @@ describe("index-design-tokens design-system access boundary", () => {
 
     const result = await action.run({ designId: "design_1" });
 
-    // The primary Brand Kit color should be included.
     const colorToken = result.tokens.find(
       (t: { cssVar: string }) => t.cssVar === "--color-primary",
     );
@@ -307,8 +296,6 @@ describe("index-design-tokens design-system access boundary", () => {
       (t: { cssVar: string }) => t.cssVar === "--radius",
     );
 
-    // Alphabetically-first file is the reported primary `source`, but both
-    // files show up in `sources` — neither is silently dropped.
     expect(token).toMatchObject({
       cssVar: "--radius",
       source: "index.html",

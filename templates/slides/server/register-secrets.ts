@@ -1,17 +1,5 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-// ── Image generation provider secrets ────────────────────────────────
-// Two providers are supported: Gemini (with style reference matching)
-// and OpenAI gpt-image-2 (excellent text rendering). Neither is strictly
-// required — slides work without images. If both are set, Gemini is
-// preferred (it supports reference images natively).
-//
-// This file lives OUTSIDE `server/plugins/` on purpose: Nitro's plugin
-// auto-discovery expects a defineNitroPlugin-shaped default export and
-// silently skips files that don't match. Keeping the registration as a
-// side-effect module imported at the top of `server/plugins/agent-chat.ts`
-// guarantees the registerRequiredSecret() calls run at boot.
-
 registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key",

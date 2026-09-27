@@ -25,12 +25,6 @@ describe("appendHitTestResponder", () => {
     );
   });
 
-  // Regression: html already carries earlier bridge scripts (e.g. editor-chrome's
-  // compiled escapeIdent helper contains a literal "$&") by the time this runs.
-  // A string second argument to String.replace treats "$&", "$'", "$`" as
-  // special substitution patterns instead of literal text, splicing the
-  // matched "</body>" into the middle of that prior script and truncating its
-  // <script> tag early. The responder must insert its own text verbatim.
   it("does not treat $-patterns in preceding script content as replacement directives", () => {
     const priorScript = '<script>var re = "\\$&-$\'-$`";</script>';
     const out = appendHitTestResponder(

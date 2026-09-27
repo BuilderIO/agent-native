@@ -15,24 +15,6 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath, expandAllLayers } from "./helpers";
 
-/**
- * Figma parity — §13 Undo/Redo (+ Part 3 resolutions).
- *
- * Undo granularity across gesture families: one drag/reparent/dup/resize/
- * group/paste/delete/rename/inspector-commit is exactly one undo step that
- * restores the FULL pre-state (parent, position, name, selection); redo
- * re-applies exactly; a fresh edit after undo clears the redo stack; undo
- * targets the file that was actually edited, not whichever screen currently
- * has focus; undo must never change the canvas background/theme.
- *
- * Drag-move / drag-reparent / alt-drag-duplicate / resize / group-ungroup /
- * layers-panel-move undo granularity already have dedicated coverage in
- * their own parity-*.spec.ts files — this file covers the remaining gesture
- * families (delete, rename, inspector commit, redo fidelity, redo-stack
- * invalidation, cross-screen undo targeting) plus the background/theme
- * regression Steve reported riding along with undo.
- */
-
 const UNDO = `${MOD}+Z`;
 const REDO = process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
 
@@ -157,10 +139,6 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
-/** A point on the canvas confirmed clear of the chrome rails —
- * `elementFromPoint` can otherwise land on the left layers rail's own
- * `--design-editor-panel-bg`, which reads as a plausible but wrong canvas
- * colour (see parity-canvas-background.spec.ts's sampleXY). */
 async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
   const canvasBox = await page
     .locator("[data-design-canvas-container]")
@@ -294,8 +272,6 @@ test("rotating a screen then undoing immediately restores persisted geometry", a
     });
   expect(renderedRotation).not.toBeCloseTo(before.rotation, 0);
 
-  // Keep this keypress adjacent to mouseup: the regression only appears
-  // before React's render effect catches the accepted geometry up.
   await page.keyboard.press(UNDO);
   await page.waitForTimeout(750);
   await expect
@@ -331,11 +307,7 @@ test("nudging a screen then undoing immediately restores persisted geometry", as
   const afterBox = await screen.boundingBox();
   expect(afterBox?.x).not.toBe(beforeBox.x);
 
-  // Keep this keypress adjacent to the nudge: the regression only appears
-  // while the second keyboard commit is still in the debounced save queue.
   await page.keyboard.press(UNDO);
-  // The assertion must outlive the 500ms debounce or it can pass before a
-  // stale queued save overwrites the history snapshot.
   await page.waitForTimeout(750);
   await expect
     .poll(
@@ -365,8 +337,6 @@ test("a fresh edit after undo clears the redo stack", async ({ page }) => {
   const aUndone = await geom(page, id, "box-a");
   expect([aUndone.left, aUndone.top]).toEqual([aBefore.left, aBefore.top]);
 
-  // A second, unrelated edit — this must invalidate the redo entry that
-  // would have re-applied box-a's drag.
   const bBefore = await geom(page, id, "box-b");
   await dragElement(page, "box-b", 0, 60);
   const bDropped = await geom(page, id, "box-b");
@@ -412,7 +382,6 @@ test("deleting an element then one undo restores it with its original position, 
     restored.width,
     restored.height,
   ]).toEqual([before.left, before.top, before.width, before.height]);
-  // Figma restores selection to the undeleted element, not to nothing.
   await expect
     .poll(async () => {
       const bounds = await page
@@ -533,11 +502,6 @@ test("undo targets the file that was actually edited, not whichever screen curre
   const dropped = await geom(page, id, "box-a");
   expect(dropped.left).not.toBe(before.left);
 
-  // Shift focus/selection to the OTHER screen before undoing — this is the
-  // scenario the two merged undo systems (Yjs per-file UndoManager +
-  // geometry ref stacks, ordered by historyOrderRef) are most likely to get
-  // wrong if undo is scoped to "whichever file is currently active" instead
-  // of "the file that was actually last edited".
   const page2Iframe = page.locator(
     "iframe[data-design-preview-iframe][data-screen-iframe-id]",
   );
@@ -548,10 +512,6 @@ test("undo targets the file that was actually edited, not whichever screen curre
   await target.click({ force: true });
   await page.waitForTimeout(300);
 
-  // Figma parity (ground-truth Round 4): the click above is itself a real
-  // selection change, so it is its own undo step — the first Undo only
-  // walks back through it (re-selecting box-a), matching Part B's sandwiched-
-  // edit scenario. The second Undo is the one that must revert the drag.
   await page.keyboard.press(UNDO);
   await page.waitForTimeout(500);
   await page.keyboard.press(UNDO);
@@ -594,8 +554,6 @@ test("redo re-selects the group Cmd+G produced, not the pre-group selection it u
   await page.keyboard.press(`${MOD}+g`);
   await expect(groupRows()).toHaveCount(1);
   const postGroupSelection = await lastSelectedLayers();
-  // Sanity on the fixture itself: grouping must actually have re-selected
-  // something other than the two boxes, or this test proves nothing.
   expect(postGroupSelection).not.toEqual(preGroupSelection);
   expect(postGroupSelection).toHaveLength(1);
 
@@ -644,16 +602,10 @@ for (const theme of ["dark", "light"] as const) {
       timeout: 30_000,
     });
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
-    // selectViaTree below needs the "Box A" row visible; the layers tree
-    // starts collapsed, same as every other spec that navigates by hand
-    // instead of via openEditor().
     await expandAllLayers(page);
 
     const { x: sampleX, y: sampleY } = await sampleXY(page);
 
-    // Read the actual rendered canvas colour before any edit, rather than
-    // hardcoding a palette literal — a rendered-vs-token mismatch is a
-    // separate bug from the flash this test exists to catch.
     const canvasRgb = await pixelAt(page, sampleX, sampleY);
 
     await selectViaTree(page, "Box A");
@@ -662,8 +614,6 @@ for (const theme of ["dark", "light"] as const) {
     const dropped = await geom(page, id, "box-a");
     expect(dropped.left).not.toBe(before.left);
 
-    // Steve: "the white background comes back on undo". Sample the canvas
-    // background immediately around and after the undo, not just once.
     await page.keyboard.press(UNDO);
     for (let i = 0; i < 6; i += 1) {
       const rgb = await pixelAt(page, sampleX, sampleY);
@@ -678,12 +628,6 @@ for (const theme of ["dark", "light"] as const) {
   });
 }
 
-/**
- * Figma parity — figma-ground-truth.md Round 4: a plain selection change (no
- * document edit) is its own undo-stack entry. Three scenarios verified
- * directly against the live Figma app (see history.ts's SelectionHistoryEntry
- * doc comment for the full contract this fixes).
- */
 test("selection-only undo/redo: click A, click B, click C, then undo/undo/redo walks the selection history (ground-truth Round 4, Part A)", async ({
   page,
 }) => {
@@ -766,7 +710,6 @@ test("undo walks back through a trailing selection change before reverting a san
     "true",
   );
 
-  // Undo #1: re-selects Box A; the move is STILL applied.
   await page.keyboard.press(UNDO);
   await expect(
     layerRow(page, "Box A"),
@@ -778,7 +721,6 @@ test("undo walks back through a trailing selection change before reverting a san
     "the move must still be applied after only the selection is undone",
   ).toEqual([dropped.left, dropped.top]);
 
-  // Undo #2: reverts the move itself; Box A remains selected.
   await page.keyboard.press(UNDO);
   await expect
     .poll(
@@ -802,8 +744,6 @@ test("undo walks back through a trailing selection change before reverting a san
     "true",
   );
 
-  // Redo #1: reapplies the move (selection stays on Box A, matching what
-  // was selected when the drag committed).
   await page.keyboard.press(REDO);
   await expect
     .poll(
@@ -823,9 +763,6 @@ test("undo walks back through a trailing selection change before reverting a san
     "redo must reapply the exact dropped position",
   ).toEqual([dropped.left, dropped.top]);
 
-  // Redo #2: Figma's asymmetry — the trailing "select Box B" step is NOT
-  // replayed once a real edit below it has been redone; the redo stack is
-  // exhausted here, so selection stays on Box A.
   await page.keyboard.press(REDO);
   await page.waitForTimeout(500);
   await expect(
@@ -867,15 +804,12 @@ test("a marquee drag selecting Box A + Box B is exactly one undo step, not one p
   const id = await newDesign(page);
   await openEditor(page, id);
 
-  // Undo step #1: click-select Box A.
   await selectViaTree(page, "Box A");
   await expect(layerRow(page, "Box A")).toHaveAttribute(
     "aria-selected",
     "true",
   );
 
-  // Undo step #2 (if the fix holds): one real marquee drag, dispatched as
-  // many raw mousemove ticks, enclosing both Box A and Box B.
   const boxA = await box(page, "box-a");
   const boxB = await box(page, "box-b");
   const from = { x: boxA.x - 20, y: boxA.y - 20 };
@@ -885,8 +819,6 @@ test("a marquee drag selecting Box A + Box B is exactly one undo step, not one p
   };
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  // Many small steps so a per-tick regression would record many entries
-  // instead of Figma's "one drag = one undo step".
   await page.mouse.move(to.x, to.y, { steps: 24 });
   await page.waitForTimeout(150);
   await page.mouse.up();
@@ -901,10 +833,6 @@ test("a marquee drag selecting Box A + Box B is exactly one undo step, not one p
     "marquee must add Box B to the selection",
   ).toHaveAttribute("aria-selected", "true");
 
-  // Exactly two undos must fully unwind BOTH steps back to nothing selected.
-  // A per-tick regression leaves extra history entries queued from the
-  // drag's intermediate hit-sets, so two undos would land on some
-  // partial/intermediate selection instead of empty.
   await page.keyboard.press(UNDO);
   await page.waitForTimeout(300);
   await page.keyboard.press(UNDO);
@@ -914,7 +842,6 @@ test("a marquee drag selecting Box A + Box B is exactly one undo step, not one p
     "two undos (one per real step: the marquee, then the click) must reach an empty selection",
   ).toHaveCount(0);
 
-  // Redo replays the same two steps forward, ending on Box A + Box B.
   await page.keyboard.press(REDO);
   await page.waitForTimeout(300);
   await page.keyboard.press(REDO);
@@ -950,8 +877,6 @@ test("a canceled marquee cannot capture an intervening selection in the next und
     "true",
   );
 
-  // This real selection between gestures must become the next marquee's
-  // undo target, even though Escape was consumed by the canvas drag owner.
   await selectViaTree(page, "Box B");
   const nextBoxA = await box(page, "box-a");
   await page.mouse.move(nextBoxA.x - 20, nextBoxA.y - 20);

@@ -12,8 +12,6 @@ const NOON_UTC = new Date("2026-07-31T12:00:00Z");
 
 describe("timezone-aware cron", () => {
   it("resolves a wall-clock hour in the schedule's own zone", () => {
-    // 8am in New York (UTC-4 in July) is 12:00Z, not 08:00Z. Getting this
-    // wrong is what made an 8am Eastern automation fire at 4am Eastern.
     expect(
       nextOccurrence("0 8 * * *", NOON_UTC, "America/New_York").toISOString(),
     ).toBe("2026-08-01T12:00:00.000Z");
@@ -23,8 +21,6 @@ describe("timezone-aware cron", () => {
   });
 
   it("keeps a schedule stored before timezone support host-relative", () => {
-    // No stored zone must mean "unchanged behaviour", never "silently UTC",
-    // or every existing job shifts the day this ships.
     expect(nextOccurrence("0 8 * * *", NOON_UTC).toISOString()).toBe(
       nextOccurrence("0 8 * * *", NOON_UTC, serverTimezone()).toISOString(),
     );

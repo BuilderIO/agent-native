@@ -80,7 +80,6 @@ function assertReleaseMigrationTargetsRemoteDatabase(): void {
   );
 }
 
-/** Describes the URL shape without ever echoing a credential into build logs. */
 function describeReleaseMigrationUrl(url: string): string {
   if (!url) return "unset";
   if (url.startsWith("pglite:")) return "local database";
@@ -88,13 +87,6 @@ function describeReleaseMigrationUrl(url: string): string {
   return scheme ? `${scheme} url` : "no scheme — likely a masked secret";
 }
 
-/**
- * Apply framework-owned schema in one explicit release step.
- *
- * Template migrations are intentionally supplied by the template's own
- * release script. Keeping that boundary explicit prevents a template's
- * private schema from being silently coupled to every framework deployment.
- */
 export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
@@ -103,11 +95,6 @@ export async function runFrameworkReleaseMigrations(
   // one. Most framework tables are defined by their store's `ensureTable()`,
   // which production serverless can never run — see `./release-schema.ts`.
   await runFrameworkSchemaEnsures();
-  // Immediately after: the `settings` table this writes to now exists, and
-  // this must fail the release the same way a schema-ensure failure does —
-  // a deploy that silently never recorded which app owns this database is
-  // the exact incident this exists to catch, not something to shrug off and
-  // keep migrating on.
   await recordDatabaseIdentity();
   await runBetterAuthMigrations(nitroApp);
   await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {

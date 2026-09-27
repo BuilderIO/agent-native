@@ -34,8 +34,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -168,7 +166,6 @@ describe("generate-image-batch", () => {
       slots: [{ slotId: "slot-1", prompt: "Generate a hero" }],
     });
 
-    // One argument means `assertCanDraft`; approving paths pass a second.
     expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
   });
 

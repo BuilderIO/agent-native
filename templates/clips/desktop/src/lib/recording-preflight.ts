@@ -46,7 +46,6 @@ export class RecordingStartAttempt {
       onCancel: () => this.cancel(),
       onLateResolve: options.onLateResolve,
     });
-    // Cancellation may land between the guard settling and this continuation.
     if (this.signal.aborted) {
       options.onLateResolve?.(value);
       this.ensureActive();
@@ -79,7 +78,6 @@ async function pickDisplay(attempt: RecordingStartAttempt) {
     resolveSelection = resolve;
     rejectSelection = reject;
   });
-  // Selection can arrive while show_monitor_picker is still acknowledging.
   void selection.catch(() => {});
   try {
     unlisteners.push(
@@ -179,8 +177,6 @@ export async function recoverRecordingStart(
   windowCapture: boolean,
 ) {
   attempt.cancel();
-  // Releasing the lease can resume Screen Memory's SCK producer. The picker
-  // must finish dismissing before that producer re-enters the capture graph.
   if (windowCapture) {
     await boundedCleanup(invoke("cancel_native_window_picker"), 8_000);
   }

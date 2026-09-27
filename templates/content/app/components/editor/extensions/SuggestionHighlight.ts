@@ -9,11 +9,6 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
-/**
- * A pure, in-place presentation of a persisted suggestion. This never creates
- * marks or changes document content: the canonical document stays canonical
- * until the suggestion lifecycle accepts it.
- */
 export type SuggestionHighlightKind =
   | "delete"
   | "replace"
@@ -308,7 +303,6 @@ export const SuggestionHighlight = Extension.create({
   },
 });
 
-/** Push persisted suggestion specs and the centrally-managed active id. */
 export function setSuggestionHighlights(
   view: EditorView,
   meta: SuggestionHighlightMeta,

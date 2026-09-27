@@ -32,9 +32,6 @@ const GOOGLE_IDENTITY_SCOPES = [
 ];
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -101,10 +98,6 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        // The system-browser flow deliberately uses the user's existing
-        // Google cookies. The client-held verifier still gates the exchange
-        // token returned to the initiating Tauri app. Only an in-app WebView
-        // needs the additional browser-partition binding.
         if (desktopWebview) {
           desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
           desktopVerifierHash = await registerDesktopExchange(

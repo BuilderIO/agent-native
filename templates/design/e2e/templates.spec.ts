@@ -137,8 +137,6 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // The board row is minted lazily by the editor once it sees no
-    // `boardFileId`, so it lands after the canvas is interactive.
     await expect
       .poll(
         async () => {
@@ -241,15 +239,6 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
-/**
- * New Design opens the prompt popover first; skipping it is what creates the
- * empty shell and lands in the editor. The design system is chosen inside
- * this popover (DesignSystemPickerControl) before skipping — the composer
- * chrome and the FirstRunStart rail intentionally carry no picker of their
- * own (see DesignEditor.composerDesignSystem.spec.ts and the "keep the
- * picker out of the composer chrome" comment in DesignEditor.tsx), so
- * `beforeSkip` is the hook for a caller that wants a non-default system.
- */
 async function startEmptyDesignFromHome(
   page: Page,
   beforeSkip?: (promptPopover: Locator) => Promise<void>,
@@ -305,9 +294,6 @@ test("New Design starts an empty design and fills it from a template in the rail
       },
     );
 
-    // The chosen system is on the design from creation — the FirstRunStart
-    // rail has no picker of its own, so the template card below just fills
-    // the design that already carries this id.
     await expect
       .poll(
         async () =>
@@ -335,7 +321,6 @@ test("New Design starts an empty design and fills it from a template in the rail
     expect(response.ok()).toBe(true);
     const sent = response.request().postDataJSON();
     expect(sent).not.toHaveProperty("prompt");
-    // Fills the design that already exists rather than stranding it.
     expect(sent).toMatchObject({
       targetDesignId: createdDesignId,
       designSystemId: designSystemIds[1],
@@ -364,8 +349,6 @@ test("New Design starts an empty design and fills it from a template in the rail
       )
       .toContain("social-square.html");
 
-    // Filling the design retires the starting-point row, not the design system
-    // every later generation still reads.
     await expect(page.locator("[data-design-first-run]")).toBeHidden({
       timeout: 30_000,
     });
@@ -427,8 +410,6 @@ test("choosing No design system clears the design instead of snapping back", asy
         await page
           .getByRole("option", { name: "No design system", exact: true })
           .click();
-        // Clearing used to read as "nothing chosen yet", which re-resolved
-        // the default system on the very next render.
         await expect(trigger).toContainText("No design system");
       },
     );

@@ -49,8 +49,6 @@ describe("ClientOnly", () => {
 
     expect(renderToString(app)).toContain('data-testid="loading"');
 
-    // DOM assertions after act flush both effect types. Observe the hook
-    // selected for the browser handoff instead.
     act(() => root.render(app));
 
     expect(hookSpies.useLayoutEffect).toHaveBeenCalledWith(

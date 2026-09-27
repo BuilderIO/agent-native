@@ -13,7 +13,6 @@ export type McpOAuthFlowCookieReadResult =
   | { status: "invalid" }
   | { status: "ok"; value: Record<string, unknown> };
 
-/** Read the encrypted MCP flow without coupling callback relays to OAuth routes. */
 export function readMcpOAuthFlowCookiePayload(
   event: H3Event,
 ): McpOAuthFlowCookieReadResult {

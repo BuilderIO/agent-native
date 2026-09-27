@@ -341,7 +341,6 @@ describe("DiagramBlock expand affordance", () => {
     expect(
       overlay?.querySelector('button[aria-label="Close preview"]'),
     ).toBeTruthy();
-    // The same diagram content is re-rendered larger inside the overlay.
     expect(overlay?.textContent).toContain("Service");
 
     act(() => {

@@ -47,7 +47,6 @@ const serverPptxResponse = () =>
     },
   });
 
-/** The file the Drive upload actually carried, as text. */
 async function uploadedPptxText() {
   const call = vi
     .mocked(fetch)
@@ -130,8 +129,6 @@ describe("exportDeckToGoogleSlides", () => {
   });
 
   it("uploads the server-built PPTX when the caller supplies one", async () => {
-    // dom-to-pptx rasterizes every custGeom shape, so a source-imported deck
-    // must reach Drive as the server's vector build, not the browser's.
     vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
       const url = requestString(input);
       return url.endsWith("/_agent-native/google-docs/status")
@@ -160,7 +157,6 @@ describe("exportDeckToGoogleSlides", () => {
       "/slides/api/exports/pptx",
       expect.objectContaining({ body: JSON.stringify({ deckId: "deck-1" }) }),
     );
-    // Slides still lays the server's file out on its own terms.
     expect(retargetPptxForGoogleSlidesMock).toHaveBeenCalledTimes(1);
     expect(await uploadedPptxText()).toBe("PK-server-vector");
   });
@@ -187,7 +183,6 @@ describe("exportDeckToGoogleSlides", () => {
       ),
     ).rejects.toThrow(guard);
 
-    // No silent downgrade: neither the browser exporter nor Drive was reached.
     expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(2);

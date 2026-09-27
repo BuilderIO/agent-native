@@ -1,16 +1,5 @@
 name: Cancel superseded Netlify main deploys
 
-# When many PRs merge to main in quick succession (or the auto-merged
-# "Version Packages" release PR lands), Netlify enqueues a separate production
-# deploy per site per commit. Older queued deploys are wasted work — only the
-# latest main commit needs to ship. This coalesces the production queue: on each
-# push to main it cancels an older queued production deploy only when Netlify
-# also shows a newer queued production deploy for main to replace it. Anything
-# already building/uploading/processing is left alone.
-#
-# Preview (deploy-preview) deploys are handled separately by
-# cancel-stale-netlify-previews.yml.
-
 on:
   push:
     branches: [main]
@@ -18,9 +7,6 @@ on:
 permissions:
   contents: read
 
-# Serialize cancellers so a burst of merges doesn't fan out into many parallel
-# API sweeps; never skip a run (each new commit must get a chance to supersede
-# the prior queue).
 concurrency:
   group: cancel-stale-netlify-main-deploys
   cancel-in-progress: false

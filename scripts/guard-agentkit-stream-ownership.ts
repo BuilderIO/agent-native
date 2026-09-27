@@ -11,20 +11,13 @@ export interface StreamOwnershipViolation {
 interface ParsedImport {
   index: number;
   specifier: string;
-  /** Bindings that survive to runtime. `import type` and `{ type X }` do not. */
   valueBindings: string[];
-  /** A bare `import "x"` still evaluates the module. */
   sideEffectOnly: boolean;
 }
 
 const SSE_MODULE = /(?:^|\/)sse-event-processor(?:\.js)?$/;
 const SSE_STREAM_READERS = new Set(["readSSEStream", "readSSEStreamRaw"]);
 
-/**
- * `/protocol` is types plus pure helpers and owns no stream, so importing it
- * beside the SSE reader is fine. Every other AgentKit entry can build a client
- * or a transport.
- */
 const AGENTKIT_STREAM_OWNING_MODULE =
   /^@agent-native\/agentkit(?!\/protocol$)(?:\/.*)?$/;
 
@@ -92,12 +85,6 @@ function valueBindingsOf(clause: string): string[] {
   return bindings.filter(Boolean);
 }
 
-/**
- * Two readers on one stream is silent until a reconnect, when both try to
- * resume and the transcript forks. Only runtime ownership counts: a type-only
- * import erases, so a file that merely shares AgentKit's types with the SSE
- * reader is not a second owner.
- */
 export function findStreamOwnershipViolations(
   file: string,
   content: string,

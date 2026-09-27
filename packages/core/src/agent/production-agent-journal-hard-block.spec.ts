@@ -1,18 +1,5 @@
-/**
- * Specs for the tool-call journal hard-block (tool-layer enforcement):
- *
- *   1. A write tool whose exact call already COMPLETED in the per-turn journal
- *      (derived from the durable run-event ledger of a prior interrupted chunk)
- *      is NOT re-executed on resume - run() is never called and the journaled
- *      result is returned, with a coherent tool_start/tool_done transcript.
- *   2. A FRESH call (empty journal - no prior completion) executes normally.
- *   3. A different-input call (no journal match) executes normally.
- *
- * The run-store ledger reader is mocked so no DB is touched.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// Mock run-store: getCurrentTurnEventsForThread drives the journal.
 const currentTurnEventsMock = vi.hoisted(() =>
   vi.fn<() => Promise<unknown[]>>(async () => []),
 );
@@ -35,8 +22,6 @@ vi.mock("./run-store.js", () => ({
   setRunTerminalReason: vi.fn(),
 }));
 
-// Keep OM out of the way. It's gated on ownerEmail anyway, but mock it so the
-// post-turn compaction never touches a DB.
 vi.mock("./observational-memory/index.js", () => ({
   maybeCompactThread: vi.fn(async () => ({})),
   buildObservationalContext: vi.fn(async () => ({
@@ -58,8 +43,6 @@ const {
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 
-// Helpers.
-
 function makeWriteAction(): ActionEntry {
   return {
     tool: {
@@ -71,7 +54,6 @@ function makeWriteAction(): ActionEntry {
   };
 }
 
-/** Engine that emits one tool call (with the given input) then ends. */
 function singleToolEngine(
   toolName: string,
   input: Record<string, unknown>,
@@ -133,7 +115,6 @@ function finalTextEngine(text: string): AgentEngine {
   };
 }
 
-/** A prior-chunk ledger where `send-email {to: x}` started AND completed. */
 function completedLedger(
   tool: string,
   input: Record<string, string>,
@@ -235,11 +216,8 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-resume",
     });
 
-    // The side effect must NOT have re-fired.
     expect(action.run).not.toHaveBeenCalled();
 
-    // Transcript stays coherent: both tool_start and tool_done were emitted,
-    // and the journaled result is surfaced.
     expect(events).toContainEqual(
       expect.objectContaining({ type: "tool_start", tool: "send-email" }),
     );
@@ -251,7 +229,7 @@ describe("tool-call journal hard-block", () => {
   });
 
   it("executes a fresh call normally when the journal is empty", async () => {
-    currentTurnEventsMock.mockResolvedValue([]); // no prior chunk
+    currentTurnEventsMock.mockResolvedValue([]);
 
     const action = makeWriteAction();
 
@@ -267,7 +245,6 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-fresh",
     });
 
-    // Fresh call: the action runs exactly once.
     expect(action.run).toHaveBeenCalledOnce();
   });
 
@@ -290,7 +267,6 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-diff-input",
     });
 
-    // No journal match (different recipient), so it executes.
     expect(action.run).toHaveBeenCalledOnce();
   });
 
@@ -358,8 +334,6 @@ describe("tool-call journal hard-block", () => {
     });
 
     expect(readAction.run).not.toHaveBeenCalled();
-    // The FULL journaled body is served, not the 400-char prompt summary that
-    // used to leave the model no choice but to re-run the read.
     const done = events.find((event) => event.type === "tool_done");
     expect(done.result).toContain(fullResult);
   });
@@ -425,9 +399,6 @@ describe("tool-call journal hard-block", () => {
   });
 
   it("counts identical tool calls from earlier chunks of the same turn", async () => {
-    // Seven identical calls already in this turn's ledger, none of them
-    // completed. Unseeded, this chunk starts from zero and the model gets
-    // another full MAX_IDENTICAL_TOOL_CALLS budget at every chunk boundary.
     currentTurnEventsMock.mockResolvedValue(
       Array.from({ length: MAX_IDENTICAL_TOOL_CALLS - 1 }, () => ({
         type: "tool_start",
@@ -457,7 +428,6 @@ describe("tool-call journal hard-block", () => {
         recoverable: false,
       }),
     );
-    // A guard stop is a failed run, not a clean one.
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "done" }),
     );
@@ -485,8 +455,6 @@ describe("tool-call journal hard-block", () => {
     const events: any[] = [];
 
     await runAgentLoop({
-      // The model sends the same object as a JSON string; action execution and
-      // the journal normalize it to the object form before recording the call.
       engine: singleToolEngine("write-config", { config: '{"a":1}' }),
       model: "test-model",
       systemPrompt: "system",
@@ -552,8 +520,6 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-repeat-error-across-chunks",
     });
 
-    // Two prior failures are already on the ledger, so this chunk's first
-    // failure is the third and last.
     expect(action.run).toHaveBeenCalledOnce();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -586,8 +552,6 @@ describe("tool-call journal hard-block", () => {
       threadId: "thread-unreadable",
     });
 
-    // Without the ledger we cannot tell a completed side effect from a fresh
-    // one, so nothing runs.
     expect(action.run).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -599,9 +563,6 @@ describe("tool-call journal hard-block", () => {
     );
   });
 
-  // One pool timeout is not an unreadable ledger. Without the retry, a single
-  // blip ended the turn before its first iteration with a stop the user sees
-  // and the client will not auto-continue.
   it("survives a single ledger read blip on a continuation", async () => {
     currentTurnEventsMock
       .mockRejectedValueOnce(new Error("neon: connection lost"))
@@ -651,12 +612,6 @@ describe("tool-call journal hard-block", () => {
     expect(action.run).toHaveBeenCalledOnce();
   });
 
-  // A resurfaced re-fetch (the model's earlier result fell out of its visible
-  // context) is the SAME call answered again, not a stuck loop. Neither the
-  // journal-seeded ledger nor this chunk's own resurfaced call may count
-  // toward `repeated_tool_call` (MAX_IDENTICAL_TOOL_CALLS = 8) — reproduces
-  // the prod incident where 8 legitimate re-fetches across chunks killed the
-  // turn with "called 8 times with identical arguments".
   it("does not stop the turn after 8 resurfaced re-fetches of the same read across chunks", async () => {
     const RAW_RESULT = "the actual document content";
     const resurfacedResult =
@@ -672,8 +627,6 @@ describe("tool-call journal hard-block", () => {
       run: readAction,
     };
 
-    // Seeded as already completed by an even-earlier chunk this test never
-    // simulates directly — only its journal footprint matters here.
     let ledger: unknown[] = completedLedger(
       "get-doc",
       { id: "doc-1" },
@@ -707,37 +660,22 @@ describe("tool-call journal hard-block", () => {
       const toolDone = events.find((e: any) => e.type === "tool_done");
       expect(toolDone?.result).toBe(resurfacedResult);
 
-      // Grows exactly as the real durable ledger would: this chunk's own
-      // resurfaced tool_done is now part of the journal the NEXT chunk reads.
       ledger = [
         ...ledger,
         ...completedLedger("get-doc", { id: "doc-1" }, resurfacedResult),
       ];
     }
 
-    // The original read never re-fires — every one of the 8 chunks was
-    // served from the journal/cache.
     expect(readAction).not.toHaveBeenCalled();
   });
 
   it("seeds repeat counts by call identity, not FIFO-per-tool-name, when concurrent same-tool calls resolve out of order", async () => {
-    // Two concurrent `get-data` calls with DIFFERENT inputs (id "1" and id
-    // "2") can complete and get journaled out of order. Only the id "2" call
-    // was answered as a resurfaced re-fetch; the seven id "1" calls are all
-    // genuine. FIFO-per-tool-name pairing lines up the wrong call with the
-    // resurfaced flag (the id "2" result is journaled BEFORE most of the id
-    // "1" tool_starts), wrongly consuming one of id "1"'s genuine repeats and
-    // wrongly crediting id "2" with a repeat it never made. Keying by
-    // (tool, input) identity instead must seed id "1" at the full genuine
-    // count of 7 and id "2" at 0.
     const resurfacedResult =
       "Skipped duplicate read-only call to get-data: identical input already ran in this turn. " +
       "Its earlier result is no longer in view, so here it is again:\n\nold-id-2-result";
     currentTurnEventsMock.mockResolvedValue([
       { type: "tool_start", tool: "get-data", input: { id: "1" } },
       { type: "tool_start", tool: "get-data", input: { id: "2" } },
-      // id "2" completes FIRST — out of order relative to the id "1" calls
-      // still in flight below.
       {
         type: "tool_done",
         tool: "get-data",
@@ -762,11 +700,6 @@ describe("tool-call journal hard-block", () => {
     };
     const events: any[] = [];
 
-    // Seeded genuine count for id "1" is exactly MAX_IDENTICAL_TOOL_CALLS - 1
-    // (7); this chunk's single call to id "1" is the 8th, which must trip the
-    // hard block. The old FIFO-per-name pairing seeded id "1" at 5 (losing 2
-    // to the misattributed resurfaced flag and the wrongly-credited id "2"
-    // entry), so the 8th call would only reach 6 and never stop the turn.
     await runAgentLoop({
       engine: singleToolEngine("get-data", { id: "1" }),
       model: "test-model",

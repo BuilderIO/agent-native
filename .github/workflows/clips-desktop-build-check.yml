@@ -1,11 +1,5 @@
 name: Clips Desktop Build Check
 
-# Verifies the Clips Tauri menu-bar app still builds on macOS, Windows, and
-# Linux whenever its code (or shared app config) changes on a PR. Does
-# NOT sign, notarize, draft a release, or publish anything — purely a
-# compile-time gate so we catch breakages before they hit the release
-# workflow (`clips-desktop-release.yml`).
-
 on:
   pull_request:
     branches: [main]
@@ -15,7 +9,6 @@ on:
       - ".github/workflows/clips-desktop-build-check.yml"
   workflow_dispatch:
 
-# A new PR head supersedes every OS build from the previous head.
 concurrency:
   group: clips-desktop-build-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -112,11 +105,6 @@ jobs:
       - name: Build Tauri app (no signing, no publish)
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
-        # Override `createUpdaterArtifacts` to false: tauri.conf.json ships an
-        # updater pubkey, which makes `tauri build` sign an updater artifact and
-        # fail without TAURI_SIGNING_PRIVATE_KEY. This check only verifies the
-        # app compiles and bundles, so we skip the (signed) updater artifact —
-        # signing belongs to the release workflow, not the PR gate.
         run: |
           CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
           BUNDLE_ARGS=()

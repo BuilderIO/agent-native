@@ -13,7 +13,6 @@ export const SUPPORTED_LOCALES = [
 ] as const;
 
 export type BuiltinLocaleCode = (typeof SUPPORTED_LOCALES)[number];
-/** A canonical BCP-47 locale, including app-registered locale codes. */
 export type LocaleCode = string & {};
 export type LocalePreference = "system" | LocaleCode;
 
@@ -28,20 +27,9 @@ export type LocaleMetadataMap = Readonly<Record<string, LocaleMetadata>>;
 
 export interface LocalizationPreference {
   locale: LocalePreference;
-  /**
-   * IANA zone used for the user's scheduled work. 'system' defers to the
-   * requesting browser, which is unavailable to headless callers (cron,
-   * chat integrations), so pinning a zone here is what makes a schedule
-   * mean the same thing no matter what created it.
-   *
-   * Optional because a record written before this field existed, or by a
-   * caller that only cares about language, is still a valid preference.
-   * Read it through normalizeLocalizationPreference to get a concrete value.
-   */
   timezone?: TimezonePreference;
 }
 
-/** A preference that has been through normalization: both fields resolved. */
 export type ResolvedLocalizationPreference = Required<LocalizationPreference>;
 
 export type TimezonePreference = "system" | (string & {});
@@ -135,7 +123,6 @@ export function localeMetadataFor(
   );
 }
 
-/** Return the short native language name used in compact locale pickers. */
 export function localeDisplayName(
   locale: LocaleCode,
   metadata: LocaleMetadataMap = LOCALE_METADATA,
@@ -201,10 +188,6 @@ export function isValidLocaleCode(value: unknown): value is LocaleCode {
   return canonicalizeLocaleCode(value) !== null;
 }
 
-/**
- * Resolve a locale against an app's registered list. The default list keeps
- * existing callers restricted to the framework's built-in locales.
- */
 export function normalizeLocaleCode(
   value: unknown,
   supportedLocales: readonly LocaleCode[] = SUPPORTED_LOCALES,
@@ -261,8 +244,6 @@ export function normalizeLocalizationPreference(
 ): ResolvedLocalizationPreference {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as { locale?: unknown; timezone?: unknown };
-    // The two fields are independent: setting a timezone must not require
-    // also picking a language, which is the usual case.
     return {
       locale:
         normalizeLocalePreference(record.locale, supportedLocales) ?? "system",

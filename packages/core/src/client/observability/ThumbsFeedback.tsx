@@ -19,8 +19,6 @@ export interface ThumbsFeedbackProps {
 
 type Selection = "up" | "down" | null;
 
-// How long the "applied" confirmation (pop animation + live-region
-// announcement) stays visible after a vote is successfully submitted.
 const CONFIRMATION_DURATION_MS = 1400;
 
 type TextFeedbackDelivery = {
@@ -49,9 +47,6 @@ export function ThumbsFeedback({
   const t = useT();
   const { session } = useSession();
   const [selection, setSelection] = useState<Selection>(null);
-  // Distinct from `selection`: true only for the brief window right after a
-  // vote is confirmed submitted, so the click reads as "applied" rather than
-  // just "toggled on".
   const [confirmed, setConfirmed] = useState<Selection>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [textFeedback, setTextFeedback] = useState("");
@@ -64,9 +59,6 @@ export function ThumbsFeedback({
   const confirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  // Bumped on every up/down click so a stale response from an earlier vote
-  // (the user switched directions before it resolved) can be ignored instead
-  // of animating/announcing the wrong button or clearing the newer vote.
   const voteRequestIdRef = useRef(0);
 
   useEffect(
@@ -126,11 +118,6 @@ export function ThumbsFeedback({
     [threadId, runId, messageSeq],
   );
 
-  // Interaction model: up/down are mutually exclusive, not independent
-  // toggles. Clicking the already-active vote does not retract it - for
-  // thumbs-down it re-opens the explanation popover instead. Clicking the
-  // other direction switches the vote and submits a new feedback event; it
-  // does not attempt to retract the previous one.
   const handleThumbsUp = useCallback(() => {
     if (selection === "up") return;
     setSelection("up");

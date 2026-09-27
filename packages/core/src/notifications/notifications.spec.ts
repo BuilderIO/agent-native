@@ -396,7 +396,6 @@ describe("notification action entries", () => {
   });
 });
 
-// Re-import the type inline so the cast above compiles without circularity.
 type NotificationChannel = {
   name: string;
   deliver: (...args: unknown[]) => unknown;

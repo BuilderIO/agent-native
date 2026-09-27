@@ -30,7 +30,6 @@ export function ExtensionViewerPage() {
   }, [id]);
 
   if (id === "new") {
-    // No manual editor — extensions are created via the agent
     return <ExtensionsListPage />;
   }
   if (!id) return null;

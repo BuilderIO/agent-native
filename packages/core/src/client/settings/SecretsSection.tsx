@@ -1,9 +1,3 @@
-/**
- * <SecretsSection /> — renders the registered secrets from the framework
- * secrets registry. Configured keys stay compact; adding or editing one
- * progressively discloses its controls.
- */
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -78,7 +72,6 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
-  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
@@ -187,8 +180,6 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
-  // Vault keys count as "set", but until someone adds their own key the
-  // quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
     (secret) => secret.status === "set" && secret.managedHere !== false,
   );
@@ -276,8 +267,6 @@ function KeysEmptyState({
   onPick: (key: string) => void;
 }) {
   const t = useT();
-  // OAuth client pairs are app setup, not "your own account"; keep them
-  // behind New so the tiles stay the keys people actually paste.
   const tiles = availableSecrets
     .filter(
       (secret) =>
@@ -347,7 +336,6 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
-  /** Dispatch Vault page, when running inside a workspace. */
   vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -534,8 +522,6 @@ function SecretCard({
   ]);
 
   const isOAuth = secret.kind === "oauth";
-  // Vault/workspace-shadowed rows only show the value form once the user
-  // opts into a personal override.
   const showRotationForm =
     (secret.status !== "set" && secret.status !== "unknown") || isRotating;
 
@@ -837,8 +823,6 @@ function SecretCard({
     </div>
   );
 }
-
-// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
 
 interface AdHocKey {
   name: string;

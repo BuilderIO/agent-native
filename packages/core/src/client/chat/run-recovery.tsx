@@ -1,8 +1,3 @@
-// Owns: run-error metadata extractors, recovery helpers, RunErrorRecoveryCard,
-// LoopLimitContinueCard, BuilderConnectCta, BuilderSetupCard,
-// PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
-// by AssistantChatInner.
-
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconLoader2,
@@ -43,7 +38,6 @@ const builderSubscriptionUrl = withBuilderUtmTrackingParams(
   "https://builder.io/account/subscription?signupSource=agent-native",
   { content: "chat_credit_limit" },
 );
-// ─── Type definitions ─────────────────────────────────────────────────────────
 
 export type LoopLimitInfo = { maxIterations?: number };
 
@@ -67,8 +61,6 @@ interface AgentLoopSettingsResponse {
   orgName?: string | null;
   role?: string | null;
 }
-
-// ─── Metadata extractors ──────────────────────────────────────────────────────
 
 export function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
   const meta = (message as { metadata?: unknown })?.metadata as
@@ -130,10 +122,6 @@ export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   };
 }
 
-/**
- * Identity of one failure, shared by the banner and the inline turn marker so
- * the same run is never announced twice.
- */
 export function runErrorKey(info: RunErrorInfo): string {
   return `${info.runId ?? ""}:${info.errorCode ?? ""}:${info.message}`;
 }
@@ -163,8 +151,6 @@ export function getRequestModeMetadata(
   const requestMode = meta?.custom?.requestMode ?? meta?.requestMode;
   return requestMode === "act" || requestMode === "plan" ? requestMode : null;
 }
-
-// ─── Run error classifiers ────────────────────────────────────────────────────
 
 export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
@@ -231,18 +217,6 @@ function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
   );
 }
 
-// ─── BuilderConnectCta ────────────────────────────────────────────────────────
-// Renders a single row with left-aligned copy and a right-aligned action.
-// Click opens the Builder OAuth popup via the shared
-// `useBuilderConnectFlow` hook (which owns the synchronous window.open,
-// the 2s status poll, and the focus-refresh). On success the hook broadcasts
-// a config-change event so the chat clears its local `missingApiKey` gate.
-//
-// Desktop note: when this component runs inside the Electron shell, the
-// window.open call is intercepted by the main process's webview popup handler,
-// which opens the flow in an Electron BrowserWindow that shares the webview's
-// session. See packages/desktop-app/src/main/index.ts.
-
 export function BuilderConnectCta({
   variant = "primary",
   onConnected,
@@ -250,10 +224,6 @@ export function BuilderConnectCta({
 }: {
   variant?: "primary" | "compact";
   onConnected?: () => void;
-  /** Render the connect control even while connection status still reports
-   *  configured. A caller sets this after the server has actually seen the
-   *  credential rejected: Builder can revoke upstream without that landing in
-   *  the local status, and a Connected badge in that state is a dead end. */
   reconnect?: boolean;
 }) {
   const t = useT();
@@ -362,8 +332,6 @@ export function BuilderConnectCta({
   );
 }
 
-// ─── BuilderSetupCard ─────────────────────────────────────────────────────────
-
 export type BuilderSetupCardLayout = "default" | "sidebar";
 
 export function BuilderSetupContent({
@@ -457,9 +425,6 @@ export function BuilderSetupCard({
   }, [onRetry]);
 
   const cardRef = useRef<HTMLDivElement>(null);
-  // Replay the bounce keyframe each time bouncePulse increments. Toggling the
-  // class off-then-on (with a forced reflow) restarts the animation even when
-  // the value changes back-to-back.
   useEffect(() => {
     if (!bouncePulse) return;
     const el = cardRef.current;
@@ -524,8 +489,6 @@ export function BuilderSetupCard({
   );
 }
 
-// ─── RunErrorRecoveryCard ─────────────────────────────────────────────────────
-
 export function RunErrorRecoveryCard({
   info,
   onContinue,
@@ -565,10 +528,6 @@ export function RunErrorRecoveryCard({
     isMissingLlmProviderRunError(info) ||
     isDesktopChatRelayRunError(info) ||
     (isProviderAuthError && !shouldShowBuilderReconnect);
-  // Blocked on something the reader goes and fixes elsewhere, then comes back
-  // to. Recoverable runs and email verification keep a retry path; rejected
-  // provider credentials use the setup flow below so the same bad key is not
-  // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
   // Rejected provider keys keep their setup path below — update/connect the
@@ -910,8 +869,6 @@ export function RunErrorRecoveryCard({
   );
 }
 
-// ─── LoopLimitContinueCard ────────────────────────────────────────────────────
-
 export function LoopLimitContinueCard({
   info,
   onContinue,
@@ -1103,14 +1060,6 @@ export function LoopLimitContinueCard({
     </div>
   );
 }
-
-// ─── PlanModeCallout ──────────────────────────────────────────────────────────
-//
-// Renders inside the same width-constrained column as the composer (see
-// `.agent-plan-mode-callout` in agent-native.css and the fullscreen rule
-// injected by AgentPanel) so the pill hugs the composer's right edge in both
-// narrow sidebar chats and wide/centered page layouts, instead of floating
-// against the full pane width.
 
 export function PlanModeCallout({
   canImplementPlan,

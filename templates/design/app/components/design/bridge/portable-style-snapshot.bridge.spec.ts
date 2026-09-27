@@ -3,27 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Regression coverage for review-bot findings on the portable-style
- * diff-vs-defaults probe (collectPortableComputedStyles / collectPortableStyleSnapshot
- * in editor-chrome.bridge.ts):
- *
- * 1. The bare-tag probe used to be inserted into the SOURCE document itself,
- *    so a tag-level author rule there (e.g. `button { background: teal }`)
- *    matched the probe too — the diff then saw "same as default" and dropped
- *    a real, authored appearance property the destination document (which
- *    lacks that rule) does not have. The probe must be measured against
- *    user-agent defaults only, in a stylesheet-free context.
- * 2. The probe used to force `position:absolute` on itself to keep it out of
- *    page layout. That changes width's auto-sizing algorithm (absolute
- *    shrink-to-fit vs static fill-the-containing-block), so an ordinary
- *    flow element with no authored width looked "different from default"
- *    purely because of the probe's forced position — freezing what should
- *    stay fluid into a hardcoded pixel value on every move/duplicate. Fix:
- *    width/height use native computed Typed OM values, which preserve auto
- *    and percentages without using layout-resolved pixels from the probe.
- *    The source capture regressions live in portable-typed-om-capture.spec.ts.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -127,12 +106,6 @@ async function crossScreenStartSizeFor(
   }
 }
 
-/**
- * Same drive-a-real-browser flow, but with the probe iframe made unavailable
- * before the bridge script loads. Returns the snapshot plus the capture-failure
- * marker so a caller can distinguish an omitted failed capture from a
- * legitimate absent snapshot.
- */
 async function portableStyleSnapshotWithIframeProbe(
   html: string,
   selector: string,
@@ -223,10 +196,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="btn"]',
       );
-      // teal = rgb(0, 128, 128). If the probe is measured inside the SAME
-      // document, it matches the bare `button` rule too and this gets
-      // dropped as "same as default" — losing the button's real appearance
-      // once it lands in a destination document without this stylesheet.
       expect(styles?.backgroundColor).toBe("rgb(0, 128, 128)");
     },
   );
@@ -244,10 +213,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="child"]',
       );
-      // "child" has no authored width — it is an ordinary static block that
-      // fills its 600px parent. The probe forcing position:absolute on
-      // itself resolves to shrink-to-fit (~0px), so the diff wrongly saw
-      // "600px" as a customization and baked it in as an explicit style.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
     },
@@ -264,9 +229,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="card"]',
       );
-      // Authored directly on the element's own inline style — the one
-      // unambiguous "this element decided its own size" signal — must be
-      // carried so the card doesn't collapse in a destination document.
       expect(styles?.width).toBe("320px");
       expect(styles?.height).toBe("200px");
     },
@@ -485,8 +447,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="card"]',
       );
-      // This snapshot is a portable-value collector, not a CSS cascade
-      // engine; a class rule equal to the bare-tag default stays ambiguous.
       expect(styles?.color).toBeUndefined();
     },
   );
@@ -502,10 +462,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="child"]',
       );
-      // "child" is sized entirely by `flex:1` against its row — no rule
-      // declares an explicit width/height for it, so none must be carried;
-      // freezing the flex-resolved pixel width here would un-flex it the
-      // moment it lands anywhere the row's width differs.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
     },
@@ -523,7 +479,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         '[data-agent-native-node-id="btn"]',
         "throw",
       );
-      // Failed capture is omitted and marked distinctly from an absent snapshot.
       expect(capture.snapshot).toBeUndefined();
       expect(capture.styleSnapshotCaptureFailed).toBe(true);
     },

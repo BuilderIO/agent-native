@@ -377,9 +377,6 @@ describe("ShareButton", () => {
   });
 
   it("shows the copy action for share URLs regardless of visibility", async () => {
-    // Mirrors Google Slides: the copy button is always live. Access is
-    // enforced when the recipient opens the URL, not by hiding the link in
-    // the share dialog.
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -1078,9 +1075,6 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("second@builder.io");
   });
 
-  // Keep the non-source-locale provider test last: react-i18next's global
-  // fallback instance otherwise leaks the selected language into tests that
-  // intentionally exercise providerless compatibility.
   it("localizes the standardized text trigger", async () => {
     await act(async () => {
       root.render(

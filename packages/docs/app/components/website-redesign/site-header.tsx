@@ -20,7 +20,6 @@ import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
 import { LogoContextMenu } from "./logo-context-menu";
 
-// Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
   import("../SearchModal").then((m) => ({ default: m.SearchModal })),
 );
@@ -29,8 +28,6 @@ const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
 
-// Matches Tailwind's default `lg` breakpoint, which is what the mobile nav
-// toggle/panel switch on (`lg:hidden` / `lg:flex` above).
 const DESKTOP_NAV_QUERY = "(min-width: 1024px)";
 
 function formatStarCount(count: number): string {
@@ -64,14 +61,7 @@ function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
     <Button
       variant="secondary"
       dimBorder
-      className={[
-        // Keep the cold-cache fallback the same width as the server count so
-        // the one-time client revalidation cannot shift the header.
-        "min-w-[96px]",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={["min-w-[96px]", className].filter(Boolean).join(" ")}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -101,8 +91,6 @@ function SearchTrigger({
       type="button"
       onClick={onClick}
       aria-label={label}
-      // The fixed width is on purpose: with `justify-between` it is what
-      // opens the gap between the label and the ⌘K hint.
       className="inline-flex h-10 w-[280px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-[var(--b-bg-raised)] px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
     >
       <span className="inline-flex items-center gap-[var(--spacing-2)]">
@@ -146,8 +134,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
     openSearchModal();
   }
 
-  // This header renders on every route, so its internal links have to stay in
-  // the visitor's locale tree instead of dropping them back into English.
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   const navLinks = [
@@ -173,13 +159,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
   const searchLabel = t("header.searchAria");
 
   return (
-    <header
-      // The --b-* variables live on the builder-brand-tokens class, so the
-      // header carries its own scope: it renders on docs routes too, and a
-      // wrapper element around it would break `position: sticky` by boxing it
-      // into 64px.
-      className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]"
-    >
+    <header className="builder-brand-tokens sticky top-0 z-50 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
       <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
         <div className="flex items-center gap-[var(--spacing-8)]">
           <LogoContextMenu brandHref={localizedPath("/brand")}>
@@ -235,9 +215,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
       </div>
 
       {mobileOpen && (
-        // Opaque, not the header's translucent fill: this panel is a child of
-        // the blurred header, so its own backdrop-filter samples the header
-        // rather than the page and leaves the content behind it fully legible.
         <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-page)] px-[var(--spacing-10)] py-[var(--spacing-4)] lg:hidden">
           {navLinks.map((link) => (
             <NavLink

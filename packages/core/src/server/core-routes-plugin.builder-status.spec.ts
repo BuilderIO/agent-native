@@ -111,10 +111,6 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
     expect(confirmedAbsent.publicKeyConfigured).toBe(false);
     expect(confirmedAbsent).toMatchObject({ keyLookupFailed: false });
 
-    // The store can also fail "softly" — resolving with lookupFailed: true
-    // rather than throwing (e.g. an org-membership lookup error swallowed
-    // inside resolveScopedBuilderCredentials). No `try/catch` around the
-    // call would ever see this one; it has to come through on the field.
     const softFailure = await resolveOAuthCustodyBuilderKeyStatus({
       resolveCredentialsDetailed: async () => ({
         privateKey: null,
@@ -130,9 +126,6 @@ describe("resolveOAuthCustodyBuilderKeyStatus", () => {
         throw new Error("credential store unavailable");
       },
     });
-    // A transient failure to read the key pair must not read the same as
-    // "the user never configured Builder keys" — the two states need a
-    // caller-visible flag, not just an identical pair of `false`s.
     expect(thrown.privateKeyConfigured).toBe(false);
     expect(thrown.publicKeyConfigured).toBe(false);
     expect(thrown).toMatchObject({ keyLookupFailed: true });

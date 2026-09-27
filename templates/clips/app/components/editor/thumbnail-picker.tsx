@@ -89,7 +89,6 @@ export function ThumbnailPicker({
 
   const mutation = useActionMutation("set-thumbnail");
 
-  // Clean up object URLs when dialog closes.
   useEffect(() => {
     if (!open) {
       setUploadDataUrl(null);
@@ -134,8 +133,6 @@ export function ThumbnailPicker({
     const video = videoRef.current;
     if (!video || !videoUrl) return;
     try {
-      // Do not persist the visible frame when the seek did not reach the
-      // selected timestamp.
       await seekVideoToTime(video, frameTime);
 
       const canvas = document.createElement("canvas");
@@ -208,8 +205,6 @@ export function ThumbnailPicker({
           dataUrl: uploadDataUrl,
         });
       } else if (tab === "frame" && frameDataUrl) {
-        // First upload the captured frame as the static thumbnail, then also
-        // record the frame time reference in editsJson.
         await mutation.mutateAsync({
           recordingId,
           kind: "upload",

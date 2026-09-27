@@ -31,18 +31,14 @@ import { cn } from "../utils.js";
 import { inferEditorKind, type EditorKind } from "./cell-format.js";
 import { EditableCell } from "./EditableCell.js";
 
-/** A grid row pairs the displayed values with its stable pk string. */
 export interface GridRow {
   pk: string;
-  /** Values WITH staged edits already applied (for display). */
   values: Record<string, unknown>;
   isNew?: boolean;
   isDeleted?: boolean;
-  /** Local id for new rows (so edits route to the right new-row). */
   localId?: string;
 }
 
-/** Identifies the focused cell for keyboard nav. */
 export interface ActiveCell {
   rowIndex: number;
   colName: string;
@@ -67,14 +63,10 @@ export interface DataGridProps {
   active: ActiveCell | null;
   onActiveChange: (active: ActiveCell | null) => void;
 
-  /** Whether editing is permitted (table has a PK). */
   editable: boolean;
 
-  /** Commit a staged cell edit. */
   onCellCommit: (row: GridRow, col: string, value: unknown) => void;
-  /** Whether a given cell is dirty. */
   isCellDirty: (row: GridRow, col: string) => boolean;
-  /** Toggle deletion staging for a single row. */
   onToggleDelete: (row: GridRow) => void;
 
   onNavigateToRow: (fk: DbAdminForeignKey, value: unknown) => void;

@@ -243,8 +243,6 @@ describe("selectReferences", () => {
       limit: 4,
     });
 
-    // The attached content image is kept first, but the brand kit's curated
-    // style references are still applied instead of being silently dropped.
     expect(refs[0]).toEqual(
       expect.objectContaining({
         id: "content-1",
@@ -297,7 +295,6 @@ describe("selectReferences", () => {
       limit: 4,
     });
 
-    // A deliberately chosen style reference means exact control: no auto anchor blend.
     expect(refs.map((ref) => ref.id)).toEqual(["content-1", "style-picked"]);
   });
 

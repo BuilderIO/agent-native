@@ -54,8 +54,6 @@ function chatThreadPath(threadId: string | null) {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
 }
 
-// Module scope on purpose: AgentKitRoot memoizes the client on its options, so
-// a new callback each render would rebuild the client and drop the stream.
 const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
 export default function ChatRouteContent({

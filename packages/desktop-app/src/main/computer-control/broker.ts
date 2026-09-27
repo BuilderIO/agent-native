@@ -170,7 +170,6 @@ export class ComputerControlBroker {
           lease.scope,
           this.activeAbort.signal,
         );
-        // The helper atomically revalidates the focused app/origin and AX target.
         this.snapshots.set(operation.taskId, snapshot);
         await this.audit(operation, "succeeded", auditMetadata(operation));
       };
@@ -257,7 +256,6 @@ export class ComputerControlBroker {
     this.activeAbort.abort(new Error("Computer control stopped."));
     this.activeAbort = new AbortController();
     this.snapshots.clear();
-    // releaseAll is intentionally immediate and does not wait behind the action queue.
     await this.options.helper.releaseAll();
     await this.options.audit?.({
       taskId,
@@ -305,7 +303,6 @@ function auditMetadata(
     bundleId: operation.target.bundleId,
     origin: normalizeOrigin(operation.target.origin),
     targetRole: operation.target.expectedRole,
-    // Never record typed text, target labels/values, lease tokens, or printable keys.
     inputLength:
       operation.kind === "input.type" ? operation.text.length : undefined,
     keyClass:

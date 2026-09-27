@@ -8,8 +8,6 @@ import type { CommunityApp } from "./community-apps";
 import { sitePathForLocale } from "./docs-locale";
 import { Button, buttonClassName } from "./website-redesign/ds/button";
 
-// Matches the secondary action on the first-party cards, so the two grids
-// read as one set.
 const cardSecondaryActionClass = buttonClassName({
   variant: "secondary",
   compact: true,

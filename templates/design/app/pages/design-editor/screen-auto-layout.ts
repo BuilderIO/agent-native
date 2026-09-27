@@ -29,12 +29,6 @@ function nodeById(projection: CodeLayerProjection): Map<string, CodeLayerNode> {
   return new Map(projection.nodes.map((node) => [node.id, node]));
 }
 
-/**
- * A screen frame owns the authored document body. Fragment-only design files
- * have no editable body in source, so a single visual root is the only safe
- * equivalent. Multiple fragment roots would require inventing a wrapper and
- * changing source structure, which is deliberately left to a semantic edit.
- */
 export function resolveInlineScreenAutoLayoutRoot(
   projection: CodeLayerProjection,
 ): CodeLayerNode | null {
@@ -68,7 +62,6 @@ function rectForNode(
   };
 }
 
-/** Deterministically enable auto layout on an inline HTML/Alpine screen root. */
 export function enableInlineScreenAutoLayout(args: {
   content: string;
   width?: number;
@@ -136,12 +129,6 @@ function hasExactReactProvenance(node: CodeLayerNode): boolean {
   );
 }
 
-/**
- * Resolve the shallowest compiler-provenanced React roots beneath the live
- * screen body. Unsourced mount nodes such as `#root` are traversed, while
- * later body branches (for example portals) are ignored once the primary app
- * branch yields editable roots.
- */
 export function getRuntimeScreenAutoLayoutSubjectIds(
   projection: CodeLayerProjection,
 ): string[] {

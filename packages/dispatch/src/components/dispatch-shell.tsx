@@ -7,11 +7,6 @@ import { dispatchDocsHrefForPath, DocsLink } from "./docs-link";
 import { useSetPageTitle } from "./layout/HeaderActions";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
-/**
- * DispatchShell registers the per-page title (with an optional click-to-open
- * description popover) with the HeaderActions store for layouts that expose
- * that metadata.
- */
 export function DispatchShell({
   title,
   description,

@@ -1,4 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type { Booking, BookingHost } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -118,26 +121,5 @@ export function useCreateBooking() {
 }
 
 export function useDeleteBooking() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: {
-      id: string;
-      zoomMeetingResolved?: boolean;
-    }) => {
-      const res = await fetch(appApiPath(`/api/bookings/${input.id}`), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(input.zoomMeetingResolved ? { zoomMeetingResolved: true } : {}),
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to cancel booking");
-      return res.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-bookings"],
-      });
-    },
-  });
+  return useActionMutation("cancel-booking");
 }

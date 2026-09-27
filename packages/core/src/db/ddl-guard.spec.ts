@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The tests pass injected fake clients, so no real database is required.
-
 describe("ddl-guard", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -38,7 +36,6 @@ describe("ddl-guard", () => {
     return { client, calls };
   }
 
-  /** A client that answers the two batched introspection queries realistically. */
   function introspectingClient(schema: {
     tables?: Record<string, string[]>;
     indexes?: string[];
@@ -90,12 +87,10 @@ describe("ddl-guard", () => {
       expect(await pgColumnExists("settings", "value", client)).toBe(true);
       expect(await pgIndexExists("settings_updated_at_idx", client)).toBe(true);
 
-      // A snapshot MISS is authoritative — absent, not "unknown".
       expect(await pgTableExists("not_a_table", client)).toBe(false);
       expect(await pgColumnExists("settings", "nope", client)).toBe(false);
       expect(await pgIndexExists("nope_idx", client)).toBe(false);
 
-      // Two queries total, no matter how many probes ran.
       expect(calls).toHaveLength(2);
       expect(calls.filter((c) => /information_schema/.test(c))).toHaveLength(1);
       expect(calls.filter((c) => /pg_indexes/.test(c))).toHaveLength(1);
@@ -112,8 +107,6 @@ describe("ddl-guard", () => {
     });
 
     it("does NOT share one client's schema with another client", async () => {
-      // The hosted gateway probes a different app's database from the same
-      // process. A shared Set would answer one app with another app's schema.
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists } = await import("./ddl-guard.js");
       const appA = introspectingClient({ tables: { only_in_a: ["id"] } });
@@ -142,8 +135,6 @@ describe("ddl-guard", () => {
         },
       } as any;
 
-      // Unreadable introspection must NOT be read as "the schema is empty" —
-      // that would send every store down the DDL path it does not need.
       expect(await pgTableExists("settings", client)).toBe(true);
       expect(calls.some((c) => /table_name = /.test(c))).toBe(true);
     });
@@ -177,7 +168,6 @@ describe("ddl-guard", () => {
           injectedClient: client,
         }),
       ).toBe(true);
-      // A sibling probe in the same boot must see it, not the pre-DDL snapshot.
       expect(await pgTableExists("late", client)).toBe(true);
     });
   });
@@ -202,7 +192,6 @@ describe("ddl-guard", () => {
       const { ensureTableExists } = await import("./ddl-guard.js");
       const { client, calls } = introspectingClient({});
 
-      // `false` = "already present, no DDL issued".
       expect(
         await ensureTableExists("settings", `CREATE TABLE settings (k TEXT)`, {
           injectedClient: client,
@@ -227,10 +216,6 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    // The release runner is the only thing that CAN create schema on a hosted
-    // deploy. If the skip applied to it too, `migrate:production` would report
-    // success having created nothing — which is exactly how published sites came
-    // up with an empty database.
     it("does NOT skip while the caller holds migration duty", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       vi.stubEnv("NODE_ENV", "production");
@@ -240,7 +225,6 @@ describe("ddl-guard", () => {
       const { withMigrationRuntime } = await import("./migrations.js");
       const { client, calls } = introspectingClient({});
 
-      // `true` = the table was genuinely missing and the DDL ran.
       await expect(
         withMigrationRuntime(() =>
           ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
@@ -344,18 +328,10 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([
         "BEGIN",
         "SET LOCAL lock_timeout = '3s'",
-        // A worker killed mid-transaction never reaches COMMIT or ROLLBACK,
-        // and the pooled connection returns to the pool still holding this
-        // transaction's locks. Production had 11 of these stuck up to 283s,
-        // each one last executing the SET LOCAL above, with ordinary queries
-        // on that database degrading from ~1.5s to 5-7s. This is the only
-        // part of the guard that still applies once the process is gone.
         "SET LOCAL idle_in_transaction_session_timeout = '30s'",
         "CREATE TABLE foo (id TEXT)",
         "COMMIT",
       ]);
-      // The lock_timeout is transaction-scoped (SET LOCAL) — no session-level
-      // SET or RESET leaks onto the pooled connection.
       expect(calls.some((c) => /^SET lock_timeout/.test(c))).toBe(false);
       expect(calls.some((c) => /RESET lock_timeout/.test(c))).toBe(false);
     });
@@ -372,7 +348,6 @@ describe("ddl-guard", () => {
       const client = {
         execute: async () => ({ rows: [], rowsAffected: 0 }),
         transaction: async (fn: (tx: any) => Promise<unknown>) => {
-          // Simulate the DDL inside the tx hitting a lock timeout.
           return fn({
             execute: async (sql: string | { sql: string }) => {
               const text = typeof sql === "string" ? sql : sql.sql;
@@ -465,7 +440,6 @@ describe("ddl-guard", () => {
         } as any,
       });
       expect(ran).toBe(false);
-      // No DDL was issued on the already-present hot path → no lock taken.
       expect(ddlCalls).toEqual([]);
     });
 
@@ -490,12 +464,10 @@ describe("ddl-guard", () => {
         new Error("canceling statement due to lock timeout"),
         { code: "55P03" },
       );
-      // First probe: missing. After the swallowed timeout, re-probe: present
-      // (a concurrent connection created it meanwhile).
       let probeCount = 0;
       const probe = async () => {
         probeCount += 1;
-        return probeCount > 1; // false first, true on re-probe
+        return probeCount > 1;
       };
       const client = {
         execute: async () => ({ rows: [], rowsAffected: 0 }),
@@ -525,7 +497,6 @@ describe("ddl-guard", () => {
         new Error("canceling statement due to lock timeout"),
         { code: "55P03" },
       );
-      // Probe always reports missing — the lock-timed-out DDL truly didn't land.
       const client = {
         execute: async () => ({ rows: [], rowsAffected: 0 }),
         transaction: async (fn: (tx: any) => Promise<unknown>) =>
@@ -575,7 +546,6 @@ describe("ddl-guard", () => {
           injectedClient: client,
         }),
       ).rejects.toThrow("syntax error");
-      // Only the initial probe ran; a hard DDL error doesn't trigger a re-probe.
       expect(probeCount).toBe(1);
     });
   });
@@ -639,11 +609,6 @@ describe("ddl-guard", () => {
   });
 
   it("drops an INVALID index before rebuilding it", async () => {
-    // A failed CREATE INDEX CONCURRENTLY leaves the index present but unusable.
-    // `pgIndexExists` reports it missing (it requires indisvalid), yet
-    // `CREATE INDEX IF NOT EXISTS` skips because the NAME is taken — so without
-    // the drop, every later repair re-probes, still fails, and the release can
-    // never recover. This happened in production and blocked docs deploys.
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { ensureIndexExists } = await import("./ddl-guard.js");
     const calls: string[] = [];
@@ -667,8 +632,6 @@ describe("ddl-guard", () => {
           created = true;
           return { rows: [], rowsAffected: 0 };
         }
-        // Reports present only once a real CREATE has run. The invalid index
-        // never satisfies this probe, which is the whole point.
         if (/FROM pg_indexes/.test(text)) {
           return { rows: created ? [{ indexname: "t_idx" }] : [] };
         }
@@ -689,14 +652,10 @@ describe("ddl-guard", () => {
     const dropAt = calls.findIndex((sql) => /^DROP INDEX/.test(sql));
     const createAt = calls.findIndex((sql) => /CREATE INDEX/.test(sql));
     expect(dropAt).toBeGreaterThanOrEqual(0);
-    // Order matters: creating first is exactly the no-op that stranded prod.
     expect(dropAt).toBeLessThan(createAt);
   });
 
   it("drops an INVALID index in the concurrent path too", async () => {
-    // The concurrent helper is what leaves an index invalid, so it must be able
-    // to clear one. Without this it is the only caller that cannot recover from
-    // its own failure mode — `sync_events_created_at_id_idx` in production.
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
     const concurrentCalls: string[] = [];
@@ -757,7 +716,6 @@ describe("ddl-guard", () => {
       execute: async (sql: string | { sql: string; args?: unknown[] }) => {
         const text = typeof sql === "string" ? sql : sql.sql;
         calls.push(text);
-        // No invalid row, and the index already probes as present and valid.
         if (/NOT index_state\.indisvalid/.test(text)) return { rows: [] };
         if (/FROM pg_indexes/.test(text))
           return { rows: [{ indexname: "t_idx" }] };

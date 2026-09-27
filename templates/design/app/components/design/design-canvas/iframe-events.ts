@@ -11,12 +11,9 @@ export interface IframeHotkeyPayload {
 }
 
 export interface IframeFigmaClipboardPastePayload {
-  /** Empty when the canvas saw a Figma-looking paste it could not read. */
   content: string;
   svgFileError?: "too-large" | "unreadable";
-  /** Screen iframe that received the paste, if any. */
   sourceScreenId?: string;
-  /** Sanitized by the host before insertion; relayed when ordinary SVG is copied. */
   svg?: string;
   html?: string;
   text?: string;

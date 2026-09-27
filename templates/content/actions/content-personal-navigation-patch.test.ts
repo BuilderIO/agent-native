@@ -91,7 +91,6 @@ beforeEach(() => {
             : [{ id: "item-a" }, { id: "item-b" }],
     }),
   }));
-  // Serialize callbacks at the settings boundary; SQL/CAS belongs to its own tests.
   let queue = Promise.resolve();
   boundary.mutate.mockImplementation(
     (

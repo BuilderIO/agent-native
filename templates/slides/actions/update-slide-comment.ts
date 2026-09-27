@@ -69,8 +69,6 @@ export default defineAction({
     }
 
     const userEmail = getRequestUserEmail()?.trim().toLowerCase();
-    // Google Slides lets commenters close and reopen threads; content edits
-    // still require authorship unless the caller is an editor.
     if (hasContent && comment.authorEmail.trim().toLowerCase() !== userEmail) {
       await assertAccess("deck", comment.deckId, "editor");
     }
@@ -113,8 +111,6 @@ export default defineAction({
       return setThreadResolved(false);
     }
 
-    // The input contract rejects a request without either field, so reaching
-    // this branch means the operation is a content-only update.
     if (args.content === undefined) {
       fail("Provide comment content or a resolved state", {
         errorCode: "invalid_request",

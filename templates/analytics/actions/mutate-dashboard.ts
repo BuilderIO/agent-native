@@ -355,12 +355,6 @@ export default defineAction({
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
 
-    // Recomputes the mutation from whatever dashboard state is passed in.
-    // `operations` sourced from `args.operations` are already concrete panel
-    // ids, safe to replay verbatim; `args.code` is re-parsed against `existing`
-    // every time because selectors like `panelsMatching(...)` resolve against
-    // the config at parse time, so a retry must re-resolve them against the
-    // fresh state, not reuse ids resolved from a now-stale config.
     function computeMutation(
       existing: Pick<DashboardRecord, "kind" | "config">,
     ) {
@@ -382,10 +376,6 @@ export default defineAction({
       return { nextRoot, nextOperations, nextMutation };
     }
 
-    // Assigned inside `computeMutation`'s caller (directly for dry-run, inside
-    // the retry callback for a real save); always assigned at least once
-    // before use below, since `upsertDashboardWithRetry` only resolves after
-    // its callback has run.
     let root: Record<string, unknown>;
     let operations!: DashboardMutationOperation[];
     let mutation!: DashboardMutationResult;
@@ -425,13 +415,7 @@ export default defineAction({
           return { kind: "sql" as const, body: computed.nextRoot };
         },
       );
-      // Use the persisted config as the source of truth for the response —
-      // structurally identical to the winning attempt's `root`, but reflects
-      // exactly what was saved.
       root = saved.config as Record<string, unknown>;
-      // SQL is the durable source of truth. Collab sync is a convenience for
-      // already-open editors, so it must never hold the saved mutation hostage
-      // behind an unavailable database or a stale per-document write lock.
       queueDashboardCollabSync(dashboardId, root, "agent");
       track(
         "dashboard_saved",

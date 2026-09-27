@@ -22,9 +22,6 @@ interface WorkspaceAppSummary {
   statusLabel?: string;
 }
 
-// Radix's PopoverTrigger asChild clones its child and injects onClick/ref
-// directly onto it. A plain function component here would drop those props
-// silently, leaving the trigger button inert. Forward both through to Button.
 const CreateAppTriggerButton = forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Button> & { label: string }
