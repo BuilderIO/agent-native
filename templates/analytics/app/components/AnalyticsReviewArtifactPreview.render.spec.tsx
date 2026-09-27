@@ -150,6 +150,42 @@ describe("Analytics review artifact preview rendering", () => {
     });
   });
 
+  it("uses the saved filter default when filling gaps in pivot chart dates", async () => {
+    mocks.query.data = {
+      variables: { timeRange: "30d" },
+      filters: [
+        {
+          id: "timeRange",
+          label: "Time range",
+          type: "select",
+          default: "90d",
+        },
+      ],
+      panels: [
+        {
+          id: "ga4-chart",
+          title: "Page views",
+          sql: "SELECT 1",
+          width: 12,
+          source: "ga4",
+          chartType: "line",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact={false}
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.sqlChartProps).toMatchObject({ timeRange: 90 });
+  });
+
   it("renders saved analysis results in the real review preview", async () => {
     mocks.query.data = {
       id: "analysis-1",

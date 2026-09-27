@@ -37,4 +37,22 @@ describe("assertReadOnlySql", () => {
       assertReadOnlySql(`SELECT '''safe'''; DELETE FROM target`, "bigquery"),
     ).toThrow();
   });
+
+  it("allows backslashes in BigQuery raw strings without hiding trailing SQL", () => {
+    expect(() =>
+      assertReadOnlySql(
+        String.raw`SELECT REGEXP_CONTAINS(value, r'\d+') FROM source`,
+        "bigquery",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertReadOnlySql(String.raw`SELECT R'''\d+; DELETE'''`, "bigquery"),
+    ).not.toThrow();
+    expect(() =>
+      assertReadOnlySql(
+        String.raw`SELECT REGEXP_CONTAINS(value, r'\d+'); DELETE FROM target`,
+        "bigquery",
+      ),
+    ).toThrow(/single statement/);
+  });
 });

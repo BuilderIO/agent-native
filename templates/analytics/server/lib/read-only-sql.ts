@@ -1,6 +1,15 @@
 const MUTATING_WORD_RE =
   /(^|[^A-Za-z_])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^A-Za-z_]|$)/i;
 
+function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
+  const prefix = sql.slice(0, quoteIndex).match(/([bBrR]{1,2})$/)?.[1];
+  if (!prefix || !["r", "br", "rb"].includes(prefix.toLowerCase())) {
+    return false;
+  }
+  const beforePrefix = sql[quoteIndex - prefix.length - 1];
+  return !beforePrefix || !/[A-Za-z0-9_]/.test(beforePrefix);
+}
+
 function sanitizeSqlForInspection(
   sql: string,
   dialect: "bigquery" | "standard",
@@ -9,6 +18,7 @@ function sanitizeSqlForInspection(
   let state: "code" | "single" | "double" | "backtick" | "line" | "block" =
     "code";
   let quoteLength = 1;
+  let rawString = false;
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
     const next = sql[i + 1];
@@ -29,7 +39,7 @@ function sanitizeSqlForInspection(
     }
     if (state === "single" || state === "double" || state === "backtick") {
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
-      if (dialect === "bigquery" && ch === "\\") {
+      if (dialect === "bigquery" && ch === "\\" && !rawString) {
         // BigQuery escape forms are rejected so they cannot hide statement boundaries.
         throw new Error("Source SQL string escapes are not supported.");
       }
@@ -39,6 +49,7 @@ function sanitizeSqlForInspection(
           i += 2;
           state = "code";
           quoteLength = 1;
+          rawString = false;
         } else {
           out += " ";
         }
@@ -50,6 +61,7 @@ function sanitizeSqlForInspection(
       } else if (ch === quote) {
         out += " ";
         state = "code";
+        rawString = false;
       } else {
         out += " ";
       }
@@ -73,6 +85,10 @@ function sanitizeSqlForInspection(
         ch !== "`" &&
         next === ch &&
         sql[i + 2] === ch;
+      rawString =
+        dialect === "bigquery" &&
+        ch !== "`" &&
+        hasBigQueryRawStringPrefix(sql, i);
       state = ch === "'" ? "single" : ch === '"' ? "double" : "backtick";
       quoteLength = tripleQuoted ? 3 : 1;
       if (tripleQuoted) {
