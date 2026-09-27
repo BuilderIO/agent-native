@@ -25,29 +25,11 @@ const POPOVER_MARGIN = 12;
 interface ImageDropPromptPopoverProps {
   open: boolean;
   file: File | null;
-  /** Drop position in viewport coordinates. */
   position: { x: number; y: number } | null;
-  /** Optional deck/slide context to include in the agent prompt. */
   contextHint?: string;
   onClose: () => void;
 }
 
-/**
- * Popover shown after a user drops an image somewhere on the slides editor
- * that doesn't have a clear target (i.e. not on an image placeholder or
- * existing `<img>`). The popover previews the image, lets the user describe
- * what to do with it, and hands the task off to the agent chat.
- *
- * Uploads the image to the configured object storage before handing the task
- * off to the agent. A missing provider opens the shared storage setup path.
- *
- * Why this exists: dropping image files onto an unclear target previously did
- * one of two unhelpful things — opened the file in a new browser tab (when the
- * drop landed outside the slide canvas) or silently inserted the image into
- * the first placeholder (when the user wanted something else). This popover
- * makes the intent explicit and routes the work through the agent so the user
- * can phrase the ask in plain language.
- */
 export default function ImageDropPromptPopover({
   open,
   file,
@@ -102,7 +84,6 @@ export default function ImageDropPromptPopover({
     };
   }, [open, onClose]);
 
-  // Position relative to drop point, clamped within the viewport.
   const computedPosition = useMemo(() => {
     if (!position) {
       return { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
@@ -116,7 +97,6 @@ export default function ImageDropPromptPopover({
     if (left < POPOVER_MARGIN) left = POPOVER_MARGIN;
     if (left + width > vw - POPOVER_MARGIN) left = vw - width - POPOVER_MARGIN;
     if (top + height > vh - POPOVER_MARGIN) {
-      // Flip above the drop point if there isn't room below.
       top = Math.max(POPOVER_MARGIN, position.y - height - POPOVER_MARGIN);
     }
     return { top: `${top}px`, left: `${left}px`, transform: "none" };
@@ -130,8 +110,6 @@ export default function ImageDropPromptPopover({
     try {
       const form = new FormData();
       form.append("file", file);
-      // A no-storage response opens setup; inline fallback is only for
-      // transient upload failures.
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,

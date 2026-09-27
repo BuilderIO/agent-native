@@ -45,7 +45,6 @@ describe("check-availability", () => {
       errors: [{ email: "secondary@example.com", error: "token expired" }],
     });
 
-    // 2026-09-08 is a Tuesday, inside the default 09:00-17:00 schedule.
     const result = await run({ date: "2026-09-08", duration: 30 });
 
     expect(result.actionable).toBe(false);
@@ -66,8 +65,6 @@ describe("check-availability", () => {
           end: "2026-09-08T10:30:00.000Z",
           allDay: false,
           source: "google",
-          // Booked on a connected secondary Google account, not the owner's
-          // primary — availability is still for the signed-in owner.
           accountEmail: "secondary@example.com",
         },
       ],

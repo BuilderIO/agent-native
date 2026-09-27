@@ -13,7 +13,6 @@ on:
           - brain
           - all
   schedule:
-    # Nightly UTC check. Suites without configured secrets report skipped.
     - cron: "0 9 * * *"
 
 concurrency:

@@ -38,8 +38,6 @@ export function shouldReconcilePersistedRecording(
   sessionId: string,
   state: OffscreenRecordingState,
 ): boolean {
-  // Preserve terminal errors so the popup can explain an upload failure and
-  // offer the existing discard/re-upload path.
   if (status === "error" || status === "complete") return false;
   return !hasLiveOffscreenSession(sessionId, state);
 }

@@ -123,9 +123,6 @@ export function runResumePendingGeneration({
   let cancelled = false;
   void (async () => {
     const shouldExploreVariants = promptRequestsVariantExploration(prompt);
-    // A reference screenshot already answers the questions the intake flow
-    // asks. Spending the one turn that can see the image on a questionnaire
-    // means the turn that writes HTML never sees it.
     const hasReferenceImages = images.length > 0;
     const explicitSkip =
       pending.skipQuestions === true ||

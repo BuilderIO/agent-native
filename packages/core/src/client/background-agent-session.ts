@@ -19,15 +19,10 @@ export type BackgroundAgentSessionStatus =
   | "unavailable";
 
 export interface BackgroundAgentSessionStartOptions {
-  /** The visible first user turn. */
   message: string;
-  /** Stable caller-owned operation id. Reuse it when retrying a lost acknowledgement. */
   operationId?: string;
-  /** Stable thread id. Supply it with operationId when retrying the same operation. */
   threadId?: string;
-  /** Explicit app/resource boundary persisted on the thread. */
   scope?: AgentChatScope | null;
-  /** App-defined boundary for the actions exposed to this turn. */
   actionScope?: AgentActionScope;
   mode?: "act" | "plan";
   model?: string;
@@ -48,14 +43,11 @@ export interface BackgroundAgentSessionSnapshot extends BackgroundAgentSessionRe
   status: BackgroundAgentSessionStatus;
   runId?: string;
   terminalReason?: string | null;
-  /** Transport failure while durable run state is still unknown. */
   transportError?: string;
 }
 
 export interface BackgroundAgentSessionHandle extends BackgroundAgentSessionReceipt {
-  /** Resolves once the shared agent-chat route accepts the run. */
   accepted: Promise<BackgroundAgentSessionReceipt>;
-  /** Resolves when this request's response stream closes. Reattached requests have no stream. */
   completion: Promise<void>;
   status(): Promise<BackgroundAgentSessionSnapshot>;
   cancel(reason?: string): Promise<void>;
@@ -121,11 +113,6 @@ async function drainResponse(response: Response): Promise<void> {
   }
 }
 
-/**
- * Start one isolated agent-chat thread without mounting, opening, or focusing
- * chat UI. The normal agent-chat route owns authentication, model/tool
- * resolution, persistence, durable dispatch, retries, and deduplication.
- */
 export function startBackgroundAgentSession(
   options: BackgroundAgentSessionStartOptions,
 ): BackgroundAgentSessionHandle {

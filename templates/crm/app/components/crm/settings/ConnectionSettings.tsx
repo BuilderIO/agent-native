@@ -158,8 +158,6 @@ function ConnectionRow({ connection }: { connection: CrmConnectionSummary }) {
               {mode.deprecated ? ` · ${t("connection.deprecated")}` : ""}
             </Badge>
           ) : (
-            // Never fall back to a default label: an unrecognized mode means
-            // this build cannot read the row, which is not the same as native.
             <Badge variant="destructive" className="font-normal">
               {t("connection.modeUnrecognized", { mode: connection.mode })}
             </Badge>

@@ -1,13 +1,5 @@
 import type { H3Event } from "h3";
 
-/**
- * Register a background promise with the request's `waitUntil` when the
- * runtime provides one (Netlify/Cloudflare via the `deploy/build.ts`
- * platform shims), so a serverless function doesn't freeze the instant the
- * response flushes, before a fire-and-forget promise gets to run. Falls back
- * to a plain fire-and-forget when no event is given, or the event's
- * `waitUntil` isn't a function (a long-lived Node process, or a test shim).
- */
 export function registerBackgroundWork(
   event: H3Event | undefined,
   promise: Promise<unknown>,
@@ -22,22 +14,12 @@ export function registerBackgroundWork(
       waitUntil.call(event, promise);
       return;
     } catch (error) {
-      // Some local adapters expose a non-functional placeholder. Fall
-      // through to a plain fire-and-forget instead of losing the promise.
       void error;
     }
   }
   void promise;
 }
 
-/**
- * Fire-and-forget `invite_accepted` telemetry. Pass `event` whenever the
- * caller has an h3 event so the promise is registered with the request's
- * `waitUntil` (see `registerBackgroundWork`) instead of racing serverless
- * shutdown. Callers with no reachable event (the Better Auth signup/SSO
- * hooks that route through `acceptPendingInvitationsForEmail`) still get the
- * returned promise back so they can bound how long they wait on it.
- */
 export function trackInviteAccepted(input: {
   email: string;
   orgId: string;
@@ -75,7 +57,6 @@ export function trackInviteAccepted(input: {
             },
             { userId: input.email },
           );
-          // `track()` only dispatches; hold `waitUntil` until providers deliver.
           await flushTracking();
         },
       )
@@ -83,7 +64,6 @@ export function trackInviteAccepted(input: {
         console.warn("[org] Could not emit invite acceptance telemetry");
       });
   } catch {
-    // Analytics must not turn an accepted invitation into a failed request.
     console.warn("[org] Could not emit invite acceptance telemetry");
     promise = Promise.resolve();
   }

@@ -43,15 +43,10 @@ interface TranscriptionStatusPayload {
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
 const DISMISSAL_TOMBSTONE_MS = 30 * 60_000;
-// Card is up to 440px wide; the extra width keeps its close control and menu
-// inside the transparent window edges.
 const NOTIFICATION_WINDOW_WIDTH = 504;
 const NOTIFICATION_COLLAPSED_HEIGHT = 120;
 const NOTIFICATION_MENU_HEIGHT = 224;
 
-/**
- * Open a meeting join URL via its native desktop app when supported.
- */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
@@ -73,8 +68,6 @@ function resizeNotificationWindow(expanded: boolean) {
 }
 
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
-  // Lightweight glyphs — keep the overlay free of extra assets. Zoom blue
-  // camera / Meet green / Teams purple, otherwise a generic video icon.
   if (provider === "zoom") {
     return (
       <span
@@ -115,15 +108,6 @@ function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
   );
 }
 
-/**
- * Granola-style meeting notification — small card in the top-right corner.
- *
- * Primary split button: join the call and open Clips notes in one click.
- * Chevron exposes secondary actions (join only / notes only / snooze).
- *
- * Data arrives via Tauri event `meetings:show-notification`. Visibility holds
- * from 1 minute before start until 5 minutes after, unless dismissed.
- */
 export function MeetingNotification() {
   const [data, setData] = useState<NotificationData | null>(null);
   const [showClose, setShowClose] = useState(false);
@@ -132,8 +116,6 @@ export function MeetingNotification() {
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
-  /** What this reminder was showing when it stepped aside for a starting pill.
-   *  Held only until that start reports success or failure. */
   const startingRef = useRef<NotificationData | null>(null);
   const dismissedKeysRef = useRef(new Map<string, number>());
   const meetingsLabEnabledRef = useRef<boolean | null>(null);
@@ -141,12 +123,6 @@ export function MeetingNotification() {
     payload: NotificationData;
     options?: { hydrated?: boolean };
   } | null>(null);
-  // Real DOM hover only fires while this overlay window is key, which macOS
-  // won't grant it without a click (`show_without_activation` never
-  // activates). `polledHovered` mirrors the Rust-side global cursor poll
-  // (`meetings:notification-hover`, see `start_meeting_notification_hover_tracking`
-  // in notifications.rs) so the X still reveals on hover while another app is
-  // focused — same fallback pattern as the recording pill's `clips:pill-hover`.
   const [domHovered, setDomHovered] = useState(false);
   const [polledHovered, setPolledHovered] = useState(false);
   const hovered = domHovered || polledHovered;
@@ -265,11 +241,6 @@ export function MeetingNotification() {
 
   useEffect(() => {
     if (!data) {
-      // Dismissing doesn't guarantee mouseleave/hovered:false fires first
-      // (e.g. dismissed while the cursor is still over the card), so clear
-      // every hover source here — otherwise the next notification can
-      // inherit hovered === true and open with its close button already
-      // showing and auto-hide already cancelled.
       prevHoveredRef.current = false;
       setDomHovered(false);
       setPolledHovered(false);
@@ -301,13 +272,7 @@ export function MeetingNotification() {
       return;
     }
     if (isDismissed(payload)) return;
-    // A newer reminder owns this card now. Whatever start was holding it open
-    // for a possible failure has lost its claim, so it cannot reappear over
-    // this one later.
     startingRef.current = null;
-    // A visible reminder means a pill is likely within a minute or two. Build
-    // its webview now, hidden: on the first meeting of a session that build
-    // otherwise lands between the click and anything appearing.
     invoke("recording_pill_prewarm").catch(() => {});
     setData(payload);
     setError(null);
@@ -358,9 +323,6 @@ export function MeetingNotification() {
       "meetings:hide-notification",
       (ev) => {
         if (ev.payload.meetingId !== dataRef.current?.meetingId) return;
-        // Startup hides this as soon as the pill is on screen, before capture
-        // has attached. Keep what was on screen so a failure after that point
-        // still has something to reappear as.
         startingRef.current = dataRef.current;
         hideNotification();
       },
@@ -369,9 +331,6 @@ export function MeetingNotification() {
     const errorListener = listen<TranscriptionStatusPayload>(
       "meetings:transcription-error",
       (ev) => {
-        // `hideNotification` nulls `dataRef`, so matching only against it
-        // drops the error for exactly the case that produces one: a start
-        // that failed after the reminder stepped aside.
         const starting = startingRef.current;
         const restoring =
           !dataRef.current &&
@@ -400,24 +359,12 @@ export function MeetingNotification() {
     );
     trackListen(startedListener);
 
-    // Cold overlay boot: hydrate any payload stored before this webview
-    // mounted (calendar or adhoc).
-    //
-    // Every listener has to be live first, because `take` is destructive and
-    // each event lost in the gap is lost permanently. A hide landing before the
-    // hide listener registers leaves a card nothing can take back; a show
-    // landing before the show listener registers is dropped while the payload it
-    // duplicated has already been consumed, so no card appears at all.
     Promise.all([showListener, hideListener, errorListener, startedListener])
       .then(() =>
         invoke<NotificationData | null>("take_pending_meeting_notification"),
       )
       .then((pending) => {
         if (stopped || !pending) return;
-        // The take is asynchronous, so a live `meetings:show-notification` may
-        // have arrived while it was in flight. That payload is newer than this
-        // one by definition, and hydration is only a cold-boot fallback, so it
-        // must not replace what the live path already put on screen.
         if (dataRef.current) return;
         showNotification(pending, { hydrated: true });
       })
@@ -476,8 +423,6 @@ export function MeetingNotification() {
 
   function dismissNotification() {
     const current = dataRef.current;
-    // An explicit dismissal outranks a pending start: this reminder must not
-    // come back on its own, even to report a failure.
     startingRef.current = null;
     if (current) {
       dismissedKeysRef.current.set(
@@ -513,7 +458,6 @@ export function MeetingNotification() {
     await openJoinUrl(data.joinUrl);
   }
 
-  /** Granola primary: join the call and start Clips notes together. */
   async function joinAndOpenClips() {
     if (!data || pending) return;
     setMenuOpen(false);

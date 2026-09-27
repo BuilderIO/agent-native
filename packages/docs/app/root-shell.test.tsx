@@ -55,8 +55,6 @@ vi.mock("@agent-native/core/client/webmcp", () => ({
     return { start: vi.fn(async () => {}), stop: vi.fn() };
   },
 }));
-// Only the core boundary is stubbed; the app's own modules stay real so this
-// exercises the shell React actually renders.
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useLocale: () => "en-US",
@@ -110,10 +108,6 @@ afterEach(() => {
 });
 
 describe("RootShell tree stability", () => {
-  // The bug: page content lived at one tree position before `mounted` and a
-  // different one after, so React destroyed and rebuilt every element on the
-  // page. The hero's WebGPU renderer was built twice and its fade restarted
-  // mid-animation, which is what read as the background flashing on load.
   it("keeps page content mounted across the mounted flip", async () => {
     const { RootShell } = await import("./root");
     const { rerender } = render(<RootShell mounted={false} />);
@@ -121,8 +115,6 @@ describe("RootShell tree stability", () => {
 
     rerender(<RootShell mounted />);
 
-    // React keeps a suspended subtree in the DOM behind the fallback, so query
-    // all of them: the placeholder's node must be the same object it was.
     expect(screen.getAllByTestId("page")[0]).toBe(before);
   });
 
@@ -130,8 +122,6 @@ describe("RootShell tree stability", () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted={false} />);
 
-    // The placeholder subtree is the one React throws away. Anything that waits
-    // on the settled signal must not see it as settled here.
     expect(screen.queryByTestId("real-sidebar")).toBeNull();
     expect(screen.getByTestId("settled").textContent).toBe("false");
   });

@@ -32,11 +32,6 @@ type Paint =
   | { kind: "solid"; color: string }
   | { kind: "gradient"; css: string };
 
-/**
- * Figma's Shift+X: the fill paint and the stroke paint trade places, and an
- * empty side stays empty on the other side. Stroke geometry (weight, style)
- * is kept; a new stroke gets 1px solid.
- */
 export function swapFillStrokePatch(
   element: ElementInfo,
 ): SwapFillStrokeResult {
@@ -50,8 +45,6 @@ export function swapFillStrokePatch(
   };
   if (shouldUseTextFill(element, boxStyles)) return textSwap(styles);
 
-  // A Design stroke holds one paint; several fills or an image have no
-  // single stroke to become.
   const fillPaints = boxFillPaints(boxStyles);
   if (fillPaints === null || fillPaints.length > 1) {
     return { kind: "unsupported-fill-paint" };
@@ -109,7 +102,6 @@ export function swapFillStrokePatch(
   return { kind: "patch", patch };
 }
 
-/** Visible fill paints, or null when one has no stroke equivalent. */
 function boxFillPaints(boxStyles: Record<string, string>): Paint[] | null {
   const paints: Paint[] = [];
   const base = solidOrNull(boxStyles.backgroundColor);
@@ -141,8 +133,6 @@ function vectorSwap(styles: Record<string, string>): SwapFillStrokeResult {
   if ((fillGradient || fill) && cssLengthNumber(styles.strokeWidth) <= 0) {
     patch.strokeWidth = "1px";
   }
-  // Re-assigned so they apply last: setting a gradient drops the inline
-  // paint it replaces, which the solid writes above would otherwise restore.
   if (strokeGradient) {
     delete patch[SVG_FILL_GRADIENT_PROPERTY];
     patch[SVG_FILL_GRADIENT_PROPERTY] = strokeGradient;

@@ -6,10 +6,7 @@
 @source "../../../code-agents-ui/src/**/*.{ts,tsx}";
 @source "../../../core/src/client/chat-first/**/*.{ts,tsx}";
 
-/* ─── Design tokens ──────────────────────────────────────────── */
 :root {
-  /* Shared Tailwind/core settings components resolve these semantic tokens at
-     the desktop renderer root, including portal-mounted dialogs and menus. */
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;
   --card: 0 0% 100%;
@@ -52,7 +49,6 @@
   --separator: hsl(var(--foreground, 0 0% 10%) / 0.1);
   --surface-active-bg: hsl(var(--muted, 0 0% 95%));
 
-  /* Transition */
   --ease: 0.15s ease;
 }
 
@@ -96,7 +92,6 @@
   --surface-active-bg: hsl(var(--muted, 0 0% 10%));
 }
 
-/* ─── Base ───────────────────────────────────────────────────── */
 html,
 body,
 #root {
@@ -115,7 +110,6 @@ body {
   -webkit-user-select: none;
 }
 
-/* ─── Shell layout ───────────────────────────────────────────── */
 .shell {
   display: flex;
   flex-direction: column;
@@ -133,7 +127,6 @@ body {
   position: relative;
 }
 
-/* ─── Windows/Linux custom window controls ───────────────────── */
 .win-controls {
   display: none;
 }
@@ -186,7 +179,6 @@ body {
   background: #28c840;
 }
 
-/* ─── Content area ───────────────────────────────────────────── */
 .content-area {
   flex: 1;
   position: relative;
@@ -249,8 +241,6 @@ body {
   background: var(--shell-bg);
 }
 
-/* Keep the light chat composer distinct from the rail while preserving the
-   stronger focus ring for keyboard and pointer focus. */
 .light
   .desktop-chat-first-hub
   [data-chat-first-app-pane]
@@ -326,8 +316,6 @@ body {
   overflow: visible;
 }
 
-/* Keep the blank rail strip beside the native traffic lights available for
-   moving the frameless desktop window without covering rail controls. */
 .desktop-chat-first-hub .code-agents-window-drag-region {
   position: absolute;
   top: 0;
@@ -337,9 +325,6 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Collapsed macOS rails use a fixed-width custom cluster while the native
-   traffic lights are hidden. Keep it at shell level so it remains above the
-   settings surface. */
 .desktop-chat-first-mac-window-controls {
   display: none;
 }
@@ -490,7 +475,6 @@ body {
   border: 0;
 }
 
-/* App icons are spans too; keep their visual wrapper in the compact rail. */
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
   [data-chat-first-app-icon] {
@@ -521,7 +505,6 @@ body {
   border-bottom: 0;
 }
 
-/* Terminal mode occupies the same chat stream/composer region. */
 .desktop-chat-first-hub .code-agents-overview--chat-surface {
   display: flex;
   overflow: hidden;
@@ -595,8 +578,6 @@ body {
   max-width: var(--code-agents-chat-max) !important;
 }
 
-/* Keep the provider notice aligned with the composer when the start surface
-   is wider to make room for the app grid below it. */
 .desktop-chat-first-hub .code-agents-start .code-agents-provider-gate {
   align-self: center;
   margin-inline: auto;
@@ -610,13 +591,10 @@ body {
   width: min(100%, var(--code-agents-chat-max));
   max-width: var(--code-agents-chat-max);
   box-sizing: border-box;
-  /* The composer frame has an 8px bottom inset; offset the shared 12px flex
-     gap so the visible chat-to-picker spacing is about 10px. */
   margin-top: -10px;
 }
 
 .desktop-chat-first-hub .code-agents-start .code-agents-overview-footer {
-  /* Keep the Apps section a little more distinct from the picker row. */
   margin-top: 10px;
 }
 
@@ -1117,11 +1095,6 @@ body {
   transform: translate3d(0, 0, 0);
 }
 
-/* ─── Webview slot ───────────────────────────────────────────── */
-/* Each slot is absolutely positioned so contextual surfaces stack on top of each
-   other. Electron <webview> is a native guest surface on macOS, and
-   visibility:hidden can leave stale pixels composited over the active surface.
-   Move inactive surfaces out of the viewport instead. */
 .webview-slot {
   position: absolute;
   top: 0;
@@ -1153,14 +1126,11 @@ body {
   z-index: 9999;
 }
 
-/* Electron's <webview> uses display:flex internally — never set
-   display:block. Use flex:1 so it fills the slot container. */
 .app-webview {
   flex: 1 1 auto;
   border: none;
 }
 
-/* ─── Desktop identity gate ────────────────────────────────── */
 .desktop-identity-gate {
   position: absolute;
   inset: 0;
@@ -1406,7 +1376,6 @@ body {
   text-align: center;
 }
 
-/* ─── Error overlay ──────────────────────────────────────────── */
 .error-overlay {
   position: absolute;
   inset: 0;
@@ -1612,7 +1581,6 @@ body {
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* ─── Loading overlay ────────────────────────────────────────── */
 .loading-overlay {
   position: absolute;
   inset: 0;
@@ -1650,7 +1618,6 @@ body {
   color: rgba(255, 255, 255, 0.25);
 }
 
-/* ─── Placeholder screen ─────────────────────────────────────── */
 .placeholder-overlay {
   position: absolute;
   inset: 0;
@@ -1681,7 +1648,6 @@ body {
   line-height: 1.6;
 }
 
-/* ─── Settings overlay ───────────────────────────────────────── */
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -1868,7 +1834,6 @@ body {
   background: rgba(59, 130, 246, 0.1);
 }
 
-/* Shortcut behavior selector */
 .settings-shortcut-behavior-toggle {
   display: flex;
   border-radius: 4px;
@@ -2147,8 +2112,6 @@ body {
   white-space: nowrap;
 }
 
-/* Shared settings rows use compact action controls instead of the legacy
-   overlay's full-width button treatment. */
 .settings-page-tabs-content .agent-native-settings-row__control .settings-btn {
   width: auto;
   margin-bottom: 0;
@@ -2486,7 +2449,6 @@ body {
   grid-column: 1 / -1;
 }
 
-/* Disclosure button */
 .settings-disclosure {
   display: flex;
   align-items: center;
@@ -2727,7 +2689,6 @@ body {
   font-size: 11px;
 }
 
-/* Toggle switch */
 .settings-toggle {
   position: relative;
   display: inline-block;
@@ -2774,7 +2735,6 @@ body {
   background: #3b82f6;
 }
 
-/* Buttons */
 .settings-btn {
   display: flex;
   align-items: center;
@@ -2827,7 +2787,6 @@ body {
   opacity: 0.45;
 }
 
-/* ─── Settings form overlay ──────────────────────────────────── */
 .settings-form-overlay {
   position: fixed;
   inset: 0;
@@ -3189,7 +3148,6 @@ body {
   margin-bottom: 0;
 }
 
-/* ─── Update indicator (chat-first rail action) ───────────────── */
 .desktop-chat-first-hub .update-indicator--pending,
 .desktop-chat-first-hub .update-indicator--downloading,
 .desktop-chat-first-hub .update-indicator--checking {
@@ -3225,7 +3183,6 @@ body {
   animation: update-spin 1s linear infinite;
 }
 
-/* ─── Update prompt in the updater rail ───────────────────────── */
 .update-prompt {
   position: relative;
   z-index: 1;
@@ -3359,8 +3316,6 @@ body {
   color: hsl(var(--foreground) / 0.85);
 }
 
-/* ─── Full-page settings ──────────────────────────────────────
-   Settings is a destination in the desktop shell, not a modal over it. */
 .settings-overlay {
   align-items: stretch;
   justify-content: stretch;
@@ -3618,8 +3573,6 @@ body {
   }
 }
 
-/* The desktop settings destination uses the shared page surface. Keep the
-   host responsible only for the window-sized frame and the back affordance. */
 .settings-overlay:has(.settings-panel--page) {
   align-items: stretch;
   background: var(--shell-bg);
@@ -3686,8 +3639,6 @@ body {
   background: var(--sidebar-bg);
 }
 
-/* The settings destination covers the workbench, so preserve the native
-   macOS title-bar clearance before placing the back affordance in the rail. */
 .platform-darwin .settings-page-tabs-nav {
   padding-top: calc(var(--window-titlebar-height) + 16px);
 }
@@ -3705,9 +3656,6 @@ body {
   border-color: var(--separator);
 }
 
-/* Full-page settings uses the shared core surface. Keep the few Electron-owned
-   controls on that same token and radius contract instead of introducing a
-   second high-contrast control language. */
 .settings-page-tabs-content .settings-btn {
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) - 2px);
@@ -3799,8 +3747,6 @@ body {
   color: hsl(var(--foreground));
 }
 
-/* Embedded terminals inherit the chat stream surface so the max-width frame
-   does not introduce a second background band. */
 .desktop-terminal-tabs {
   --desktop-terminal-background: hsl(var(--background));
   display: flex;

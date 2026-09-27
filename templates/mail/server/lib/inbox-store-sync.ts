@@ -1,15 +1,3 @@
-/**
- * One call site for "a mutation changed Gmail labels, keep the synced inbox
- * store and the list cache in step." Called from `email-state.ts` (the
- * single-item path every mutation action routes through) and from each
- * action's bulk `gmailBatchModifyByAccount` fan-out, since that helper lives
- * in `google-auth.ts` (owned elsewhere) and can't call back into the store.
- *
- * Best-effort: a store row that doesn't exist yet (e.g. a thread synced
- * after this call started) is silently skipped by `applyLocalLabelDelta`,
- * and the next `ensureInboxFresh` / push notification reconciles it — this
- * is an optimistic local patch, not the source of truth.
- */
 import {
   invalidateHistoryCacheForAccount,
   invalidateListCacheForOwner,
@@ -34,12 +22,6 @@ async function applyLocalLabelDeltaBestEffort(
   try {
     await applyLocalLabelDelta(ownerEmail, accountEmail, threadIds, delta);
   } catch (error) {
-    // Gmail already accepted this mutation before we got here — it is the
-    // source of truth and has already changed. A mirror failure must not
-    // surface as a failed/rolled-back archive/trash/read/star to the client.
-    // The next incremental history sync re-derives this row from Gmail
-    // (history records our own label changes), so this is logged and
-    // reconciled, not swallowed.
     console.error("[inbox-store-sync] mirror failed", {
       ownerEmail,
       accountEmail,
@@ -61,21 +43,6 @@ export async function syncInboxLabelDelta(
   await applyLocalLabelDeltaBestEffort(ownerEmail, accountEmail, ids, delta);
 }
 
-/**
- * Same as {@link syncInboxLabelDelta}, but for the `gmailBatchModifyByAccount`
- * bulk fan-out: targets are message ids grouped by account, most without a
- * known threadId. Resolves the missing ones from the store's
- * `message_ids_json` (one lookup per account) instead of an extra Gmail
- * round-trip per message.
- *
- * Every target must already carry the resolved `accountEmail` that the Gmail
- * mutation actually used — see `resolveMutationAccounts` in email-state.ts,
- * which every caller runs before both the Gmail call and this mirror so the
- * two never group by different rules. A target with no resolved account is
- * dropped rather than guessed at (no owner-email fallback): this is a
- * best-effort optimistic mirror, not the source of truth, and a silent guess
- * here is exactly the staleness bug this function exists to avoid.
- */
 export async function syncInboxLabelDeltaForTargets(
   ownerEmail: string,
   targets: ReadonlyArray<{
@@ -96,9 +63,6 @@ export async function syncInboxLabelDeltaForTargets(
 
   await Promise.all(
     [...byAccount.entries()].map(async ([accountEmail, items]) => {
-      // Gmail accepted the mutation before this best-effort mirror lookup.
-      // Invalidate first so a lookup failure cannot preserve stale provider
-      // data, and so a concurrent list cannot cache the pre-mutation window.
       invalidateInboxCaches(ownerEmail, accountEmail);
       const missingIds = items.filter((i) => !i.threadId).map((i) => i.id);
       let resolved: Map<string, string>;

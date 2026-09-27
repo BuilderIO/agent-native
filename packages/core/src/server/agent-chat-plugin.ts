@@ -309,9 +309,6 @@ function withTransientDatabaseFallback(
   });
 }
 
-// Lazy fs — loaded via dynamic import() on first use.
-// This avoids require() which bundlers convert to createRequire(import.meta.url)
-// that crashes on CF Workers where import.meta.url is undefined.
 let _fs: typeof import("fs") | undefined;
 async function lazyFs(): Promise<typeof import("fs")> {
   if (!_fs) {
@@ -324,12 +321,6 @@ import {
   buildSystemManifestSections,
   setContextXraySystemSections,
 } from "../agent/context-xray/manifest.js";
-// ---------------------------------------------------------------------------
-// The bulk of this file's former implementation now lives in focused sibling
-// modules under `./agent-chat/`. This file re-imports them (and re-exports
-// the ones that were already part of the public surface) so
-// `createAgentChatPlugin` below stays a thinner orchestrator.
-// ---------------------------------------------------------------------------
 import {
   buildSelectedA2AReceiverContext,
   createA2AEngineToolSurface,
@@ -539,15 +530,6 @@ export async function runPreAgentTurnAutosave(
   }
 }
 
-/**
- * The model this mount runs with, when the caller does not pass one per request.
- *
- * The plugin option is the top layer because it is per-mount; `agent.model`
- * (`AGENT_MODEL`) is the declared layer below it, so a deployment can pin a
- * model without editing app source. Read through here rather than off
- * `options` directly — every raw `options?.model` site is a place the declared
- * field silently does nothing.
- */
 export function resolveConfiguredAgentModel(
   options?: Pick<AgentChatPluginOptions, "model">,
 ): string | undefined {
@@ -606,9 +588,6 @@ export function createSerializedA2ATaskStatusWriter(
 
   return {
     enqueue(message) {
-      // A newer checkpoint supersedes an earlier failed checkpoint, so keep
-      // the queue moving. flush() still rejects when the latest write itself
-      // cannot be made durable after bounded retries.
       latestWrite = latestWrite
         .catch(() => undefined)
         .then(() => {
@@ -666,8 +645,6 @@ export function filterPromptActionsToSurface(
   );
 }
 
-/** Keep late-bound sandbox and data-program bridges on the current request's
- * authorized registry instead of the plugin's process-wide action catalog. */
 export function filterRuntimeActionsToSurface(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -677,10 +654,6 @@ export function filterRuntimeActionsToSurface(
   );
 }
 
-/** Remove framework guidance for tools that the request surface does not
- * expose. The default framework prompt is line-oriented, so dropping the
- * affected instruction keeps unrelated behavioral guidance intact without
- * teaching the model names it cannot call. */
 export function filterFrameworkPromptToSurface(
   prompt: string,
   actions: Record<string, ActionEntry>,
@@ -708,9 +681,6 @@ export function resolveProductionCodeExecutionForActionSurface(
   mode: "off" | "sandboxed" | "trusted",
   hasRequestScopedSurface: boolean,
 ): "off" | "sandboxed" | "trusted" {
-  // A trusted shell can reach action routes outside the native registry, so it
-  // cannot uphold a hard per-request allowlist. Keep sandboxed run-code, whose
-  // bridge is filtered against the current request, as the safe equivalent.
   return hasRequestScopedSurface && mode === "trusted" ? "sandboxed" : mode;
 }
 
@@ -824,23 +794,10 @@ export async function resolveObservabilityReviewSummaryActionSurface(
   return resolveHostSurface ? resolveHostSurface(details) : { mode: "default" };
 }
 
-/**
- * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
- * value is recent invocation timestamps within the rolling window. Stale
- * entries are pruned on read.
- */
 const generateTitleRateLimit = new Map<string, number[]>();
 
-/** Only sweep drained rate-limit entries once the map grows past this size,
- * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
 
-/**
- * Abort reasons that mean a human asked to stop, so `/runs/:id/abort` escalates
- * to a turn-wide abort. Watchdog reasons (`no_progress`, `auto_stuck_retry`)
- * stay single-run: they end a chunk the client believes is dead and must not
- * kill a server-side continuation chain that is still making progress.
- */
 export const USER_STOP_ABORT_REASONS = new Set([
   "user",
   "abort",
@@ -892,16 +849,6 @@ export function resolveHostedBuilderHandoff(
   return connectBuilder ? { "connect-builder": connectBuilder } : {};
 }
 
-/** Setup CTAs that must be callable on the very first request.
- *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
- *  or a failed upload by rendering the inline card, not by spending a turn in
- *  `tool-search` first. `connect-builder` is registered in every registry that
- *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
- *  UI while the agent was never told the tool existed. Names the registry does
- *  not have are dropped by `filterInitialEngineTools`, so listing both here is
- *  safe for lean registries. */
 export function resolveConnectSetupInitialToolNames(
   browserTools: Record<string, ActionEntry>,
 ): string[] {
@@ -1014,20 +961,12 @@ export function createAgentChatPlugin(
   return (nitroApp: any) => {
     const lifecycle = createAgentChatPluginLifecycle();
     markDefaultPluginProvided(nitroApp, "agent-chat");
-    // Nitro v3 calls plugins synchronously and doesn't await async return
-    // values. We track the async init so the framework's readiness gate
-    // holds /_agent-native requests until routes are registered.
     const initPromise = (async () => {
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Never make route readiness wait on an org-global stale-run sweep.
-      // `/runs/active` reaps the requested run on demand, and the periodic
-      // recovery sweep below handles abandoned runs with no connected client.
-
       const env = process.env.NODE_ENV;
       const hostedHarnessConfig = await loadHostedHarnessConfig();
-      // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
         getAppConfig().agent.mode !== "production";
@@ -1038,11 +977,6 @@ export function createAgentChatPlugin(
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
 
-      // Mutable mode flag — persisted to the `settings` table so a user who
-      // toggles to "Production" stays in prod mode across server restarts.
-      // Hoisted here (before any tool-registry / handler closures are built)
-      // so every runtime decision point can close over it and see live changes
-      // when the user toggles the Environment dropdown.
       const AGENT_MODE_SETTING_KEY = "agent-chat.mode";
       let currentDevMode = canToggle;
       if (canToggle) {
@@ -1055,23 +989,11 @@ export function createAgentChatPlugin(
           // Settings table may not be ready yet — fall back to default.
         }
       }
-      // Every closure that picks between dev/prod tools, prompts, or handlers
-      // at request time should call this getter instead of reading `canToggle`.
-      // `canToggle` means "this environment allows toggling" (static); this
-      // function means "the user currently has dev mode ON" (live).
       const isDevMode = () => currentDevMode;
 
-      // Resolve the framework's own tool surface once, folding the deprecated
-      // `databaseTools` / `extensionTools` into `frameworkTools` so every
-      // consumer below reads a single shape. Conflicting old/new values throw
-      // here rather than booting with a surface nobody chose.
       const frameworkTools = resolveFrameworkTools(options);
       const disabledFrameworkGroups = frameworkTools.disabledGroups;
 
-      // Same treatment for the MCP mount: one resolved shape, folding the
-      // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
-      // `externalAgents` into `mcp`. A2A reads the same object, so the
-      // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
       const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
       const mcpActionEntryOptions: McpActionEntryOptions =
@@ -1079,9 +1001,6 @@ export function createAgentChatPlugin(
           ? { resolveActionEntry: options.resolveMcpActionEntry }
           : {};
 
-      // Build the four assembled system prompt strings. These are static for the
-      // lifetime of this plugin instance — examples come from options once at
-      // startup, not per-request.
       const {
         PROD_FRAMEWORK_PROMPT,
         DEV_FRAMEWORK_PROMPT,
@@ -1117,19 +1036,9 @@ export function createAgentChatPlugin(
           lifecycle.addCleanup(stopMcpConfigRefresh);
         }
       };
-      /**
-       * Start MCP initialization at most once, and return the run in flight.
-       *
-       * On a serverless function nothing kicks this off at boot (see the
-       * `isProductionServerlessFunctionRuntime` gate below), so every surface
-       * that actually consumes MCP tools must await this or the manager stays
-       * empty for the life of the container.
-       */
       const ensureMcpInitialized = (): Promise<void> => {
         if (!mcpInitializationPromise) {
           mcpInitializationPromise = initializeMcpManager().catch((err) => {
-            // Do not cache a settings outage as a successful empty manager;
-            // the next MCP-consuming request must retry the configuration read.
             mcpInitializationPromise = null;
             throw err;
           });
@@ -1142,9 +1051,6 @@ export function createAgentChatPlugin(
       ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
         if (requested.length === 0 && backgroundMcpTools !== "all") return {};
-        // Background action suppliers may be async so event-triggered and
-        // scheduled runs can await lazy MCP hydration on serverless cold
-        // starts. Runs without requested MCP tools still skip this work.
         await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(
           mcpManager,
@@ -1161,17 +1067,10 @@ export function createAgentChatPlugin(
         return entries;
       };
 
-      // Mount status + management routes so the settings UI can list / add /
-      // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
       mountMcpServersRoutes(nitroApp, mcpManager, {
-        // Serialize an unusually early settings mutation behind the initial
-        // config snapshot so stale startup data cannot overwrite the write.
         waitUntilReady: ensureMcpInitialized,
       });
-      // Hub-serve: expose org-scope servers to other agent-native apps in the
-      // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
-      // convention). Gated by the env var so mounting is a no-op otherwise.
       if (isHubServeEnabled()) {
         mountMcpHubRoutes(nitroApp);
         console.log(
@@ -1186,7 +1085,6 @@ export function createAgentChatPlugin(
       }
       mountMcpHubStatusRoute(nitroApp);
 
-      // Ensure we tear down child processes if the host shuts down cleanly.
       if (
         typeof process !== "undefined" &&
         typeof process.once === "function" &&
@@ -1195,8 +1093,6 @@ export function createAgentChatPlugin(
         (globalThis as any).__agentNativeMcpExitHooked = true;
         const stop = () => {
           const mgr = getGlobalMcpManager();
-          // Shutdown is best-effort — a rejection here must not surface as
-          // an unhandled promise rejection during process exit.
           if (mgr) mgr.stop().catch(() => {});
         };
         process.once("exit", stop);
@@ -1209,11 +1105,6 @@ export function createAgentChatPlugin(
       // so templates that forget to pass `actions` still work in non-serverless
       // deployments (serverless bundles need explicit imports).
       const rawActions = options?.actions ?? options?.scripts;
-      // `*All` holds every discovered action including those that opted out of
-      // agent exposure with `agentTool: false`. The agent-facing surfaces below
-      // use the `filterAgentTools`-filtered `templateScripts`/`discoveredActions`
-      // derived after discovery; `httpActions` keeps the full `*All` sets so
-      // agent-hidden actions stay callable from the frontend / HTTP.
       let templateScriptsAll: Record<string, ActionEntry> =
         typeof rawActions === "function"
           ? await rawActions()
@@ -1235,13 +1126,6 @@ export function createAgentChatPlugin(
       const { mergeCoreSharingActions } = await import("./action-discovery.js");
       await mergeCoreSharingActions(templateScriptsAll);
 
-      // Resource, chat, docs, db, and cross-agent scripts are available in both
-      // prod and dev modes, unless the app switched the group off through
-      // `frameworkTools`. Gating at construction is deliberate: an empty map
-      // flows through all thirteen registry composition sites below, whereas a
-      // condition at each spread site is the same omission waiting to happen
-      // thirteen times. Matching HTTP routes are mounted from `httpActions`,
-      // which is built from the ungated sets so the UI keeps working.
       const resourceScripts = frameworkTools.isEnabled("resources")
         ? await createResourceScriptEntries()
         : {};
@@ -1270,9 +1154,6 @@ export function createAgentChatPlugin(
         options?.appId,
       );
       const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
-      // `httpActions` spreads engineScripts/loopSettingsScripts directly, so
-      // gating here removes them from the agent's tools without unmounting the
-      // routes the settings UI calls.
       const chatScripts = frameworkTools.isEnabled("chat")
         ? {
             ...(await createChatScriptEntries()),
@@ -1280,7 +1161,6 @@ export function createAgentChatPlugin(
             ...loopSettingsScripts,
           }
         : {};
-      // Both `call-agent` and `describe-workspace-apps` come from this factory.
       const callAgentScript = frameworkTools.isEnabled("workspaceApps")
         ? await createCallAgentScriptEntry(options?.appId)
         : {};
@@ -1296,10 +1176,6 @@ export function createAgentChatPlugin(
         canToggle,
       );
 
-      // Auto-mount A2A protocol endpoints so every app is discoverable
-      // and callable by other agents via the standard protocol.
-      // In dev mode, include dev scripts (filesystem-discovered) so the A2A agent
-      // has access to the same tools as the interactive agent.
       let devScriptsForA2A: Record<string, ActionEntry> = {};
       let discoveredActionsAll: Record<string, ActionEntry> = {};
       if (canToggle) {
@@ -1311,9 +1187,6 @@ export function createAgentChatPlugin(
           });
         } catch {}
 
-        // Auto-discover template action files and register as bash-based tools.
-        // This ensures templates without a custom agent-chat plugin (e.g., analytics)
-        // still have their domain actions available as tools.
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
@@ -1344,10 +1217,6 @@ export function createAgentChatPlugin(
               const name = file.replace(/\.ts$/, "");
               if (templateScriptsAll[name] || devScriptsForA2A[name]) continue;
 
-              // Try to load the action module directly so we get the real
-              // run function (not a shell wrapper). This makes HTTP endpoints
-              // work correctly. Only fall back to shell wrapper if the import
-              // fails (e.g., CLI-style scripts that throw at top level).
               const filePath = pathMod.join(actionsDir, file);
               try {
                 const mod = await import(/* @vite-ignore */ filePath);
@@ -1376,15 +1245,7 @@ export function createAgentChatPlugin(
                 // (and .ts files Node can't parse natively).
               }
 
-              // Static-parse the source for `http: false` or
-              // `http: { method: "GET" }` so the shell-wrapper fallback still
-              // mounts HTTP routes with the correct method. We can't load the
-              // .ts module to read the real defineAction object in this Node
-              // context, so this regex sniff is the best we can do until the
-              // discovery is moved into a Vite-aware codepath.
               let httpConfig: ActionHttpConfig | false | undefined;
-              // Sniff `agentTool: false` the same way so a CLI-style action can
-              // opt out of agent exposure even on the shell-wrapper fallback path.
               let agentToolFlag: boolean | undefined;
               try {
                 const src = _fs.readFileSync(filePath, "utf-8");
@@ -1417,7 +1278,6 @@ export function createAgentChatPlugin(
                 // File read failed — leave httpConfig undefined (default POST)
               }
 
-              // Fallback: bash-based wrapper for CLI-style scripts
               discoveredActionsAll[name] = {
                 cliWrapper: true,
                 tool: {
@@ -1528,29 +1388,10 @@ export function createAgentChatPlugin(
         } catch {}
       }
 
-      // Agent-facing views of the discovered actions: actions that opted out of
-      // agent exposure with `agentTool: false` are dropped from every tool
-      // surface, prompt, MCP/A2A list, and job/trigger runner below. The full
-      // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
-      // actions reachable from the frontend / HTTP.
-      //
-      // The framework's own action kits (sharing, review, history, flags, …)
-      // arrive in this same registry through `autoDiscoverActions`, tagged with
-      // `frameworkGroup`. Subtracting disabled groups HERE is what removes them
-      // from every downstream agent surface at once; `httpActions` re-merges
-      // them ungated, so the share dialog and review threads keep their routes.
       const templateScripts = filterFrameworkToolGroups(
         filterAgentTools(templateScriptsAll),
         disabledFrameworkGroups,
       );
-      // Compact is the safe default for every app, including generated and
-      // third-party apps that have not curated a starter list yet. Keep the
-      // app's own action surface immediately callable; framework, provider,
-      // and MCP tools remain discoverable through tool-search.
-      //
-      // This is the template-only baseline; the final `effectiveInitialToolNames`
-      // (below, after the run-code tools are built) additionally folds in
-      // whatever `generateCorpusToolsPrompt` teaches by name for this request.
       const templateInitialToolNames = resolveInitialToolNames(
         templateScripts,
         options?.initialToolNames,
@@ -1559,13 +1400,6 @@ export function createAgentChatPlugin(
         filterAgentTools(discoveredActionsAll),
         disabledFrameworkGroups,
       );
-      // MCP-only actions: `agentTool: false` with an explicit `mcpTool: true`.
-      // `filterAgentTools` above just dropped them — correctly, since the app's
-      // own agent must not see them — so the external surfaces below re-merge
-      // this set instead of reading the unfiltered registries. Keep it OUT of
-      // `allScripts`, the chat/A2A/ask_app loops, and every prompt: an
-      // `ask_app` run is the app's own agent, which `agentTool: false` already
-      // answered. Only the direct MCP and A2A tool surfaces get these.
       const mcpOnlyActions = filterFrameworkToolGroups(
         filterMcpOnlyActions({
           ...discoveredActionsAll,
@@ -1609,9 +1443,6 @@ export function createAgentChatPlugin(
         return owner;
       };
 
-      // Automation tools + fetch tool — depend on owner via callback.
-      // Each callback short-circuits with a clear error when the run context
-      // has no authenticated owner (see SECURITY note on getCurrentRunOwner).
       const automationGroupEnabled = frameworkTools.isEnabled("automation");
       let automationTools: Record<string, ActionEntry> = {};
       try {
@@ -1791,8 +1622,6 @@ export function createAgentChatPlugin(
         }
       } catch {}
 
-      // Core read-attachment tool — always registered so the agent can page
-      // through large text/CSV/code attachments that were truncated in context.
       let coreAttachmentTools: Record<string, ActionEntry> = {};
       try {
         const { createCoreAttachmentActionEntries } =
@@ -1800,10 +1629,6 @@ export function createAgentChatPlugin(
         coreAttachmentTools = createCoreAttachmentActionEntries();
       } catch {}
 
-      // Keep scheduler and event-trigger runs on one deliberately bounded
-      // background surface. Interactive-only tools stay out of it, while
-      // shared capabilities such as call-agent and core-send-email cannot
-      // drift independently between the two background entry points.
       const getBackgroundActionEntries = async (
         automation?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
@@ -1829,18 +1654,6 @@ export function createAgentChatPlugin(
         };
       };
 
-      // -----------------------------------------------------------------------
-      // Production code-execution mode resolution.
-      //
-      // Priority (highest -> lowest):
-      //   1. AGENT_PROD_CODE_EXECUTION env var ("trusted" | "sandboxed" | "off")
-      //   2. options.codeExecution.production
-      //   3. Default: "off"
-      //
-      // Dev mode ignores this entirely: dev always gets the run-code sandbox.
-      // Build these tools before A2A/MCP registries so every agent-loop surface
-      // has the same code execution capability when enabled.
-      // -----------------------------------------------------------------------
       const rawEnvCodeExec = (process.env.AGENT_PROD_CODE_EXECUTION ?? "")
         .toLowerCase()
         .trim();
@@ -1868,18 +1681,11 @@ export function createAgentChatPlugin(
         );
       }
 
-      // Forward-declaration for the production code-execution bridge supplier.
-      // Must come before the code entries are created so their closures can capture it.
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code, bounded tool-orchestration, and get-code-execution:
-      // available in "sandboxed" or "trusted" prod modes and always in dev
-      // mode. See loadRunCodeToolEntries for the registration contract.
       const runCodeTool: Record<string, ActionEntry> =
         await loadRunCodeToolEntries(
-          // Supplier is evaluated at invocation time so runtime additions to
-          // prodActions (e.g. MCP sync) are visible to the bridge.
           () => filterRuntimeActionsToSurface(prodRunCodeToolActions),
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
@@ -1888,8 +1694,6 @@ export function createAgentChatPlugin(
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
         await loadRunCodeToolEntries(
-          // Lean prompt mode intentionally exposes a much smaller action
-          // surface; keep sandbox appAction() calls scoped to that same surface.
           () => filterRuntimeActionsToSurface(leanRunCodeToolActions),
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
@@ -1897,8 +1701,6 @@ export function createAgentChatPlugin(
           },
         );
 
-      // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
-      // In dev mode this is handled separately via devHandler below.
       const prodCodingTools: Record<string, ActionEntry> = {};
       if (resolvedProdCodeExec === "trusted" && !canToggle) {
         try {
@@ -1907,8 +1709,6 @@ export function createAgentChatPlugin(
           const codingRegistry = createCodingToolRegistry({
             cwd: process.cwd(),
             beforeBash: async ({ command: _command }) => {
-              // In plan mode the agent loop blocks via isPlanModeToolCallAllowed;
-              // this hook is a belt-and-suspenders guard inside trusted production.
               return null;
             },
           });
@@ -1918,14 +1718,8 @@ export function createAgentChatPlugin(
         }
       }
 
-      // Forward-declaration: populated after devActions is assembled below.
-      // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register code execution (+ get-code-execution) in dev mode (when the
-      // coding module loads). devActions is not yet defined at this point; we
-      // use a late-binding supplier so devRunCodeTool can reference the
-      // devActions registry once it is built below (see devHandler block).
       const devRunCodeTool: Record<string, ActionEntry> = canToggle
         ? await loadRunCodeToolEntries(
             () => filterRuntimeActionsToSurface(devRunCodeToolActions),
@@ -1936,9 +1730,6 @@ export function createAgentChatPlugin(
           )
         : {};
 
-      // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
-      // it teaches by name — kept as one value so the prompt text and the
-      // initial-tool-set expansion just below can never drift apart.
       const corpusPromptRegistry = {
         ...templateScripts,
         ...(canToggle
@@ -1947,19 +1738,6 @@ export function createAgentChatPlugin(
             ? runCodeTool
             : {}),
       };
-      // `generateCorpusToolsPrompt` teaches provider-api-request /
-      // provider-corpus-job / query-staged-dataset / run-code BY NAME
-      // whenever they're registered, regardless of whether they made the
-      // curated initial-tool-names list — a prior comment here (since
-      // removed) warned this exact mismatch "caused prod runs to waste
-      // turns": the model reads about a tool in the system prompt, tries to
-      // call it immediately, and finds it missing from the very first
-      // engine request until it calls tool-search. Fold in exactly the tool
-      // names the corpus prompt would announce for THIS registry so the two
-      // always agree. `corpusToolNamesTaughtByPrompt` returns [] for apps
-      // that never emit the corpus prompt (no provider/run-code tools
-      // registered), so this never silently expands the initial set for
-      // apps that don't teach these tools by name.
       const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
       const corpusToolNames = loadCorpusToolsInitially
         ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
@@ -1968,9 +1746,6 @@ export function createAgentChatPlugin(
         ...new Set([
           ...templateInitialToolNames,
           ...corpusToolNames,
-          // Setup CTAs are recovery actions, but they must be available on the
-          // first request so a missing provider renders the card immediately
-          // instead of spending another turn in tool-search.
           ...resolveConnectSetupInitialToolNames(browserTools),
           ...Object.keys(hostedBuilderHandoff),
         ]),
@@ -1993,11 +1768,6 @@ export function createAgentChatPlugin(
         }
       };
 
-      // In dev mode, template actions (templateScripts and discoveredActions) are
-      // NOT registered as native tools — the agent invokes them via bash instead.
-      // This avoids degenerate empty-object tool calls that Anthropic models
-      // sometimes emit for actions with complex schemas. Production keeps the
-      // native registration since it has no shell access.
       const allScripts = attachToolSearch(
         canToggle
           ? {
@@ -2094,10 +1864,6 @@ export function createAgentChatPlugin(
           })
         : undefined;
 
-      // The surface external agents get: everything the app's agent has, plus
-      // the MCP-only actions the agent filter removed. The agent sets win on a
-      // name collision, which by construction cannot happen — an action is in
-      // one set or the other, never both.
       const externalActions = { ...mcpOnlyActions, ...allScripts };
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
@@ -2194,8 +1960,6 @@ export function createAgentChatPlugin(
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
-          // 1. JWT-verified email from A2A receiver (auth boundary already
-          //    enforced upstream). Works in dev AND prod.
           try {
             const { getRequestUserEmail } =
               await import("./request-context.js");
@@ -2226,10 +1990,6 @@ export function createAgentChatPlugin(
             }
             const strictlyDev = process.env.NODE_ENV === "development";
             const localAuthMode = process.env.AUTH_MODE === "local";
-            // Request host check: rely on the request-context request origin
-            // which prepareRun() / mountActionRoutes populate. The A2A
-            // handler doesn't have direct H3 event access, but on a
-            // misconfigured non-localhost dev box we still want to refuse.
             let isLocalHost = false;
             try {
               const origin = getRequestRunContext()?.requestOrigin;
@@ -2240,11 +2000,6 @@ export function createAgentChatPlugin(
                   url.hostname === "127.0.0.1" ||
                   url.hostname === "::1";
               } else {
-                // No origin in context — the A2A handler runs without an
-                // explicit request origin. Treat absence as permissive only
-                // when we're confident the process is dev-only (NODE_ENV
-                // strictly "development" + AUTH_MODE=local). Otherwise
-                // refuse.
                 isLocalHost = strictlyDev && localAuthMode;
               }
             } catch {
@@ -2318,8 +2073,6 @@ export function createAgentChatPlugin(
             return;
           }
 
-          // Use the SAME agent setup as the interactive chat — identical tools,
-          // prompt, and capabilities. The A2A agent IS the app's agent.
           const { resolveOwnerEngineApiKey } =
             await import("../agent/production-agent.js");
           const {
@@ -2331,22 +2084,11 @@ export function createAgentChatPlugin(
             ownerEmail: userEmail,
             anthropicFallback: options?.apiKey,
           });
-          // A2A runs are reconstructed in a fresh processor request, so they
-          // do not pass through the interactive handler's prepareRun hook.
-          // Seed the same mutable run context before resolving the engine and
-          // building tools. Provider credentials, team/fetch helpers, and
-          // other action closures read this context rather than the engine
-          // argument alone; without it delegated runs can silently fall back
-          // to an unscoped/unconfigured provider path even though interactive
-          // chat works for the same owner.
           const a2aRunContext = ensureRequestRunContext();
           if (a2aRunContext) {
             a2aRunContext.owner = userEmail;
             a2aRunContext.userApiKey = ownerApiKey;
             a2aRunContext.userApiKeyEnvVar = ownerApiKeyEnvVar;
-            // The async processor restores the original request origin from
-            // task metadata. Only derive a fallback for synchronous A2A calls
-            // where the inbound event is still the caller request.
             if (!a2aRunContext.requestOrigin) {
               const restoredOrigin = getRequestContext()?.requestOrigin;
               if (restoredOrigin) {
@@ -2371,7 +2113,6 @@ export function createAgentChatPlugin(
 
           const devActive = isDevMode();
 
-          // Build the same system prompt the interactive agent uses
           const owner = userEmail;
           const resources = await loadResourcesForPrompt(
             owner,
@@ -2395,29 +2136,14 @@ export function createAgentChatPlugin(
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
-          // Preference only, and last before the default: an app that pinned
-          // a model keeps it. Read separately from the correlation sanitizer
-          // below so it stays out of every identity/access path.
           const a2aCallerModelHint = correlation.callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
             explicitModel: resolveConfiguredAgentModel(options),
             storedModel: a2aStoredModel,
             callerModelHint: a2aCallerModelHint,
           });
-          // The interactive path logs its model AND where the model came from;
-          // this path logged neither, so "the same app answers me in 27s but
-          // takes 5 minutes when another app asks" had no way to be checked.
-          // The usual answer is right here: the chat model picker is a
-          // browser-local preference, so it reaches an interactive turn as the
-          // highest-precedence request model and never reaches this path at
-          // all — a delegated turn falls through to the app's stored model or
-          // the engine default, which can be a different, weaker model.
           console.log(
             `[a2a] resolved engine=${a2aEngine.name} model=${model} ` +
-              // A hint the callee's engine does not offer is dropped, so the
-              // label is derived from what actually won — reporting
-              // "caller-hint" for a rejected hint would send the next person
-              // debugging this in exactly the wrong direction.
               `modelSource=${
                 resolveConfiguredAgentModel(options)
                   ? "configured"
@@ -2433,14 +2159,7 @@ export function createAgentChatPlugin(
             a2aRunContext.model = model;
           }
 
-          // Keep delegated runs aligned with the interactive production
-          // prompt's model-specific behavior without importing interactive
-          // onboarding into a background/cross-app task.
           const modelOverlay = getModelFamilyOverlay(model);
-          // Stable content first, most-volatile-per-day last: the
-          // runtime-context block is appended after resources/schema/extra so
-          // a day rollover (or the resources/extra content changing) only
-          // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
           const selectedReceiverContext =
             receiverOwnsObjective && options?.appId
@@ -2531,8 +2250,6 @@ export function createAgentChatPlugin(
             effectiveInitialToolNames,
             {
               receiverOwnsObjective,
-              // Same curated set the MCP mount serves: config names plus the
-              // actions that declare `mcpTool: true` themselves.
               localCapabilityNames: [
                 ...new Set([
                   ...(mcpOptions.connectorCatalog ?? []),
@@ -2542,8 +2259,6 @@ export function createAgentChatPlugin(
             },
           );
 
-          // Precise current time rides the user message (not the cached
-          // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
             {
               role: "user",
@@ -2553,8 +2268,6 @@ export function createAgentChatPlugin(
             },
           ];
 
-          // Run the SAME agent loop, then extract the final answer from the
-          // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let a2aOutcome: AgentLoopOutcome | undefined;
@@ -2694,9 +2407,6 @@ export function createAgentChatPlugin(
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
-              // Without the hosted default an app that never sets
-              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
-              // bare `runAgentLoop` — no resume at all on a delegated turn.
               useHostedDefault: true,
               backgroundFunction:
                 isAgentChatDurableBackgroundEnabled({
@@ -2725,8 +2435,6 @@ export function createAgentChatPlugin(
             },
           );
 
-          // The continuation can observe terminal output immediately, so make
-          // its latest mutation checkpoint durable first.
           checkpointActivity(true);
           await recoverableArtifactStatusWriter.flush();
 
@@ -2849,7 +2557,6 @@ export function createAgentChatPlugin(
             `[A2A] Loop complete. Text: ${responseText.slice(0, 100)}...`,
           );
 
-          // Yield the final accumulated text
           yield {
             role: "agent" as const,
             parts: [
@@ -2875,13 +2582,6 @@ export function createAgentChatPlugin(
         },
       });
 
-      // Generate an "Available Actions" section from template-specific actions
-      // so the agent knows to use them instead of raw SQL.
-      //
-      // Production: actions are native tools — emit `name(arg*: type) — desc`
-      // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
-      //      and include discoveredActions too, since those are also missing
-      //      from the dev tool registry.
       const corpusToolsPrompt = loadCorpusToolsInitially
         ? generateCorpusToolsPrompt(corpusPromptRegistry)
         : "";
@@ -2943,20 +2643,12 @@ export function createAgentChatPlugin(
         );
       };
 
-      // Build system prompts — dynamic functions that pre-load resources per-request.
-      // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
-      // Custom systemPrompt from options overrides the framework default entirely.
       const prodPrompt =
         (options?.systemPrompt ??
           (lazyContext
             ? PROD_FRAMEWORK_PROMPT_COMPACT
             : PROD_FRAMEWORK_PROMPT)) + prodActionsPrompt;
-      // When template actions are registered as native tools in dev (via
-      // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
-      // template actions via bash" guidance is wrong — use the prod prompt
-      // + tool-format action list instead, same as production.
       const devNative = options?.nativeActionsInDev === true || leanPrompt;
-      // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
         Object.fromEntries(
@@ -2991,7 +2683,6 @@ export function createAgentChatPlugin(
       };
 
       if (mcpOptions.enabled) {
-        // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: options?.appId
@@ -3054,10 +2745,6 @@ export function createAgentChatPlugin(
               mcpEngine.defaultModel;
             const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
-            // Same actions as A2A — without call-agent to prevent loops.
-            // `ask_app` is delegated too, so template actions stay native in dev
-            // here for the same reason as the A2A surface above: an external
-            // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpActions = attachToolSearch(
               devActiveMcp
@@ -3097,14 +2784,6 @@ export function createAgentChatPlugin(
                   },
             );
 
-            // Same compact initial-tool surface as interactive chat and A2A:
-            // template actions + the small framework default set stay visible
-            // on the first request; everything else (provider, MCP, extension
-            // schemas) is reachable through the attached `tool-search` entry
-            // via `runAgentLoop`'s mid-run tool expansion. Without this, every
-            // external host calling `ask_app` (MCP) paid for a near-full
-            // catalog on its very first request, undermining the compact MCP
-            // catalog this surface is supposed to keep external callers on.
             const mcpToolSurface = createA2AEngineToolSurface(
               actionsToEngineTools(mcpActions),
               effectiveInitialToolNames,
@@ -3151,8 +2830,6 @@ export function createAgentChatPlugin(
                     content: [
                       {
                         type: "text",
-                        // Precise time rides the user message, not the cached
-                        // system-prompt prefix.
                         text: message + buildCurrentTimeUserContext(),
                       },
                     ],
@@ -3190,8 +2867,6 @@ export function createAgentChatPlugin(
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
-                // Same as the A2A call site: without this a hosted app that
-                // never configured `runSoftTimeoutMs` gets no resume at all.
                 useHostedDefault: true,
                 backgroundFunction:
                   isAgentChatDurableBackgroundEnabled({
@@ -3218,8 +2893,6 @@ export function createAgentChatPlugin(
         });
       }
 
-      // Resolve owner from the H3 event's session, with an optional
-      // template-provided anonymous owner for public read-only surfaces.
       const resolveOwnerContext = async (
         event: any,
       ): Promise<AgentRunOwnerContext> => {
@@ -3248,22 +2921,12 @@ export function createAgentChatPlugin(
 
       registerChatThreadsShareable();
 
-      // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
-      // Include engine management script so the UI can call manage-agent-engine.
-      // HTTP/frontend surface keeps the full `*All` sets so actions with
-      // `agentTool: false` (hidden from every agent tool list) remain callable
-      // via `useActionMutation` / `callAction` / `/_agent-native/actions/<name>`.
       const httpActions: Record<string, ActionEntry> = {
         ...discoveredActionsAll,
         ...templateScriptsAll,
         ...engineScripts,
         ...loopSettingsScripts,
       };
-      // Framework-level sharing actions — merged with skipExisting semantics so
-      // any template that provides a same-named action wins. When templates use
-      // `loadActionsFromStaticRegistry`, `autoDiscoverActions` never runs, so
-      // this is the single point that guarantees share-resource, unshare-resource,
-      // list-resource-shares, and set-resource-visibility are always mounted.
       try {
         const { mergeCoreSharingActions } =
           await import("./action-discovery.js");
@@ -3290,18 +2953,11 @@ export function createAgentChatPlugin(
           actionRouteAuth: options?.actionRouteAuth,
         });
       }
-      // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
-      // have to open the (single-process) local database itself while this
-      // server is already holding it open. Gated internally on deploy
-      // environment, loopback, and a per-process token — see dev-action-bridge.ts.
       const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
         await import("./dev-action-bridge.js");
       mountDevActionForwardRoute(nitroApp, httpActions, {
         appId: options?.appId,
       });
-      // `db-query` isn't a registered action, so the route above always 404s
-      // it — this is the dedicated forward target `pnpm action db-query`
-      // uses instead (see dev-query-proxy.ts).
       mountDevDbQueryForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
@@ -3342,8 +2998,6 @@ export function createAgentChatPlugin(
         }
       }
 
-      // Callback to persist agent response when run finishes (even if client disconnected).
-      // Reconstructs the assistant message from buffered events and appends to thread_data.
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
@@ -3354,11 +3008,6 @@ export function createAgentChatPlugin(
           return;
         }
         const chatScope = getRequestRunContext()?.chatScope;
-        // Serialize the read-modify-write against the same thread's other
-        // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
-        // the frontend-triggered saves below). Without the lock, a concurrent
-        // queued-message save can clobber the assistant message we just
-        // appended here, or vice versa.
         await withThreadDataLock(threadId, async () => {
           const thread = await getThread(threadId);
           if (!thread) {
@@ -3384,7 +3033,6 @@ export function createAgentChatPlugin(
             },
           );
           if (!assistantMsg) {
-            // No content produced — just bump timestamp
             await updateThreadData(
               threadId,
               thread.threadData,
@@ -3395,9 +3043,6 @@ export function createAgentChatPlugin(
             return;
           }
 
-          // Parse existing thread_data, append assistant message only if
-          // the frontend hasn't already saved it (avoids duplicates when
-          // the client is still connected during a normal flow).
           let repo: any;
           try {
             repo = JSON.parse(thread.threadData || "{}");
@@ -3415,8 +3060,6 @@ export function createAgentChatPlugin(
             parentId: run.parentId,
           });
 
-          // Store debug metadata so we can inspect what the LLM actually
-          // received (system prompt, model, engine) when diagnosing issues.
           const runCtx = getRequestRunContext();
           const debug = {
             runId: run.runId,
@@ -3437,10 +3080,6 @@ export function createAgentChatPlugin(
           );
         });
 
-        // Checkpoint creation is part of durable turn completion. The helper
-        // catches and reports its own failures, so a broken app checkpoint does
-        // not strand the run while a successful checkpoint cannot be lost when
-        // a serverless invocation exits.
         await runPostAgentTurnAutosave(
           options?.onAgentTurnComplete,
           chatScope,
@@ -3452,8 +3091,6 @@ export function createAgentChatPlugin(
           run,
         );
 
-        // Event triggers and local git checkpoints remain best effort and do
-        // not extend the durable chat persistence gate.
         void (async () => {
           // Emit agent.turn.completed for automation triggers.
           //
@@ -3488,7 +3125,6 @@ export function createAgentChatPlugin(
             // Event bus not available — skip
           }
 
-          // Auto-checkpoint in dev mode after file-modifying agent turns
           if (isDevMode()) {
             try {
               const {
@@ -3503,14 +3139,8 @@ export function createAgentChatPlugin(
                 : undefined;
               if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
 
-              // Only auto-commit checkpoints for changes produced by this run.
-              // If the tree was already dirty, a checkpoint commit would sweep
-              // up the user's unrelated work when a reconnect/refresh finishes.
               const postRunStatus = getUncommittedStatus(cwd);
               const changedPaths = getChangedPaths(cwd);
-              // Shell commands can mutate arbitrary files, so an unreported
-              // changed path has no safe per-run provenance. Skip the automatic
-              // checkpoint instead of claiming another process's work.
               const agentModifiedPaths = resolveAgentCheckpointPaths(
                 cwd,
                 changedPaths,
@@ -3525,7 +3155,6 @@ export function createAgentChatPlugin(
               ) {
                 let summary = "";
 
-                // Try to extract the first sentence of the assistant's text response
                 let assistantText = "";
                 for (const { event } of run.events ?? []) {
                   if (event.type === "text" && typeof event.text === "string") {
@@ -3545,7 +3174,6 @@ export function createAgentChatPlugin(
                   }
                 }
 
-                // Fall back to listing changed files
                 if (!summary) {
                   const files = agentModifiedPathList.map((file) =>
                     file.split(/[\\/]/).pop(),
@@ -3691,10 +3319,6 @@ export function createAgentChatPlugin(
         });
       };
 
-      // ─── Agent Teams: per-run send reference ─────────────────────────
-      // Team tools need to emit events to the parent chat's SSE stream.
-      // Each run gets its own send function, keyed by threadId so concurrent
-      // requests for different threads don't clobber each other.
       const _runSendByThread = new Map<
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
@@ -3702,14 +3326,9 @@ export function createAgentChatPlugin(
       const resolvedModel =
         resolveConfiguredAgentModel(options) ?? DEFAULT_ANTHROPIC_MODEL;
 
-      // The action set a sub-agent inherits. Shared between the spawn-time team
-      // tool and the `_process-run` processor route below so the durable run
-      // executes with exactly the tools the orchestrator intended.
       const buildSubAgentActions = (): Record<string, ActionEntry> =>
         isDevMode()
           ? {
-              // Sub-agents spawned in dev mode also invoke template actions
-              // via bash, so omit them from the native tool registry.
               ...resourceScripts,
               ...docsScripts,
               ...(lazyContext ? frameworkContextTool : {}),
@@ -3757,15 +3376,12 @@ export function createAgentChatPlugin(
         getAppId: () => options?.appId ?? null,
         getParentRunId: () => getRequestRunContext()?.runId ?? "",
         getSend: () => {
-          // Return the send for the current run's thread
           const threadId = getRequestRunContext()?.threadId ?? "";
           const send = _runSendByThread.get(threadId);
           return send ?? null;
         },
       });
 
-      // Hook into the run lifecycle to set/clear the send reference.
-      // Job management tool (manage-jobs)
       let jobTools: Record<string, ActionEntry> = {};
       try {
         if (automationGroupEnabled) {
@@ -3774,14 +3390,6 @@ export function createAgentChatPlugin(
         }
       } catch {}
 
-      // Lean mode: only template actions + essential framework tools. Drop
-      // web-request, browser tools, teams, jobs, automations, notifications,
-      // progress, and MCP entries to keep the tool list tight and prevent the
-      // LLM from reaching for web-request instead of the template's native
-      // actions (e.g. log-meal). Cross-app delegation is the exception: when
-      // it is enabled, keep its two discovery/delegation tools available even
-      // in lean mode because the framework prompt and default starter surface
-      // still promise sibling-app routing.
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
@@ -3797,10 +3405,6 @@ export function createAgentChatPlugin(
         filterReadOnlyActions(templateScripts),
       );
 
-      // Full-database admin tools. Gated on NODE_ENV=development to match the
-      // DB-admin UI + HTTP routes (which gate on the environment, not the
-      // Code-mode toggle), so the agent has the same DB-admin capability the UI
-      // does whenever it is available — true agent/UI parity, in App or Code mode.
       const dbAdminScripts =
         databaseToolsEnabled && process.env.NODE_ENV === "development"
           ? databaseWriteToolsEnabled
@@ -3836,10 +3440,7 @@ export function createAgentChatPlugin(
         ...coreAttachmentTools,
         ...browserTools,
         ...mcpActionEntries,
-        // Sandboxed run-code for hosted production when enabled, and for the
-        // app-rendered production-style handler in local dev.
         ...(canToggle || effectiveProdCodeExec !== "off" ? runCodeTool : {}),
-        // Full coding tools in production when mode is "trusted".
         ...(!canToggle && effectiveProdCodeExec === "trusted"
           ? prodCodingTools
           : {}),
@@ -3885,26 +3486,16 @@ export function createAgentChatPlugin(
           }),
       });
 
-      // Wire the prod run-code bridge supplier so it sees the fully-assembled
-      // prodActions registry (including MCP entries added at runtime).
       prodRunCodeToolActions = prodActions;
 
       const leanActions = attachToolSearch({
         ...leanActionEntries,
-        // Lean mode still needs run-code when code execution is enabled.
-        // Otherwise templates with a minimal prompt can advertise sandboxed
-        // execution in the system prompt while the actual tool registry omits
-        // it.
         ...(canToggle || effectiveProdCodeExec !== "off"
           ? leanRunCodeTool
           : {}),
       });
       leanRunCodeToolActions = leanActions;
 
-      // Keep the prod action dict's MCP entries in sync when the manager's
-      // server set changes at runtime (e.g. a user adds a remote MCP server
-      // through the settings UI). getEngineTools() in production-agent re-reads
-      // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
         syncMcpActionEntries(
           mcpManager,
@@ -3914,13 +3505,8 @@ export function createAgentChatPlugin(
         syncMcpActionEntries(mcpManager, prodActions, mcpActionEntryOptions);
       });
 
-      // Always build the production handler (includes resource tools + call-agent + team tools)
-      // In production mode (!canToggle), resolve the owner from the request session.
       const isHostedProd = !canToggle;
 
-      // Lean mode: use only the template's systemPrompt + actions list.
-      // Skip resource loading and schema block — those add DB round-trips
-      // and tokens that minimal/voice apps don't need.
       const anonymousReadOnlyPrompt =
         (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
         generateActionsPrompt(
@@ -3950,13 +3536,6 @@ export function createAgentChatPlugin(
         );
       };
 
-      // Per-request preamble shared by both prod and dev handlers. Resolves
-      // owner + user API key onto the AsyncLocalStorage run context so
-      // downstream tool closures (automation, fetch, team) read the
-      // current request's identity without racing against concurrent
-      // requests. `extraContext` runs in every prompt variant (lean, lazy,
-      // full) — if a template defined it, they opted in; framework-provided
-      // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
         const owner = await getOwnerFromEvent(event);
         const orgId = await getOrgIdFromEvent(event);
@@ -4098,11 +3677,6 @@ export function createAgentChatPlugin(
         setContextXraySystemSections(event, sections);
       };
 
-      /**
-       * Read the model family overlay for the currently-resolved model.
-       * onEngineResolved sets runCtx.model before systemPrompt is called, so
-       * this returns a non-empty string for GPT/Gemini engines.
-       */
       const resolveModelOverlay = (): string => {
         const runCtx = ensureRequestRunContext();
         const model = runCtx?.model;
@@ -4118,11 +3692,6 @@ export function createAgentChatPlugin(
           tzRaw.trim().length < 64
             ? tzRaw.trim()
             : undefined;
-        // Thread the ambient sub-agent delegation depth so a sub-agent running
-        // at the depth cap is told in its runtime context that it cannot
-        // delegate further. The depth-guard already enforces the cap
-        // server-side (`evaluateSubagentDepth`); this only surfaces it to the
-        // model. 0 (the top-level chat) emits no delegation line.
         const delegationDepth = getCurrentDelegationDepth();
         const authorization = getRequestRunContext()?.appAuthorization;
         const identityLine = authorization
@@ -4138,12 +3707,6 @@ export function createAgentChatPlugin(
         return `${buildRuntimeContextPrompt({ timezone, delegationDepth })}${identityLine}`;
       };
 
-      // The app-rendered sidebar must never edit the app's source code
-      // directly. Source-file edits can trigger HMR or full reloads of the
-      // same React tree that is hosting the chat, interrupting the run and
-      // losing in-progress UI state. Code edits are allowed only from the
-      // outer dev frame (x-agent-native-surface: dev-frame) or from separate
-      // agent surfaces such as Builder/A2A/MCP handoffs.
       const shouldBlockInProductCodeEditing = (event: any): boolean =>
         shouldBlockInProductCodeEditingSurface({
           surface: getHeader(event, "x-agent-native-surface"),
@@ -4165,7 +3728,6 @@ When the user asks to add a feature, edit a component, fix a bug in the app itse
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.
 </app-rendered-chat-no-direct-code-edits>`;
 
-      // System-prompt note appended when production code execution is enabled.
       const prodCodeExecPromptNote =
         !canToggle && effectiveProdCodeExec !== "off"
           ? effectiveProdCodeExec === "trusted"
@@ -4195,16 +3757,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const requestProdCodeExecPromptNote = hostedHarnessRuntime
             ? ""
             : prodCodeExecPromptNote;
-          // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
-          // Stable-first ordering: base prompt / schema / extra come before
-          // the runtime-context block, which is appended LAST. runtimeContext
-          // only changes once per calendar day, but placing it after any
-          // less-stable content would still invalidate the cached prefix for
-          // everything that follows it — putting it last means a day
-          // rollover invalidates as little of the prefix as possible.
-          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
-          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -4251,8 +3804,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             undefined,
             { disabledFrameworkGroups },
           );
-          // In lazy context mode, skip embedding the full schema. When database
-          // tools are enabled the agent can call `db-schema` on demand.
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
@@ -4326,9 +3877,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // Drain any parent-completion injections queued by finished sub-agents
-          // and prepend them to the user message so the orchestrator sees results
-          // at the start of this turn rather than only after a manual poll.
           const threadId = details.threadId;
           let completionPrefix = "";
           if (threadId && !details.internalContinuation) {
@@ -4346,7 +3894,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // best-effort — never break the run
             }
           }
-          // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
           if (!completionPrefix) return templateResult ?? undefined;
           const baseMessage =
@@ -4402,7 +3949,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
-        // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
 
@@ -4472,26 +4018,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             })
           : null;
 
-      // Build the dev handler (with filesystem/bash/db tools) if environment allows toggling
       let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
         null;
       if (canToggle) {
         const { createDevScriptRegistry } =
           await import("../scripts/dev/index.js");
-        // Dev mode: template actions (templateScripts and discoveredActions) are
-        // intentionally OMITTED from the native tool registry. The agent invokes
-        // them via `bash(command="pnpm action <name> ...")` instead. This mirrors
-        // how Claude Code works locally and dramatically reduces the rate of
-        // degenerate empty-object tool calls. The CLI syntax for each action is
-        // listed in the dev system prompt's "Available Actions" section.
-        // In lean mode — or when `nativeActionsInDev` is set — expose the
-        // template's actions as native tools instead of routing through bash.
-        // Templates with structured-arg actions (objects/arrays) need this to
-        // avoid round-tripping JSON through the CLI parser.
-        // Request-scoped dev actions are present for authorization and the
-        // `pnpm action` prompt, but remain CLI-only instead of becoming native
-        // tools. The resolver therefore sees the same action names that the
-        // dev prompt can teach without changing the shell-backed dev surface.
         const requestScopedDevActions = options?.resolveActionSurface
           ? Object.fromEntries(
               Object.entries({ ...discoveredActions, ...templateScripts }).map(
@@ -4499,9 +4030,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ),
             )
           : {};
-        // Keep the local coding registry in every dev handler variant. Native
-        // action mode changes how app actions are called; it must not remove
-        // bash/read/edit/write from Electron's local chat surface.
         const devScriptRegistry = await createDevScriptRegistry({
           databaseTools: databaseToolsMode,
         });
@@ -4570,19 +4098,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...browserTools,
                   ...mcpActionEntries,
                   ...devScriptRegistry,
-                  // Full-database admin tools (NODE_ENV=development gate — see
-                  // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
-                  // run-code sandbox is always available in dev mode.
                   ...devRunCodeTool,
                 },
         );
-        // Wire the late-binding supplier for devRunCodeTool so the bridge can
-        // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
-        // Keep dev action dict in sync with runtime MCP additions. When
-        // native-actions mode is on (lean or `nativeActionsInDev`), devActions
-        // === prodActions so the prod listener already covers it.
         if (devActions !== prodActions && devActions !== leanActions) {
           mcpManager.onChange(() => {
             syncMcpActionEntries(mcpManager, devActions, mcpActionEntryOptions);
@@ -4600,10 +4120,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const requestDevPrompt = resolveRequestDevPrompt();
             const runtimeContext = runtimeContextForEvent(event);
             const modelOverlay = resolveModelOverlay();
-            // Stable-first ordering: runtimeContext (day-granular) is
-            // appended LAST so a day rollover invalidates as little of the
-            // cached prompt prefix as possible. See the prod handler above
-            // for the same pattern.
             if (leanPrompt) {
               const resources = await loadResourcesForPrompt(
                 owner,
@@ -4748,17 +4264,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         });
       }
 
-      // Resolve mention providers
       const rawProviders = options?.mentionProviders;
       const mentionProviders: Record<string, MentionProvider> =
         typeof rawProviders === "function"
           ? await rawProviders()
           : (rawProviders ?? {});
 
-      // currentDevMode + persistence were hoisted to the top of this function
-      // so every closure built below can close over the live flag.
-
-      // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
       getH3App(nitroApp).use(
         `${routePath}/mode`,
         defineEventHandler(async (event) => {
@@ -4799,11 +4310,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Self-heal the RunsTray: when the tray lists this owner's runs, first
-      // reconcile their in-flight sub-agent runs (re-fire dropped dispatches,
-      // mark dead runs failed) so the tray reflects precise status without
-      // waiting on the orchestrator chat to poll. Registered here to keep the
-      // generic progress store free of feature-module imports.
       setProgressPreListHook((owner, context) =>
         runWithRequestContext({ userEmail: owner }, () =>
           reconcileAgentTeamRunsForOwner(owner, context.event),
@@ -4869,8 +4375,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               event,
               noProgressCount,
               resolveConfig: async ({ payload, ownerEmail, orgId: _orgId }) => {
-                // Resolve the owner's API key so BYO-key sub-agents use the
-                // same credentials as the parent chat.
                 let resolvedKey: ResolvedOwnerApiKey = {
                   apiKey: undefined,
                   apiKeyEnvVar: undefined,
@@ -4886,9 +4390,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 } catch {
                   resolvedKey = { apiKey: undefined, apiKeyEnvVar: undefined };
                 }
-                // Use the same resolveEngine path as the A2A and MCP
-                // processors so Builder-gateway/OpenAI users get their
-                // configured engine instead of always hitting the Anthropic SDK.
                 const engine = await resolveEngine({
                   engineOption: options?.engine,
                   apiKey: resolvedKey.apiKey,
@@ -4904,19 +4405,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   engine.defaultModel ??
                   resolvedModel;
                 const model = normalizeModelForEngine(engine, modelCandidate);
-                // Intentionally NOT setting `initialToolNames` here (unlike
-                // schedulerDeps/dispatcher above). `AgentTeamRunConfig.actions`
-                // (buildSubAgentActions()) is already a small curated registry
-                // — it excludes jobTools/automationTools/notificationTools/
-                // progressTools/fetchTool/webSearchTool/toolActions, the exact
-                // bloat those two surfaces needed to defer. There is no larger
-                // catalog behind it for tool-search to expand into: it IS the
-                // sub-agent's entire tool set. Worse, `buildSubAgentSystemPrompt`
-                // (agent-teams.ts) literally lists every key of `actions` as
-                // "Your available actions (...) work directly" — filtering to
-                // anything narrower would contradict what the sub-agent was
-                // just told, and filtering to the full set would only add a
-                // tool-search schema with nothing new for it to find.
                 return {
                   baseSystemPrompt: filterFrameworkPromptToSurface(
                     basePrompt,
@@ -5034,9 +4522,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
       };
 
-      // GET/PUT/DELETE /_agent-native/agent-model-defaults — org-scoped
-      // per-app default engine/model used when a chat request does not carry
-      // an explicit composer model selection.
       getH3App(nitroApp).use(
         "/_agent-native/agent-model-defaults",
         defineEventHandler(async (event) => {
@@ -5194,7 +4679,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Mount file search endpoint
       getH3App(nitroApp).use(
         `${routePath}/files`,
         defineEventHandler(async (event) => {
@@ -5214,7 +4698,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }> = [];
           const seen = new Set<string>();
 
-          // In dev mode, walk the filesystem
           if (currentDevMode) {
             const codebaseFiles: Array<{
               path: string;
@@ -5239,8 +4722,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // Query resources. The organization decides which workspace defaults
-          // are visible, so failing to resolve it is not "no resources".
           const filesOrgId = await resolveResourceOrgId(
             event,
             options?.resolveOrgId,
@@ -5269,7 +4750,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Resources not available — skip
           }
 
-          // Filter by query and limit
           const filtered = q
             ? files.filter((f) => f.path.toLowerCase().includes(q))
             : files;
@@ -5278,7 +4758,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Mount skills listing endpoint
       getH3App(nitroApp).use(
         `${routePath}/skills`,
         defineEventHandler(async (event) => {
@@ -5295,10 +4774,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }> = [];
           const seenNames = new Set<string>();
 
-          // Bundled template skills are available in production via the
-          // virtual agents bundle, not the runtime filesystem. Surface them in
-          // the slash/skill picker so production users can explicitly invoke
-          // the same skills that are present in the prompt and docs-search.
           try {
             const { loadAgentsBundle, getRuntimeSkills } =
               await import("./agents-bundle.js");
@@ -5320,7 +4795,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Bundle unavailable — fall back to dev filesystem/resources below.
           }
 
-          // In dev mode, scan .agents/skills/ plus legacy .agent/skills/.
           if (currentDevMode) {
             try {
               const _fs = await lazyFs();
@@ -5348,12 +4822,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   continue;
                 }
                 for (const entry of entries) {
-                  // Support both flat .md files and subdirectory-based skills (dir/SKILL.md)
                   let skillFilePath: string;
                   let skillRelPath: string;
 
                   if (entry.isDirectory()) {
-                    // Subdirectory layout: <skills-root>/<name>/SKILL.md
                     const candidate = nodePath.join(
                       root.dir,
                       entry.name,
@@ -5363,7 +4835,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     skillFilePath = candidate;
                     skillRelPath = `${root.display}/${entry.name}/SKILL.md`;
                   } else if (entry.isFile() && entry.name.endsWith(".md")) {
-                    // Flat layout: <skills-root>/<name>.md
                     skillFilePath = nodePath.join(root.dir, entry.name);
                     skillRelPath = `${root.display}/${entry.name}`;
                   } else {
@@ -5396,9 +4867,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // Query accessible resources with skills/ prefix. Personal skills
-          // need to show alongside shared skills so slash/menu invocation can
-          // find both `learn` and `learn-shared`.
           const skillsOwner = await getOwnerFromEvent(event).catch(
             () => undefined,
           );
@@ -5445,7 +4913,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return a.path.localeCompare(b.path);
             });
             for (const r of resourceSkills) {
-              // Try to get content to parse frontmatter
               let skillName = getSkillNameFromPath(r.path);
               let description: string | undefined;
               let userInvocable: boolean | undefined;
@@ -5492,7 +4959,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Mount unified mentions endpoint (files + resources + custom providers)
       getH3App(nitroApp).use(
         `${routePath}/mentions`,
         defineEventHandler(async (event) => {
@@ -5501,11 +4967,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Method not allowed" };
           }
 
-          // Resolve the caller and run the entire stream inside a request
-          // context so custom mention providers can use `accessFilter` /
-          // `resolveAccess` when querying ownable tables. Without this,
-          // a provider that searches `decks` (or any sharable resource)
-          // would see every row regardless of ownership.
           const mentionsOwner = await getOwnerFromEvent(event).catch(
             () => undefined,
           );
@@ -5542,13 +5003,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const enc = new TextEncoder();
 
-          // Stream NDJSON — each source flushes its batch as soon as it's ready.
           setResponseHeader(event, "Content-Type", "application/x-ndjson");
           setResponseHeader(event, "Cache-Control", "no-cache");
 
-          // Lets `cancel()` signal in-flight source work to stop early on
-          // client disconnect, instead of only being noticed the next time
-          // `flush()`'s `controller.enqueue` throws.
           const mentionsAbort = new AbortController();
 
           const stream = new ReadableStream({
@@ -5568,8 +5025,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             },
             cancel() {
-              // Client disconnected — stop enqueuing and let in-flight source
-              // work short-circuit instead of running to completion unseen.
               mentionsAbort.abort();
             },
           });
@@ -5599,16 +5054,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     enc.encode(JSON.stringify({ items: toSend }) + "\n"),
                   );
                 } catch {
-                  // Stream was closed by client
                   cancelled = true;
                 }
               }
             };
 
-            // All sources run in parallel; each flushes independently.
             const sources: Promise<void>[] = [];
 
-            // 1. Resources from SQL (fast — flush first)
             sources.push(
               (async () => {
                 try {
@@ -5647,7 +5099,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               })(),
             );
 
-            // 2. Codebase files (dev mode only — can be slow on large repos)
             if (currentDevMode) {
               sources.push(
                 (async () => {
@@ -5675,9 +5126,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             }
 
-            // 3. Custom mention providers (each flushes independently)
             for (const [key, provider] of Object.entries(mentionProviders)) {
-              // Client already disconnected — don't spawn more provider work.
               if (mentionsAbort.signal.aborted) break;
               sources.push(
                 (async () => {
@@ -5712,7 +5161,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             }
 
-            // 4. Custom workspace agents
             sources.push(
               (async () => {
                 try {
@@ -5742,7 +5190,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               })(),
             );
 
-            // 5. Peer agent discovery (network call — often slowest)
             sources.push(
               (async () => {
                 try {
@@ -5774,7 +5221,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // ─── Generate thread title ──────────────────────────────────────────
       getH3App(nitroApp).use(
         `${routePath}/generate-title`,
         defineEventHandler(async (event) => {
@@ -5786,9 +5232,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (titleOwnerContext.anonymous) return { title: "" };
           const ownerEmail = titleOwnerContext.owner;
 
-          // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
-          // user from spamming the endpoint to exhaust shared Anthropic
-          // credits on platform-key deployments.
           const now = Date.now();
           const limitWindowMs = 60_000;
           const limitMax = 10;
@@ -5802,10 +5245,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           recent.push(now);
           generateTitleRateLimit.set(ownerEmail, recent);
 
-          // Opportunistic eviction: keep the map from growing unbounded by
-          // the count of distinct users on a long-lived process. Drop any
-          // key whose window has fully drained (no timestamps within the
-          // rolling window).
           if (generateTitleRateLimit.size > RATE_LIMIT_SWEEP_THRESHOLD) {
             for (const [email, times] of generateTitleRateLimit) {
               if (email === ownerEmail) continue;
@@ -5822,8 +5261,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          // Strip hidden context and mention markup before title generation.
-          // Never let injected prompt context become a visible tab label.
           const cleanMessage = message
             .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
             .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
@@ -5862,7 +5299,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       getH3App(nitroApp).use(
         `${routePath}/runs`,
         withTransientDatabaseFallback(`${routePath}/runs`, async (event) => {
-          // Auth check — ensure the user is authenticated
           const owner = await getOwnerFromEvent(event);
 
           const method = getMethod(event);
@@ -5883,9 +5319,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const canEditThread = (threadId: string) =>
             callerHasThreadAccess(owner, threadId, "editor", { orgId });
 
-          // Route: POST /runs/turn/:turnId/abort
-          // Covers the short window where the client has sent a turn but the
-          // server has not yet created its background run id.
           const turnAbortMatch =
             url.match(/\/runs\/turn\/([^/?]+)\/abort/) ||
             url.match(/^\/turn\/([^/?]+)\/abort/);
@@ -5919,8 +5352,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { ok: true };
           }
 
-          // Route: GET /runs/list?goalId=agent-team|agent-harness
-          // Returns background agents in the Code hub-compatible run shape.
           const listMatch =
             url.match(/\/runs\/list(?:[/?]|$)/) ||
             url.match(/^\/list(?:[/?]|$)/);
@@ -5953,9 +5384,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { status: "ok", goalId, runs };
           }
 
-          // Route: POST /runs/:id/stop
-          // Stops a running Agent Teams background run (durable task-based).
-          // Distinct from /abort which operates on in-memory run-manager runs.
           const stopMatch =
             url.match(/\/runs\/([^/?]+)\/stop/) ||
             url.match(/^\/([^/?]+)\/stop/);
@@ -5992,15 +5420,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { ok: true };
           }
 
-          // Route: POST /runs/:id/abort
-          // Match both full URL (/runs/{id}/abort) and h3 prefix-stripped (/{id}/abort)
           const abortMatch =
             url.match(/\/runs\/([^/?]+)\/abort/) ||
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
             if (!(await canEditRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -6011,9 +5436,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
-            // Recovery starts as soon as this response resolves, so wait for
-            // the cross-isolate abort + terminal event to be durable. Returning
-            // early lets Retry collide with the still-running row.
             await abortRunDurably(runId, reason);
             if (USER_STOP_ABORT_REASONS.has(reason)) {
               await abortTurnDurably(runId, reason);
@@ -6021,8 +5443,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { ok: true };
           }
 
-          // Route: GET /runs/:id/background-events
-          // Returns Agent Teams transcript events in the shared background-run shape.
           const backgroundEventsMatch =
             url.match(/\/runs\/([^/?]+)\/background-events/) ||
             url.match(/^\/([^/?]+)\/background-events/);
@@ -6069,15 +5489,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { status: "ok", runId, events };
           }
 
-          // Route: GET /runs/:id/events?after=N
-          // Match both full URL (/runs/{id}/events) and h3 prefix-stripped (/{id}/events)
           const eventsMatch =
             url.match(/\/runs\/([^/?]+)\/events/) ||
             url.match(/^\/([^/?]+)\/events/);
           if (eventsMatch && method === "GET") {
             const runId = decodeURIComponent(eventsMatch[1]);
             if (!(await canViewRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -6104,7 +5521,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return stream;
           }
 
-          // Route: GET /runs/latest?threadId=X
           if (method === "GET" && url.includes("/runs/latest")) {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
@@ -6142,7 +5558,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
 
-          // Route: GET /runs/active?threadId=X
           if (method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
@@ -6151,10 +5566,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return { error: "threadId query parameter is required" };
             }
 
-            // Only reveal a thread's active run to viewers/editors of the
-            // thread. Present unauthorized users (or unknown threads) as idle
-            // rather than 404 so thread existence isn't leaked and the client
-            // polls benignly.
             if (!(await canViewThread(threadId))) {
               return {
                 active: false,
@@ -6165,7 +5576,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
 
-            // Check in-memory first, then SQL (cross-isolate on Workers)
             const run = await getActiveRunForThreadAsync(threadId);
             if (!run) {
               return {
@@ -6176,11 +5586,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 lastProgressAt: null,
               };
             }
-            // The durable worker writes its pre-claim progression to a separate
-            // `worker_stage` column that the foreground inline-recovery's
-            // `setup_timings` write never overwrites — so the worker's last
-            // reached stage (where it stalled before claiming) survives even
-            // after the foreground takes over `diag_stage`. Best-effort.
             const workerClaim = run.runId
               ? await readBackgroundRunClaim(run.runId).catch(() => null)
               : null;
@@ -6195,12 +5600,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
-              // Durable-background diagnostics: how the run was dispatched and
-              // the last reached `_process-run` worker stage (JSON
-              // `{stage,detail?,at}`). Surfaced here so a silent background
-              // worker death is diagnosable from the client WITHOUT the
-              // unreadable Netlify background-function logs — read
-              // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
               terminalReason: run.terminalReason ?? null,
               // Who is paying for AI here, which is also who is reading a
@@ -6211,8 +5610,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               deploymentPaysForAi: isBuilderGatewayDeployConfigured(),
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
-              // Server clock so the client computes "stuck" elapsed time
-              // server-relative, immune to client clock skew.
               serverNow: Date.now(),
               // True exactly when this run is a `chainServerDrivenContinuation`
               // deferral still inside `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
@@ -6221,18 +5618,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
               // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
               awaitingRedispatch: run.awaitingRedispatch === true,
-              // True exactly when this run holds an open tool call or A2A
-              // `agent_call` delegation (`in_flight_since` set — the same
-              // marker `reapIfStale` reads to grant its bounded stale-reap
-              // grace, see run-store.ts). This is the server-authoritative
-              // signal for "would aborting this run right now destroy live
-              // work" — RunStuckBanner's Retry gating should prefer this
-              // field over its client-side proxy (unresolved `tool-call`
-              // content parts in the local message list), which can go stale
-              // after a reconnect or reader-mode replay. NOTE: this response
-              // object is explicitly field-picked, not spread — a field added
-              // to `getActiveRunForThreadAsync`'s return type does NOT reach
-              // the wire on its own; it must be listed here too.
               hasInFlightWork: run.hasInFlightWork === true,
             };
           }
@@ -6242,13 +5627,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // ─── Checkpoint endpoints ──────────────────────────────────────────────
       getH3App(nitroApp).use(
         `${routePath}/checkpoints`,
         defineEventHandler(async (event) => {
           const method = getMethod(event);
 
-          // GET /checkpoints?threadId=... — list checkpoints for a thread
           if (method === "GET") {
             if (!canToggle) {
               setResponseStatus(event, 403);
@@ -6279,7 +5662,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // POST /checkpoints/restore — restore to a checkpoint.
           const restorePath = event.path || event.node?.req?.url || "";
           if (method === "POST" && isCheckpointRestorePath(restorePath)) {
             if (!canToggle) {
@@ -6329,7 +5711,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Not a git repository" };
               }
-              // Save current state before restoring so user can undo the undo
               if (hasUncommittedChanges(cwd)) {
                 gitCheckpoint(cwd, "[agent-native] Pre-restore checkpoint");
               }
@@ -6338,7 +5719,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 500);
                 return { error: "Failed to restore checkpoint" };
               }
-              // Trigger UI refresh
               try {
                 const { recordChange } = await import("./poll.js");
                 recordChange({
@@ -6359,7 +5739,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // ─── Public read-only shared thread endpoint ─────────────────────────
       getH3App(nitroApp).use(
         `${routePath}/shared`,
         defineEventHandler(async (event) => {
@@ -6371,9 +5750,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // ─── Thread management endpoints ──────────────────────────────────────
-      // Single handler for /threads and /threads/:id — h3's use() does prefix
-      // matching so we can't reliably split them into separate handlers.
       const parseScopeFromQuery = (
         q: Record<string, unknown>,
       ): ChatThreadScope | null => {
@@ -6469,7 +5845,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             scopesMatch(thread.scope, requestedScope) ||
             (!thread.scope && scopesMatch(incomingScope, requestedScope));
 
-          // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
               const thread = await resolveThreadAccess(
@@ -6486,12 +5861,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "PUT") {
-              // Hold the thread_data lock for the full read-modify-write so
-              // periodic saves from the frontend don't race with
-              // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
-              // Without the lock, a client save that lands during an agent
-              // run could clobber the assistant message the server just
-              // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
                 const body = await readBody(event);
                 const bodyIncludesScope = Boolean(
@@ -6551,10 +5920,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
                 if (body.threadData) {
                   try {
                     const existing = JSON.parse(thread.threadData);
@@ -6596,10 +5961,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
             }
 
-            // POST /threads/:id/queued — debounced writes from the client
-            // when the user adds/removes/dequeues a queued message. Keeps
-            // queued messages durable across reloads without piggybacking
-            // on full-thread saves.
             if (method === "POST" && isThreadSubroute("queued")) {
               const thread = await resolveThreadAccess(
                 owner,
@@ -6699,7 +6060,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return { ok: true };
             }
 
-            // POST /threads/:id/fork — duplicate a thread with all its messages
             if (method === "POST" && isThreadSubroute("fork")) {
               const thread = await resolveThreadAccess(
                 owner,
@@ -6784,7 +6144,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Method not allowed" };
           }
 
-          // ── Thread list: GET/POST /threads ──
           if (method === "GET") {
             const query = getQuery(event);
             const limit = Math.min(
@@ -6869,13 +6228,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               return existing;
             };
-            // Idempotent: when the caller supplies an id and a thread with
-            // that id already exists for this owner, return it instead of
-            // 500'ing on the UNIQUE constraint. The client can race with
-            // the agent run's `persistSubmittedUserMessage` (which also
-            // creates the thread on first message); we don't want either
-            // racer's POST/onRunPrepared retry to wipe the thread out of
-            // the user's history.
             if (body?.id) {
               const existing = await getThread(body.id);
               if (existing) {
@@ -6896,9 +6248,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
               return thread;
             } catch (err) {
-              // Lost the create race against another in-flight POST or
-              // against `persistSubmittedUserMessage`. Re-fetch and
-              // return the row that actually landed.
               if (body?.id) {
                 const existing = await getThread(body.id);
                 if (existing && existing.ownerEmail === owner) {
@@ -6915,18 +6264,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Shared per-request invocation: resolve auth/org/timezone context, then
-      // pick the dev/prod/anonymous handler and run it inside the request
-      // context. Used by the main chat POST and by the durable-background
-      // `_process-run` processor route (which re-enters the same handler set as
-      // the background worker), so both go through identical context + handler
-      // selection.
       const invokeAgentChatHandler = async (event: any) => {
-        // Chat is the main MCP consumer, and on serverless nothing hydrated the
-        // manager at boot. Awaiting here trades first-chat latency for tools
-        // that are actually present instead of a silently MCP-less run.
         await ensureMcpInitialized();
-        // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
 
         return runWithAgentRunContext(
@@ -6939,11 +6278,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             ),
           },
           () => {
-            // App-rendered chat can't host direct code edits — HMR/full
-            // reloads would kill the same chat surface mid-run. Force the
-            // prod handler (no shell / no fs); the prompt block injected by
-            // `prodHandler.systemPrompt` then steers source changes to a
-            // separate agent surface such as Builder or the dev frame.
             const blockInProductCodeEditing =
               shouldBlockInProductCodeEditing(event);
             const hostedHarnessRequest =
@@ -6996,9 +6330,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       if (streamingRuntime) {
-        // The exact public-path registry bypasses the normal cookie guard for
-        // this one route. The route immediately below still verifies the
-        // purpose-bound bearer token before entering the shared chat handler.
         const app = getH3App(nitroApp);
         registerAuthPublicPaths([AGENT_CHAT_STREAM_PATH], app);
         app.use(
@@ -7052,7 +6383,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Method not allowed" };
           }
 
-          // Consume the body ONCE (h3 v2's web Request stream is single-use).
           let processBody: any;
           try {
             processBody = await readBody(event);
@@ -7061,24 +6391,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Invalid request body" };
           }
 
-          // Validate + HMAC-authenticate the self-dispatch and prepare the
-          // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3. This
-          // handler DOES have the h3 event, so it can see the real socket
-          // peer — thread the loopback signal through so unsigned local-dev
-          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
             isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
           );
           if (!prepared.ok) {
-            // DIAGNOSTIC: record the auth/validation failure ONTO the run
-            // before returning the error status. Without this, a 401 (e.g.
-            // A2A_SECRET missing/mismatched in the bg-fn env, or the path not
-            // bypassing session auth) inside the unreadable bg function would
-            // leave the run to time out with NO clue. The detail carries the
-            // status + whether A2A_SECRET is even present in this isolate.
             const diag = await import("../agent/run-store.js")
               .then((m) => ({
                 record: m.recordRunDiagnostic,
@@ -7144,10 +6462,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             };
 
-            // Netlify background functions must keep the handler open for the
-            // full automation. Other runtimes get an immediate receipt and
-            // use waitUntil when the platform provides it; long-lived Node
-            // processes can safely continue the promise after the response.
             if (isInBackgroundFunctionRuntime()) {
               try {
                 return await runAutomation();
@@ -7179,10 +6493,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           try {
-            // DIAGNOSTIC: load the run-store diagnostic recorder only after the
-            // authenticated marker has been mirrored into globalThis. run-store
-            // can initialize the DB pool; the pool must see the same background
-            // proof as the agent timeout logic before that happens.
             const diag = await import("../agent/run-store.js")
               .then((m) => ({
                 record: m.recordRunDiagnostic,
@@ -7193,9 +6503,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               .then((m) => m.formatRuntimeDebugFingerprint())
               .catch(() => "");
 
-            // Record "the route handler was entered" against the run after auth
-            // succeeds. This is the proof the bg-fn invocation actually reached
-            // Nitro (vs. dying at the function entry / never being invoked).
             if (diag) {
               await diag
                 .record(prepared.runId, diag.stages.routeEntered)
@@ -7205,13 +6512,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 .catch(() => {});
             }
 
-            // PAYLOAD REHYDRATION: a `payloadRef` marker means the dispatch
-            // carried ONLY the marker (Netlify caps background-function request
-            // bodies at 256KB — a large chat history silently exceeded it) and
-            // the full request body is persisted on the run row. Rehydrate it
-            // here. The payload is NOT cleared on read: a Netlify at-least-once
-            // retry of a failed invocation must be able to rehydrate again (the
-            // claim CAS still dedupes execution); terminal status writes clear it.
             let workerBody: Record<string, unknown> = prepared.body;
             const preparedMarkerRecord =
               preparedMarker && typeof preparedMarker === "object"
@@ -7234,9 +6534,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 }
               }
               if (!parsedPayload) {
-                // Row missing / reaped / already terminal — there is nothing to
-                // run. Fail the run loudly (if it is still running) and ack the
-                // dispatch with a 200 so Netlify does not retry a dead handoff.
                 if (diag) {
                   await diag
                     .record(
@@ -7268,8 +6565,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
 
-            // Stash the verified+augmented body for the handler — the body stream
-            // is already consumed, so the handler reads this instead.
             (event as any).context = (event as any).context ?? {};
             (event as any).context.__agentChatBackgroundBody = workerBody;
             const persistedClientPlatform = normalizeAnalyticsClientPlatform(
@@ -7332,20 +6627,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      // Mount the main chat handler — delegates to dev or prod handler based on current mode.
-      // This is mounted last because h3's use() is prefix-based, meaning /_agent-native/agent-chat
-      // also matches /_agent-native/agent-chat/threads/... — we skip sub-path requests here so the
-      // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
       getH3App(nitroApp).use(
         routePath,
         withTransientDatabaseFallback(routePath, async (event) => {
-          // Skip sub-path requests — they're handled by earlier-mounted handlers
           const url = event.node?.req?.url || event.path || "";
           const afterBase = url.slice(
             url.indexOf(routePath) + routePath.length,
           );
           if (afterBase && afterBase !== "/" && !afterBase.startsWith("?")) {
-            // Not for us — return 404 so h3 doesn't swallow the request
             setResponseStatus(event, 404);
             return { error: "Not found" };
           }
@@ -7357,10 +6646,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const isBackgroundRuntime = isInBackgroundFunctionRuntime();
       const disableRecurringJobsRuntime =
         isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
-      // Opt-in kill switch for the backstop sweep timers below. On serverless
-      // these are billed per warm container, so their query rate scales with
-      // instance count rather than with anything happening. See
-      // `shouldDisableInProcessSweeps`.
       const sweepsDisabled = shouldDisableInProcessSweeps();
       if (sweepsDisabled) {
         console.log(
@@ -7371,10 +6656,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
-      // ─── Recurring Jobs Scheduler ──────────────────────────────────────
-      // Poll every 60 seconds for due recurring jobs and execute them.
-      // Long-lived runtimes use setInterval; serverless runtimes rely on a
-      // platform-owned sweep because an invocation cannot own a durable loop.
       try {
         const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
@@ -7393,18 +6674,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : await buildSchemaBlock(owner, databaseToolsMode);
             return basePrompt + resources + schemaBlock;
           },
-          // `basePrompt` above is the same prompt the interactive chat
-          // handler builds, so it teaches the same template actions plus
-          // `manage-jobs` (Extended Capabilities / recurring jobs) and
-          // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
-          // getActions() via jobTools/progressTools. Keep the job runner's
-          // first request on the same compact surface as interactive chat
-          // instead of the full jobTools/automationTools/notificationTools/
-          // fetchTool/webSearchTool/toolActions catalog every tick.
           getInitialToolNames: (job?: RecurringJobContext) => [
             ...effectiveInitialToolNames,
-            // Only promotable while the group that supplies them is on; with
-            // `automation` off the prompt no longer names them either.
             ...(automationGroupEnabled
               ? ["manage-jobs", "manage-progress"]
               : []),
@@ -7416,9 +6687,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
         runNowSchedulerDeps = schedulerDeps;
 
-        // Platform schedulers use the existing durable background function as
-        // the long-lived worker. Keeping the sweep behind a signed, fixed
-        // route prevents a public request from choosing an owner or job.
         getH3App(nitroApp).use(
           RECURRING_JOBS_SWEEP_PATH,
           defineEventHandler(async (event) => {
@@ -7444,27 +6712,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
-            // Stale reaping runs FIRST and site-wide, before the open-ended job
-            // sweep can spend the platform wall. It is the durable driver the
-            // in-process fast sweep below cannot be on serverless: that timer is
-            // off wherever `shouldDisableInProcessSweeps` is on — i.e. every
-            // production Lambda — and nothing replaced it, so a claimed run
-            // whose producer died was only reaped when an unrelated request path
-            // happened to look (prod: 1,216 runs, 12% of all runs, sitting
-            // "running" for up to 59 minutes against a 15s window).
-            //
-            // One reap per site-tick instead of one per warm container is also
-            // the point: the per-container timers are what issued 237k queries
-            // in two minutes and earned that kill switch. `reapAllStaleRuns`
-            // short-circuits on `hasRunningRuns()` (negative-cached), so an idle
-            // app pays one probe.
-            //
-            // Reported, never swallowed, and never fatal to the job sweep: a
-            // reap failure must not take recurring jobs down with it, and
-            // `null` must stay distinguishable from "reaped nothing". The
-            // result carries `failed` and `truncated` for the same reason one
-            // level down — a pass where every row threw, and a pass that hit
-            // the batch cap, both used to be reportable as a clean sweep.
             const { reapAllStaleRuns } = await import("../agent/run-store.js");
             const staleRunsReaped = await reapAllStaleRuns().catch(
               (error: unknown) => {
@@ -7475,10 +6722,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
-            // Rides the same site-tick as the reap above, for the same reason:
-            // it is the only durable driver on serverless. Never fatal to the
-            // job sweep, and its own failure is a distinguishable outcome
-            // rather than a silent healthy.
             const { checkChatHealthAndAlert } =
               await import("../agent/chat-health-alert.js");
             const chatHealth = await checkChatHealthAndAlert().catch(
@@ -7529,9 +6772,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             try {
-              // Jobs may request MCP tools, and `getActions` is synchronous —
-              // hydrate before the sweep so a serverless container that never
-              // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
               if (appSweepHandlers.failed.length > 0) {
@@ -7578,7 +6818,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
           }
         } else {
-          // Start after a 10-second delay to let the server fully initialize
           lifecycle.startTimeout(() => {
             lifecycle.startInterval(() => {
               processRecurringJobs(schedulerDeps).catch((err) => {
@@ -7599,9 +6838,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
-      // A synchronous self-dispatch only waits for the request to leave the
-      // current invocation. Long-lived runtimes keep this retryable-queue
-      // backstop; serverless runtimes use their durable scheduler instead.
       if (
         !isBackgroundRuntime &&
         !disableRecurringJobsRuntime &&
@@ -7630,12 +6866,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         })();
       }
 
-      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
-      // not: nothing awaits this, so a settings scan plus third-party MCP
-      // handshakes run on EVERY cold start of every app — including requests
-      // that never touch MCP — and outlive the response on a runtime that
-      // freezes after responding. There, `ensureMcpInitialized()` is driven by
-      // the surfaces that consume MCP tools instead.
       if (!isProductionServerlessFunctionRuntime()) {
         void ensureMcpInitialized().catch((err) => {
           console.warn(
@@ -7644,15 +6874,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         });
       }
 
-      // ─── Agent Teams orphan sweep ─────────────────────────────────────
-      // Re-fires stuck/queued dispatches when the browser is closed and the
-      // RunsTray's per-user reconciliation never triggers. Runs every 2 minutes
-      // per instance; cheap (one indexed query when no active tasks are found).
-      // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
-        // Track when this instance last ran the sweep so only one sweep fires
-        // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -7663,9 +6886,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lastSweep = now;
 
             (async () => {
-              // Query distinct owners that have active queue rows.
-              // Can't use reconcileAgentTeamRunsForOwner directly without
-              // knowing the owner set — query the run queue table first.
               const { getDbExec } = await import("../db/client.js");
               const db = getDbExec();
               let rows: any[];
@@ -7675,7 +6895,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 rows = result.rows as any[];
               } catch {
-                return; // Table may not exist yet on first boot
+                return;
               }
               const { reconcileAgentTeamRunsForOwner } =
                 await import("./agent-teams.js");
@@ -7691,8 +6911,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             })().catch(() => {
               // best-effort — never break the server
             });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-        }, 15_000); // Start 15s after init (after the scheduler)
+          }, 30_000);
+        }, 15_000);
       })();
 
       // ─── Unclaimed background-run sweep ────────────────────────────────
@@ -7753,22 +6973,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               async () => {
                 const { reapAllStaleRuns } =
                   await import("../agent/run-store.js");
-                // The unclaimed-background sweep below only matches
-                // dispatch_mode='background' — handoffs a worker never
-                // claimed. Once a worker CLAIMS a row nothing periodic looked
-                // at it again, so a dead producer was only reaped when some
-                // client request path or an unrelated run's cleanup happened
-                // to notice (prod: 24 minutes after the last heartbeat,
-                // against a 45s window). `reapAllStaleRuns` is per-row,
-                // idempotent, re-checks staleness at UPDATE time and honours
-                // the in-flight grace, so it is safe on this cadence.
-                //
-                // This timer is the driver only where it actually runs — a
-                // long-lived Node host. Wherever `sweepsDisabled` turns it off
-                // (every production serverless function) the signed
-                // RECURRING_JOBS_SWEEP_PATH route above owns the same reap,
-                // driven by the platform scheduler. The two never both fire on
-                // one host, which is why neither needs to coordinate.
                 await reapAllStaleRuns().catch((error: unknown) => {
                   console.error(
                     "[agent-chat] in-process stale-run reap failed:",
@@ -7795,15 +6999,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               error,
             );
           });
-        }, 10_000); // Start 10s after init — before the slow sweep's first tick.
+        }, 10_000);
       })();
 
-      // SLOW sweep — redispatch AND the loud-failure reap fallback past the
-      // redispatch bound. Kept on its original 2-minute cadence: it is not
-      // the latency-critical path anymore (the fast sweep above is), it is
-      // the correctness backstop that guarantees a genuinely lost handoff
-      // still fails loud, and it survives the fast sweep having missed a row
-      // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
         if (isBackgroundRuntime || sweepsDisabled) return;
         let lastSweep = 0;
@@ -7832,15 +7030,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error,
               );
             });
-          }, 30_000); // Check every 30s but only sweep once per 2min
-        }, 20_000); // Start 20s after init (after the agent-teams sweep)
+          }, 30_000);
+        }, 20_000);
       })();
 
-      // ─── Legacy chat-thread message_count repair ──────────────────────
-      // Long-lived processes apply this name-tracked data migration once.
-      // Serverless isolates skip it: launching a full thread_data scan from
-      // every cold start would recreate the connection stampede this repair
-      // was extracted from table bootstrap to prevent.
       void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
         console.error(
           "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
@@ -7868,8 +7061,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : await buildSchemaBlock(owner, databaseToolsMode);
           return basePrompt + resources + schemaBlock;
         },
-        // See the matching comment on schedulerDeps.getInitialToolNames
-        // above — same shared `basePrompt`, same reasoning.
         getInitialToolNames: (automation?: RecurringJobContext) => [
           ...effectiveInitialToolNames,
           "manage-jobs",
@@ -7881,9 +7072,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         appId: options?.appId,
       });
     })().catch((err) => {
-      // If the init fails, the routes never get registered and requests
-      // to /_agent-native/agent-chat silently 404. Register a fallback
-      // route so the user sees a meaningful error instead.
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const msg = (err as Error)?.message || String(err);
       console.error(
@@ -7918,11 +7106,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
   };
 }
 
-/**
- * Default agent chat plugin with no template-specific actions.
- * In dev mode, provides file system, bash, and database tools.
- * In production, provides only the default system prompt.
- */
 export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
 
 import {

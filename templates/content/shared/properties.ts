@@ -13,10 +13,6 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
   "email",
   "phone",
   "relation",
-  // Capacities-style rich-text body field. Each Blocks field is its OWN
-  // independent content (NOT an alias of the page body). The default "Content"
-  // field is backed by `documents.content`; additional Blocks fields each get
-  // their own row in `document_block_field_contents`.
   "blocks",
 ] as const;
 
@@ -89,7 +85,6 @@ export interface DocumentPropertyOption {
   id: string;
   name: string;
   color: DocumentPropertyOptionColor;
-  /** Stable guidance for when this select/status value should be chosen. */
   description?: string;
 }
 
@@ -99,10 +94,6 @@ export interface DocumentPropertyOptions {
   relation?: {
     databaseId?: string | null;
   };
-  // Set on the default/primary "Content" Blocks field. The primary field is the
-  // one whose content is backed by `documents.content` (the page body editor).
-  // Exactly one Blocks field per database should be primary; additional Blocks
-  // fields store their content independently in `document_block_field_contents`.
   blocks?: {
     primary?: boolean;
   };
@@ -177,26 +168,18 @@ export function isComputedPropertyType(
   return (COMPUTED_DOCUMENT_PROPERTY_TYPES as readonly string[]).includes(type);
 }
 
-// The default name a database's seeded Blocks field gets.
 export const DEFAULT_BLOCKS_FIELD_NAME = "Content";
 
 export function isBlocksPropertyType(type: DocumentPropertyType): boolean {
   return type === "blocks";
 }
 
-// The primary Blocks field is the one backed by `documents.content`. There is
-// at most one per database; it is the field seeded by default and is what the
-// page-body editor reads/writes.
 export function isPrimaryBlocksField(
   options: DocumentPropertyOptions,
 ): boolean {
   return options.blocks?.primary === true;
 }
 
-// Word count for a Blocks field's markdown content. Strips the lightest layer
-// of markdown punctuation so a "412 words" table cell reflects prose, not
-// syntax. Kept dependency-free because `shared/properties` is bundled into the
-// browser.
 export function countWords(content: string | null | undefined): number {
   const text = (content ?? "")
     // Drop fenced code blocks wholesale — they're not prose.
@@ -209,23 +192,16 @@ export function countWords(content: string | null | undefined): number {
   return text.split(" ").filter(Boolean).length;
 }
 
-// "412 words" / "1 word" / "Empty" for table cells.
 export function formatWordCount(content: string | null | undefined): string {
   const count = countWords(content);
   if (count === 0) return "Empty";
   return `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
 }
 
-// Render decision for a set of Blocks-field types on one row:
-// - 0 or 1 Blocks field → "solo" (chromeless: no header, just the body).
-// - 2+                  → "multi" (each field gets a header + is collapsible).
 export function blocksRenderMode(blocksFieldCount: number): "solo" | "multi" {
   return blocksFieldCount >= 2 ? "multi" : "solo";
 }
 
-// Whether deleting a property triggers the "only Blocks field" warning — i.e.
-// it is a Blocks field and it is the last one in the type, so removing it drops
-// the body for every object of this type.
 export function isOnlyBlocksFieldDeletion(args: {
   type: DocumentPropertyType;
   blocksFieldCount: number;
@@ -233,10 +209,6 @@ export function isOnlyBlocksFieldDeletion(args: {
   return isBlocksPropertyType(args.type) && args.blocksFieldCount <= 1;
 }
 
-// Where a Blocks field's content is stored. The primary "Content" field lives
-// on `documents.content` (the body); every other Blocks field has its own row
-// in the block-field content store. This single decision keeps reads and writes
-// in lockstep and guarantees no two fields ever share a backing location.
 export type BlocksStorageTarget = "document_body" | "block_field_store";
 
 export function blocksStorageTarget(
@@ -245,10 +217,6 @@ export function blocksStorageTarget(
   return isPrimaryBlocksField(options) ? "document_body" : "block_field_store";
 }
 
-// Resolve a Blocks field's value for one row given the document body and the
-// (additional) block-field content store. Each field reads from exactly one
-// place — the primary from the body, others from their own keyed entry — so two
-// Blocks fields can never resolve to the same content.
 export function resolveBlocksFieldValue(args: {
   options: DocumentPropertyOptions;
   documentBody: string | null | undefined;
@@ -296,8 +264,6 @@ export function defaultPropertyOptions(
     };
   }
 
-  // A manually-added Blocks field is independent (non-primary). The seeded
-  // default "Content" field is marked primary explicitly at seed time.
   if (type === "blocks") {
     return { blocks: { primary: false } };
   }
@@ -454,8 +420,6 @@ export function normalizeDatePropertyValue(
 ): DocumentPropertyDateValue | null {
   if (value === undefined || value === null || value === "") return null;
 
-  // Accept epoch timestamps (e.g. Builder CMS date fields come back as
-  // milliseconds-since-epoch numbers) by coercing to an ISO string first.
   if (typeof value === "number" && Number.isFinite(value)) {
     const epoch = new Date(value);
     if (Number.isNaN(epoch.getTime())) return null;
@@ -551,8 +515,6 @@ export function normalizePropertyValue(
     case "url":
     case "email":
     case "phone":
-    // A Blocks field's value is its markdown content — a plain string, same
-    // shape as `documents.content`.
     case "blocks":
       return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
     case "date":
@@ -1026,9 +988,6 @@ function evaluateFormulaFunction(
   }
 }
 
-// URL-style slug (lowercase, non-alphanumeric runs → "-", trimmed). Distinct
-// from `slugifySourceField` in _database-source-utils, which slugs field *keys*
-// with "_" — different output space, kept separate on purpose.
 export function slugifyFormulaText(value: string): string {
   return value
     .trim()
@@ -1037,8 +996,6 @@ export function slugifyFormulaText(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// Reduce a URL to its path so a host-qualified URL normalizes to the same key
-// as a relative one.
 function stripUrlHost(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -1132,8 +1089,6 @@ export function sanitizeNormalizationFormula(
   return trimmed;
 }
 
-// A bad pattern yields null (an un-joinable key) rather than throwing on the
-// read path — a broken formula fails visibly as "no match", never silently.
 function regexExtractFormula(
   value: string,
   pattern: string,

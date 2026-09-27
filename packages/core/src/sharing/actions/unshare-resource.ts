@@ -32,7 +32,6 @@ function principalIdMatches(
 export default defineAction({
   description:
     "Revoke a previously granted share. Owner or admin role required.",
-  // (audit H5) Mirror share-resource: refuse from the tools iframe bridge.
   toolCallable: false,
   schema: z.object({
     resourceType: z.string(),

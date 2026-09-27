@@ -1,6 +1,3 @@
-// Grafana Cloud API helper
-// Fetches dashboards, datasources, alerts, and proxies queries
-
 import {
   assertCredentialCanReachEndpoint,
   resolveCredentialDetailed,
@@ -17,9 +14,8 @@ async function getApiBase() {
   return apiBase;
 }
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getToken() {
@@ -64,8 +60,6 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   cacheSet(key, data);
   return data as T;
 }
-
-// -- Types --
 
 export interface GrafanaDashboardSummary {
   id: number;
@@ -136,8 +130,6 @@ export interface GrafanaAlertInstance {
   [key: string]: unknown;
 }
 
-// -- API functions --
-
 export async function listDashboards(
   query?: string,
 ): Promise<GrafanaDashboardSummary[]> {
@@ -157,7 +149,6 @@ export async function getDatasources(): Promise<GrafanaDatasource[]> {
 }
 
 export async function getAlertRules(): Promise<GrafanaAlertRule[]> {
-  // Grafana unified alerting API returns groups; flatten to rules
   const data = await apiGet<Record<string, { rules: GrafanaAlertRule[] }[]>>(
     "/api/ruler/grafana/api/v1/rules",
   );
@@ -174,7 +165,6 @@ export async function getAlertInstances(): Promise<GrafanaAlertInstance[]> {
   const data = await apiGet<{ data: { alerts: GrafanaAlertInstance[] } }>(
     "/api/alertmanager/grafana/api/v2/alerts",
   );
-  // The v2 alerts endpoint returns an array directly
   if (Array.isArray(data)) return data as GrafanaAlertInstance[];
   return data?.data?.alerts ?? [];
 }
@@ -194,7 +184,6 @@ export async function queryDatasource(
     from: from ?? String(now - 3600 * 1000),
     to: to ?? String(now),
   };
-  // Don't cache query results by default — they're time-sensitive
   const apiBase = await getApiBase();
   const token = await getToken();
   assertCredentialCanReachEndpoint(apiBase, token, "GRAFANA_API_TOKEN");

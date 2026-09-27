@@ -42,7 +42,6 @@ test.describe.serial("layers menu structure operations", () => {
       "true",
     );
 
-    // Cmd/Ctrl toggles membership back off without disturbing the other row.
     await additiveSelectLayerRow(page, "Beta Button");
     await expect.poll(() => selectedRowCount(page)).toBe(1);
     await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
@@ -54,8 +53,6 @@ test.describe.serial("layers menu structure operations", () => {
       "false",
     );
 
-    // Shift selects the visible range from the plain-click anchor. The
-    // mirrored iframe selection echo must not collapse the range to Beta.
     await clickLayerRow(page, "Alpha Button");
     await rangeSelectLayerRow(page, "Beta Button");
     await expect.poll(() => selectedRowCount(page)).toBe(2);
@@ -144,8 +141,6 @@ test.describe.serial("layers menu structure operations", () => {
         "true",
       );
     } finally {
-      // Put the design back the way the other tests expect: Alpha inside the
-      // button container, ahead of Beta.
       try {
         await layerRow(page, "Alpha Button").dragTo(
           layerRow(page, "Beta Button"),

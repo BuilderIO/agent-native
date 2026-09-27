@@ -42,20 +42,13 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { getAllSettings } from "../settings/store.js";
 import type { StoredRemoteMcpServer } from "./remote-store.js";
 
-/** Env var that enables hub-serve. Acts as the shared bearer secret. */
 const TOKEN_ENV = "AGENT_NATIVE_MCP_HUB_TOKEN";
 
-/**
- * Opt-in env var that disables the multi-org safety check. Operators should
- * only enable this on a hub deployment that consciously aggregates MCP
- * config across orgs and accepts that the bearer is workspace-wide.
- */
 const MULTI_ORG_ENV = "AGENT_NATIVE_MCP_HUB_MULTI_ORG";
 
 let _warnedMultiOrg = false;
 
 export interface HubServerRecord {
-  /** `<orgId>-<name>` — unique within the hub response. */
   id: string;
   orgId: string;
   name: string;
@@ -69,12 +62,10 @@ export interface HubServersResponse {
   generatedAt: number;
 }
 
-/** Is this process configured to serve as a hub for other apps? */
 export function isHubServeEnabled(): boolean {
   return !!process.env[TOKEN_ENV]?.trim();
 }
 
-/** Is this process configured to consume from a remote hub? */
 export function isHubConsumeEnabled(): boolean {
   return (
     !!process.env.AGENT_NATIVE_MCP_HUB_URL?.trim() &&
@@ -136,7 +127,6 @@ function checkBearer(event: H3Event): string | null {
   const header = getRequestHeader(event, "authorization") ?? "";
   const match = /^Bearer\s+(.+)$/.exec(header);
   if (!match) return "Bearer token required";
-  // Constant-time compare to avoid timing leaks on the shared secret.
   const provided = match[1].trim();
   if (provided.length !== expected.length) return "Invalid token";
   let diff = 0;
@@ -184,7 +174,6 @@ export function mountMcpHubRoutes(nitroApp: any): void {
   }
 }
 
-/** Status used by the UI to show a "hub mode" card. */
 export function getHubStatus(): {
   serving: boolean;
   consuming: boolean;

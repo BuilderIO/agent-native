@@ -33,7 +33,6 @@ export interface BaselineEntry {
   maxDiffPercent: number;
   maxOmitted: number;
   maxApproximated: number;
-  /** SHA-256 of the exact HTML source used to review this ceiling. */
   sourceHash: string;
 }
 
@@ -42,9 +41,7 @@ export interface ExportCase {
   html: string;
   width: number;
   height: number;
-  /** The screen frame inside the document - what actually ships to Figma. */
   rootSelector?: string | null;
-  /** Temporary cases are reported by the CLI but are not release gates. */
   adHoc?: boolean;
 }
 
@@ -142,8 +139,6 @@ export async function runExportCase(
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "screen.html"), testCase.html);
 
-  // Compare at 1x. The export path is vector; upscaling only adds Chromium-
-  // versus-Chromium antialiasing noise on the same geometry.
   const renderOptions = {
     width: testCase.width,
     height: testCase.height,
@@ -172,10 +167,6 @@ export async function runExportCase(
     JSON.stringify(report, null, 2),
   );
 
-  // The exported SVG names the design's web fonts but cannot load them. Figma
-  // resolves them by name, so render the SVG with the same stylesheets the
-  // design loaded; otherwise every web-font glyph falls back to a system face
-  // and the diff measures the fallback instead of the export.
   const candidate = await renderSvgToPng(browser, svg, {
     ...renderOptions,
     headHtml: webFontLinks(testCase.html),
@@ -215,7 +206,6 @@ export async function runExportCase(
   };
 }
 
-/** The design's own Google Fonts stylesheet links, verbatim. */
 export function webFontLinks(html: string): string {
   return [...html.matchAll(/<link\b[^>]*>/gi)]
     .map((match) => match[0])

@@ -26,7 +26,6 @@ import {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 
-// In-memory cache
 const cache = new Map<string, { data: any; ts: number }>();
 const TTL = 60_000;
 
@@ -66,7 +65,6 @@ export async function getPublicFormBySlugOrId(
 
   const db = getDb();
 
-  // Try matching by slug first, then fall back to ID
   let row = await db
     .select()
     .from(schema.forms)
@@ -83,9 +81,6 @@ export async function getPublicFormBySlugOrId(
 
   if (!row || row.status !== "published" || row.deletedAt) return null;
 
-  // Project settings through the public allowlist before caching/rendering so
-  // owner-private integration webhook URLs and allowed-origins never reach the
-  // anonymous SSR payload.
   const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,
@@ -102,13 +97,6 @@ export async function getPublicFormBySlugOrId(
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Field rendering helpers
-// ---------------------------------------------------------------------------
-
-// Canonical type is string, but the agent occasionally writes objects like
-// `{ label, value }` or numbers. Coerce everything to a string here so the
-// renderer never crashes on bad data.
 function toSafeString(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
@@ -154,7 +142,6 @@ function parsePublicFormUrl(url: string): {
   }
 }
 
-// Mirror app/components/builder/FieldRenderer.tsx#dedupeRenderableOptions.
 function normalizeOptions(options: unknown): string[] {
   if (!Array.isArray(options)) return [];
   const seen = new Set<string>();
@@ -168,19 +155,6 @@ function normalizeOptions(options: unknown): string[] {
   return out;
 }
 
-/**
- * Validate a form-author-supplied post-submit redirect URL. Returns a
- * root-relative path or the value verbatim when it parses as `http:` or
- * `https:`. Falls back to an empty string otherwise (caller treats empty as
- * "no redirect").
- *
- * Form publishers control `settings.redirectUrl` and the rendered page
- * assigns it to `window.location.href`. Without scheme validation a
- * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
- * form-publisher origin against any anonymous submitter.
- */
-/** Field validation as shipped to the public page: an unsafe `pattern` is
- * removed and replaced by `unsafePattern` so the runtime can say so. */
 type PublicFieldValidation = Omit<
   NonNullable<FormField["validation"]>,
   "pattern"
@@ -250,13 +224,6 @@ const PUBLIC_FORM_PATTERN_MESSAGES = {
   },
 } as const;
 
-/**
- * The inline runtime re-checks `validation.pattern` in the respondent browser,
- * where nothing can abort a regex that backtracks exponentially. Decide safety
- * here, where the analyzer lives, and ship the respondent either a pattern that
- * is safe to run or an explicit "cannot check" marker, never a pattern that
- * freezes their tab.
- */
 export function publicValidation(
   validation: FormField["validation"],
 ): PublicFieldValidation | undefined {
@@ -271,7 +238,6 @@ export function safeRedirectUrl(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
   if (!trimmed) return "";
-  // Reject control characters and protocol-relative URLs outright.
   if (/[\x00-\x1f]/.test(trimmed)) return "";
   if (trimmed.startsWith("//")) return "";
   if (trimmed.startsWith("/")) return trimmed.includes("\\") ? "" : trimmed;
@@ -286,10 +252,6 @@ export function safeRedirectUrl(value: unknown): string {
 }
 
 function renderField(field: FormField): string {
-  // field.id is also gated to /^[A-Za-z0-9_-]+$/ at write time by
-  // assertValidFields (server/lib/validate-fields.ts), so escapeHtml here is
-  // defense-in-depth — if a malformed row ever slips into the DB through
-  // another path, the renderer still won't break out of the attribute.
   const id = escapeHtml(field.id);
   const req = field.required ? " required" : "";
   const ph = field.placeholder
@@ -366,10 +328,6 @@ function renderField(field: FormField): string {
       break;
     }
     default:
-      // Mirror the builder's normalizeFields fallback: an unrecognized stored
-      // type (e.g. agent wrote "dropdown" instead of "select", or stored an
-      // object) renders a plain text input rather than nothing — without this
-      // a required field would have no <input>, leaving the form unsubmittable.
       input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
       break;
   }
@@ -379,15 +337,9 @@ function renderField(field: FormField): string {
     ${desc}${input}</div>`;
 }
 
-// ---------------------------------------------------------------------------
-// Pure render function — takes a URL, returns { html, status }
-// Used by both the H3 handler and the Vite dev plugin.
-// ---------------------------------------------------------------------------
-
 export async function renderPublicFormHtml(
   url: string,
 ): Promise<{ html: string; status: number }> {
-  // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
   const basePath = getAppBasePath();
   const parsedUrl = parsePublicFormUrl(url);
   const pathname = parsedUrl.pathname;
@@ -407,10 +359,6 @@ export async function renderPublicFormHtml(
   return { html: renderFormPage(form, parsedUrl.origin), status: 200 };
 }
 
-// ---------------------------------------------------------------------------
-// H3 handler wrapper — used in production (Nitro plugins / routes)
-// ---------------------------------------------------------------------------
-
 export async function renderPublicForm(event: H3Event) {
   const reqUrl = getRequestURL(event);
   const url = reqUrl.toString();
@@ -420,9 +368,6 @@ export async function renderPublicForm(event: H3Event) {
     "Content-Type": "text/html; charset=utf-8",
   };
   if (status === 200) {
-    // Public form SSR is anonymous HTML and follows the same framework-level
-    // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
-    // here; relying on provider config would make templates perform differently.
     Object.assign(headers, resolveSsrCacheHeaders());
     headers[SSR_QUERY_CACHE_KEY_HEADER] = "query";
   }
@@ -431,10 +376,6 @@ export async function renderPublicForm(event: H3Event) {
     headers,
   });
 }
-
-// ---------------------------------------------------------------------------
-// HTML generation
-// ---------------------------------------------------------------------------
 
 function renderFormPage(
   form: {
@@ -947,10 +888,6 @@ function renderFormPage(
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// 404 page
-// ---------------------------------------------------------------------------
-
 function notFoundPage(origin?: string) {
   const appBasePath = getAppBasePath();
   const ogImagePath = `${appBasePath}/_agent-native/og-image.png`;
@@ -991,10 +928,6 @@ function notFoundPage(origin?: string) {
 </body>
 </html>`;
 }
-
-// ---------------------------------------------------------------------------
-// CSS
-// ---------------------------------------------------------------------------
 
 function CSS() {
   return `

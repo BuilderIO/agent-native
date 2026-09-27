@@ -80,9 +80,6 @@ export function MermaidToExcalidrawPanel({
   );
 }
 
-/**
- * Standalone converter function for use outside the panel UI
- */
 export async function convertMermaidToExcalidraw(
   mermaidDefinition: string,
 ): Promise<string> {

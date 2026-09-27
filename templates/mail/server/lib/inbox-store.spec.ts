@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Fakes just enough of the drizzle chain shape inbox-store.ts uses
- * (select().from(table).where(cond)[.orderBy()], update().set().where(),
- * insert().values()...) to drive it without a real database — same style as
- * inventory-cursor.spec.ts / queued-drafts.spec.ts. `where`/`orderBy`
- * conditions are recorded, not actually evaluated; each test controls what
- * the canned rows are directly.
- */
 const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
@@ -19,9 +11,6 @@ const dbState = vi.hoisted(() => ({
   deleteTables: [] as string[],
   lockModes: [] as string[],
   transactions: 0,
-  // When true, the next update().set().where().returning() call reports 0
-  // matched rows — simulates a fenced write whose claimId no longer matches
-  // the row (another worker already claimed it).
   forceNoRowsMatched: false,
 }));
 
@@ -353,8 +342,6 @@ describe("applyLocalLabelDelta", () => {
       const { set } = dbState.updates[0];
       expect(set.unreadCount).toBeUndefined();
       expect(set.isUnread).toBeUndefined();
-      // The row has no per-message labels, so leave the aggregate untouched
-      // until the next exact thread sync.
       expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
@@ -442,7 +429,6 @@ describe("applyLocalLabelDelta", () => {
       );
 
       expect(dbState.updates[0].set.isStarred).toBeUndefined();
-      // The union must not lose STARRED either — same reasoning as isStarred.
       expect(JSON.parse(dbState.updates[0].set.labelIdsJson)).toContain(
         "STARRED",
       );

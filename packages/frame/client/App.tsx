@@ -1,14 +1,3 @@
-/**
- * Local Dev Frame — App layout
- *
- * The sidebar always looks the same as the in-app agent panel: Chat | CLI | Workspace.
- * A toggle in the settings cog switches between Dev and Prod mode:
- * - Dev: frame renders its own sidebar; Chat uses code-agent modes only with local code access
- * - Prod: frame sidebar disappears, app's own agent sidebar shows inside iframe
- *
- * When collapsed in dev mode, the sidebar is 100% gone.
- */
-
 import {
   clampAgentSidebarWidth,
   getAgentSidebarWideWidth,
@@ -33,7 +22,6 @@ import { flushSync } from "react-dom";
 
 import { installDesktopDesignPreviewRelay } from "./desktop-design-preview";
 
-// Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
     default: m.AgentPanel,
@@ -57,12 +45,6 @@ function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
   const appId = params.get("app") || "mail";
   const customDevUrl = normalizeCustomDevUrl(params.get("devUrl"));
-  // Set the routing cookie synchronously so the frame proxy routes
-  // `/_agent-native/**` to the correct app backend on the very first
-  // request — including fetches kicked off by child effects (which run
-  // before parent effects in React, so a useEffect here would be too late).
-  // Max-Age ensures a fresh partition or reload doesn't see a stale value
-  // from a different app.
   if (typeof document !== "undefined") {
     document.cookie = `frame_active_app=${appId}; path=/; SameSite=Lax; Max-Age=31536000`;
     if (customDevUrl) {
@@ -228,10 +210,6 @@ export function App() {
     return installDesktopDesignPreviewRelay({ iframeRef, appUrl });
   }, [appId, appUrl]);
 
-  // (The `frame_active_app` cookie is set synchronously by getAppId() on
-  // first render, before any child effect can fetch /_agent-native/**.)
-
-  // Persist state
   useEffect(() => {
     try {
       localStorage.setItem(FRAME_MODE_KEY, frameMode);
@@ -244,7 +222,6 @@ export function App() {
   }, [sidebarOpen]);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
 
-  // Show frame sidebar only in dev mode when open, and not during presentation
   const showFrameSidebar =
     frameMode === "dev" && sidebarOpen && !isPresentationMode;
   const [renderFrameSidebar, setRenderFrameSidebar] =
@@ -268,7 +245,6 @@ export function App() {
     };
   }, [showFrameSidebar]);
 
-  // Notify iframe of sidebar state
   function notifyIframe(
     mode: FrameMode,
     width: number,
@@ -292,8 +268,6 @@ export function App() {
     );
   }
 
-  // Send frame origin + initial state to iframe on load.
-  // Retry a few times to handle slow mounts and HMR reloads.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -336,7 +310,6 @@ export function App() {
     isPresentationMode,
   ]);
 
-  // When mode/open/width changes, notify iframe
   useEffect(() => {
     notifyIframe(
       frameMode,
@@ -395,7 +368,6 @@ export function App() {
     return () => window.removeEventListener("keydown", keydownHandler);
   }, []);
 
-  // Listen for dev mode toggle from AgentPanel settings cog
   useEffect(() => {
     function handler(e: Event) {
       const detail = (e as CustomEvent).detail;
@@ -410,7 +382,6 @@ export function App() {
       window.removeEventListener("agent-panel:dev-mode-change", handler);
   }, []);
 
-  // Listen for messages from iframe
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
@@ -448,10 +419,6 @@ export function App() {
         );
         return;
       }
-      // Relay chat bridge events from the iframe; the agent chat rejects
-      // cross-origin messages, so re-dispatch same-origin so it accepts it.
-      // Only relay from known app dev-server origins to prevent arbitrary
-      // cross-origin pages from injecting agent messages.
       if (event.data.type === "agentNative.presentationMode") {
         setIsPresentationMode(event.data.data?.active === true);
         return;
@@ -488,7 +455,6 @@ export function App() {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  // Resize — use state so we can show an overlay on the iframe during drag
   const [isDragging, setIsDragging] = useState(false);
   const lastX = useRef(0);
 
@@ -526,12 +492,6 @@ export function App() {
     document.body.style.userSelect = "none";
   }
 
-  // Carry `view-transition-name` only while the drawer morph is capturing. Left
-  // on permanently it makes this sidebar a stacking context and the containing
-  // block for every fixed/absolute descendant, and enlists it as a captured
-  // group in unrelated route view transitions. `startViewTransition` snapshots
-  // the old state before invoking its callback, so the name has to be in the
-  // DOM first — hence `flushSync`.
   const [sidebarMorphing, setSidebarMorphing] = useState(false);
   function runSidebarMorph(apply: () => void) {
     flushSync(() => setSidebarMorphing(true));

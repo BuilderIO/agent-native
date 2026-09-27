@@ -1,10 +1,3 @@
-/**
- * Setup/auth block for the `/visual-plan` skill. Interpolated into
- * `VISUAL_PLANS_SKILL_MD` below so the install + one-step authenticate
- * instructions are single-sourced. The materialized SKILL.md copies under
- * `templates/plan/.agents/skills/*`, top-level `skills/*`, and
- * `.agents/skills/*` are guarded byte-identical by `skills.sync.spec.ts`.
- */
 export const PLAN_SETUP_AUTH_MD = `## Setup & Authentication
 
 There are two ways into Plans.

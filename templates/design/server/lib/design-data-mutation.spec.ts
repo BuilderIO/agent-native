@@ -1,9 +1,3 @@
-/**
- * Local-database integration coverage for design-data CAS mutations.
- *
- * Uses a real in-memory PGlite database and real Drizzle predicates. Concurrent
- * calls exercise PostgreSQL transactions, CAS confirmation, and post-commit reads.
- */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({

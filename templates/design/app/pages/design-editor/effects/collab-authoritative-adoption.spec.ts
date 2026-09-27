@@ -84,7 +84,6 @@ it.each([
     let cleanup: (() => void) | undefined;
     if (path === "pending observer") {
       cleanup = runObserveCollabText(args);
-      // A partial remote delivery invokes the observer before the paste arrives.
       const peer = new Y.Doc();
       Y.applyUpdate(peer, Y.encodeStateAsUpdate(client));
       const earlierUpdate = applyTextToYDoc(

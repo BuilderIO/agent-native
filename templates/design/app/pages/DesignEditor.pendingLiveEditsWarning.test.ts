@@ -23,8 +23,6 @@ describe("DesignEditor pending live edits", () => {
     );
     expect(toolbar).not.toContain("sessionOnlyWarning");
     expect(toolbar).not.toContain("{pendingVisualEditCount}");
-    // The primary button's classes moved into `cn()` so the split-button
-    // rounding can drop when the host shell hides the chevron.
     expect(toolbar).toContain('"h-9 min-w-0');
     expect(toolbar).toContain('className="h-9 w-8');
     expect(toolbar).not.toContain("h-11");
@@ -42,7 +40,6 @@ describe("DesignEditor pending live edits", () => {
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    // The apply handler now lives in its own command module.
     const applyHandler = readFileSync(
       new URL(
         "./design-editor/commands/apply-pending-visual-styles-with-agent.ts",
@@ -111,8 +108,6 @@ describe("DesignEditor pending live edits", () => {
     const depsEnd = source.indexOf("]);", depsStart);
     const publishCall = source.slice(publishCallIndex, depsStart);
     const deps = source.slice(depsStart, depsEnd);
-    // Public viewers can copy the prompt, but only editor-capable sessions
-    // may publish it for an MCP client without the Design tab.
     expect(publishCall).toContain("canPublishDurableHandoff: canEditDesign,");
     expect(deps).toContain("canEditDesign,");
     expect(deps).not.toContain("isLiveCanvasShareLink,");

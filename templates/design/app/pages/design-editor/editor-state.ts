@@ -14,28 +14,14 @@ import {
   type EditorMode,
 } from "./types";
 
-// Definition moved to shared/ so the server write path and code-layer's
-// document transforms guard on the same predicate. Re-exported here because
-// the editor's URL-backed-screen refusals all import it from this module.
 export { isStandaloneHttpUrl };
 
-/**
- * A live-screen route intentionally refuses whole-document replacement. That
- * is a successful no-op, unlike an unavailable preview bridge, which callers
- * must recover by rebuilding their render state.
- */
 export type PreviewContentReplaceResult =
   | "applied"
   | "skipped-live-route"
   | "skipped-caller-owns-preview"
   | "unavailable";
 
-/**
- * True when the in-place bridge patch could not run and the caller must fall
- * back to rebuilding srcdoc — a real iframe reload that re-executes the editor
- * bridge, Tailwind and Alpine. Traced because it is the one escalation a user
- * perceives as "the frame refreshed", and it is otherwise invisible.
- */
 export function previewContentReplaceNeedsRenderFallback(
   result: PreviewContentReplaceResult,
 ): boolean {
@@ -44,15 +30,6 @@ export function previewContentReplaceNeedsRenderFallback(
   return true;
 }
 
-/**
- * Resolve the source payload behind a localhost-backed Design screen.
- *
- * `design_files.content` intentionally stores the route URL, not its HTML.
- * Writing that value to disk would replace an HTML file with the URL string,
- * so HTML write-back is allowed only after the authenticated snapshot has
- * populated the editor's live source model. CSS can use persisted content,
- * but still fails closed if that payload is a URL-backed screen marker.
- */
 export function resolveLocalhostSourceWriteContent(args: {
   extension: string;
   persistedContent: string | null | undefined;
@@ -69,30 +46,6 @@ export function resolveLocalhostSourceWriteContent(args: {
   return candidate;
 }
 
-/**
- * Flash-prevention routing for adopting an ALREADY-server-persisted content
- * snapshot into the editor — the "onApplied host-sync" family: shader fill
- * applies (`apply-shader-fill` → onShaderFillApplied), GLSL shader
- * apply/remove/knob commits (GlslShaderPanel's read-source-file →
- * apply-source-edit → onApplied), and component prop edits.
- *
- * These handlers previously passed `refreshPreview: true` for the active
- * file, but in applyLocalContentUpdate that flag means "skip the in-place
- * replace and force a full srcdoc rebuild" — a real iframe reload of the
- * active screen (white flash, lost scroll/Alpine state, and an onload refire
- * that re-runs screen measurement — observed in the wild as the shader-apply
- * flash plus a zoom-badge drift in the same gesture). The patched content is
- * a normal document update, exactly what the bridge's live in-place
- * full-document replace exists for (see applyLocalContentUpdate's
- * "Holistic flash pipeline" comment), so route it through
- * `forcePreviewFullDocument` instead; applyLocalContentUpdate already falls
- * back to the srcdoc rebuild on its own when the live bridge isn't
- * registered for the surface yet.
- *
- * `persist: false` because the server already owns this content — the
- * updatedAt stamp (when present) records it as the acked base for the next
- * guarded update-file save rather than re-queueing a redundant save.
- */
 export type PersistedContentHostSyncOptions = {
   forcePreviewFullDocument: boolean;
   persist: false;
@@ -225,9 +178,6 @@ export function getDesignEditorStateUrlSearch(args: {
   } else {
     params.delete("zoom");
   }
-  // Keep the shareable navigation mirror aligned with the tool the editor is
-  // actually using. `move` is the default and stays implicit so ordinary
-  // editor URLs remain compact; every other tool round-trips explicitly.
   if (args.tool && args.tool !== "move") {
     params.set("tool", args.tool);
   } else {
@@ -301,18 +251,6 @@ export function getFreshScreenContent(args: {
   freshActiveContentFileId?: string | null;
   freshActiveContent: string;
   fileContentById: ReadonlyMap<string, string>;
-  /**
-   * Nest-conversion clobber fix: the freshest same-tick local write for this
-   * screen (DesignEditor's `pendingLocalFileContentsRef`), or null. The
-   * `fileContentById` map is memoized off React state, so a write made by
-   * `applyFileContentUpdate` earlier in the SAME task burst (e.g. the bridge's
-   * auto-layout conversion `visual-style-change` that lands right before the
-   * nest-drop's `visual-structure-change`) is not visible in it yet — the
-   * structure handler would rebase off pre-conversion content and its own
-   * write would silently clobber the conversion. Preferring the synchronous
-   * pending write mirrors what the active file already gets through
-   * `getFreshActiveFileContent`'s latest/lastLocal refs.
-   */
   pendingContent?: string | null;
 }) {
   const freshActiveContentFileId =
@@ -371,21 +309,6 @@ export function resolveOptimisticTextDecorationLine(
   return computedTextDecorationLine;
 }
 
-/**
- * PF12: decide whether a style change from EditPanel (ScrubInput scrub tick /
- * DesignColorPicker drag tick) should skip the expensive source commit
- * (commitVisualStyles / commitStylesToSelectedLayers — projection parse, HTML
- * patch, Yjs write, history entry) and instead only try the cheap live
- * iframe preview.
- *
- * Only a genuine mid-gesture "preview" tick against a single selected element
- * qualifies: `meta` is undefined for every existing call site that never
- * passed gesture metadata (keyboard edits, agent edits, discrete commits),
- * so this returns false for all of them — preserving prior full-commit
- * behavior exactly. Multi-layer-selection edits (`selectedLayerCount > 1`)
- * have no equivalent cheap multi-element preview channel, so those
- * conservatively keep committing on every tick, same as before PF12.
- */
 export function shouldSkipVisualStyleCommitForPreview(args: {
   phase?: "preview" | "commit";
   selectedLayerCount: number;
@@ -393,24 +316,6 @@ export function shouldSkipVisualStyleCommitForPreview(args: {
   return args.phase === "preview" && args.selectedLayerCount <= 1;
 }
 
-/**
- * Unit-aware relative-delta application for a per-node multi-select style
- * commit (see commitRelativeStyleDeltaToSelectedLayers). ScrubInput's arrow-
- * key step and the future `relativeDelta` meta both operate on a plain
- * unitless number in the *same numeric domain* the field displays (px count,
- * degree count, raw opacity/line-height number) — the CSS unit suffix is
- * purely a serialization detail added back on here, matching how
- * formatScrubValue/EditPanel already build the CSS string for a single-target
- * commit.
- *
- * Parses the leading numeric portion of `currentValue` (e.g. "12px" -> 12,
- * "45deg" -> 45, "0.5" -> 0.5), adds `delta`, and re-serializes with
- * whatever unit suffix (if any) the ORIGINAL value used — so a per-node
- * relative nudge preserves that node's own unit instead of assuming every
- * selected node shares the same one. Returns `null` when `currentValue`
- * doesn't parse as a leading number (e.g. a keyword like "auto" or "none"),
- * so the caller can skip that node rather than writing garbage.
- */
 export function applyRelativeDeltaToStyleValue(
   currentValue: string | undefined,
   delta: number,
@@ -422,9 +327,6 @@ export function applyRelativeDeltaToStyleValue(
   const base = Number(numeric);
   if (!Number.isFinite(base)) return null;
   const next = base + delta;
-  // Match formatScrubValue's collapse of float noise (e.g. avoid
-  // "12.000000000000002px" from repeated float addition) without imposing a
-  // fixed precision the property doesn't use.
   const rounded = Math.round(next * 1e6) / 1e6;
   return `${Object.is(rounded, -0) ? 0 : rounded}${unit ?? ""}`;
 }
@@ -507,7 +409,6 @@ export interface PendingLocalFileContent {
   startedAt: number;
   baseUpdatedAt?: string | null;
   baseContent?: string;
-  /** An identity-only migration yields to a newer peer or agent snapshot. */
   identityMigrationSourceContent?: string;
   identityMigrationStoredContent?: string;
   identityMigrationStoredUpdatedAt?: string | null;
@@ -604,20 +505,12 @@ export function restorePendingFileContent<
 
 export interface FileContentSaveRequest {
   identityMigrationSourceContent?: string;
-  /**
-   * CAS base for the durable latest-content replay. Normal saves keep their
-   * per-edit base so the serialized chain remains strict; the outbox needs the
-   * oldest unacknowledged base so a pagehide can replay the full snapshot.
-   */
   unloadExpectedVersionHash?: string;
   id: string;
   content: string;
   syncCollab: boolean;
-  /** Stable browser-tab identity used to order normal and keepalive saves. */
   operationSource: string;
-  /** Monotonic per-file sequence allocated when the edit enters the queue. */
   operationRevision: number;
-  /** Hash of the source content this edit was computed from. */
   expectedVersionHash: string;
 }
 
@@ -652,12 +545,6 @@ type FileContentSaveRequestsById = Readonly<
   Record<string, FileContentSaveRequest>
 >;
 
-/**
- * A completed save may retire the unload retry only when it still represents
- * the latest content queued for that file. A newer edit can enter the debounce
- * slot while an older request is in flight and must remain eligible for the
- * pagehide keepalive.
- */
 export function shouldClearLatestUnloadSave(
   latest: FileContentSaveRequest | undefined,
   completed: FileContentSaveRequest,
@@ -672,11 +559,6 @@ export function shouldClearLatestUnloadSave(
   );
 }
 
-/**
- * A completed predecessor advances a newer unload replay from its old CAS
- * base. Mutate the request in place so debounce slots and save chains keep the
- * same request object, then let the caller re-journal its updated payload.
- */
 export function advanceLatestUnloadSaveBase(
   latest: FileContentSaveRequest | undefined,
   completed: FileContentSaveRequest,
@@ -716,12 +598,6 @@ export function shouldClearLatestUnloadSaveForOutboxEntry(
   );
 }
 
-/**
- * Flushes debounce slots through the ordinary serialized mutation path during
- * React cleanup (route/design changes). Real document unload is handled by the
- * pagehide keepalive; normal navigation must not fire-and-forget or discard
- * the final edit.
- */
 export function flushPendingFileContentSavesOnCleanup(
   pendingByFileId: FileContentSaveRequestsById,
   timerIds: readonly number[],
@@ -732,11 +608,6 @@ export function flushPendingFileContentSavesOnCleanup(
   for (const timerId of timerIds) clearTimer(timerId);
 }
 
-/**
- * A desktop app switch keeps the guest page mounted, so neither pagehide nor
- * React cleanup runs. Flush the newest known request per file through the
- * ordinary serialized mutation path and cancel its debounce timer.
- */
 export function flushFileContentSavesOnBackground(
   pendingByFileId: FileContentSaveRequestsById,
   latestUnacknowledgedByFileId: FileContentSaveRequestsById,
@@ -765,15 +636,6 @@ export function flushFileContentSavesOnBackground(
   return Promise.all(saves).then(() => undefined);
 }
 
-/**
- * Pure decision helper (exported for unit testing) for the pagehide/unload
- * keepalive: should it be sent at all?
- *
- * The keepalive posts a full-document `content` write with `keepalive: true`.
- * Its source hash protects it from overwriting edits that were not part of
- * this queued update. Legacy requests without a source hash are skipped while
- * collab is live because they have no safe version to send.
- */
 export function shouldSendKeepalive(
   hashKnown: boolean,
   collabLive: boolean,
@@ -783,38 +645,12 @@ export function shouldSendKeepalive(
 
 const EMPTY_DESIGN_FILES: DesignFile[] = [];
 
-/**
- * Identity-stable `design.files` read for the editor render body.
- *
- * `design` is null until the `get-design` query resolves, and a literal `??
- * []` there mints a new array on every render of that window. That identity
- * feeds `files` → `proposalFileIds` → the pending-node-rewrite effect, whose
- * empty-files branch commits a fresh `[]` — a passive-effect update that
- * re-renders, remints the array, and re-fires itself until the query lands
- * ("Maximum update depth exceeded" on cold loads). Return the shared empty
- * array so the no-files render is stable.
- */
 export function resolveServerFiles(
   design: { files?: DesignFile[] } | null | undefined,
 ): DesignFile[] {
   return design?.files ?? EMPTY_DESIGN_FILES;
 }
 
-/**
- * Pure decision helper (exported for unit testing) for the pending-local-write
- * reconcile: now that `file` arrived from the server, may the editor stop
- * overlaying this file's pending local content and trust the query cache?
- *
- * Matching content alone does not prove the server took the write. Every
- * optimistic writer also mirrors its content into the cached `get-design`
- * payload while deliberately keeping the file's prior server-clock
- * `updatedAt`, so an echo of our own cache write is indistinguishable from an
- * acknowledgement by content. A writer that records `baseUpdatedAt` keeps its
- * overlay until `updatedAt` actually advances; retiring it early leaves the
- * cache as the only carrier of the edit, and a `get-design` response already
- * in flight when the write happened then lands with pre-write content and the
- * edit vanishes until a reload.
- */
 export function shouldRetirePendingLocalFileContent(
   pending: { content: string; baseUpdatedAt?: string | null } | undefined,
   file: { content?: string | null; updatedAt?: string | null },

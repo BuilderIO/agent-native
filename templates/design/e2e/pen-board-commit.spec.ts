@@ -87,7 +87,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, fileId, secondId, boardFileId };
 }
 
-/** Every vector in every canvas iframe, tagged with which document holds it. */
 async function allVectors(page: Page) {
   return page.evaluate(() => {
     const out: Array<{
@@ -159,7 +158,6 @@ test("Escape finishes a multi-anchor Pen path on the board", async ({
     );
     const first = boxes[0]!;
     const second = boxes[1]!;
-    // The empty board between the two screens.
     const gapX = (first.x + first.width + second.x) / 2;
     const gapY = first.y + 120;
 
@@ -168,7 +166,6 @@ test("Escape finishes a multi-anchor Pen path on the board", async ({
     await penClick(page, gapX - 40, gapY);
     await penClick(page, gapX + 20, gapY + 60);
     await penClick(page, gapX - 20, gapY + 120);
-    // Escape finishes the open path. Its single-press tool state is not asserted.
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
 

@@ -34,8 +34,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -49,12 +47,6 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
   );
 }
 
-// schema.ts re-exports every table under BOTH its new "asset*" name and its
-// legacy "image*" alias (e.g. `imageLibraries = assetLibraries`) so existing
-// generated action code keeps working. Both exports point at the exact same
-// Drizzle table object, so de-dupe by the underlying table before asserting —
-// otherwise every column would be checked (and reported) twice under two
-// different export names.
 const seenTables = new Set<DrizzleTable>();
 
 describe("assets db migrations cover every schema.ts column", () => {
@@ -105,11 +97,6 @@ describe("assets db migrations cover every schema.ts column", () => {
  * migrations above v34 must set a `name`.
  */
 describe("assets db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -148,15 +135,6 @@ describe("assets db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("assets db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -171,8 +149,6 @@ describe("assets db.ts wires ensureAdditiveColumns after runMigrations", () => {
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runAssetsMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );

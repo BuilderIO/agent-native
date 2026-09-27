@@ -236,8 +236,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The enrichment budget starts when the deferred refresh actually
-    // begins, not when the pageview is scheduled.
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect(analyticsCalls).toHaveLength(0);
 
@@ -285,9 +283,6 @@ describe("browser analytics pageviews", () => {
       }),
     });
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the enriched properties.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(analyticsCalls).toHaveLength(2);
@@ -1375,9 +1370,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the normalized engine labels.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const body = JSON.parse(String(analyticsCalls[0][1].body));

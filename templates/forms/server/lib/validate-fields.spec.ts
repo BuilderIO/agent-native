@@ -44,9 +44,6 @@ describe("normalizeFieldIds", () => {
   });
 
   it("does not touch an id that fails validation for a reason other than being missing", () => {
-    // An unsafe id (XSS-shaped) must still fail assertValidFields — this
-    // helper only fills in MISSING ids, it must never launder an attacker
-    // -controlled string into looking "generated".
     const fields = normalizeFieldIds([
       {
         id: 'x" onfocus="alert(1)',

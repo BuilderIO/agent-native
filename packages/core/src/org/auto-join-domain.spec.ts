@@ -30,8 +30,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [] });
     mockGetUserSetting.mockResolvedValue(null);
-    // The no-domain-match negative cache is process state, so it bleeds between
-    // tests exactly the way per-event memoization would.
     __resetDomainMatchCacheForTests();
   });
 
@@ -49,9 +47,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
   });
 
   it("never queries for a free email provider", async () => {
-    // `org/handlers.ts` refuses to set `allowed_domain` to a free provider, so
-    // an org matching gmail.com cannot exist — the probe was structurally
-    // guaranteed to find nothing.
     for (const email of [
       "a@gmail.com",
       "b@outlook.com",
@@ -65,30 +60,25 @@ describe("autoJoinDomainMatchingOrgs", () => {
   });
 
   it("caches a no-match so a repeat call issues no query", async () => {
-    queueSelect([]); // first probe: nothing matches
+    queueSelect([]);
     expect(await autoJoinDomainMatchingOrgs("a@nomatch.dev")).toEqual({
       joined: [],
       activeOrgId: null,
     });
     expect(mockExecute).toHaveBeenCalledTimes(1);
 
-    // Same domain, different account — one entry covers the whole domain.
     expect(await autoJoinDomainMatchingOrgs("b@nomatch.dev")).toEqual({
       joined: [],
       activeOrgId: null,
     });
     expect(mockExecute).toHaveBeenCalledTimes(1);
 
-    // A different domain is not covered by it.
     queueSelect([]);
     await autoJoinDomainMatchingOrgs("c@other.dev");
     expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("does NOT cache a failed probe as 'no match'", async () => {
-    // The catch branch cannot tell "no org matches" from "organizations was
-    // unreadable". Caching it would let one blip lock every account at that
-    // domain out of its org for the whole TTL.
     mockExecute.mockRejectedValueOnce(
       new Error('relation "organizations" does not exist'),
     );
@@ -176,9 +166,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
   });
 
   it("excludes orgs the user is already a member of (NOT EXISTS)", async () => {
-    // The query itself filters via NOT EXISTS, so we just confirm we
-    // call it correctly. When the query returns empty (because the user
-    // is already in the only matching org), the function no-ops.
     queueSelect([]);
     const out = await autoJoinDomainMatchingOrgs("existing@builder.io");
     expect(out.joined).toEqual([]);
@@ -205,7 +192,7 @@ describe("autoJoinDomainMatchingOrgs", () => {
     mockExecute.mockRejectedValueOnce(
       new Error("duplicate key value violates unique constraint"),
     );
-    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT orgB succeeds
+    mockExecute.mockResolvedValueOnce({ rows: [] });
 
     const out = await autoJoinDomainMatchingOrgs("race@builder.io");
     expect(out.joined).toEqual([{ orgId: "orgB" }]);

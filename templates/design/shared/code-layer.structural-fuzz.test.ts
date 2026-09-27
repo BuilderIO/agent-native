@@ -378,9 +378,6 @@ describe("seeded inline HTML/Alpine structural edit fuzz", () => {
             direction: random() < 0.5 ? "row" : "column",
             gap: `${4 + Math.floor(random() * 5) * 4}px`,
           });
-          // Disabling auto-layout without child rects cannot be rebuilt
-          // deterministically, so the contract is needsAgent with the content
-          // left untouched — not a silent success the caller cannot detect.
           if (!enabled && edit.result.status === "needsAgent") {
             if (edit.content !== before) {
               invariantError(
@@ -722,8 +719,6 @@ describe("seeded cross-screen HTML/Alpine drag transaction fuzz", () => {
             gap: `${4 + Math.floor(random() * 6) * 2}px`,
           });
           if (!enabled && edit.result.status === "needsAgent") {
-            // Same contract as the inline fuzz: no rects, no deterministic
-            // rebuild, content untouched and nothing to record in history.
             if (edit.content !== before) {
               invariantError(
                 seed,

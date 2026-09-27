@@ -1,14 +1,8 @@
-/**
- * Shared helpers for the editor-owned deck write actions (`add-deck`,
- * `save-deck`, `delete-deck`). Underscore-prefixed so action discovery skips
- * it — this module is not itself an action.
- */
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, isNull, type AnyColumn } from "drizzle-orm";
 
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
-/** A deck is stored as one opaque JSON blob in `decks.data`. */
 export type DeckPayload = Record<string, unknown>;
 
 export function nextDeckRevision(
@@ -75,10 +69,6 @@ export function assertDeckWriteApplied(
   }
 }
 
-/**
- * Actions surface HTTP status through `statusCode`; the action route echoes the
- * message verbatim for client errors and swallows it for anything >= 500.
- */
 export function deckHttpError(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode });
 }

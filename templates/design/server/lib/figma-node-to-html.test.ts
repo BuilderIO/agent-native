@@ -55,9 +55,6 @@ describe("gradientAngleDegrees", () => {
   });
 
   it("corrects for a non-square box instead of using the raw normalized angle", () => {
-    // A tall, narrow box: the normalized diagonal (0,0)->(1,1) is NOT 45deg
-    // in real pixel space here, so the derived CSS angle must differ from
-    // the naive 135deg square-box answer.
     const paint: FigmaPaint = {
       type: "GRADIENT_LINEAR",
       gradientHandlePositions: [
@@ -69,12 +66,6 @@ describe("gradientAngleDegrees", () => {
     };
     const angle = gradientAngleDegrees(paint, { width: 50, height: 200 });
     expect(angle).not.toBe(135);
-    // Figma's gradient parameter is linear in NORMALIZED space, so the CSS
-    // angle follows the iso-line normal grad(t) = (du/w, dv/h) -- scaled to
-    // (du*h, dv*w) = (200, 50): atan2(50, 200) ~= 14.04 -> +90 ~= 104.04.
-    // Scaling the handle vector instead gives 165.96deg, which is what this
-    // mapper emitted until a least-squares plane fit of Figma's own render
-    // measured 27.0deg where that model predicted 65.7deg.
     expect(angle).toBeCloseTo(104.04, 1);
   });
 
@@ -196,10 +187,6 @@ describe("mapFigmaNodeToHtml - strokes", () => {
       children: [node],
     };
     const { html, fidelity } = mapFigmaNodeToHtml(root);
-    // CENTER splits each side's weight either side of the edge: an inset copy
-    // offset INTO the box paints the inside half, a plain copy offset out of
-    // it paints the outside half. A CSS border could only do the first, at
-    // full weight, and would take the space out of the content box too.
     expect(html).toContain("inset 0px 0.5px 0 0");
     expect(html).toContain("0px -0.5px 0 0");
     expect(html).toContain("inset -1px 0px 0 0");
@@ -241,7 +228,6 @@ describe("mapFigmaNodeToHtml - text", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // 20 * 150 / 100 = 30px
     expect(html).toContain("line-height: 30px");
     expect(html).toContain("letter-spacing: 0.5px");
     expect(html).toContain("text-transform: uppercase");
@@ -349,16 +335,9 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
     expect(html).toContain("flex-direction: row");
     expect(html).toContain("justify-content: space-between");
     expect(html).toContain("align-items: center");
-    // Figma disables the spacing field under SPACE_BETWEEN and derives the gap
-    // from the free space, though it still reports the last value set. CSS
-    // treats `gap` as a minimum that space-between distributes ON TOP of, so
-    // emitting both spaces the row by the stale number. The gap assertion for
-    // ordinary alignment is the test below.
     expect(html).not.toContain("column-gap: 16px");
     expect(html).toContain("padding: 4px 8px 4px 8px");
-    // Auto-layout children are flex items: no manual left/top.
     expect(html).not.toMatch(/data-figma-node-id="4:1"[^>]*left:/);
-    // FILL sizing child grows along the main axis.
     expect(html).toContain("flex-grow: 1");
   });
 
@@ -414,13 +393,6 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
   });
 
   it("maps horizontal FILL sizing to align-self: stretch (not flex-grow) under a VERTICAL (column) parent", () => {
-    // Regression test: a column auto-layout frame's main axis is vertical, so
-    // a child with layoutSizingHorizontal: "FILL" wants to stretch across the
-    // cross axis (align-self: stretch), not grow along the main axis
-    // (flex-grow/flex-basis). The old implementation ignored the parent's
-    // layoutMode and always mapped horizontal-FILL to flex-grow, which left
-    // `width: auto` with no stretch on column children -- they sized to
-    // content and overflowed the frame instead of filling its width.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -466,8 +438,6 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // Vertical FILL under a column parent grows along the (vertical) main
-    // axis.
     expect(html).toContain("flex-grow: 1");
     expect(html).toContain("flex-basis: 0%");
     expect(html).not.toContain("align-self: stretch");
@@ -504,8 +474,6 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // The gradient (top layer in Figma) must be the first background-image
-    // value, and the solid becomes the plain background-color underneath.
     expect(html).toContain("background-image: linear-gradient(90deg,");
     expect(html).toContain("background-color: rgba(255, 0, 0, 1)");
   });
@@ -527,11 +495,6 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
     const { html } = mapFigmaNodeToHtml(root, {
       imageFillUrls: { "hash-1": "https://example.com/img.png" },
     });
-    // The rendered `style="..."` attribute HTML-escapes embedded quotes (the
-    // CSS `url("...")` quoting is legitimate CSS but would otherwise
-    // prematurely terminate the surrounding double-quoted HTML attribute --
-    // see the styleAttr() doc comment). A real browser parses `&quot;` back
-    // to `"` before CSS parsing, so this remains a valid quoted url().
     expect(html).toContain("url(&quot;https://example.com/img.png&quot;)");
     expect(html).toContain("background-size: cover");
   });
@@ -552,19 +515,10 @@ describe("mapFigmaNodeToHtml - fills layering", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // The style attribute must not contain a bare, unescaped `"` -- every
-    // quote inside the attribute value has to be `&quot;`.
     const styleAttrMatch = html.match(/style="([^"]*(?:&quot;[^"]*)*)"/g);
     expect(styleAttrMatch).not.toBeNull();
-    // Every style="..." attribute's raw content is `&quot;`-escaped, not a
-    // literal quote -- if font-family's `"Inter"` leaked through unescaped,
-    // the regex above would fail to capture the whole attribute (it would
-    // terminate early) and the assertion below would catch the literal `"`.
     expect(html).toContain("font-family: &quot;Inter&quot;, sans-serif");
     expect(html).not.toMatch(/style="[^"]*font-family: "Inter"/);
-    // The properties declared AFTER font-family in object-key order must
-    // still be present and inside the same attribute -- this is exactly
-    // what silently disappeared before the fix.
     expect(html).toContain("font-size: 20px");
     expect(html).toContain("display: flex");
   });
@@ -596,8 +550,6 @@ describe("mapFigmaNodeToHtml - effects and blend modes", () => {
     };
     const { html, fidelity } = mapFigmaNodeToHtml(root);
     expect(html).toContain("box-shadow: 2px 4px 8px 1px rgba(0, 0, 0, 0.5)");
-    // A Figma blur radius is not a CSS blur() standard deviation: 6 * 0.45.
-    // See FIGMA_BLUR_RADIUS_TO_CSS_BLUR for how that factor was measured.
     expect(html).toContain("filter: blur(2.7px)");
     const entry = fidelity.entries.find((e) => e.nodeId === "6:1");
     expect(entry?.level).toBe("approximated");
@@ -815,7 +767,6 @@ describe("mapFigmaNodeToHtml - vector geometry", () => {
 
   it("draws a VECTOR with fillGeometry as a real <path>, not a rendered PNG", () => {
     const root = frameWith(vectorNode());
-    // Nothing to rasterize, so no PNG render is requested for it either.
     expect(collectFallbackNodeIds(root)).toEqual([]);
 
     const { html, fidelity } = mapFigmaNodeToHtml(root, {
@@ -868,8 +819,6 @@ describe("mapFigmaNodeToHtml - vector geometry", () => {
     );
     expect(html).toContain("<defs>");
     expect(html).toContain('<linearGradient id="fg-9-1-fill-0-0"');
-    // Figma handle positions are already objectBoundingBox space, so they go
-    // straight onto x1/y1/x2/y2 with no angle derivation.
     expect(html).toContain('x1="0" y1="0.5" x2="1" y2="0.5"');
     expect(html).toContain('stop-color="rgb(0, 0, 255)" stop-opacity="0.5"');
     expect(html).toContain('fill="url(#fg-9-1-fill-0-0)"');
@@ -1060,16 +1009,6 @@ describe("collectImageFillRefs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fidelity-harness regressions
-//
-// Every case below was found by rendering the real Figma corpus frames through
-// this mapper and pixel-diffing against Figma's own render
-// (`templates/design/scripts/figma-fidelity/run-import.ts`); the measured
-// numbers live next to each fix in `figma-node-to-html.ts` /
-// `figma-paint-math.ts`.
-// ---------------------------------------------------------------------------
-
 describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
   function styleOf(html: string, nodeId: string): string {
     const match = html.match(
@@ -1080,10 +1019,6 @@ describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
   }
 
   it("moves an IMAGE paint with opacity into an overlay div instead of dropping the opacity", () => {
-    // CSS background layers have no per-layer opacity, so the alpha cannot be
-    // folded in the way it is for SOLID/GRADIENT paints. Dropping it renders a
-    // fully saturated image over a muted one -- the `fills-effects` corpus
-    // frame's "Multi Fill Stack" node, 28.9% -> 18.7% differing pixels.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -1111,9 +1046,7 @@ describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
     expect(html).toContain('data-figma-fill-layer="IMAGE"');
     expect(html).toContain("opacity: 0.5");
     expect(html).toContain("url(&quot;https://example.test/a.png&quot;)");
-    // The image must NOT also remain in the node's own background stack.
     expect(styleOf(html, "img")).not.toContain("url(");
-    // The solid below it still paints as a plain background-color.
     expect(styleOf(html, "img")).toContain(
       "background-color: rgba(255, 0, 0, 1)",
     );
@@ -1141,9 +1074,6 @@ describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
   });
 
   it("lifts paints stacked above an opacity-carrying image into overlays too", () => {
-    // An overlay div paints above the entire background stack, so a paint that
-    // Figma draws ON TOP of the image would sink underneath it if it stayed a
-    // background layer.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -1168,12 +1098,9 @@ describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
       'data-figma-fill-layer="IMAGE"',
       'data-figma-fill-layer="SOLID"',
     ]);
-    // DOM order is paint order: the image first, the solid on top of it.
     expect(html.indexOf('data-figma-fill-layer="IMAGE"')).toBeLessThan(
       html.indexOf('data-figma-fill-layer="SOLID"'),
     );
-    // The lifted SOLID already carries its opacity in the alpha channel, so
-    // the div must NOT also set opacity (that would square it to 0.0625).
     const solidOverlay = html.match(
       /data-figma-fill-layer="SOLID" style="([^"]*)"/,
     )![1]!;
@@ -1182,11 +1109,6 @@ describe("mapFigmaNodeToHtml - per-paint opacity and blend mode", () => {
   });
 
   it("escalates a node with a per-paint blend mode to an image fallback", () => {
-    // CSS `background-blend-mode` would be the obvious mapping, but Figma's
-    // paint blend modes compose against the node's backdrop in ways CSS layer
-    // blending does not reproduce, so `needsImageFallback` claims these nodes
-    // before `buildFills` ever sees them. Asserted here so nobody re-adds a
-    // background-blend-mode branch that can never run.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -1238,9 +1160,6 @@ describe("mapFigmaNodeToHtml - blur radius scale", () => {
 
 describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
   it("rotates in the same direction Figma does (no sign flip)", () => {
-    // relativeTransform's 2x2 IS CSS's [[cos a, -sin a],[sin a, cos a]] in the
-    // same y-down space, so the CSS angle is `rotation`, not `-rotation`.
-    // Captured from the parity-stress corpus frame's "Rotated Radial" node.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -1265,10 +1184,6 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
       ],
     };
     const { html } = mapFigmaNodeToHtml(root);
-    // The transform now ships as relativeTransform's own 2x2 block, which
-    // carries mirroring and skew that a `rotation` scalar cannot. The
-    // direction still has to be Figma's: CSS matrix(m11, m12, ...) puts cos in
-    // m11 and sin in m12, so atan2(m12, m11) is the angle it rotates by.
     const match = html.match(
       /matrix\((-?[\d.]+), (-?[\d.]+), (-?[\d.]+), (-?[\d.]+), 0, 0\)/,
     );
@@ -1278,11 +1193,6 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
   });
 
   it("positions a child of a rotated parent in the parent's own unrotated frame", () => {
-    // absoluteBoundingBox for such a child is measured in already-rotated
-    // absolute space AND inflated to the rotated AABB, so it is wrong twice.
-    // Captured from the `shapes` corpus frame: "Rotated Child" is authored
-    // 60x30 at (20,20) inside a frame rotated -15deg, but its
-    // absoluteBoundingBox reports 65.7x44.5 at (24.5, 29.7).
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -1387,10 +1297,6 @@ describe("text typography escalation (bug: ordinary labels rasterized)", () => {
     });
 
   it("keeps single-paragraph text editable when paragraphSpacing is set", () => {
-    // paragraphSpacing is the gap BETWEEN paragraphs, so it cannot affect a
-    // one-paragraph node. Design systems set it on every text style anyway: on
-    // a real community landing page this rasterized 116 of 146 text nodes, one
-    // of them the single word "Home".
     const { html, fidelity } = render(textNode({ paragraphSpacing: 16 }));
     expect(html).toContain("Home");
     expect(html).not.toContain("<img");
@@ -1428,9 +1334,6 @@ describe("text typography escalation (bug: ordinary labels rasterized)", () => {
 
 describe("mapFigmaNodeToHtml - TRUNCATE", () => {
   it("puts text-overflow on the span so the ellipsis actually renders", () => {
-    // The wrapper div is a flex column (that is how textAlignVertical is
-    // reproduced), and `text-overflow` only ellipsizes the inline content of a
-    // block container -- on the wrapper it silently clips with no ellipsis.
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",

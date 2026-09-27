@@ -125,10 +125,6 @@ export function runRecordPendingVisualStyleEdit(
   const sourceId =
     elementInfo?.sourceId ??
     (screenId === activeFile?.id ? selectedElement?.sourceId : null);
-  // A localhost screen's live document and its source projection use
-  // different node-id namespaces, so the projection pair above cannot
-  // address the running DOM. Carry the runtime pair too or every undo
-  // replay silently resolves nothing (see runtimeStyleTarget).
   const runtimeInfo =
     elementInfo ?? (screenId === activeFile?.id ? selectedElement : null);
   const proofId =
@@ -222,8 +218,6 @@ export function runRecordPendingVisualStyleEdit(
       ? { interactionState: metadata.interactionState, baseStyles }
       : {}),
     updatedAt: nextPendingLiveEditTimestamp(),
-    // §6.4 — stamp the active breakpoint scope so the agent applies
-    // these as width-scoped overrides, not base writes.
     ...(activeBreakpointWidthState != null
       ? {
           breakpoint: {
@@ -238,9 +232,6 @@ export function runRecordPendingVisualStyleEdit(
     pendingVisualStyleEditsRef.current,
     nextEdit,
   );
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload. Consecutive ticks on the same target coalesce.
   const previousUndoLength = pendingVisualStyleUndoStackRef.current.length;
   appendPendingVisualStyleUndoEntry(pendingVisualStyleUndoStackRef.current, {
     edit: nextEdit,

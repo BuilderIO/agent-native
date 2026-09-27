@@ -1,7 +1,3 @@
-/**
- * set-agent-engine — validates and writes agent engine selection to settings.
- */
-
 import {
   listAgentEngines,
   getAgentEngineEntry,
@@ -56,8 +52,6 @@ export async function run(args: Record<string, string>): Promise<string> {
   }
 
   const requestedModel = model ?? entry.defaultModel;
-  // A static registry entry cannot carry runtime endpoint state, so resolve
-  // both gateway and provider model capabilities before saving the selection.
   const acceptsCustomModels = await resolveEngineAcceptsCustomModels(entry);
   const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const resolvedModel = normalizeModelForEngine(entry, requestedModel, {

@@ -443,14 +443,9 @@ export default function ShareRoute() {
   const panelParam = searchParams.get("panel");
   const search = searchParams.toString();
 
-  // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
-  // share link) so we can fire funnel events and forward attribution into the
-  // signup URL even when cookies are blocked or `document.referrer` is empty.
   const attribution = useMemo(() => readShareAttribution(search), [search]);
   const recordingId = shareId ?? "";
 
-  // share_cta_click — fired alongside (never instead of) the real navigation.
-  // `track` is non-throwing, but guard anyway so tracking can never break a CTA.
   const fireShareCtaClick = useCallback(
     (cta: "signup" | "download" | "try_clips" | "signin") => {
       try {
@@ -468,13 +463,10 @@ export default function ShareRoute() {
     [recordingId, attribution.ref, attribution.via],
   );
 
-  // Forward attribution into the signup URL so it survives blocked cookies.
   const signupHref = appPath(
     `/signup?${buildSignupAttributionQuery(attribution.via)}`,
   );
 
-  // share_view — fire once when the public share page mounts. The ref guard
-  // prevents double-fire across re-renders / StrictMode double-invocation.
   const shareViewFiredRef = useRef(false);
   useEffect(() => {
     if (shareViewFiredRef.current) return;
@@ -501,12 +493,6 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  // Reading sessionStorage in the initializer makes the first client render
-  // disagree with the server's, which has no storage and always renders the
-  // locked state. React answers a mismatch by throwing away the hydrated tree
-  // and re-rendering from scratch, so a returning viewer watches a blank share
-  // page while everything refetches. Start where the server started and adopt
-  // the stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
 
@@ -533,8 +519,6 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
-  // The root entry is public, even for signed-in viewers; keep private
-  // destinations on the app's home route.
   const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
@@ -557,9 +541,6 @@ export default function ShareRoute() {
   const resumedAccountActionRef = useRef<"comment" | "react" | null>(null);
   const [refreshSessionAfterAuth, setRefreshSessionAfterAuth] = useState(false);
   const [processingTimeout, setProcessingTimeout] = useState(false);
-  // Keep the public viewer's rail in the same default state as the signed-in
-  // viewer. Its own tab strip is the only panel navigation; the page toolbar
-  // stays focused on recording actions.
   const [panel, setPanel] = useState<SharePanel>("comments");
   const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
     usePersistentSidebarCollapsed({
@@ -679,8 +660,6 @@ export default function ShareRoute() {
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
-    // Let public shares resolve without waiting for auth. A session-loading
-    // 401/404 remains behind the spinner until the authenticated retry.
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
@@ -692,10 +671,6 @@ export default function ShareRoute() {
       }
       const rec = payload?.recording;
       if (!rec) return false;
-      // Poll while the recording is still being assembled / transcoded so the
-      // page auto-upgrades from "Processing" to the real player the moment
-      // the server flips status to 'ready' and writes videoUrl. Mirrors
-      // _app.r.$recordingId.tsx's playerDataQ.refetchInterval.
       if (rec.status !== "ready" || !rec.videoUrl) {
         readyMediaPollRef.current = null;
         return 2000;
@@ -721,14 +696,7 @@ export default function ShareRoute() {
       if (now < readyMediaPollRef.current.until) {
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
       }
-      // Also keep polling while a transcript is pending so "Transcribing…"
-      // auto-flips to the ready transcript (or to the failure card). The
-      // public payload has no transcript.cleanup field (that's authenticated
-      // -only), so there is no equivalent of the cleanup.status poll here.
       if (payload?.transcript?.status === "pending") return 3000;
-      // And keep polling while the title is still the server-seeded default
-      // — the agent will land a generated title via `update-recording` and
-      // we want the skeleton to swap in promptly.
       if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
         return 3000;
       }
@@ -740,11 +708,6 @@ export default function ShareRoute() {
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
     if (recording && !recording.enableComments) {
-      // Functional update so this branch doesn't need `panel` as a
-      // dependency below - depending on `panel` made this effect re-fire on
-      // every manual tab click (including away from Comments), and
-      // `panelParam === "comments"` would then re-select Comments right
-      // back, trapping the viewer on the deep link for the whole session.
       setPanel((current) => (current === "comments" ? "transcript" : current));
       return;
     }
@@ -859,20 +822,12 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
-  // Any signed-in viewer with access to the recording may comment or react —
-  // anonymous viewers keep the same controls and enter the account funnel
-  // when they try to participate (see `requireSignIn` below).
   const viewerCanComment = Boolean(session) && viewerRole != null;
   const viewerCanUseFullscreenInteractions = !session || viewerCanComment;
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
-  // A plain viewer only gets a copy-link control: it must not trigger
-  // `list-resource-shares` (any read access is enough to call it, and its
-  // response includes every individually-shared principal's email) and must
-  // not surface the raw video download/open action independent of
-  // `enableDownloads`.
   const viewerReshareOnly = canReshareLink && !viewerCanEdit;
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
@@ -925,12 +880,6 @@ export default function ShareRoute() {
     document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
 
-  // /share/:id and /r/:id render the same clip, so anyone who can open the
-  // authenticated page goes straight there rather than through a redundant
-  // "open dashboard" button. `canOpenDashboard` is the server's own
-  // `canOpenDirectRecordingPage` verdict; deriving it from the display role
-  // instead would bounce viewers between the two routes forever, since /r
-  // sends anyone it rejects back here.
   useEffect(() => {
     const target = resolveDashboardRedirect({
       recordingId: recording?.id,
@@ -1057,14 +1006,12 @@ export default function ShareRoute() {
     sessionStatus,
   ]);
 
-  // If the backend returned 401 with passwordRequired, prompt.
   const needsPassword =
     dataQ.data?.status === 401 && dataQ.data.data?.passwordRequired;
 
   useEffect(() => {
     if (!needsPassword) return;
     if (password) {
-      // Wrong password entered → clear and show error.
       setPwError(t("sharePage.incorrectPassword"));
       setPassword(null);
       try {
@@ -1081,21 +1028,11 @@ export default function ShareRoute() {
     } catch {}
   }
 
-  /**
-   * Redactions drawn but not burned in. Resharing is held back while there are
-   * any — the file still shows everything under them, so passing the link on
-   * passes on the unredacted clip.
-   */
-  // `recording` comes from a client-side query and is undefined while the
-  // server renders, so this has to tolerate its absence: reading through it
-  // unguarded here returned a 500 for every share page, redactions or not.
   const pendingRedactions = parseRedactions(
     parseEdits(recording?.editsJson).overlays,
   ).length;
 
   async function downloadRecording() {
-    // Every way out of here is the same file, and it still shows what the
-    // boxes are over until the burn has run.
     if (pendingRedactions > 0) {
       toast.warning(t("shareDialog.redactionsPendingTitle"), {
         description: t("shareDialog.redactionsPendingBody", {
@@ -1222,9 +1159,6 @@ export default function ShareRoute() {
     );
   }
 
-  // Held while the owner has redactions drawn but not burned in. The clip
-  // comes back on its own the moment they are, so this says "for now" and
-  // nothing about what is being covered up.
   if (dataQ.data?.status === 409 && dataQ.data.data?.redactionPending) {
     return (
       <>
@@ -1462,8 +1396,6 @@ export default function ShareRoute() {
   const canDownloadRecording = Boolean(
     recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
-  // Loom-backed clips only ever get an "open player" link (not a raw
-  // download), so they're exempt from the enableDownloads gate here.
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
   const shareControl =
@@ -1642,9 +1574,6 @@ export default function ShareRoute() {
                           }}
                         />
                       );
-                      // The Fullscreen API only paints the player's own element,
-                      // so portal the composer there instead of exiting
-                      // fullscreen when it's open.
                       const fullscreenContainer =
                         isPlayerFullscreen && playerRef.current?.container;
                       return fullscreenContainer

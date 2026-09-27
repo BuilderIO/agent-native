@@ -271,7 +271,6 @@ describe("buildStatusEventFields", () => {
 });
 
 describe("normalizeCreateEventInput", () => {
-  // create-event relies on this for ordering, so it carries no second guard.
   it("rejects a timed event that ends at or before its start", () => {
     expect(() =>
       normalizeCreateEventInput({
@@ -557,8 +556,6 @@ describe("validateEventTimeOrder", () => {
   });
 
   it("orders a date-only bound against an instant bound", () => {
-    // The shape a malformed timed update arrives in: a date-only start landing
-    // after the event's existing ISO end.
     expect(() =>
       validateEventTimeOrder({
         allDay: false,

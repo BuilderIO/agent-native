@@ -50,8 +50,6 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
-// The server mint spends up to a 95s cold-boot budget waiting on a target app
-// that is still starting; aborting sooner reports a booting app as unreachable.
 const EMBED_SESSION_TIMEOUT_MS = 100_000;
 
 interface EmbedSessionResult {
@@ -110,13 +108,6 @@ async function readWorkspaceAppChatProxyError(
   return body.trim() || `Agent chat proxy returned ${response.status}.`;
 }
 
-/**
- * Point the app pane's chat rail at the app's OWN agent through the Dispatch
- * proxy, and prove the proxy answers before claiming it works. A rail that
- * quietly fell back to Dispatch's agent would look identical while running the
- * wrong tools, instructions, and app resources, so a failed probe is a visible
- * error state instead.
- */
 function useWorkspaceAppChatApi(appId: string) {
   const apiUrl = useMemo(
     () => agentNativePath(workspaceAppChatProxyPath(appId)),
@@ -128,8 +119,6 @@ function useWorkspaceAppChatApi(appId: string) {
   useEffect(() => {
     let cancelled = false;
     setUnavailable(false);
-    // `/mode` is the app's own dev-mode surface: reaching it proves the proxy
-    // minted an app session and the app's agent-chat routes answer.
     void fetch(`${apiUrl}/mode`, { credentials: "include" })
       .then(async (response) => {
         if (response.ok) return;
@@ -164,13 +153,6 @@ export interface WorkspaceAppChatRailProps {
   onFullscreenRequest?: () => void;
 }
 
-/**
- * The chat beside an open workspace app. Every surface that hosts an app pane
- * must go through here so the rail is always the app's own agent — same tools,
- * AGENTS.md, skills, app-scoped resources, and dev-mode surface as the app's
- * native chat — and so an unreachable app is one visible error state rather
- * than a per-surface silent handoff back to Dispatch's agent.
- */
 export function WorkspaceAppChatRail({
   appId,
   appName,
@@ -228,9 +210,6 @@ export function WorkspaceAppChatRail({
         contextKey: `workspace-app:${appId}`,
       }}
       isolateHistoryByScope
-      // The app's own server answers this chat, so its tools, AGENTS.md,
-      // skills, app-scoped resources, and dev-mode surface are the real ones
-      // rather than a copy maintained inside Dispatch.
       apiUrl={appChat.apiUrl}
       agentChatSurface="app"
       showTabBar
@@ -258,13 +237,9 @@ export interface WorkspaceAppFrameApp {
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
   navigateToTopWindow?: (href: string) => boolean | void;
-  /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
-  /** Standalone Dispatch routes seed the iframe once from their initial suffix. */
   initialPath?: string;
-  /** Standalone Dispatch hosts mirror child route changes into the shell URL. */
   onChildRouteChange?: (path: string) => void;
-  /** Chat-first app surfaces own the parent chat rail around the iframe. */
   chatSidebar?: boolean;
   copy?: ChatFirstCopy;
 }
@@ -435,10 +410,6 @@ export function WorkspaceAppFrame({
         if (cancelled) return;
         const error = cause instanceof Error ? cause : new Error(String(cause));
         if (useWorkspaceSso) {
-          // An SSO-enabled pane must never fall back to the child app's
-          // unauthenticated shell. Keep the parent-owned retry surface in
-          // place so a transient exchange failure cannot expose another
-          // login form.
           setIsDirectFallback(false);
           setEmbedUrl(null);
           setEmbedError(error);
@@ -620,9 +591,6 @@ export function WorkspaceAppHost({
     "list_apps",
     {},
     {
-      // Mounted workspace apps are already fully described by the workspace
-      // registry. Defer the broader MCP grant/discovery scan until that
-      // lookup misses; it is only needed for externally granted apps.
       enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
     },
   );

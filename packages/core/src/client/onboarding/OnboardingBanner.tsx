@@ -1,10 +1,3 @@
-/**
- * <OnboardingBanner /> — compact bar for the top of the agent sidebar.
- *
- * Shows "Setup: N of M complete" plus a Continue button that expands the
- * full <OnboardingPanel />. Use when you want the panel collapsed by default.
- */
-
 import { IconChecklist, IconChevronRight } from "@tabler/icons-react";
 import React from "react";
 

@@ -135,7 +135,6 @@ describe("federateSources", () => {
       federation: federation("secondary", "url", secondaryFormula),
       rows: [
         row("", { url: "https://site.com/blog/foo" }),
-        // qux has no primary row → must be dropped (no virtual rows this phase).
         row("", { url: "https://site.com/blog/qux" }),
       ],
     });
@@ -151,10 +150,8 @@ describe("federateSources", () => {
       sourceId: "notion",
       values: { url: "https://site.com/blog/foo" },
     });
-    // bar has a canonical key but no secondary match → no overlay.
     expect(bar.canonicalKey).toBe("bar");
     expect(bar.sourceOverlays).toBeUndefined();
-    // No virtual row was synthesized for the orphan "qux".
     expect(result.some((r) => r.document.id.includes("qux"))).toBe(false);
   });
 
@@ -167,7 +164,6 @@ describe("federateSources", () => {
     const result = federateSources({ items, sources: [primary] });
     expect(result[0].canonicalKey).toBeUndefined();
     expect(result[0].sourceOverlays).toBeUndefined();
-    // The primary row record is still attached (old single-source behavior).
     expect(result[0].sourceRecord?.documentId).toBe("doc-foo");
   });
 

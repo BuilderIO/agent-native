@@ -28,8 +28,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -82,11 +80,6 @@ describe("content db migrations cover every schema.ts column", () => {
  * current list, so there is nothing to retroactively name.
  */
 describe("content db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -106,8 +99,6 @@ describe("content db.ts migration entries follow the naming convention", () => {
   const entries = extractEntries(dbTsSource);
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // content_migrations has 60 entries plus content_source_migrations has 5
-    // more; this just guards against the regex finding ~zero entries.
     expect(entries.length).toBeGreaterThan(60);
   });
 
@@ -118,11 +109,6 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 
   it("every migration entry with version > 60 has a name", () => {
-    // Both runContentMigrations (max 60) and runContentSourceMigrations (max
-    // 5) share this same source file and regex scan, so a version > 60 can
-    // only be a NEW entry added to either list after this change — the
-    // content_source_migrations list's own v1-v5 are all <= 60 and stay
-    // unaffected.
     const missingNames = entries
       .filter((e) => e.version > 60)
       .filter((e) => !e.name)
@@ -159,18 +145,6 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap — but since the startup-speedup change it no longer runs inline at
- * boot: the db plugin only awaits the hand-written migrations and then
- * schedules server/lib/startup-maintenance.ts, which runs the net and the
- * one-time data repairs once per isolate, after boot, retrying loudly on
- * failure. These assertions pin that wiring: the net still exists, still
- * runs after both migration runners, and boot no longer blocks on it.
- */
 describe("content db.ts schedules post-boot maintenance after runMigrations", () => {
   const maintenanceSource = readFileSync(
     new URL("../lib/startup-maintenance.ts", import.meta.url),
@@ -214,12 +188,10 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
     expect(dbTsSource).not.toMatch(
       /await\s+repairFilesSystemPropertyDefinitions/,
     );
-    // The old in-plugin retry helper is gone; retries live in the module.
     expect(dbTsSource).not.toContain("scheduleBlocksRepairRetry");
   });
 
   it("the lazy module runs both repairs after the net and logs failures loudly", () => {
-    // Ordering constraint: the net may add a column a repair's query touches.
     const netIdx = maintenanceSource.indexOf("additive-columns");
     const blocksIdx = maintenanceSource.indexOf("blocks-repair");
     const filesIdx = maintenanceSource.indexOf(
@@ -231,8 +203,6 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
 
     expect(maintenanceSource).toContain("repairUnseededBlocksFields");
     expect(maintenanceSource).toContain("repairFilesSystemPropertyDefinitions");
-    // A swallowed repair failure would leave legacy data unrepaired while
-    // looking healthy — the module must log every failed attempt loudly.
     expect(maintenanceSource).toMatch(
       /console\.error\(\s*`\[db\] startup maintenance "\$\{label\}"/,
     );
@@ -240,9 +210,6 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
   });
 
   it("treats additive-column summary errors as a retryable failed step", () => {
-    // ensureAdditiveColumns never throws; non-empty summary errors are its
-    // failure contract. The wrapper must throw them into the retry path, not
-    // log-and-resolve while the net is incomplete.
     expect(maintenanceSource).toMatch(
       /summary\.errors\.length > 0[\s\S]{0,400}throw new Error\(/,
     );
@@ -252,11 +219,6 @@ describe("content db.ts schedules post-boot maintenance after runMigrations", ()
     // A fire-and-forget retry would let the next step race the safety net
     // the retry is still finishing, so the chain must be awaited.
     expect(maintenanceSource).toMatch(/await\s+scheduleRetry\(/);
-    // The initial trigger is a single tick and must not be unref'd — a
-    // serverless isolate may quiesce before an unref'd trigger fires and the
-    // whole run would be skipped until a later boot. Retries stay unref'd
-    // (bounded backoff; next boot is the backstop), so exactly one unref
-    // site may exist in the module, inside scheduleRetry.
     const triggerIdx = maintenanceSource.indexOf(
       "export function scheduleStartupMaintenance",
     );

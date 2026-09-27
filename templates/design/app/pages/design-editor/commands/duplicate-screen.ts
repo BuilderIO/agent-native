@@ -125,8 +125,6 @@ function rebaseDispatchedCanvasGeometry(
   }
   if (!isCompleteFrameGeometry(geometryAtStart)) return latest;
 
-  // The canvas snapshot may be newer than persisted state, but never replace
-  // geometry that changed again while file creation was in flight.
   return {
     ...latest,
     x: latest.x === geometryAtStart.x ? (dispatched.x ?? latest.x) : latest.x,
@@ -232,8 +230,6 @@ function reserveDuplicateGeometry(
           ...otherPending,
         ]);
   if (existingReservation) {
-    // Keep the z slot allocated when the create started; recomputing against
-    // a later pending map makes completion order change the duplicate stack.
     reserved.z = existingReservation.z;
   } else if (reserved.x === candidate.x && reserved.y === candidate.y) {
     const overlappingZ = occupiedGeometries
@@ -602,10 +598,6 @@ export function runDuplicateScreen(
   };
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
   duplicateBatch?.pendingFilenames.add(filename);
-  // Carry screen dimensions/height mode for every duplicate so the new frame
-  // uses the same overview scale. Runtime metadata also keeps localhost/fusion
-  // duplicates URL-backed. The carry must be path-addressed or it replaces a
-  // peer's metadata for every other screen.
   const sourceMetadataById = getDesignDataRecord(
     designDataJsonRef.current,
     "screenMetadata",
@@ -648,9 +640,6 @@ export function runDuplicateScreen(
     recoveryState && "localhostScreen" in recoveryState
       ? recoveryState.localhostScreen
       : currentLocalhostMetadata;
-  // Per-call mutate callbacks, not a promise, would silently strand every
-  // duplicate but the last: a second mutate() detaches the observer from
-  // the first mutation, so only the newest call's onSuccess ever runs.
   let createdFileId: string | undefined;
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
@@ -856,8 +845,6 @@ export function runDuplicateScreen(
         latestGeometry,
         appliedStack.geometryById,
       );
-      // Persist stack ordering as z-only edits so a concurrent screen move
-      // cannot be replaced by the geometry snapshot captured at dispatch.
       const nextFrameGeometry = {
         ...appliedStack.geometryById,
         [nextId]: createdGeometry,
@@ -1053,8 +1040,6 @@ export function runDuplicateScreen(
             "undo",
           ).geometryById;
         }
-        // A normal write compacts the failed optimistic save with its inverse
-        // while keeping unrelated pending geometry operations intact.
         writeFrameGeometrySnapshot(nextGeometry);
       } else if (!recoveries.has(filename)) {
         pendingFilenames.delete(filename);

@@ -12,7 +12,7 @@ fn luminance(rgb: vec3f) -> f32 {
 }
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  // LuminosityHighPassShader.js @ three 0.184.0, with defaultColor=0 and defaultOpacity=0.
+
   let texel = textureSample(tDiffuse, linearSampler, uv);
   let v = luminance(texel.xyz);
   let outputColor = vec4f(vec3f(0.0), 0.0);

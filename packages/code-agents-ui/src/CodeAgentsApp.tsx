@@ -286,14 +286,11 @@ export interface CodeAgentsNewSessionExtensionModeControlInput {
 }
 
 export interface CodeAgentsNewSessionExtension {
-  /** The extension always owns the new-session selector; active routes submits and detail. */
   active: boolean;
   disabled?: boolean;
-  /** Rendered in place of the standard Plan/Auto picker. */
   renderModeControl?(
     input: CodeAgentsNewSessionExtensionModeControlInput,
   ): React.ReactNode | undefined;
-  /** Opt in only when the extension needs the standard model picker. */
   showModelSelector?: boolean;
   submit(
     input: CodeAgentsNewSessionExtensionSubmitInput,
@@ -332,10 +329,6 @@ export function shouldCloseWatchedChatFirstSession(input: {
   return !input.watchedRunPresent;
 }
 
-/**
- * Search owns the rail only while its panel owns the main area, so the tab
- * highlight can never disagree with what is actually on screen.
- */
 export function resolveCodeAgentsPrimaryTab(input: {
   chatFirstMainKind: "agent" | "code";
   searchPanelOpen: boolean;
@@ -350,40 +343,26 @@ export function resolveCodeAgentsPrimaryTab(input: {
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
-  /** Whether the host surface is currently visible to the user. */
   isActive?: boolean;
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
   onOpenSettings?: (tab?: string) => void;
-  /** Compact actions rendered above the primary surface. */
   mainToolbarSlot?: ReactNode;
-  /** App shortcuts rendered between navigation and the chat history. */
   railWorkspaceSlot?: ReactNode;
-  /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
-  /** Optional window controls mounted in the rail's title-bar area. */
   railWindowControlsSlot?: ReactNode;
-  /** Optional content shown below the empty new-chat composer. */
   overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
-  /** Active chat-first side surface; watch is rendered only when selected. */
   activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
-  /** Selected primary chat kind in the chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
-  /** Keep the chat-first navigation rail in its compact icon-only state. */
   railCollapsed?: boolean;
-  /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
-  /** Select the primary chat kind in the chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
-  /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
   renderChatFirstMainSurface?: ReactNode;
-  /** Host-rendered replacement for the chat stream and composer region. */
   renderChatFirstChatSurface?: ReactNode;
-  /** Local terminal mode replaces the new-chat run with a PTY prompt. */
   terminalMode?: {
     agentId: string;
     agentLabel: string;
@@ -392,9 +371,7 @@ export interface CodeAgentsAppProps {
       attachments: CodeAgentPromptAttachment[],
     ) => void | Promise<void>;
   };
-  /** Controls terminal mode from the new-chat composer plus menu. */
   terminalModeControl?: ComposerTerminalModeControl;
-  /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
     onNewChat?: () => void;
@@ -403,18 +380,13 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
-  /** Desktop-native shortcuts for app and chat navigation. */
   keyboardNavigation?: ChatFirstKeyboardNavigation;
-  /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
-  /** Lets a host place the shared watch renderer in its side-surface slot. */
   onWatchedRunChange?: (
     run: CodeAgentRun | null,
     sourceRunId?: string | null,
   ) => void;
-  /** Exposes the already-loaded run list to a host-owned side surface. */
   onRunsChange?: (runs: CodeAgentRun[]) => void;
-  /** Exposes the selected primary chat to a host-owned surface controller. */
   onSelectedRunChange?: (runId: string | null) => void;
 }
 
@@ -765,9 +737,6 @@ export function getCodeAgentWorktreeRecoveryState(
   const worktreePath = firstRecordString(worktree?.path);
   const worktreeState = firstRecordString(worktree?.state);
   const cleanupError = firstRecordString(worktree?.lastCleanupError);
-  // Older run records do not have pathAvailable. Preserve their existing
-  // behavior while making current records explicit when cleanup removed the
-  // checkout but kept its branch for recovery.
   const pathAvailable = worktree?.pathAvailable !== false;
   const wasPreserved =
     worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
@@ -853,9 +822,6 @@ export default function CodeAgentsApp({
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const transcriptRequestRef = useRef(0);
   const selectRun = useCallback((runId: string | null) => {
-    // Do not mount a newly selected chat with the previous run's repository.
-    // The transcript fetch completes after this render, and the shared chat
-    // runtime correctly rejects a shorter same-length repository as stale.
     setTranscriptEvents([]);
     setTranscriptError(null);
     setSelectedRunId(runId);
@@ -1407,11 +1373,6 @@ export default function CodeAgentsApp({
     intervalMs: 5000,
     enabled: isActive && !!host.getHostMetadata,
   });
-  // Refresh outside the regular cadence when something else in this app
-  // bumps refreshKey (e.g. after a setup action completes) — the leading
-  // poll from usePollLoop above already covers the isActive-becomes-true
-  // case, so pollNow() here is a no-op on mount (an attempt is already
-  // in flight) and only does real work on a later refreshKey change.
   useEffect(() => {
     if (isActive) pollHostMetadataNow();
   }, [isActive, pollHostMetadataNow, refreshKey]);
@@ -1690,8 +1651,6 @@ export default function CodeAgentsApp({
   const bounceProviderGate = useCallback(() => {
     setProviderGateBouncePulse((pulse) => pulse + 1);
   }, []);
-  // `listModels` only includes local runtimes when their CLI is installed.
-  // Keep sign-in hidden until the host has confirmed the capability.
   const localRuntimeOptions = useMemo(
     () => getLocalRuntimeOptions(modelOptions),
     [modelOptions],
@@ -1854,9 +1813,6 @@ export default function CodeAgentsApp({
         }
       },
     );
-    // When the push subscription is active it delivers events as they arrive.
-    // Keep a long-interval fallback poll so we reconcile any gaps (e.g. if the
-    // file watch fires before the write is fully flushed, or on first load).
     const pollMs = unsubscribe
       ? selectedRunIsActive
         ? 10_000
@@ -1883,8 +1839,6 @@ export default function CodeAgentsApp({
     selectedRunIsActive,
   ]);
 
-  // Cmd+N / Ctrl+N — start a new chat from anywhere in the workbench.
-  // Use a ref so the effect is stable and doesn't re-register on every render.
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
   useEffect(() => {
@@ -4543,8 +4497,6 @@ function readStoredUnreadRunIds(): Set<string> {
         : [];
     return new Set(ids.filter((id): id is string => typeof id === "string"));
   } catch {
-    // An unread marker is advisory; unreadable local state must not create
-    // dozens of false-positive attention indicators.
     return new Set();
   }
 }
@@ -5476,12 +5428,6 @@ function RunDetailCard({
     phase: run.phase,
   });
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
-  // The inline per-tool-call approval affordance (rendered by AssistantChat /
-  // ToolCallDisplay via the tool-call's `approval` field) already covers this
-  // pending approval when the transcript join succeeds. Keep this standalone
-  // banner only as a fallback for transcripts where that join is missing
-  // (legacy runs, or a pending approval whose bash result isn't present in
-  // the rendered window) so the two affordances don't double up.
   const hasInlineApprovalAffordance = pendingApproval
     ? codeAgentTranscriptHasPendingApproval(transcriptEvents)
     : false;
@@ -5660,9 +5606,7 @@ function TranscriptPanel({
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onStop: () => Promise<boolean>;
-  /** Resolves the run's pending approval as denied — same command the standalone approval banner uses. */
   onDeny?: () => void;
-  /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
@@ -5758,10 +5702,6 @@ function TranscriptPanel({
           Loading transcript...
         </div>
       ) : (
-        // Local coding runs keep their own controller and transcript adapter,
-        // but they intentionally enter the shared AssistantChat renderer so
-        // message parts, tool activity, and integration suggestions stay in
-        // parity with server-backed agent chats.
         <>
           <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
           <AssistantChat
@@ -5996,11 +5936,6 @@ function hasMissingCredentialSignal(
   return transcriptEvents.some(isCredentialTranscriptEvent);
 }
 
-// Delegates to the shared core helper so this surface and the server-side
-// transcript builders (thread-data-builder.ts, code-agent-transcript.ts)
-// agree on one definition instead of each keeping its own regex. The helper
-// prefers the structured `signal` field and only falls back to matching the
-// legacy hint text for transcripts persisted before that field existed.
 function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
   return isCredentialGapCodeAgentEvent(event);
 }

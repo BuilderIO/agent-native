@@ -192,9 +192,6 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   } catch {}
 
-  // The owner's email is only safe to disclose here when it's already public
-  // via the attendee list — an unauthenticated viewer must never learn an
-  // account email that isn't otherwise visible on this page.
   const ownerEmailIsPublic = participants.some(
     (participant) =>
       participant.email.trim().toLowerCase() ===

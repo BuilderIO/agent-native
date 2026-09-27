@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Pull in the module fresh inside the token-exchange describe block so the
-// module-level token cache does not leak across tests. The pure helpers
-// (extractFileId, getServiceAccountKey, request builders) are stateless and
-// can use a single static import.
 import {
   extractFileId,
   getServiceAccountKey,
@@ -108,7 +104,6 @@ describe("listDocComments", () => {
     expect(captured?.url).toContain("/files/FILE1/comments?");
     expect(captured?.url).toContain("pageSize=100");
     expect((captured?.headers as any).Authorization).toBe("Bearer tok-abc");
-    // No startModifiedTime filter unless provided.
     expect(captured?.url).not.toContain("startModifiedTime");
   });
 
@@ -279,7 +274,6 @@ describe("getServiceAccountAccessToken (with module-level cache)", () => {
   });
 
   it("signs a JWT, exchanges it for a token, and caches the result", async () => {
-    // Generate a real RSA key so node:crypto can actually sign the JWT.
     const crypto = await import("node:crypto");
     const { privateKey } = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -305,7 +299,6 @@ describe("getServiceAccountAccessToken (with module-level cache)", () => {
     const first = await mod.getServiceAccountAccessToken();
     expect(first).toBe("ya29.token");
 
-    // The token-exchange POST carries a JWT assertion built from the key.
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
     const params = String(init.body);
     expect(params).toContain(
@@ -313,8 +306,6 @@ describe("getServiceAccountAccessToken (with module-level cache)", () => {
     );
     expect(params).toContain("assertion=");
 
-    // Second call within the validity window is served from cache — no
-    // additional token exchange.
     const second = await mod.getServiceAccountAccessToken();
     expect(second).toBe("ya29.token");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -339,7 +330,6 @@ describe("getServiceAccountAccessToken (with module-level cache)", () => {
 
     const mod = await import("./google-docs.js");
     await expect(mod.getServiceAccountAccessToken()).resolves.toBeNull();
-    // A retry still hits the network (nothing cached on failure).
     await mod.getServiceAccountAccessToken();
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
@@ -352,7 +342,6 @@ describe("googleDocsAdapter", () => {
     await expect(adapter.handleVerification({} as any)).resolves.toEqual({
       handled: false,
     });
-    // verifyWebhook trusts the poller (no inbound webhook to verify).
     await expect(adapter.verifyWebhook({} as any)).resolves.toBe(true);
   });
 
@@ -379,8 +368,6 @@ describe("googleDocsAdapter", () => {
   });
 
   it("sendResponse replies to the doc comment using a resolved access token", async () => {
-    // Use a real key so getServiceAccountAccessToken can mint a token via the
-    // mocked token endpoint, then assert the reply hits the comments endpoint.
     vi.resetModules();
     const crypto = await import("node:crypto");
     const { privateKey } = crypto.generateKeyPairSync("rsa", {

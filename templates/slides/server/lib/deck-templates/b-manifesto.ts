@@ -19,7 +19,6 @@ const DISPLAY = `font-family:var(--deck-heading-font);font-weight:400;text-trans
 const TAG = `font-size:15px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;`;
 const BOX = `background:var(--deck-surface);border:${RULE};box-shadow:8px 8px 0 var(--deck-ink);border-radius:var(--deck-radius);`;
 
-/** A band of repeated uppercase text, sized so every phrase stays on the canvas. */
 const marquee = (text: string, count: number, style = "") =>
   `<div style="display:flex;justify-content:space-between;align-items:center;white-space:nowrap;background:var(--deck-ink);color:var(--deck-bg);padding:9px 24px 7px;${style}">${Array.from(
     { length: count },

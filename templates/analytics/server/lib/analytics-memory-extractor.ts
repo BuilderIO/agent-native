@@ -398,7 +398,6 @@ function makeCandidate(
   };
 }
 
-/** Extract only concise, user-authored rules that are explicit or later confirmed. */
 export function extractAnalyticsMemoryCandidates(
   messages: readonly AnalyticsMemoryMessage[],
 ): AnalyticsMemoryCandidate[] {

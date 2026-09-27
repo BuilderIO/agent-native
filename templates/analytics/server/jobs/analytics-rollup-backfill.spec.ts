@@ -93,9 +93,6 @@ describe("analytics historical rollup backfill", () => {
       remaining: 1,
     });
 
-    // Assert what actually matters — losing the lock does no backfill work and
-    // records no completion — rather than a raw call count, which broke the
-    // moment a statement was legitimately added ahead of the lock.
     const executed = tx.execute.mock.calls.map(([arg]: [unknown]) =>
       typeof arg === "string" ? arg : ((arg as { sql?: string })?.sql ?? ""),
     );
@@ -103,8 +100,6 @@ describe("analytics historical rollup backfill", () => {
       executed.some((s) => s.includes("analytics_event_daily_rollups")),
     ).toBe(false);
     expect(executed.some((s) => s.includes("completed"))).toBe(false);
-    // The backfill scans a 41 GB table under a 15-minute lease, so it must
-    // raise its own statement_timeout before a role-level cap can kill it.
     expect(
       executed.some((s) => s.includes("SET LOCAL statement_timeout")),
     ).toBe(true);

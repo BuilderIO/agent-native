@@ -36,7 +36,6 @@ import type { Label } from "../shared/types.js";
 const FRESHNESS_MAX_AGE_MS = 15_000;
 const SYNC_BUDGET_MS = 6_000;
 
-/** Shared tail: partition into tabs and page the active tab — identical for both backends. */
 function paginateIntoResult(
   items: InboxThreadItem[],
   config: InboxTabConfig,
@@ -73,8 +72,6 @@ function paginateIntoResult(
     activeTabId,
     items: pageItems,
     total: activeMembers.length,
-    // An unread-only page proves coverage of unread rows, not of the full tab
-    // that `total` describes, so it cannot settle a removal journal.
     complete:
       !page.unreadOnly && page.offset + pageItems.length >= pageSource.length,
     syncing,
@@ -140,12 +137,6 @@ export default defineAction({
       unreadOnly: args.unreadOnly,
     };
 
-    // No connected Google account: mirror the synthetic local mailbox
-    // instead of the synced store (see the mail-backends skill).
-    // getConnectedAccounts is the single "which accounts exist" source —
-    // OAuth rows with Gmail scope, else a managed workspace grant's email —
-    // so a managed grant with no per-user OAuth row isn't mistaken for
-    // disconnected.
     const { accounts: connectedAccounts, errors: accountErrors } =
       await getConnectedAccountsWithErrors(ownerEmail);
     if (connectedAccounts.length === 0) {
@@ -180,9 +171,6 @@ export default defineAction({
       );
     }
 
-    // Keeps the store within the freshness window without ever blocking on a
-    // full Gmail listing — a per-account failure surfaces in `accounts`
-    // instead of failing this read.
     const statuses = await ensureInboxFresh(ownerEmail, {
       accountEmails: args.accountEmails,
       maxAgeMs: FRESHNESS_MAX_AGE_MS,

@@ -108,9 +108,6 @@ vi.mock("@agent-native/creative-context/client", () => ({
 
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
-  // The real hook portals its argument into app-shell chrome outside this
-  // tree; capture it so the search input (also passed here) can be rendered
-  // and inspected directly.
   useSetHeaderActions: (node: unknown) => {
     mocks.headerActions = node;
   },
@@ -159,9 +156,6 @@ vi.mock("@/lib/pending-generation", () => ({
   clearPendingGeneration: vi.fn(),
 }));
 
-// The dropdown menu's open/close choreography (Radix pointer events, focus
-// return) is orthogonal to what this test checks — collapse it to plain
-// always-rendered markup so the "Rename" item is directly clickable.
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
@@ -191,9 +185,6 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-// Same reasoning as the dropdown-menu mock above: Radix Tooltip needs a
-// TooltipProvider ancestor the real page tree supplies elsewhere; strip it to
-// plain markup since this test doesn't exercise tooltip behavior.
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children?: React.ReactNode }) => (
@@ -262,8 +253,6 @@ describe("Index rename dialog accessibility", () => {
 
     await act(async () => {
       renameItem!.click();
-      // The app opens the rename dialog from a setTimeout (dodging a Radix
-      // dropdown-close focus race) — flush that macrotask.
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -272,16 +261,10 @@ describe("Index rename dialog accessibility", () => {
     );
     expect(input).toBeTruthy();
 
-    // A placeholder is not an accessible name (WCAG) — screen readers and
-    // Playwright's getByLabel() both need aria-label/aria-labelledby or a
-    // paired <label>.
     expect(resolveAccessibleName(input!)).toBeTruthy();
   });
 
   it("gives the search text input an accessible name too (same placeholder-only pattern)", async () => {
-    // The search input lives in header actions, which the real app renders
-    // in app-shell chrome outside this component's own tree — mount the
-    // captured node separately to inspect it.
     const headerContainer = document.createElement("div");
     document.body.append(headerContainer);
     const headerRoot = createRoot(headerContainer);

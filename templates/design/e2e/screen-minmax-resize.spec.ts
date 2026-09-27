@@ -94,8 +94,6 @@ async function dragHandle(
   const cardBounds = await card.boundingBox();
   if (!cardBounds) throw new Error("Screen card is not visible for resize");
   const scale = cardBounds.width / geometry.width;
-  // The resize box is rendered as a canvas-level overlay, separate from the
-  // Screen shell. There is only one selected root Screen in this test.
   const handle = page
     .locator("[data-frame-selection-box]")
     .locator(`[data-resize-handle="${handleName}"]`)
