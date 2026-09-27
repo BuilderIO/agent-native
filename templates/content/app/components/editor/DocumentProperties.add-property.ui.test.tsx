@@ -77,6 +77,20 @@ const articles = {
   fields: [sourceField("budget", "Budget")],
 } as unknown as ContentDatabaseSource;
 
+// Both ways of adding a property share the picker's pending and error states.
+const addPaths = [
+  {
+    path: "a property type",
+    mutation: () => mutations.configure,
+    item: addTypeLabel("text"),
+  },
+  {
+    path: "a source field",
+    mutation: () => mutations.addSourceField,
+    item: "editor.properties.sourceField(Budget)",
+  },
+];
+
 async function openPicker() {
   await click(byLabel("editor.properties.addProperty"));
   await nextFrame();
@@ -117,45 +131,59 @@ describe("Add Property picker", () => {
     expect(queryByLabel(SEARCH)).toBeNull();
   });
 
-  it("stays open and marks the pending type busy while the property is added", async () => {
-    const pending = deferred();
-    mutations.configure.mutateAsync.mockReturnValue(pending.promise);
-    renderUi(<AddProperty documentId="document" databaseId="database" />);
-    await openPicker();
+  it.each(addPaths)(
+    "stays open and marks $path busy while it is added",
+    async ({ mutation, item }) => {
+      const pending = deferred();
+      mutation().mutateAsync.mockReturnValue(pending.promise);
+      renderUi(
+        <AddProperty
+          documentId="document"
+          databaseId="database"
+          sources={[articles]}
+        />,
+      );
+      await openPicker();
 
-    await click(byLabel(addTypeLabel("text")));
+      await click(byLabel(item));
 
-    expect(byLabel(addTypeLabel("text")).getAttribute("aria-busy")).toBe(
-      "true",
-    );
-    expect(byLabel<HTMLButtonElement>(addTypeLabel("number")).disabled).toBe(
-      true,
-    );
-    await press(byLabel(SEARCH), "Escape");
-    expect(queryByLabel(SEARCH)).not.toBeNull();
+      expect(byLabel(item).getAttribute("aria-busy")).toBe("true");
+      expect(byLabel<HTMLButtonElement>(addTypeLabel("number")).disabled).toBe(
+        true,
+      );
+      await press(byLabel(SEARCH), "Escape");
+      expect(queryByLabel(SEARCH)).not.toBeNull();
 
-    pending.resolve({});
-    await nextFrame();
-    expect(queryByLabel(SEARCH)).toBeNull();
-  });
+      pending.resolve({});
+      await nextFrame();
+      expect(queryByLabel(SEARCH)).toBeNull();
+    },
+  );
 
-  it("shows the failure in the picker and re-enables it when adding fails", async () => {
-    mutations.configure.mutateAsync.mockRejectedValue(
-      new Error("Property limit reached"),
-    );
-    renderUi(<AddProperty documentId="document" databaseId="database" />);
-    await openPicker();
+  it.each(addPaths)(
+    "shows the failure and re-enables the picker when adding $path fails",
+    async ({ mutation, item }) => {
+      mutation().mutateAsync.mockRejectedValue(
+        new Error("Property limit reached"),
+      );
+      renderUi(
+        <AddProperty
+          documentId="document"
+          databaseId="database"
+          sources={[articles]}
+        />,
+      );
+      await openPicker();
 
-    await click(byLabel(addTypeLabel("text")));
+      await click(byLabel(item));
 
-    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
-      "editor.properties.addPropertyFailed Property limit reached",
-    );
-    expect(queryByLabel(SEARCH)).not.toBeNull();
-    expect(byLabel<HTMLButtonElement>(addTypeLabel("number")).disabled).toBe(
-      false,
-    );
-  });
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+        "editor.properties.addPropertyFailed Property limit reached",
+      );
+      expect(queryByLabel(SEARCH)).not.toBeNull();
+      expect(byLabel<HTMLButtonElement>(item).disabled).toBe(false);
+    },
+  );
 
   it("adds a source field through the source-field mutation", async () => {
     renderUi(

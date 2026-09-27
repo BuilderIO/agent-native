@@ -62,7 +62,12 @@ export function queryByLabel<T extends HTMLElement = HTMLElement>(
   label: string,
   scope: ParentNode = document.body,
 ): T | null {
-  return scope.querySelector<T>(`[aria-label="${label.replace(/"/g, '\\"')}"]`);
+  // Compare attribute values directly so labels never need CSS escaping.
+  return (
+    Array.from(scope.querySelectorAll<T>("[aria-label]")).find(
+      (element) => element.getAttribute("aria-label") === label,
+    ) ?? null
+  );
 }
 
 /**
