@@ -2017,7 +2017,6 @@ function SourceListItem({
           ) : null}
         </div>
       ) : null}
-
     </div>
   );
 }
