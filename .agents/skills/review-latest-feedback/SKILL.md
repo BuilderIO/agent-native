@@ -29,10 +29,10 @@ beats thirty replies.
 ## Phase 0: claim what you are taking
 
 `👀` is permanent claim history; add it before investigation and never remove
-it. Before work starts, record the active owner and task as **In progress** in
-the owner thread or linked work. Continue active work instead of duplicating
-it. An eye without a terminal disposition is unresolved: check its status and
-linked work, and defer if ownership is unclear.
+it. An eye without a terminal disposition is unresolved, not available to
+another workflow. Check its thread and linked work; continue or coordinate
+active work, and defer if ownership is unclear. Post **In progress** only when
+work continues beyond this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -101,7 +101,7 @@ and put their count in the recap. Sort targeted searches oldest-first and follow
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Read back each `👀` before investigating; add it once.
+Read back each `👀` once before investigation. Follow status for resumed work.
 
 Claiming does not investigate. Search-discovered work gets the same eye-first
 read-back. Do not claim items that are already
@@ -270,9 +270,6 @@ slack_search: has::eyes: in:<#CHANNEL>
 Read each parent and its reaction metadata. Mark **Owned elsewhere** only
 when thread status or linked work confirms an active owner. New evidence after
 a terminal status reopens the report; keep existing reactions.
-
-Group repeat symptoms into one cluster with one owning investigation; the
-repeat gate in Phase 2 owns how they are worked.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,

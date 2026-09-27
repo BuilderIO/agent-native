@@ -52,7 +52,9 @@ removed; newer thread evidence determines the current disposition.
 
 Every claimed report keeps its `👀`. Follow `review-latest-feedback` for
 ownership and cluster status; add `✅` to each report a verified fix resolves.
-Never remove reactions.
+Never remove reactions. An eye without a terminal status is unresolved, not
+available to another workflow; check its thread and linked work before taking
+it over.
 
 ## Prerequisites
 
@@ -138,19 +140,20 @@ out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
 thread lacks that status.
 **Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
-**In progress** is an open ownership state. Follow `review-latest-feedback` to
-record the active owner before investigation; continue or coordinate that work
-instead of starting a duplicate. Never use a vague update or replace
-verification. The next run must revisit **In progress** and resolve it to
-**Fixed**, **Clarification needed**, or evidence-backed **Open - no question**
-when no safe fix or reproduction remains. `Blocked`, `not fixed yet`, `still
-needs a fix`, and similar phrases are internal notes, never a complete Slack
-reply. **Open - no question** is terminal with our eye retained and no
-checkmark. A reply must state a verified resolution, concrete active work, a
-needed question, or one terminal disposition with its reason; never send a
-vague status alone. These are ledger states, not mandatory headings: keep the
-reporter-facing wording natural instead of opening with the robotic phrase
-“Clarification needed”. A
+**In progress** is an open ownership state. Do not send an interim progress
+reply for work fixed in the same run. If work continues beyond this run, follow
+`review-latest-feedback` and post one concrete status before the next sweep.
+Continue or coordinate existing work instead of starting a duplicate. Never
+use a vague update or replace verification. The next run must revisit this
+state and resolve it to **Fixed**, **Clarification needed**, or evidence-backed
+**Open - no question** when no safe fix or reproduction remains. `Blocked`,
+`not fixed yet`, `still needs a fix`, and similar phrases are internal notes,
+never a complete Slack reply. **Open - no question** is terminal with our eye
+retained and no checkmark. A reply must state a verified resolution, concrete
+active work, a needed question, or one terminal disposition with its reason;
+never send a vague status alone. These are ledger states, not mandatory
+headings: keep the reporter-facing wording natural instead of opening with the
+robotic phrase “Clarification needed”. A
 substantive diagnosis, fix, or in-progress ownership statement from someone in
 the thread is not a reason to ask for clarification; verify it or continue the
 existing handoff first.
@@ -236,9 +239,9 @@ non-repeating question only if one specific required detail still blocks it.
      be on beta later today; never send a bare “Fixed”.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
-   - **In progress** - after a new claim and before investigation, thank the
-     reporter and name the active work; acknowledge existing ownership and do
-     not ask a duplicate question. This is an open handoff, not a fix.
+   - **In progress** - only when work continues beyond this run; thank the
+     reporter and name the active work. A same-run fix needs only its final
+     verified status. This is an open handoff, not a fix.
    - **Clustered** - list source permalinks and state in owner-thread status or
      linked work. Reply once; answer a distinct question in its own thread.
    - **Clarification needed** - ask one concrete plain-language question only
