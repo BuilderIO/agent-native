@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { roleSatisfies } from "@agent-native/core/sharing";
+import { assertAccess, roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -13,8 +13,8 @@ import {
   getDatabaseByDocumentId,
   getBuilderBodyHydrationMembershipByDocumentId,
   getDocumentContextPath,
-  getDatabaseItemByDocumentId,
   isSoftDeletedDatabaseDocument,
+  listDatabaseItemsByDocumentId,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import {
@@ -83,65 +83,113 @@ export default defineAction({
     if (!args.id) throw new Error("--id is required");
 
     const access = await resolveDocumentAccess(args.id);
-    if (!access) {
-      throw Object.assign(new Error(`Document "${args.id}" not found`), {
-        statusCode: 404,
-      });
-    }
-    if (
-      access.resource.trashedAt ||
-      (await isSoftDeletedDatabaseDocument(args.id))
-    ) {
+    if (!access || access.resource.trashedAt) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
       });
     }
     const doc = access.resource;
+    const db = getDb();
+    const userEmail = getRequestUserEmail();
+    const source = serializeDocumentSource(doc);
+    const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
+    const mayBeExternallyLinked =
+      canCommentRole(access.role) && !source?.mode && !hasInlineDatabase;
+
+    // These reads depend only on the document, so they run as one round of
+    // parallel statements. The checks after them decide what is returned.
+    const [
+      softDeleted,
+      memberships,
+      database,
+      databaseItems,
+      bodyHydrationTarget,
+      favoriteIds,
+      externalLink,
+      contextPath,
+    ] = await Promise.all([
+      isSoftDeletedDatabaseDocument(args.id),
+      db
+        .select({
+          databaseId: schema.contentDatabases.id,
+          databaseDocumentId: schema.contentDatabases.documentId,
+          systemRole: schema.contentDatabases.systemRole,
+          primaryId: schema.documentPropertyDefinitions.id,
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
+        .leftJoin(
+          schema.documentPropertyDefinitions,
+          and(
+            eq(
+              schema.documentPropertyDefinitions.id,
+              schema.contentDatabases.primaryBlocksPropertyId,
+            ),
+            eq(
+              schema.documentPropertyDefinitions.databaseId,
+              schema.contentDatabases.id,
+            ),
+            eq(schema.documentPropertyDefinitions.type, "blocks"),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.documentId, doc.id),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .orderBy(schema.contentDatabases.id),
+      getDatabaseByDocumentId(doc.id),
+      listDatabaseItemsByDocumentId(doc.id),
+      getBuilderBodyHydrationMembershipByDocumentId(doc.id),
+      userEmail
+        ? favoriteDocumentIds(db, userEmail, [doc.id])
+        : new Set<string>(),
+      mayBeExternallyLinked
+        ? db
+            .select({ documentId: schema.documentSyncLinks.documentId })
+            .from(schema.documentSyncLinks)
+            .where(
+              and(
+                eq(schema.documentSyncLinks.documentId, doc.id),
+                ne(schema.documentSyncLinks.state, "unlinked"),
+              ),
+            )
+            .limit(1)
+        : [],
+      getDocumentContextPath(doc, { databaseId: args.databaseId }),
+    ]);
+    if (softDeleted) {
+      throw Object.assign(new Error(`Document "${args.id}" not found`), {
+        statusCode: 404,
+      });
+    }
     if (args.databaseDocumentId && !args.databaseId) {
       throw Object.assign(new Error("databaseDocumentId requires databaseId"), {
         statusCode: 404,
       });
     }
 
-    const memberships = await getDb()
-      .select({
-        databaseId: schema.contentDatabases.id,
-        databaseDocumentId: schema.contentDatabases.documentId,
-        systemRole: schema.contentDatabases.systemRole,
-        primaryId: schema.documentPropertyDefinitions.id,
-      })
-      .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.contentDatabases,
-        eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-      )
-      .leftJoin(
-        schema.documentPropertyDefinitions,
-        and(
-          eq(
-            schema.documentPropertyDefinitions.id,
-            schema.contentDatabases.primaryBlocksPropertyId,
-          ),
-          eq(
-            schema.documentPropertyDefinitions.databaseId,
-            schema.contentDatabases.id,
-          ),
-          eq(schema.documentPropertyDefinitions.type, "blocks"),
-        ),
-      )
-      .where(
-        and(
-          eq(schema.contentDatabaseItems.documentId, doc.id),
-          isNull(schema.contentDatabases.deletedAt),
-        ),
-      )
-      .orderBy(schema.contentDatabases.id);
     const ordinaryMemberships = memberships.filter(
       (membership) => membership.systemRole === null,
     );
-    const accessibleDatabases = await accessibleDocumentIds(
-      memberships.map((membership) => membership.databaseDocumentId),
-    );
+    const bodyHydrationMembership = bodyHydrationTarget?.membership;
+    const [accessibleDatabases, bodyHydrationAccess] = await Promise.all([
+      accessibleDocumentIds(
+        memberships.map((membership) => membership.databaseDocumentId),
+      ),
+      bodyHydrationTarget?.hydrationSourceId
+        ? resolveDocumentAccess(bodyHydrationMembership!.database.documentId, {
+            skipResourceBody: true,
+          })
+        : null,
+    ]);
     accessibleDatabases.add(doc.id);
     const accessiblePrimaryMemberships = memberships.filter(
       (membership) =>
@@ -153,14 +201,17 @@ export default defineAction({
     );
     const selectedDatabaseId =
       args.databaseId ?? accessiblePrimaryMemberships[0]?.databaseId;
-    const database = await getDatabaseByDocumentId(doc.id);
-    const databaseMembership = selectedDatabaseId
-      ? await getDatabaseItemByDocumentId(doc.id, {
-          databaseId: selectedDatabaseId,
-        })
-      : await getDatabaseItemByDocumentId(doc.id);
+    const databaseMembership =
+      (selectedDatabaseId
+        ? databaseItems.find(
+            (row) => row.item.databaseId === selectedDatabaseId,
+          )
+        : databaseItems[0]) ?? null;
     const propertyDatabase = selectedDatabaseId
-      ? await getDatabaseById(selectedDatabaseId)
+      ? (databaseMembership?.database ??
+        (database?.id === selectedDatabaseId
+          ? database
+          : await getDatabaseById(selectedDatabaseId)))
       : await resolvePropertyDatabaseForDocument(doc);
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
@@ -183,51 +234,34 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    const bodyHydrationTarget =
-      await getBuilderBodyHydrationMembershipByDocumentId(doc.id);
-    const bodyHydrationMembership = bodyHydrationTarget?.membership;
-    const bodyHydrationAccess = bodyHydrationTarget?.hydrationSourceId
-      ? await resolveDocumentAccess(
-          bodyHydrationMembership!.database.documentId,
-        )
-      : null;
+    if (selectedDatabaseId && !propertyDatabase) {
+      throw new Error(`Database "${selectedDatabaseId}" not found`);
+    }
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
-    const userEmail = getRequestUserEmail();
-    const favoriteIds = userEmail
-      ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
-      : new Set<string>();
-    const properties = await listPropertiesForDocument(
-      doc,
-      selectedDatabaseId,
-      {
+    const [properties] = await Promise.all([
+      listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
         // not the private database document that owns those definitions.
         requireDatabaseAccess: hasPropertyDatabaseAccess,
-      },
-    );
-    const source = serializeDocumentSource(doc);
-    const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
+        database: propertyDatabase,
+      }),
+      // Reading the collection's own fields also takes resolveAccess on its
+      // document, which can refuse a document accessibleDocumentIds admits.
+      selectedDatabaseId && hasPropertyDatabaseAccess
+        ? assertAccess(
+            "document",
+            propertyDatabase!.documentId,
+            "viewer",
+            undefined,
+            { skipResourceBody: true },
+          )
+        : undefined,
+    ]);
     let isExternallyLinked = false;
     let hasBodyTarget = true;
-    if (
-      canCommentRole(access.role) &&
-      !database &&
-      !source?.mode &&
-      !hasInlineDatabase
-    ) {
-      const db = getDb();
-      const externalLink = await db
-        .select({ documentId: schema.documentSyncLinks.documentId })
-        .from(schema.documentSyncLinks)
-        .where(
-          and(
-            eq(schema.documentSyncLinks.documentId, doc.id),
-            ne(schema.documentSyncLinks.state, "unlinked"),
-          ),
-        )
-        .limit(1);
+    if (mayBeExternallyLinked && !database) {
       isExternallyLinked = externalLink.length > 0;
       hasBodyTarget = hasSuggestionBodyTarget({
         hasDatabaseMembership: memberships.length > 0,
@@ -336,11 +370,7 @@ export default defineAction({
             definition: { ...property.definition, databaseId: null },
           })),
       contextPath:
-        databaseMembership && !hasPropertyDatabaseAccess
-          ? []
-          : await getDocumentContextPath(doc, {
-              databaseId: args.databaseId,
-            }),
+        databaseMembership && !hasPropertyDatabaseAccess ? [] : contextPath,
     };
   },
   link: ({ result }) => {
