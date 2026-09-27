@@ -1,10 +1,10 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-const STOP_ACK_TIMEOUT_MS = 500;
+const STOP_ACK_TIMEOUT_MS = 250;
 
 export async function requestRecordingShortcutStop() {
-  const toolbar = await WebviewWindow.getByLabel("toolbar").catch(() => null);
+  const toolbar = await WebviewWindow.getByLabel("toolbar");
   if (!toolbar) return emit("clips:recorder-stop");
 
   const requestId = crypto.randomUUID();

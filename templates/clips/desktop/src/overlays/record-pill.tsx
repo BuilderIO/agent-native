@@ -616,12 +616,8 @@ export function RecordingPill() {
   function stop() {
     // Guarded through the ref: the tray-stop listener holds a first-render
     // closure of this function, where the `enabled` state is still false.
-    if (
-      !enabledRef.current ||
-      modeRef.current === "done" ||
-      playheadConfirmOpenRef.current
-    )
-      return;
+    if (!enabledRef.current || modeRef.current === "done") return false;
+    playheadConfirmOpenRef.current = false;
     setDoneDurationMs(elapsedRef.current);
     // Every stop — hosted or local-only — starts as "finishing" and is only
     // called done by the completion event the stop actually produces. A
@@ -652,6 +648,7 @@ export function RecordingPill() {
         });
       }, 2_000);
     }
+    return true;
   }
 
   function scheduleCloseFallback(action: string) {
@@ -1010,10 +1007,12 @@ export function RecordingPill() {
         "clips:tray-stop-request",
         (payload) => {
           const requestId = payload?.requestId;
-          const canHandleStop =
-            enabledRef.current || modeRef.current === "done";
-          if (enabledRef.current && modeRef.current !== "done") stop();
-          else if (!canHandleStop) {
+          const alreadyDone = modeRef.current === "done";
+          if (!alreadyDone && (!enabledRef.current || !stop())) {
+            void safeInvoke("show_popover");
+            return;
+          }
+          if (alreadyDone && !requestId) {
             void safeInvoke("show_popover");
             return;
           }

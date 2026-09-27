@@ -52,12 +52,14 @@ describe("requestRecordingShortcutStop", () => {
     expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
   });
 
-  it("stops directly when looking up the toolbar window fails", async () => {
+  it("preserves toolbar lookup failures", async () => {
     getByLabel.mockRejectedValue(new Error("window lookup failed"));
 
-    await requestRecordingShortcutStop();
+    await expect(requestRecordingShortcutStop()).rejects.toThrow(
+      "window lookup failed",
+    );
 
-    expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("stops directly when the toolbar window has no mounted listener", async () => {
@@ -65,7 +67,7 @@ describe("requestRecordingShortcutStop", () => {
     listen.mockResolvedValue(vi.fn());
 
     const stopRequest = requestRecordingShortcutStop();
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(250);
     await stopRequest;
 
     expect(emit).toHaveBeenCalledWith("clips:tray-stop-request", {

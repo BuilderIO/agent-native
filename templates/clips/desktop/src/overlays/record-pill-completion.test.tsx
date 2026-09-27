@@ -28,13 +28,14 @@ const tauriEvents = vi.hoisted(() => {
     ),
   };
 });
+const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => undefined) }));
 
 vi.mock("@tauri-apps/api/event", () => ({
   emit: tauriEvents.emit,
   listen: tauriEvents.listen,
 }));
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async () => undefined),
+  invoke: tauriCore.invoke,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   currentMonitor: vi.fn(async () => null),
@@ -47,8 +48,26 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("../../../shared/recording-playhead", () => ({
-  RecordingPlayhead: ({ onStop }: { onStop: () => void }) => (
-    <button onClick={onStop}>Stop recording</button>
+  RecordingPlayhead: ({
+    onStop,
+    onConfirmChange,
+  }: {
+    onStop: () => void;
+    onConfirmChange?: (change: {
+      type: "open";
+      enteredPaused: boolean;
+    }) => void;
+  }) => (
+    <>
+      <button onClick={onStop}>Stop recording</button>
+      <button
+        onClick={() =>
+          onConfirmChange?.({ type: "open", enteredPaused: false })
+        }
+      >
+        Open restart confirmation
+      </button>
+    </>
   ),
 }));
 vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
@@ -65,6 +84,7 @@ describe("completion card actions", () => {
     tauriEvents.listeners.clear();
     tauriEvents.emit.mockClear();
     tauriEvents.listen.mockClear();
+    tauriCore.invoke.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -244,6 +264,7 @@ describe("completion card actions", () => {
         localOnly: false,
       });
     });
+    await act(async () => button("Open restart confirmation").click());
     await act(async () => {
       await tauriEvents.emit("clips:tray-stop-request", {
         requestId: "shortcut-stop-1",
@@ -264,5 +285,11 @@ describe("completion card actions", () => {
     expect(host.textContent).toContain("Recording saved");
     expect(button("Copy")).toBeDefined();
     expect(button("Open")).toBeDefined();
+
+    tauriCore.invoke.mockClear();
+    await act(async () =>
+      tauriEvents.emit("clips:tray-stop-request", undefined),
+    );
+    expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
   });
 });

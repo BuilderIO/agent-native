@@ -4036,7 +4036,9 @@ export function App({
       return;
     }
     if (recorder) {
-      void requestRecordingShortcutStop().catch(() => {});
+      void requestRecordingShortcutStop().catch((error) => {
+        console.error("[clips] Recording shortcut stop failed:", error);
+      });
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
