@@ -143,6 +143,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function clearNavigationFocusIntentAfterAppTasks(): void {
+    var navigationIntent = trustedFocusIntent;
+    // Let app key handlers enqueue their roving-focus task before clearing intent.
+    window.setTimeout(function () {
+      window.setTimeout(function () {
+        if (trustedFocusIntent === navigationIntent) {
+          trustedFocusIntent = null;
+        }
+      }, 0);
+    }, 0);
+  }
+
   function rememberUserFocusedElement(event: FocusEvent): void {
     var intent = trustedFocusIntent;
     var target = getCanvasFocusTarget(event);
@@ -216,12 +228,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         userFocusedElement = active;
         if (keyEvent.key.startsWith("Arrow")) {
           armTrustedFocusIntent(active, "navigation");
-          var navigationIntent = trustedFocusIntent;
-          window.setTimeout(function () {
-            if (trustedFocusIntent === navigationIntent) {
-              trustedFocusIntent = null;
-            }
-          }, 0);
+          clearNavigationFocusIntentAfterAppTasks();
         } else if (
           keyEvent.key === "Enter" ||
           keyEvent.key === " " ||

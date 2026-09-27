@@ -147,27 +147,48 @@ function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
 }
 
 function loadRememberUserFocusedElement() {
+  const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const source = extractFunction(
-    loadEditorChromeBridgeScript(),
+    editorChromeBridgeScript,
     "rememberUserFocusedElement",
   );
+  const clearNavigationIntent = extractFunction(
+    editorChromeBridgeScript,
+    "clearNavigationFocusIntentAfterAppTasks",
+  );
+  const timers: Array<() => void> = [];
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const factory = new Function(`
+  const factory = new Function(
+    "timers",
+    `
     var userFocusedElement = null;
     var trustedFocusIntent = null;
+    var window = { setTimeout: function (callback) { timers.push(callback); } };
     function getCanvasFocusTarget(event) { return event.target; }
     ${source}
+    ${clearNavigationIntent}
     return {
       remember: rememberUserFocusedElement,
       setFocused: function (element) { userFocusedElement = element; },
       focused: function () { return userFocusedElement; },
+      clearAfterNavigation: clearNavigationFocusIntentAfterAppTasks,
+      queueTimer: function (callback) { timers.push(callback); },
+      runTimer: function () { timers.shift()?.(); },
+      pendingTimers: function () { return timers.length; },
+      intent: function () { return trustedFocusIntent; },
       setIntent: function (intent) { trustedFocusIntent = intent; },
     };
-  `);
-  return factory() as {
+  `,
+  );
+  return factory(timers) as {
     remember: (event: Pick<FocusEvent, "target" | "composedPath">) => void;
     setFocused: (element: Element | null) => void;
     focused: () => Element | null;
+    clearAfterNavigation: () => void;
+    queueTimer: (callback: () => void) => void;
+    runTimer: () => void;
+    pendingTimers: () => number;
+    intent: () => object | null;
     setIntent: (intent: {
       target: Element | null;
       kind: "pointer" | "tab" | "activation" | "navigation";
@@ -283,6 +304,32 @@ describe("editor-chrome bridge — focus ownership", () => {
     focusTracker.remember({ target: sibling, composedPath: () => [sibling] });
 
     expect(focusTracker.focused()).toBe(sibling);
+  });
+
+  it("keeps navigation intent until app-scheduled roving focus runs", () => {
+    const current = { contains: () => false } as unknown as Element;
+    const sibling = { contains: () => false } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: current,
+      kind: "navigation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.clearAfterNavigation();
+    // The app's bubble handler queues roving focus after the bridge's first timer.
+    focusTracker.queueTimer(() =>
+      focusTracker.remember({ target: sibling, composedPath: () => [sibling] }),
+    );
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBe(sibling);
+
+    focusTracker.runTimer();
+
+    expect(focusTracker.pendingTimers()).toBe(0);
+    expect(focusTracker.intent()).toBeNull();
   });
 
   it("keeps focus on the control the user activated from the keyboard", () => {

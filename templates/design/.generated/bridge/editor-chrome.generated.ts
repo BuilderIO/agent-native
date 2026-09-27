@@ -970,6 +970,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         expiresAt: Date.now() + 1e3
       };
     }
+    function clearNavigationFocusIntentAfterAppTasks() {
+      var navigationIntent = trustedFocusIntent;
+      window.setTimeout(function() {
+        window.setTimeout(function() {
+          if (trustedFocusIntent === navigationIntent) {
+            trustedFocusIntent = null;
+          }
+        }, 0);
+      }, 0);
+    }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
       var target = getCanvasFocusTarget(event);
@@ -1026,12 +1036,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           userFocusedElement = active;
           if (keyEvent.key.startsWith("Arrow")) {
             armTrustedFocusIntent(active, "navigation");
-            var navigationIntent = trustedFocusIntent;
-            window.setTimeout(function() {
-              if (trustedFocusIntent === navigationIntent) {
-                trustedFocusIntent = null;
-              }
-            }, 0);
+            clearNavigationFocusIntentAfterAppTasks();
           } else if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape") {
             armTrustedFocusIntent(active, "activation");
           }
