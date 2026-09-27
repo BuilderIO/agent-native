@@ -98,7 +98,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
     );
     expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
-      "/local-network-access-settings.jpg",
+      "/local-network-access-settings.png",
     );
   });
 
@@ -119,7 +119,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(
-      document.querySelector('img[src="/local-network-access-permission.jpg"]'),
+      document.querySelector('img[src="/local-network-access-permission.png"]'),
     ).not.toBeNull();
     const dismissButton = Array.from(
       document.body.querySelectorAll("button"),
@@ -1083,7 +1083,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     expect(
-      document.querySelector('img[src="/local-network-access-permission.jpg"]'),
+      document.querySelector('img[src="/local-network-access-permission.png"]'),
     ).not.toBeNull();
     const permissionHelp = document.querySelector("details");
     expect(permissionHelp?.open).toBe(false);
@@ -1096,7 +1096,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
     );
     expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
-      "/local-network-access-settings.jpg",
+      "/local-network-access-settings.png",
     );
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });
