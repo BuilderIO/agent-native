@@ -454,7 +454,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       })
       .toBeGreaterThan(30);
 
-    const focusFrame = liveFrames.nth(1).contentFrame();
+    const focusFrame = liveFrames.first().contentFrame();
     const readOrder = () =>
       focusFrame
         .locator(
@@ -472,11 +472,20 @@ test.describe("URL-backed live auto-layout probe", () => {
     if (!sourceBounds || !targetBounds) {
       throw new Error("live focus probe drag targets have no bounds");
     }
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(primaryModifier);
     await page.mouse.click(
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
     );
-    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.up(primaryModifier);
+    await expect
+      .poll(() =>
+        focusFrame
+          .locator('[data-agent-native-edit-overlay="selection"]')
+          .evaluate((element) => getComputedStyle(element).display !== "none"),
+      )
+      .toBe(true);
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
