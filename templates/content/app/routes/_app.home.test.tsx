@@ -24,7 +24,10 @@ const landingOptions = vi.hoisted(() => ({
     | undefined
     | {
         skipActionQueryInvalidation?: boolean;
-        onSuccess?: (result: { resolution: string }) => void;
+        onSuccess?: (result: {
+          resolution: string;
+          welcomeCreated?: true;
+        }) => void;
       },
 }));
 
@@ -99,7 +102,7 @@ describe("home landing route optimistic title", () => {
     resolveLanding.reset.mockClear();
   });
 
-  it("refreshes other reads only when the landing created the Welcome page", () => {
+  it("refreshes the Files root and recents only when the landing created Welcome", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     resolveLanding.mutateAsync.mockResolvedValue({
       documentId: "doc-1",
@@ -109,9 +112,42 @@ describe("home landing route optimistic title", () => {
 
     expect(landingOptions.current?.skipActionQueryInvalidation).toBe(true);
     landingOptions.current?.onSuccess?.({ resolution: "restored" });
+    landingOptions.current?.onSuccess?.({ resolution: "welcome-reused" });
     expect(invalidate).not.toHaveBeenCalled();
-    landingOptions.current?.onSuccess?.({ resolution: "welcome-created" });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["action"] });
+
+    landingOptions.current?.onSuccess?.({
+      resolution: "fallback",
+      welcomeCreated: true,
+    });
+    const refreshed = invalidate.mock.calls.map(([filters]) => filters);
+    expect(refreshed.map((filters) => filters?.queryKey)).toEqual([
+      ["action", "query-content-database-items"],
+      ["action", "get-content-recent"],
+      ["action", "list-documents", undefined],
+    ]);
+    expect(refreshed).not.toContainEqual({ queryKey: ["action"] });
+    const [navigation] = refreshed;
+    const predicate = navigation?.predicate as (query: {
+      queryKey: readonly unknown[];
+    }) => boolean;
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: null } },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      predicate({
+        queryKey: [
+          "action",
+          "query-content-database-items",
+          { databaseId: "files", navigation: { parentId: "page" } },
+        ],
+      }),
+    ).toBe(false);
     invalidate.mockRestore();
   });
 

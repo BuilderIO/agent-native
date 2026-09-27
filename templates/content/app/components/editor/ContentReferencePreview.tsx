@@ -56,12 +56,14 @@ export function resolveContentReferencePath(
 export function ContentReferencePreview({
   sourcePath,
   currentPath,
+  fromDocumentId,
   title,
   className,
   referenceDepth = 0,
 }: {
   sourcePath?: string | null;
   currentPath?: string | null;
+  fromDocumentId?: string | null;
   title?: string | null;
   className?: string;
   referenceDepth?: number;
@@ -71,7 +73,7 @@ export function ContentReferencePreview({
     () => resolveContentReferencePath(sourcePath, currentPath),
     [currentPath, sourcePath],
   );
-  const sourceQuery = useLocalSourceDocument(resolvedPath);
+  const sourceQuery = useLocalSourceDocument(resolvedPath, fromDocumentId);
   const document = sourceQuery.data;
   const documentQuery = useDocument(document?.documentId ?? null);
   const body = documentQuery.data?.content ?? "";

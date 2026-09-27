@@ -1,13 +1,21 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { ContentLinkTargetsResponse } from "../shared/api.js";
-import { accessibleDocumentIds } from "./_document-access.js";
+import {
+  CONTENT_LINK_BATCH_MAX,
+  isContentLinkId,
+} from "../shared/content-links.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
+import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 
-const MAX_LINK_IDS = 100;
-const MAX_SOURCE_PATHS = 20;
+const MAX_SOURCE_PATHS = 10;
 
 function notionPageKey(value: string): string | null {
   const hex = /^[0-9a-fA-F-]{36}$/.test(value)
@@ -26,12 +34,19 @@ function normalizeSourcePath(value: string) {
 
 export default defineAction({
   description:
-    "Resolve page-link blocks and local-source references to the Content documents the caller may read. Accepts Content document IDs or Notion page IDs, and source paths of local-source documents; targets the caller cannot read are omitted.",
+    "Resolve page-link blocks and local-source references to the Content documents the caller can list. Accepts Content document IDs or Notion page IDs, and source paths of local-source documents; targets outside the caller's listable documents are omitted.",
   agentTool: false,
   schema: z.object({
     ids: z
-      .array(z.string().trim().min(1).max(256))
-      .max(MAX_LINK_IDS)
+      .array(
+        z
+          .string()
+          .refine(
+            isContentLinkId,
+            "Page-link ids are 1-256 trimmed characters",
+          ),
+      )
+      .max(CONTENT_LINK_BATCH_MAX)
       .default([])
       .describe(
         "Content document IDs or Notion page IDs from page-link blocks",
@@ -43,11 +58,54 @@ export default defineAction({
       .describe(
         "Source paths of local-source documents, relative to their root",
       ),
+    fromDocumentId: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe(
+        "Document holding the references; matches in its source root win",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ ids, sourcePaths }): Promise<ContentLinkTargetsResponse> => {
+  run: async ({
+    ids,
+    sourcePaths,
+    fromDocumentId,
+  }): Promise<ContentLinkTargetsResponse> => {
     const db = getDb();
+    const userEmail = getRequestUserEmail();
+    const activeOrgId = getRequestOrgId();
+    const authorizedOrgIds = [
+      ...new Set([
+        ...(userEmail
+          ? (await listContentOrganizationMemberships(userEmail)).map(
+              (membership) => membership.orgId,
+            )
+          : []),
+        ...(!userEmail && activeOrgId ? [activeOrgId] : []),
+      ]),
+    ];
+    // Every lookup matches only documents the caller could list, as the
+    // workspace walk did: no public-only, trashed, or deleted-collection rows.
+    const listable = (additional: SQL | undefined) =>
+      documentDiscoveryWhere({ userEmail, authorizedOrgIds, additional });
+    const ownFirst = userEmail
+      ? [
+          sql`CASE WHEN lower(${schema.documents.ownerEmail}) = ${userEmail.trim().toLowerCase()} THEN 0 ELSE 1 END`,
+        ]
+      : [];
+    const stableOrder = [
+      asc(schema.documents.position),
+      asc(schema.documents.id),
+    ];
+    const target = {
+      documentId: schema.documents.id,
+      title: schema.documents.title,
+      icon: schema.documents.icon,
+    };
+
     const requestedIds = [...new Set(ids)];
     const requestedIdsByNotionPage = new Map<string, string[]>();
     for (const id of requestedIds) {
@@ -58,101 +116,100 @@ export default defineAction({
         id,
       ]);
     }
-    const storedNotionPageIds = [...requestedIdsByNotionPage].flatMap(
-      ([key, ids]) => [key, dashedNotionPageId(key), ...ids],
-    );
+    const storedNotionPageIds = [
+      ...new Set(
+        [...requestedIdsByNotionPage].flatMap(([key, forms]) => [
+          key,
+          dashedNotionPageId(key),
+          ...forms,
+        ]),
+      ),
+    ];
     const paths = [
       ...new Set(sourcePaths.map(normalizeSourcePath).filter(Boolean)),
     ];
 
-    const [syncLinks, sourceCandidates] = await Promise.all([
+    const resolveSources = async () => {
+      if (paths.length === 0) return [];
+      const [origin] = fromDocumentId
+        ? await db
+            .select({ sourceRootPath: schema.documents.sourceRootPath })
+            .from(schema.documents)
+            .where(listable(eq(schema.documents.id, fromDocumentId)))
+            .limit(1)
+        : [];
+      const sameRootFirst = origin?.sourceRootPath
+        ? [
+            sql`CASE WHEN ${schema.documents.sourceRootPath} = ${origin.sourceRootPath} THEN 0 ELSE 1 END`,
+          ]
+        : [];
+      const matches = await Promise.all(
+        paths.map(async (sourcePath) => {
+          const [match] = await db
+            .select(target)
+            .from(schema.documents)
+            .where(
+              listable(
+                and(
+                  eq(schema.documents.sourceMode, "local-files"),
+                  inArray(schema.documents.sourcePath, [
+                    sourcePath,
+                    `/${sourcePath}`,
+                  ]),
+                ),
+              ),
+            )
+            .orderBy(...sameRootFirst, ...ownFirst, ...stableOrder)
+            .limit(1);
+          return match ? [{ sourcePath, ...match }] : [];
+        }),
+      );
+      return matches.flat();
+    };
+
+    const [direct, notionLinked, sources] = await Promise.all([
+      requestedIds.length
+        ? db
+            .select(target)
+            .from(schema.documents)
+            .where(listable(inArray(schema.documents.id, requestedIds)))
+        : [],
       storedNotionPageIds.length
         ? db
             .select({
-              documentId: schema.documentSyncLinks.documentId,
               remotePageId: schema.documentSyncLinks.remotePageId,
+              ...target,
             })
             .from(schema.documentSyncLinks)
-            .where(
-              inArray(schema.documentSyncLinks.remotePageId, [
-                ...new Set(storedNotionPageIds),
-              ]),
+            .innerJoin(
+              schema.documents,
+              eq(schema.documents.id, schema.documentSyncLinks.documentId),
             )
-        : [],
-      paths.length
-        ? db
-            .select({
-              id: schema.documents.id,
-              sourcePath: schema.documents.sourcePath,
-            })
-            .from(schema.documents)
             .where(
-              and(
-                eq(schema.documents.sourceMode, "local-files"),
-                inArray(schema.documents.sourcePath, [
-                  ...paths,
-                  ...paths.map((path) => `/${path}`),
-                ]),
-                isNull(schema.documents.trashedAt),
+              listable(
+                inArray(
+                  schema.documentSyncLinks.remotePageId,
+                  storedNotionPageIds,
+                ),
               ),
             )
-            .orderBy(asc(schema.documents.position), asc(schema.documents.id))
+            .orderBy(...ownFirst, ...stableOrder)
         : [],
+      resolveSources(),
     ]);
 
-    const candidateIds = [
-      ...new Set([
-        ...requestedIds,
-        ...syncLinks.map((link) => link.documentId),
-        ...sourceCandidates.map((candidate) => candidate.id),
-      ]),
-    ];
-    const readable = await accessibleDocumentIds(candidateIds);
-    const rows = readable.size
-      ? await db
-          .select({
-            id: schema.documents.id,
-            title: schema.documents.title,
-            icon: schema.documents.icon,
-          })
-          .from(schema.documents)
-          .where(inArray(schema.documents.id, [...readable]))
-      : [];
-    const documentById = new Map(rows.map((row) => [row.id, row]));
-    const target = (documentId: string) => {
-      const row = documentById.get(documentId);
-      return row
-        ? { documentId: row.id, title: row.title, icon: row.icon }
-        : null;
-    };
-
-    const links: ContentLinkTargetsResponse["links"] = [];
-    const linkedIds = new Set<string>();
-    for (const id of requestedIds) {
-      const direct = target(id);
-      if (!direct) continue;
-      links.push({ id, ...direct });
-      linkedIds.add(id);
-    }
-    for (const link of syncLinks) {
-      const key = notionPageKey(link.remotePageId);
-      const resolved = target(link.documentId);
-      if (!key || !resolved) continue;
-      for (const id of requestedIdsByNotionPage.get(key) ?? []) {
+    const links: ContentLinkTargetsResponse["links"] = direct.map((row) => ({
+      id: row.documentId,
+      ...row,
+    }));
+    const linkedIds = new Set(links.map((link) => link.id));
+    for (const { remotePageId, ...row } of notionLinked) {
+      const key = notionPageKey(remotePageId);
+      for (const id of (key && requestedIdsByNotionPage.get(key)) || []) {
         if (linkedIds.has(id)) continue;
-        links.push({ id, ...resolved });
+        links.push({ id, ...row });
         linkedIds.add(id);
       }
-    }
-
-    const sources: ContentLinkTargetsResponse["sources"] = [];
-    for (const path of paths) {
-      const match = sourceCandidates.find(
-        (candidate) =>
-          normalizeSourcePath(candidate.sourcePath ?? "") === path &&
-          documentById.has(candidate.id),
-      );
-      if (match) sources.push({ sourcePath: path, ...target(match.id)! });
     }
     return { links, sources };
   },

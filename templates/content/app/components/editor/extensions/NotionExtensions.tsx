@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   safeParseIconValue,
   serializeIconValue,
@@ -589,11 +590,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const label = (node.attrs.label || "") as string;
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
+  const t = useT();
   const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
-  const pageLink =
-    usePageLinkTarget(
-      notionPageId && options.onOpenPageLink ? notionPageId : null,
-    ).data ?? null;
+  const pageLinkQuery = usePageLinkTarget(
+    notionPageId && options.onOpenPageLink ? notionPageId : null,
+  );
+  const pageLink = pageLinkQuery.data ?? null;
+  // An unreadable lookup is not a missing page: keep the block usable so a
+  // click retries instead of presenting the link as gone.
+  const pageLinkLookupFailed = pageLinkQuery.isError;
   const primary =
     pageLink?.title ||
     label ||
@@ -622,6 +627,12 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         options.onOpenPageLink(pageLink.documentId);
         return;
       }
+      if (pageLinkLookupFailed) {
+        void pageLinkQuery.refetch().then((result) => {
+          if (result.data) options.onOpenPageLink?.(result.data.documentId);
+        });
+        return;
+      }
       if (externalUrl) {
         window.open(externalUrl, "_blank", "noopener,noreferrer");
       }
@@ -630,16 +641,20 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
     return (
       <NodeViewWrapper
         className={`notion-page-reference ${
-          canOpenLocalPage || externalUrl
+          canOpenLocalPage || pageLinkLookupFailed || externalUrl
             ? "notion-page-reference--clickable"
             : ""
         }`}
+        data-page-link-state={pageLinkLookupFailed ? "unavailable" : undefined}
       >
         <button
           type="button"
           className="notion-page-reference__button"
           contentEditable={false}
-          disabled={!canOpenLocalPage && !externalUrl}
+          disabled={!canOpenLocalPage && !pageLinkLookupFailed && !externalUrl}
+          title={
+            pageLinkLookupFailed ? t("editor.reference.loadError") : undefined
+          }
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -654,7 +669,7 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
             />
           </span>
           <span className="notion-page-reference__label">{primary}</span>
-          {!pageLink && externalUrl ? (
+          {!pageLink && !pageLinkLookupFailed && externalUrl ? (
             <IconExternalLink
               className="notion-page-reference__external"
               size={16}

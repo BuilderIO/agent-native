@@ -3,9 +3,8 @@ import type {
   ContentLinkTarget,
   ContentLinkTargetsResponse,
 } from "@shared/api";
+import { CONTENT_LINK_BATCH_MAX, isContentLinkId } from "@shared/content-links";
 import { useQuery } from "@tanstack/react-query";
-
-const PAGE_LINK_BATCH_SIZE = 100;
 
 type PageLinkWaiter = {
   resolve: (target: ContentLinkTarget | null) => void;
@@ -29,8 +28,8 @@ function flushPageLinks() {
   pendingPageLinks = null;
   if (!waiters) return;
   const ids = [...waiters.keys()];
-  for (let start = 0; start < ids.length; start += PAGE_LINK_BATCH_SIZE) {
-    const batch = ids.slice(start, start + PAGE_LINK_BATCH_SIZE);
+  for (let start = 0; start < ids.length; start += CONTENT_LINK_BATCH_MAX) {
+    const batch = ids.slice(start, start + CONTENT_LINK_BATCH_MAX);
     callAction<ContentLinkTargetsResponse>(
       "resolve-content-links",
       { ids: batch },
@@ -51,8 +50,10 @@ function flushPageLinks() {
 }
 
 // Page-link blocks render one at a time; collect the ids a render pass asks
-// for and resolve them with one request.
+// for and resolve them with one request. A malformed id cannot name a
+// document, and sending it would fail the whole batch.
 export function loadPageLinkTarget(id: string) {
+  if (!isContentLinkId(id)) return Promise.resolve(null);
   return new Promise<ContentLinkTarget | null>((resolve, reject) => {
     if (!pendingPageLinks) {
       pendingPageLinks = new Map();
@@ -86,10 +87,18 @@ export function usePageLinkTarget(id: string | null) {
   });
 }
 
-export function useLocalSourceDocument(sourcePath: string | null) {
+export function useLocalSourceDocument(
+  sourcePath: string | null,
+  fromDocumentId?: string | null,
+) {
   const query = useActionQuery<ContentLinkTargetsResponse>(
     "resolve-content-links",
-    sourcePath ? { sourcePaths: [sourcePath] } : undefined,
+    sourcePath
+      ? {
+          sourcePaths: [sourcePath],
+          ...(fromDocumentId ? { fromDocumentId } : {}),
+        }
+      : undefined,
     { enabled: sourcePath !== null },
   );
   return {

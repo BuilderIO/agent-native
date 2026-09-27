@@ -13,7 +13,9 @@ import { toast } from "sonner";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
+import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import { readContentLandingRecovery } from "@/lib/content-landing";
 import {
@@ -120,13 +122,20 @@ export default function HomeRoute() {
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
   >("resolve-content-landing", {
-    // Its app-state writes change nothing another query reads; refreshing
-    // everything here aborts and restarts the startup reads.
+    // Refreshing every read here aborts and restarts the startup reads; only
+    // a newly created Welcome page changes what other queries show.
     skipActionQueryInvalidation: true,
     onSuccess: (result) => {
-      if (result.resolution === "welcome-created") {
-        void queryClient.invalidateQueries({ queryKey: ["action"] });
-      }
+      if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        parentId: null,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-recent"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: LIST_DOCUMENTS_QUERY_KEY,
+      });
     },
   });
 

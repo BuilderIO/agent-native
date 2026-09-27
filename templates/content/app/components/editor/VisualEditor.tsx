@@ -2529,6 +2529,7 @@ export function createVisualEditorExtensions({
       LockedSourceComponentBlocks,
       ContentReferenceNode.configure({
         currentPath: localFilePath ?? null,
+        documentId: documentId ?? null,
         referenceDepth,
       }),
       LocalMdxComponentNode,

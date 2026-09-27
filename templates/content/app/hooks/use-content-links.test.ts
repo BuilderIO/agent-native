@@ -70,6 +70,31 @@ describe("page-link target lookup", () => {
     ]);
   });
 
+  it("keeps a malformed block id out of the batch so other links still resolve", async () => {
+    api.callAction.mockResolvedValue({
+      links: [
+        { id: "doc-a", documentId: "doc-a", title: "Page A", icon: null },
+      ],
+      sources: [],
+    });
+
+    const results = await Promise.all([
+      loadPageLinkTarget("x".repeat(300)),
+      loadPageLinkTarget(" doc-a "),
+      loadPageLinkTarget(""),
+      loadPageLinkTarget("doc-a"),
+    ]);
+
+    expect(api.callAction).toHaveBeenCalledTimes(1);
+    expect(api.callAction.mock.calls[0]?.[1]).toEqual({ ids: ["doc-a"] });
+    expect(results).toEqual([
+      null,
+      null,
+      null,
+      { documentId: "doc-a", title: "Page A", icon: null },
+    ]);
+  });
+
   it("splits more than one request's worth of ids into bounded batches", async () => {
     api.callAction.mockImplementation(
       async (_name: string, params: { ids: string[] }) => ({
