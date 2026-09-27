@@ -6840,6 +6840,7 @@ export function DesignCanvas({
           })}
           allow={getDesignCanvasIframeAllow(runtimeVerificationUrl)}
           data-runtime-verification-iframe
+          data-scaled-iframe-paint-ignore
           aria-hidden="true"
           tabIndex={-1}
           className="pointer-events-none fixed border-0 opacity-0"
