@@ -5819,7 +5819,6 @@ export async function runAgentLoop(opts: {
             send,
           });
           if (ledgerResult !== null) {
-            // Zombie completed — recover the real result without re-executing.
             const result =
               `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
               ledgerResult.result;
@@ -6379,13 +6378,6 @@ export async function runAgentLoop(opts: {
           isError,
         );
 
-        // Auto-refresh the UI after a successful mutating tool call. Any call
-        // that isn't read-only — by its own per-call Plan-mode effect, else the
-        // action's readOnly flag — is assumed to mutate. The client's useDbSync
-        // listener sees a change event with source:"action" and invalidates
-        // ["action"] queries so list-* / get-* refetch. This makes refresh after
-        // agent writes reliable without the model needing to remember to call
-        // `refresh-screen` itself.
         if (!isError) {
           try {
             const { actionCallIsReadOnly, notifyActionChangeInBackground } =

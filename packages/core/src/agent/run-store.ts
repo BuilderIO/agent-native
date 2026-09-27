@@ -303,6 +303,7 @@ export async function ensureRunTables(): Promise<void> {
 }
 
 const LEDGER_RESULT_MAX_CHARS = 8_000;
+const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
@@ -320,6 +321,25 @@ export async function writeLedgerEntry(
   try {
     await ensureRunTables();
     const client = getDbExec();
+    let boundedChatUIResultJson = chatUIResultJson ?? null;
+    const chatUIResultBytes = boundedChatUIResultJson
+      ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
+      : 0;
+    if (chatUIResultBytes > LEDGER_CHAT_UI_RESULT_MAX_BYTES) {
+      captureError(new Error("Oversized action widget result omitted"), {
+        tags: {
+          component: "agent-run-store",
+          operation: "write-tool-ledger-chat-ui-result",
+        },
+        extra: {
+          threadId,
+          toolKey,
+          bytes: chatUIResultBytes,
+          maxBytes: LEDGER_CHAT_UI_RESULT_MAX_BYTES,
+        },
+      });
+      boundedChatUIResultJson = null;
+    }
     const capped =
       resultSummary.length > LEDGER_RESULT_MAX_CHARS
         ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
@@ -340,7 +360,7 @@ export async function writeLedgerEntry(
         capped,
         JSON.stringify(artifacts),
         resultIsString ?? null,
-        chatUIResultJson ?? null,
+        boundedChatUIResultJson,
         Date.now(),
       ],
     });

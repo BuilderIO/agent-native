@@ -1233,6 +1233,37 @@ describe("run store", () => {
     });
   });
 
+  it("omits oversized widget JSON without truncating the ledger payload", async () => {
+    const oversizedWidgetResult = JSON.stringify({
+      body: "x".repeat(70_000),
+    });
+    await writeLedgerEntry(
+      "thread-large-widget",
+      "tool:key",
+      "completed output",
+      [],
+      false,
+      oversizedWidgetResult,
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.args[2]).toBe("completed output");
+    expect(insert?.args[5]).toBeNull();
+    expect(mockCaptureError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Oversized action widget result omitted",
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          operation: "write-tool-ledger-chat-ui-result",
+        }),
+        extra: expect.objectContaining({ maxBytes: 64 * 1024 }),
+      }),
+    );
+  });
+
   it("keeps a ledger result when its widget JSON is malformed", async () => {
     ledgerRows = [
       {

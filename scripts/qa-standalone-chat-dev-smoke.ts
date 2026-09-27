@@ -32,7 +32,7 @@ import {
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
 import {
-  isPersistenceReloadPollReset,
+  isPersistenceReloadFrameworkGetReset,
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
