@@ -198,6 +198,7 @@ export default function Root() {
   return (
     <AppProviders
       queryClient={queryClient}
+      skeletonLayout="list"
       toaster={<Toaster position="bottom-left" />}
       i18n={{ catalog: i18nCatalog }}
     >

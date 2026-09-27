@@ -155,6 +155,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         defaultTheme="dark"
         toaster={null}
         i18n={{ catalog: i18nCatalog }}
