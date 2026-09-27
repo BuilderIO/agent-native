@@ -140,6 +140,8 @@ export interface PromptComposerProps {
   attachmentsEnabled?: boolean;
   /** Opens host-owned storage setup when the user chooses an upload action. */
   onAttachmentRequest?: () => void;
+  /** Hide the Add context tooltip while the host storage popover is open. */
+  contextButtonTooltipDisabled?: boolean;
   /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
   attachmentAdapter?: AttachmentAdapter;
   /** Let hosts extract ordinary uploaded text without also inlining it. */
@@ -603,6 +605,7 @@ function PromptComposerInner({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   onAttachmentRequest,
+  contextButtonTooltipDisabled = false,
   inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
@@ -868,6 +871,7 @@ function PromptComposerInner({
           onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
           onAttachmentRequest={onAttachmentRequest}
+          contextButtonTooltipDisabled={contextButtonTooltipDisabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}

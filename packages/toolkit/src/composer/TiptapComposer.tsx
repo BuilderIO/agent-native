@@ -797,6 +797,7 @@ export interface TiptapComposerProps {
   /** Disable file attachments while keeping text chat available. */
   attachmentsEnabled?: boolean;
   onAttachmentRequest?: () => void;
+  contextButtonTooltipDisabled?: boolean;
   /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -2479,6 +2480,7 @@ export function TiptapComposer({
   documentAttachmentLimitLabel = "PDFs",
   attachmentsEnabled = true,
   onAttachmentRequest,
+  contextButtonTooltipDisabled = false,
   focusRef,
   initialText,
   initialTextKey,
@@ -4315,6 +4317,7 @@ export function TiptapComposer({
               attachmentsEnabled ? addAttachmentForCurrentScope : undefined
             }
             onAttachmentRequest={onAttachmentRequest}
+            contextButtonTooltipDisabled={contextButtonTooltipDisabled}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onAttachmentError={onAttachmentError}
             onDisabledFocus={() => {

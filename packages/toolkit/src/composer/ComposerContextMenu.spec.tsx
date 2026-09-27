@@ -154,6 +154,21 @@ describe("connected composer menus", () => {
     expect(row("Meeting notes").getAttribute("role")).toBe("menuitem");
     expect(row("Project brief")).toBeDefined();
   });
+  it("hides the Add context tooltip while the host storage popover is open", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await render(items);
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(trigger).toBeDefined();
+    await render(items, { contextButtonTooltipDisabled: true });
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(warning).not.toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Tooltip is changing from uncontrolled to controlled",
+      ),
+    );
+  });
   it("closes a context picker when its composer becomes disabled", async () => {
     const onDismiss = vi.fn();
     const picker = {

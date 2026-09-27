@@ -3157,6 +3157,7 @@ function AgentKitComposerSurface({
           modelStatusChecksEnabled={false}
           attachmentsEnabled={fileStorageConfigured}
           onAttachmentRequest={requestFileStorage}
+          contextButtonTooltipDisabled={fileStoragePromptOpen}
           onAttachmentError={setComposerError}
           onSubmit={async (...args) => {
             setComposerError(null);

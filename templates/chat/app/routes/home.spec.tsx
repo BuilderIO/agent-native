@@ -104,11 +104,12 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
 }));
-vi.mock("@agent-native/agentkit/react/root", () => ({
-  AgentKitRoot: (props: Record<string, unknown>) => {
+vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+  CoreAgentKitRoot: (props: Record<string, unknown>) => {
     routeState.rootProps = props;
     return <>{props.children as React.ReactNode}</>;
   },
+  AgentKitHistoryMessageSupplement: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

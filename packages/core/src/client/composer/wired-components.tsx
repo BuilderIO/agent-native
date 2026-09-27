@@ -62,6 +62,7 @@ export function PromptComposer(props: PromptComposerProps) {
         <ToolkitPromptComposer
           {...props}
           attachmentsEnabled={attachmentsEnabled}
+          contextButtonTooltipDisabled={storagePromptOpen}
           onAttachmentRequest={onAttachmentRequest}
         />
       </CoreComposerRuntimeProvider>
