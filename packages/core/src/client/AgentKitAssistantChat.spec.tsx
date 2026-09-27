@@ -910,6 +910,120 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("releases a deferred-send claim after an unmounted dispatch fails", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "deferred-unmount-send",
+          threadId,
+          text: "Send this after reconnecting",
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+    let rejectDispatch!: (error: unknown) => void;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectDispatch = reject;
+        }),
+    );
+
+    await mount(baseProps());
+    await flush();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(
+      (chatMocks.appState.get(stateKey) as any).submissions[0].claim.token,
+    ).toBeTruthy();
+
+    await unmount();
+    root = undefined as unknown as Root;
+    await act(async () => {
+      rejectDispatch(
+        Object.assign(new Error("Gateway unavailable"), { status: 503 }),
+      );
+    });
+    await flush();
+
+    expect(
+      (chatMocks.appState.get(stateKey) as any).submissions[0],
+    ).toMatchObject({
+      attempts: 1,
+    });
+    expect(
+      (chatMocks.appState.get(stateKey) as any).submissions[0].claim,
+    ).toBeUndefined();
+
+    await mount(baseProps());
+    await flush();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+  });
+
+  it("preserves another tab's live claim when retrying a stale deferred failure", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "deferred-other-tab-claim",
+          threadId,
+          text: "Send this after reconnecting",
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {},
+          failed: true,
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
+
+    const persisted = chatMocks.appState.get(stateKey) as any;
+    const { failed: _failed, ...retryable } = persisted.submissions[0];
+    chatMocks.appState.set(stateKey, {
+      ...persisted,
+      submissions: [
+        {
+          ...retryable,
+          claim: { token: "other-tab", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retryButton).toBeDefined();
+    await act(async () => retryButton!.click());
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(
+      (chatMocks.appState.get(stateKey) as any).submissions[0].claim,
+    ).toEqual({ token: "other-tab", expiresAt: expect.any(Number) });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("does not loop when the dev checkpoint sees an empty thread", async () => {
     chatMocks.readThread = () => ({
       ...chatMocks.thread,

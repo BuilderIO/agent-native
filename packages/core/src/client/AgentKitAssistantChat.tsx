@@ -2095,7 +2095,6 @@ const AgentKitAssistantChatBody = forwardRef<
         setDeferredProviderSubmissionFailureId(null);
         setPendingProviderSubmissionVersion((version) => version + 1);
       } catch (error) {
-        if (!active) return;
         let snapshotReadFailed = false;
         const latestThread = await props
           .getThreadSnapshot(threadId)
@@ -2121,8 +2120,10 @@ const AgentKitAssistantChatBody = forwardRef<
             (current) => current.filter(({ id }) => id !== submission.id),
           );
           pendingProviderSubmissionsRef.current = submissions;
-          setDeferredProviderSubmissionFailureId(null);
-          setPendingProviderSubmissionVersion((version) => version + 1);
+          if (active) {
+            setDeferredProviderSubmissionFailureId(null);
+            setPendingProviderSubmissionVersion((version) => version + 1);
+          }
           return;
         }
         const attempts = (submission.attempts ?? 0) + 1;
@@ -2151,16 +2152,18 @@ const AgentKitAssistantChatBody = forwardRef<
           const currentSubmission = submissions.find(
             (candidate) => candidate.id === submission.id,
           );
-          if (currentSubmission?.failed) {
+          if (active && currentSubmission?.failed) {
             setDeferredProviderSubmissionFailureId(submission.id);
-          } else if (shouldRetry) {
+          } else if (active && shouldRetry) {
             scheduleProviderSubmissionRetry(500 * 2 ** (attempts - 1));
           }
         } catch {
-          setDeferredProviderSubmissionFailureId(submission.id);
-          scheduleProviderSubmissionRetry(
-            DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS,
-          );
+          if (active) {
+            setDeferredProviderSubmissionFailureId(submission.id);
+            scheduleProviderSubmissionRetry(
+              DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS,
+            );
+          }
         }
       } finally {
         if (claimRenewalTimer !== undefined) {
@@ -2276,6 +2279,12 @@ const AgentKitAssistantChatBody = forwardRef<
       (current) =>
         current.map((candidate) => {
           if (candidate.id !== deferredProviderSubmissionFailureId) {
+            return candidate;
+          }
+          if (
+            !candidate.failed ||
+            (candidate.claim && candidate.claim.expiresAt > Date.now())
+          ) {
             return candidate;
           }
           const { claim: _claim, failed: _failed, ...retryable } = candidate;
