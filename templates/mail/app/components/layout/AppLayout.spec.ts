@@ -46,7 +46,11 @@ describe("AppLayout inbox tab bar", () => {
   it("shows inbox tabs on mobile and scrolls the full toolbar after the hamburger", () => {
     const source = appLayoutSource();
     const tabStart = source.indexOf("data-mail-tab-list");
-    const tabBar = source.slice(tabStart, source.indexOf("</nav>", tabStart));
+    const tabBarStart = source.lastIndexOf("<nav", tabStart);
+    const tabBar = source.slice(
+      tabBarStart,
+      source.indexOf("</nav>", tabStart),
+    );
     const headerStart = source.indexOf(
       '<header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain',
     );
@@ -58,10 +62,10 @@ describe("AppLayout inbox tab bar", () => {
     expect(headerStart).toBeGreaterThan(-1);
     expect(header).toContain("sticky start-0 z-10");
     expect(source).toContain(
-      'className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-max"',
+      'className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"',
     );
     expect(source).toContain(
-      'className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-max"',
+      'className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"',
     );
     expect(header).toContain("data-mail-tab-list");
     expect(header).toContain("SearchBar");
@@ -69,7 +73,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(header).toContain('t("mail.toolbar.composeEmail")');
     expect(header).toContain("AgentToggleButton");
     expect(header).not.toContain("hidden sm:flex");
-    expect(tabBar).not.toMatch(/\boverflow-x-auto\b/);
+    expect(tabBar).toContain("sm:overflow-x-auto sm:hide-scrollbar");
     expect(source).toContain(
       'cn("relative shrink-0", tabsLoading && "invisible")',
     );
