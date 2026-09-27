@@ -116,6 +116,31 @@ function installProbe() {
   } catch {
     trace.elementTimingUnsupported = true;
   }
+  // Builds deployed before the app's own startup marks still get observed
+  // milestones: a newly mounted editor with text, and ten sidebar page links.
+  const seenEditors = new WeakSet();
+  let sidebarSeen = false;
+  const observe = () => {
+    for (const editor of document.querySelectorAll(".ProseMirror")) {
+      if (seenEditors.has(editor) || !editor.textContent.trim()) continue;
+      seenEditors.add(editor);
+      performance.mark("trace:body-dom", {
+        detail: { documentId: location.pathname.split("/").pop() },
+      });
+    }
+    if (
+      !sidebarSeen &&
+      document.querySelectorAll('nav a[href^="/page/"]').length >= 10
+    ) {
+      sidebarSeen = true;
+      performance.mark("trace:sidebar-dom");
+    }
+  };
+  new MutationObserver(observe).observe(document, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+  });
 }
 
 function collect([since, documentId]) {
@@ -167,9 +192,11 @@ function collect([since, documentId]) {
     bodyElement: at(first("content-body")),
     bodyPainted: at(mark("content-body-dom:painted")),
     bodyDom: at(mark("content-body-dom")),
+    bodyObserved: at(mark("trace:body-dom")),
     sidebarElement: at(first("sidebar-files-row")),
     sidebarPainted: at(mark("sidebar-files-rows-dom:painted")),
     sidebarDom: at(mark("sidebar-files-rows-dom")),
+    sidebarObserved: at(mark("trace:sidebar-dom")),
     editable: at(mark("content-editable")),
     requests,
   };
@@ -177,13 +204,15 @@ function collect([since, documentId]) {
 
 // Element Timing is the headline; the next-frame and DOM-commit marks cover
 // elements Chromium does not report and hidden tabs that never paint.
-function bestSignal(name, element, painted, dom) {
+function bestSignal(name, element, painted, dom, observed) {
   const [value, source] =
     element != null
       ? [element, "element-timing"]
       : painted != null
         ? [painted, "next-frame-mark"]
-        : [dom, dom != null ? "dom-mark" : "missing"];
+        : dom != null
+          ? [dom, "dom-mark"]
+          : [observed, observed != null ? "dom-observer" : "missing"];
   const key = name === "body" ? "bodyVisible" : "sidebarUsable";
   return { [key]: value ?? null, [`${name}MeasuredBy`]: source };
 }
@@ -201,12 +230,14 @@ function summarizeRun(result) {
       result.bodyElement,
       result.bodyPainted,
       result.bodyDom,
+      result.bodyObserved,
     ),
     ...bestSignal(
       "sidebar",
       result.sidebarElement,
       result.sidebarPainted,
       result.sidebarDom,
+      result.sidebarObserved,
     ),
     editable: result.editable,
     frameworkRequests: requests.length,
@@ -241,7 +272,12 @@ async function waitForBody(page, since, documentId) {
       .evaluate(
         ([s, id]) =>
           performance
-            .getEntriesByName("content-body-dom", "mark")
+            .getEntriesByType("mark")
+            .filter(
+              (entry) =>
+                entry.name === "content-body-dom" ||
+                entry.name === "trace:body-dom",
+            )
             .some(
               (entry) =>
                 entry.startTime >= s &&
@@ -319,6 +355,8 @@ for (let run = 0; run < runs; run += 1) {
       "sidebarElement",
       "sidebarPainted",
       "sidebarDom",
+      "bodyObserved",
+      "sidebarObserved",
       "editable",
     ]) {
       if (result[key] != null) result[key] += offset;

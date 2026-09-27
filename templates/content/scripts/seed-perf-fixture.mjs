@@ -197,6 +197,23 @@ async function callAction(cookie, name, payload, attempt = 1) {
   throw new Error(`${name} failed (${response.status}): ${text.slice(0, 400)}`);
 }
 
+async function readAction(cookie, name, params) {
+  const url = new URL(`${baseUrl}/_agent-native/actions/${name}`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(
+      key,
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
+  }
+  const response = await fetch(url, { headers: { cookie, origin: baseUrl } });
+  if (!response.ok) {
+    throw new Error(
+      `${name} failed (${response.status}): ${(await response.text()).slice(0, 400)}`,
+    );
+  }
+  return response.json();
+}
+
 async function runPool(items, worker) {
   let next = 0;
   let completed = 0;
@@ -353,6 +370,49 @@ if (sharedCount > 0) {
   saveManifest(manifest);
 }
 
+// Real users drag pages around, which saves a custom sidebar order covering
+// every root page; the Files tree query ranks rows against that list.
+if (args.get("custom-order") !== "false" && !manifest.customOrder) {
+  const spaces = await readAction(ownerCookie, "list-content-spaces", {});
+  const personal =
+    spaces.spaces.find((space) => space.kind === "personal") ??
+    spaces.spaces[0];
+  const databaseId = personal.filesDatabaseId;
+  const itemIds = [];
+  let cursor;
+  do {
+    const page = await readAction(ownerCookie, "query-content-database-items", {
+      databaseId,
+      limit: "20",
+      navigation: {
+        parentId: null,
+        sort: "custom",
+        viewId: "default",
+        ...(cursor ? { cursor } : {}),
+      },
+    });
+    itemIds.push(...page.items.map((item) => item.membershipId));
+    cursor = page.pagination?.hasMore ? page.pagination.nextCursor : undefined;
+  } while (cursor);
+  for (let i = itemIds.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [itemIds[i], itemIds[j]] = [itemIds[j], itemIds[i]];
+  }
+  await callAction(ownerCookie, "update-content-database-personal-view", {
+    databaseId,
+    navigation: {
+      sidebarOrder: {
+        operation: "replace",
+        viewId: "default",
+        mode: "custom",
+        itemIds: itemIds.slice(0, 5000),
+      },
+    },
+  });
+  manifest.customOrder = Math.min(itemIds.length, 5000);
+  saveManifest(manifest);
+}
+
 const deepest = createdByKey.get("chain-6");
 console.log(
   JSON.stringify(
@@ -361,6 +421,7 @@ console.log(
       ownerPages: manifest.owner.length,
       sharedPages: manifest.shared.length,
       inlineDatabases: manifest.databases.length,
+      customOrderItems: manifest.customOrder ?? 0,
       deepestPageId: deepest?.id ?? null,
       deepestPath: deepest ? `/page/${deepest.id}` : null,
     },
