@@ -220,6 +220,17 @@ const messages: AgentChatTranslation = {
   "common.no": "否",
   "common.retry": "重試",
   "common.chunkLoadFailed": "無法載入。請重試。",
+  "personalization.tab": "個人化",
+  "personalization.customInstructions": "自訂指示",
+  "personalization.customInstructionsHelp":
+    "內容會儲存在你的個人 AGENTS.md，並套用於每次對話。",
+  "personalization.customInstructionsPlaceholder":
+    "描述你希望代理如何與你合作。",
+  "personalization.memoryInstructions": "記憶偏好",
+  "personalization.memoryInstructionsHelp": "告訴代理應該記住什麼、忽略什麼。",
+  "personalization.memoryInstructionsPlaceholder":
+    "例如：記住重要聯絡人；略過一次性的雜事。",
+  "personalization.saved": "已儲存",
   "common.save": "儲存",
   "agents.hostedAgent": "託管代理",
   "agents.provider": "提供者",

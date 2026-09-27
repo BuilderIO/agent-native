@@ -234,6 +234,18 @@ const messages: AgentChatTranslation = {
   "common.no": "いいえ",
   "common.retry": "再試行",
   "common.chunkLoadFailed": "読み込めませんでした。もう一度お試しください。",
+  "personalization.tab": "パーソナライズ",
+  "personalization.customInstructions": "カスタム指示",
+  "personalization.customInstructionsHelp":
+    "個人用 AGENTS.md に保存され、すべての会話で適用されます。",
+  "personalization.customInstructionsPlaceholder":
+    "エージェントにどのように対応してほしいかを入力してください。",
+  "personalization.memoryInstructions": "記憶の設定",
+  "personalization.memoryInstructionsHelp":
+    "何を記憶し、何を残さないかを指定できます。",
+  "personalization.memoryInstructionsPlaceholder":
+    "例：大切な連絡先は記憶し、一度限りの用事は記憶しない。",
+  "personalization.saved": "保存しました",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
   "agents.provider": "プロバイダー",

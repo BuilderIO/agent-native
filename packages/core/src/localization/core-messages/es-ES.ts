@@ -239,6 +239,18 @@ const messages: AgentChatTranslation = {
   "common.no": "No",
   "common.retry": "Reintentar",
   "common.chunkLoadFailed": "No se pudo cargar. Inténtalo de nuevo.",
+  "personalization.tab": "Personalización",
+  "personalization.customInstructions": "Instrucciones personalizadas",
+  "personalization.customInstructionsHelp":
+    "Se guardan en tu AGENTS.md personal y se usan en cada conversación.",
+  "personalization.customInstructionsPlaceholder":
+    "Describe cómo quieres que el agente trabaje contigo.",
+  "personalization.memoryInstructions": "Preferencias de memoria",
+  "personalization.memoryInstructionsHelp":
+    "Dile al agente qué debe recordar y qué debe omitir.",
+  "personalization.memoryInstructionsPlaceholder":
+    "Por ejemplo: recuerda los contactos importantes; omite los recados puntuales.",
+  "personalization.saved": "Guardado",
   "common.save": "Guardar",
   "agents.hostedAgent": "Agente alojado",
   "agents.provider": "Proveedor",

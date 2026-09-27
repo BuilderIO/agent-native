@@ -161,6 +161,7 @@ If \`call-agent\` says a downstream agent accepted the subtask and will post its
   memory: `### Structured Memory
 
 Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation.
+Personal memory instructions in \`memory/INSTRUCTIONS.md\` are also loaded automatically; follow them when deciding what to save or leave out.
 
 **Tools:**
 - \`save-memory\` — Create or update a memory (name, type, description, content)

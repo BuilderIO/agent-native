@@ -224,6 +224,18 @@ const messages: AgentChatTranslation = {
   "common.no": "नहीं",
   "common.retry": "फिर से प्रयास करें",
   "common.chunkLoadFailed": "लोड नहीं हो सका। कृपया फिर से कोशिश करें।",
+  "personalization.tab": "वैयक्तिकरण",
+  "personalization.customInstructions": "कस्टम निर्देश",
+  "personalization.customInstructionsHelp":
+    "ये आपके निजी AGENTS.md में सहेजे जाते हैं और हर बातचीत में लागू होते हैं।",
+  "personalization.customInstructionsPlaceholder":
+    "बताएँ कि एजेंट आपके साथ कैसे काम करे।",
+  "personalization.memoryInstructions": "याद रखने की प्राथमिकताएँ",
+  "personalization.memoryInstructionsHelp":
+    "बताएँ कि एजेंट को क्या याद रखना चाहिए और क्या छोड़ना चाहिए।",
+  "personalization.memoryInstructionsPlaceholder":
+    "उदाहरण: ज़रूरी संपर्क याद रखें; एक बार के छोटे काम छोड़ दें।",
+  "personalization.saved": "सहेजा गया",
   "common.save": "सहेजें",
   "agents.hostedAgent": "होस्ट किया गया एजेंट",
   "agents.provider": "प्रदाता",

@@ -226,6 +226,18 @@ const messages: AgentChatTranslation = {
   "common.no": "아니요",
   "common.retry": "다시 시도",
   "common.chunkLoadFailed": "불러오지 못했습니다. 다시 시도해 주세요.",
+  "personalization.tab": "개인화",
+  "personalization.customInstructions": "맞춤 지침",
+  "personalization.customInstructionsHelp":
+    "개인 AGENTS.md에 저장되어 모든 대화에 적용됩니다.",
+  "personalization.customInstructionsPlaceholder":
+    "에이전트가 어떻게 도와주면 좋을지 입력하세요.",
+  "personalization.memoryInstructions": "기억 설정",
+  "personalization.memoryInstructionsHelp":
+    "에이전트가 기억하거나 제외할 내용을 알려주세요.",
+  "personalization.memoryInstructionsPlaceholder":
+    "예: 중요한 연락처는 기억하고 일회성 심부름은 제외합니다.",
+  "personalization.saved": "저장됨",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
   "agents.provider": "제공업체",

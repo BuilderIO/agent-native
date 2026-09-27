@@ -111,6 +111,7 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
 } from "./agent-settings-search.js";
+import { AgentPersonalizationSettings } from "./AgentPersonalizationSettings.js";
 import { AgentProviderPicker } from "./AgentProviderPicker.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
@@ -4565,6 +4566,26 @@ export function useAgentSettingsTabs(
         content: (
           <AgentWorkspaceContent activeTab="resources" overview={null} />
         ),
+      },
+      {
+        id: "agent:personalization",
+        label: t("agentChat.personalization.tab"),
+        icon: IconBrain,
+        group: "agent",
+        keywords:
+          "personalization custom instructions memory preferences remember",
+        searchEntries: [
+          {
+            id: "agent-personalization",
+            label: t("agentChat.personalization.tab"),
+            keywords:
+              "custom instructions personal memory remember preferences",
+            tabId: "agent:personalization",
+            hash: "agent:personalization",
+            icon: IconBrain,
+          },
+        ],
+        content: <AgentPersonalizationSettings />,
       },
       {
         id: "agent:automations",
