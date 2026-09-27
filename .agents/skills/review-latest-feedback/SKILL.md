@@ -28,9 +28,11 @@ beats thirty replies.
 
 ## Phase 0: claim what you are taking
 
-Other agents work concurrently. `👀` is permanent claim history, not a lock.
-Add it before investigation and never remove it, including after a terminal
-disposition. Determine current ownership from thread status and linked work.
+`👀` is permanent claim history; add it before investigation and never remove
+it. Before work starts, record the active owner and task as **In progress** in
+the owner thread or linked work. Continue active work instead of duplicating
+it. An eye without a terminal disposition is unresolved: check its status and
+linked work, and defer if ownership is unclear.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -47,8 +49,9 @@ every actionable defect in that parent has a verified fix.
 ### Checkmark gate
 
 Add `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
-Phase 2's four bars. It records a fix verified at that time; newer thread
-evidence controls the current disposition. Never remove reactions.
+Phase 2's four bars; for a shared fix, add it to each claimed source report it
+resolves. It records a fix verified at that time; newer thread evidence
+controls the current disposition. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -59,17 +62,19 @@ means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
-Use exactly one disposition per ledger row; keep the same wording in recap and
-Slack reply:
+Use one disposition per ledger row; keep its wording in the recap and thread or
+linked work:
 
-For work continuing beyond this run, post **In progress** once. Record each
-terminal disposition in thread text or linked work; if neither states it, post
-one concise status reply. Current status comes from text or work, never the eye.
+Record terminal disposition in the thread or linked work; if neither states
+it, reply once. Current status comes from text or work, never the eye. For
+clusters, use one owner status listing each source permalink and **Clustered**
+state; reply in a non-owner only for a distinct question or update.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
   **Clustered**, or **Abandoned - no answer in 4 days**. Record an unstated
-  terminal disposition in the thread; add `✅` only for verified fixes.
+  terminal disposition in the thread or linked work; add `✅` only for verified
+  fixes.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -96,8 +101,7 @@ and put their count in the recap. Sort targeted searches oldest-first and follow
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Read back each `👀` before investigating; add it once. Post **In progress** if
-work continues beyond the run.
+Read back each `👀` before investigating; add it once.
 
 Claiming does not investigate. Search-discovered work gets the same eye-first
 read-back. Do not claim items that are already
@@ -255,17 +259,17 @@ Phase 0 already claimed these with `👀`. If this workflow earlier eyed
 something out of scope, keep our `👀`; do not add another reaction or post a
 compensating message.
 
-Run an unbounded reaction search across identities as well:
+Search for eye-marked parents across identities, oldest-first, and follow
+`next_cursor` through every page to find older active claims:
 
 ```
-slack_search: has:reaction in:<#CHANNEL>
+slack_search: has::eyes: in:<#CHANNEL>
+  sort=timestamp sort_dir=asc
 ```
 
-Read matching parents and reaction metadata. An eye from another identity is
-claim history; mark **Owned elsewhere** only when current thread status or
-linked work confirms active ownership. If a legacy eye has no status, check
-active work before proceeding. New evidence after a terminal status reopens the
-report; keep the old reactions.
+Read each parent and its reaction metadata. Mark **Owned elsewhere** only
+when thread status or linked work confirms an active owner. New evidence after
+a terminal status reopens the report; keep existing reactions.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.

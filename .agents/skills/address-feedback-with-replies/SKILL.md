@@ -16,7 +16,7 @@ metadata:
 Use this workflow when the user wants feedback triaged, fixed, and answered in
 Slack in one pass. Reply only in the requested scope and keep replies as
 evidence-based as the code. Cluster identical symptoms under one Builder
-thread while replying in each in-scope report that needs a status.
+thread and follow `review-latest-feedback`'s single-owner reply rule.
 
 This workflow handles clear bugs and concrete design/UX feedback about existing
 repo-owned surfaces. In Slack sweeps, follow `review-latest-feedback` for
@@ -50,13 +50,9 @@ Use the disposition-specific reaction contract from `review-latest-feedback`:
 add `👀` when claiming and `✅` only after a verified fix. Reactions are never
 removed; newer thread evidence determines the current disposition.
 
-Every eye enters the ledger; it marks a claimed report and remains after work
-is blocked or terminal. Follow `review-latest-feedback` for ownership: claim
-before code investigation and keep the eye while reporter input blocks work or
-when no safe fix exists. Before finishing, re-read each claim and record its
-reply or disposition. A reply or source change never means **Fixed**; add `✅`
-only for verified fixes. Preserve foreign eyes; confirm current ownership from
-the thread or linked work, since an eye alone records a past claim.
+Every claimed report keeps its `👀`. Follow `review-latest-feedback` for
+ownership and cluster status; add `✅` to each report a verified fix resolves.
+Never remove reactions.
 
 ## Prerequisites
 
@@ -124,8 +120,9 @@ the invoking user's assignment; do not override it with a generic UX exclusion.
 New-capability requests still need the invoking identity's `:upvote:`. Once an
 item is in scope, add `👀` before investigation or delegation.
 
-Never post the same sentence into several threads. When reports share one
-cause, reply once and record the rest as clustered.
+Never post the same sentence into several threads. For shared causes, follow
+the single-owner reply rule in `review-latest-feedback`; answer non-owning
+reports only for a distinct question or update.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -141,19 +138,19 @@ out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
 thread lacks that status.
 **Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
-**In progress** is an open ownership state. If work will continue beyond this
-run, post one concrete status naming what is being checked if the thread lacks
-it; acknowledge an existing owner when there is one. Never use a vague update
-or replace verification. The next run must revisit **In progress** and resolve
-it to **Fixed**, **Clarification
-needed**, or evidence-backed **Open - no question** when no safe fix or
-reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
-similar phrases are internal notes, never a complete Slack reply. **Open - no
-question** is terminal with our eye retained and no checkmark. A reply must
-state a verified resolution, concrete active work, a needed question, or one
-terminal disposition with its reason; never send a vague status alone. These are
-ledger states, not mandatory headings: keep the reporter-facing wording
-natural instead of opening with the robotic phrase “Clarification needed”. A
+**In progress** is an open ownership state. Follow `review-latest-feedback` to
+record the active owner before investigation; continue or coordinate that work
+instead of starting a duplicate. Never use a vague update or replace
+verification. The next run must revisit **In progress** and resolve it to
+**Fixed**, **Clarification needed**, or evidence-backed **Open - no question**
+when no safe fix or reproduction remains. `Blocked`, `not fixed yet`, `still
+needs a fix`, and similar phrases are internal notes, never a complete Slack
+reply. **Open - no question** is terminal with our eye retained and no
+checkmark. A reply must state a verified resolution, concrete active work, a
+needed question, or one terminal disposition with its reason; never send a
+vague status alone. These are ledger states, not mandatory headings: keep the
+reporter-facing wording natural instead of opening with the robotic phrase
+“Clarification needed”. A
 substantive diagnosis, fix, or in-progress ownership statement from someone in
 the thread is not a reason to ask for clarification; verify it or continue the
 existing handoff first.
@@ -231,17 +228,19 @@ non-repeating question only if one specific required detail still blocks it.
 4. Verify each fix with the smallest relevant test, typecheck, action read-back,
    or browser path. Keep source-tested, built, installed, deployed, and live
    observations separate.
-5. Before posting, prepare one short status for every clear-bug item and every
-   Slack parent marked `👀`:
+5. Prepare one short status for each unclustered clear bug and owning parent
+   marked `👀`. Record clustered source links and disposition in the owner
+   thread or linked work; do not send duplicate replies:
    - **Fixed** - say that the verified code change is complete and when it
      should be live. For today's beta-bound fixes, say explicitly that it will
      be on beta later today; never send a bare “Fixed”.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
-   - **In progress** - when work will continue beyond this run and the thread
-     lacks this status, thank the reporter and name what is being checked;
-     acknowledge existing ownership
-     and do not ask a duplicate question. This is an open handoff, not a fix.
+   - **In progress** - after a new claim and before investigation, thank the
+     reporter and name the active work; acknowledge existing ownership and do
+     not ask a duplicate question. This is an open handoff, not a fix.
+   - **Clustered** - list source permalinks and state in owner-thread status or
+     linked work. Reply once; answer a distinct question in its own thread.
    - **Clarification needed** - ask one concrete plain-language question only
      when missing reporter input or an inaccessible needed artifact blocks a
      safe clear-bug fix. Re-read immediately before posting and confirm the
@@ -255,15 +254,13 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for every claimed parent, record its latest status
-   reply timestamp, disposition, and eye state. Use the states in the contract
-   above, with a reason; a terminal state already stated in the thread needs no
-   duplicate reply.
-   Record **Owned elsewhere** only when the latest thread update or linked work
-   confirms another active owner; preserve foreign eyes. Record
-   out-of-scope and non-owning **Clustered** rows with our eye retained and one
-   status reply if the thread lacks that disposition. Do not ask questions for
-   out-of-scope items.
+   audit the reply ledger: for each claimed parent, record its reply timestamp
+   or owner-thread link, disposition, and eye state. A terminal state in the
+   thread or linked work needs no duplicate reply. Record **Owned elsewhere**
+   only when the latest update confirms another active owner; preserve foreign
+   eyes. Record non-owning **Clustered** rows in the owner thread or linked
+   work, and send no duplicate reply unless a distinct question or update needs
+   an answer. Record out-of-scope items with one **Skipped** status if missing.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
