@@ -3,11 +3,27 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-26
+
+### Fixed
+
+- An empty Recent list now loads without an error after first run.
+
 ## 2026-09-25
 
 ### Added
 
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Suggested edits now highlight only the changed words and punctuation. Related edits appear together, with controls to review each edit or the whole proposal.
+
+## 2026-09-24
+
+### Fixed
+
+- Suggest edits on pages inside collections, with the same review flow as other pages.
 
 ## 2026-09-23
 
@@ -21,6 +37,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Edits to different parts of a page from multiple tabs save together without asking you to choose a version.
 - Tables inserted in the visual editor now let you resize columns.
 - Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
 - The Trash view no longer highlights a document that is not in Trash.
