@@ -399,7 +399,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("textbox", {
         name: "mail.sort.aiSetupImportantHeadline",
       }),
-      { target: { value: "Email from my manager" } },
+      { target: { value: "Keep project decisions visible" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
