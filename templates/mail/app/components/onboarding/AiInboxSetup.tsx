@@ -445,6 +445,8 @@ export function AiInboxSetup({
       setStep(0);
       setBackfillRunId(null);
       setBackfillReviewDestinations({});
+      setArchiveUserOptedOut(false);
+      setSpamUserOptedOut(false);
     }
   }, [forceOpen, visible]);
 
