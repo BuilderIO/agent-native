@@ -23,6 +23,7 @@ import {
   IconFolderOpen,
   IconPlus,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useRef,
@@ -193,24 +194,25 @@ export function PagedContentFilesSidebarView({
   );
 }
 
-function navigationPageData(data: unknown) {
-  return data && !(typeof data === "object" && "available" in data)
-    ? (data as ContentDatabaseNavigationPageResponse)
-    : undefined;
-}
+// A branch reloads itself after an expired cursor at most this often; any
+// further expiry in the window shows Retry instead of reloading in a loop.
+const AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS = 5_000;
 
 function PagedContentFilesBranch({
   cursor,
   precedingDocumentIds = new Set(),
-  onCursorExpired,
+  reloadBranch: reloadFromFirstPage,
   ...props
 }: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
   precedingDocumentIds?: ReadonlySet<string>;
-  /** Asks the page that issued `cursor` to read again; false if it already did. */
-  onCursorExpired?: () => boolean;
+  /**
+   * Reloads the branch from its first page. Returns false when an automatic
+   * reload is refused because the branch reloaded itself moments ago.
+   */
+  reloadBranch?: (automatic: boolean) => boolean;
   sort: ContentDatabaseNavigationSort;
   viewId?: string;
   depth: number;
@@ -227,10 +229,11 @@ function PagedContentFilesBranch({
   untitledLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const [nextPageGeneration, setNextPageGeneration] = useState(0);
-  const expiredNextCursors = useRef(new Set<string>());
-  const [rereadRefused, setRereadRefused] = useState(false);
+  const [continuationGeneration, setContinuationGeneration] = useState(0);
+  const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
+  const [reloadRefused, setReloadRefused] = useState(false);
   const query = useActionQuery("query-content-database-items", {
     databaseId: props.databaseId,
     limit: 20,
@@ -241,33 +244,63 @@ function PagedContentFilesBranch({
       cursor,
     },
   });
-  const data = navigationPageData(query.data);
+  const data =
+    query.data && !("available" in query.data)
+      ? (query.data as ContentDatabaseNavigationPageResponse)
+      : undefined;
+  // Only the first page of a branch reloads it; later pages reach it through
+  // the reloadBranch prop.
+  const reloadBranch = (automatic: boolean) => {
+    if (automatic) {
+      const now = Date.now();
+      if (
+        now - lastAutomaticReload.current <
+        AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS
+      )
+        return false;
+      lastAutomaticReload.current = now;
+    }
+    void query.refetch().then(() => {
+      // Later pages remount from the fresh first page. Their cached reads are
+      // dropped so a remount cannot reuse a cursor this reload replaced.
+      queryClient.removeQueries({
+        predicate: ({ queryKey: [scope, name, params] }) => {
+          const key = params as
+            | {
+                databaseId?: string;
+                navigation?: { parentId?: string | null; cursor?: string };
+              }
+            | undefined;
+          return (
+            scope === "action" &&
+            name === "query-content-database-items" &&
+            key?.databaseId === props.databaseId &&
+            key.navigation?.parentId === props.parentId &&
+            key.navigation.cursor !== undefined
+          );
+        },
+      });
+      setContinuationGeneration((generation) => generation + 1);
+    });
+    return true;
+  };
+  const branchReload =
+    cursor === undefined ? reloadBranch : reloadFromFirstPage;
   // A cursor stops being valid when a sibling at or before it changes, or
-  // after a server update. The page that issued it reads again and hands this
-  // branch a fresh cursor instead of leaving an error in the sidebar.
+  // after a server update. The branch reloads from its first page instead of
+  // leaving an error in the sidebar.
   const cursorExpired =
     cursor !== undefined &&
     query.isError &&
     (query.error as { errorCode?: unknown } | null)?.errorCode ===
       "invalid_navigation_cursor";
   useEffect(() => {
-    if (cursorExpired) setRereadRefused(!onCursorExpired?.());
+    if (cursorExpired) setReloadRefused(!branchReload?.(true));
     // Only a new expiry asks again; the callback identity changes per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursorExpired]);
-  const rereadForNextPage = () => {
-    const expired = data?.pagination.nextCursor;
-    if (!expired || expiredNextCursors.current.has(expired)) return false;
-    expiredNextCursors.current.add(expired);
-    void query.refetch().then((result) => {
-      // The same cursor again means the next page must re-read it itself.
-      if (navigationPageData(result.data)?.pagination.nextCursor === expired)
-        setNextPageGeneration((generation) => generation + 1);
-    });
-    return true;
-  };
 
-  if (query.isLoading || (cursorExpired && !rereadRefused)) {
+  if (query.isLoading || (cursorExpired && !reloadRefused)) {
     return (
       <div aria-hidden="true" className="grid gap-1 p-1">
         {[70, 55, 85].map((width) => (
@@ -287,7 +320,11 @@ function PagedContentFilesBranch({
           size="sm"
           variant="ghost"
           disabled={query.isFetching}
-          onClick={() => void query.refetch()}
+          onClick={() =>
+            cursor === undefined || !branchReload
+              ? void query.refetch()
+              : branchReload(false)
+          }
         >
           {t("database.retry")}
         </Button>
@@ -380,10 +417,10 @@ function PagedContentFilesBranch({
         nextPageVisible ? (
           <PagedContentFilesBranch
             {...props}
-            key={`${data.pagination.nextCursor}:${nextPageGeneration}`}
+            key={`${data.pagination.nextCursor}:${continuationGeneration}`}
             cursor={data.pagination.nextCursor}
             precedingDocumentIds={composedDocumentIds}
-            onCursorExpired={rereadForNextPage}
+            reloadBranch={branchReload}
           />
         ) : (
           <Button
