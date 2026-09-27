@@ -2207,13 +2207,16 @@ export function DesignCanvas({
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
     bridgeRegistrationFailedForCurrentKey;
-  const resolvedExternalPreviewUrl =
-    liveEditExternalPreviewUrl ??
-    (usesLiveEditInjectedBridge
-      ? bridgeRegistrationFailedForCurrentKey
-        ? rawExternalPreviewUrl
-        : null
-      : rawExternalPreviewUrl);
+  const isLiveEditBridgeConnectionLost =
+    bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey;
+  const resolvedExternalPreviewUrl = isLiveEditBridgeConnectionLost
+    ? null
+    : (liveEditExternalPreviewUrl ??
+      (usesLiveEditInjectedBridge
+        ? bridgeRegistrationFailedForCurrentKey
+          ? rawExternalPreviewUrl
+          : null
+        : rawExternalPreviewUrl));
   const iframePreviewUrlSourceKey = JSON.stringify([
     previewUrlSourceKey ??
       previewUrlOverride ??
@@ -2225,6 +2228,7 @@ export function DesignCanvas({
     effectivePreviewToken,
     usesLiveEditInjectedBridge ? liveEditBridgeKey : null,
     bridgeRegistrationFailedForCurrentKey,
+    isLiveEditBridgeConnectionLost,
   ]);
   const iframePreviewUrlRef = useRef({
     sourceKey: iframePreviewUrlSourceKey,
