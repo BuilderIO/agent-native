@@ -354,7 +354,6 @@ export function ChatSettingsSheet({
 }: {
   visible: boolean;
   settings: AgentChatSettings;
-  /** Active thread's app — models and keys are read/written against it. */
   baseUrl?: string;
   onChange: (settings: AgentChatSettings) => void;
   onClose: () => void;
@@ -376,8 +375,6 @@ export function ChatSettingsSheet({
       .finally(() => setCatalogLoading(false));
   }, [baseUrl]);
 
-  // Reload whenever opened or the active app changes, so the catalog and
-  // configurable providers reflect the app being configured.
   useEffect(() => {
     if (visible) {
       setPickerSection(null);
@@ -390,7 +387,6 @@ export function ChatSettingsSheet({
       const nextExpanded = { ...expandedGroups };
       let updated = false;
 
-      // Auto-expand group of selected model
       if (settings.model) {
         const activeGroup = catalog.groups.find((g) =>
           g.models.includes(settings.model!),
@@ -404,7 +400,6 @@ export function ChatSettingsSheet({
         }
       }
 
-      // Auto-expand effort if one is selected
       if (settings.effort) {
         if (!nextExpanded["effort"]) {
           nextExpanded["effort"] = true;

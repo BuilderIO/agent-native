@@ -6,12 +6,6 @@ import {
   isMarkdownMirrorFetch,
 } from "../server/lib/markdown-mirror";
 
-/**
- * The mirror fetch re-enters the same Nitro handler, because the function owns
- * `/*`. Before the marker header existed, that recursed until Netlify killed
- * the request: every `.md` twin returned 502 after ~40s with no `cache-status`,
- * so nothing cached and each retry burned another container for 40s.
- */
 function eventWithHeaders(headers: Record<string, string>): H3Event {
   const url = "https://www.agent-native.com/docs/actions.md";
   return {

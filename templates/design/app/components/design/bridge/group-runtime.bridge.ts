@@ -1,8 +1,3 @@
-/**
- * Keeps measured flow Groups sized to their direct children after intrinsic
- * content changes. Persisted pixel geometry remains the fallback whenever a
- * child uses cyclic sizing or transforms that cannot be represented safely.
- */
 (function () {
   interface GroupState {
     width: string;
@@ -139,9 +134,6 @@
       parent;
       parent = parent.parentElement
     ) {
-      // Ancestor translations affect both client rects equally, including the
-      // Board surface's managed content offset. Scale/rotation/perspective do
-      // not cancel and cannot be written back as source pixel geometry.
       if (distortsRelativeGeometry(parent)) return true;
     }
     return false;

@@ -18,7 +18,6 @@ describe("TimezoneSelect", () => {
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    // cmdk measures and scrolls its list; jsdom implements neither.
     Element.prototype.scrollIntoView = () => {};
     vi.stubGlobal(
       "ResizeObserver",
@@ -59,7 +58,6 @@ describe("TimezoneSelect", () => {
   it("labels a pinned zone with its GMT offset", () => {
     render("Asia/Kolkata");
 
-    // Half-hour zones are the case a naive hour-only offset gets wrong.
     expect(trigger().textContent).toBe("(GMT+05:30) Asia/Kolkata");
   });
 
@@ -69,7 +67,6 @@ describe("TimezoneSelect", () => {
       trigger().click();
     });
 
-    // The first group pins the browser choices; the last holds the full list.
     const groups = document.querySelectorAll("[cmdk-group]");
     const list = groups[groups.length - 1];
     const zoned = [...list.querySelectorAll("[cmdk-item]")].map(
@@ -86,7 +83,6 @@ describe("TimezoneSelect", () => {
     });
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
 
-    // Every zone row ends with its current local time.
     for (const row of zoned) {
       expect(row).toMatch(/\d{1,2}:\d{2}(am|pm)$/);
     }

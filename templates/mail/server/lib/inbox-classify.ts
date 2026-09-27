@@ -1,9 +1,3 @@
-/**
- * Superhuman-style Important/Other classification for one thread's latest
- * received message. "Automated" (→ Other) covers bulk/notification senders;
- * everything else lands in Important.
- */
-
 const AUTOMATED_CATEGORY_LABELS = new Set([
   "CATEGORY_PROMOTIONS",
   "CATEGORY_SOCIAL",
@@ -11,8 +5,6 @@ const AUTOMATED_CATEGORY_LABELS = new Set([
   "CATEGORY_FORUMS",
 ]);
 
-// Local-part senders that are structurally automated regardless of domain
-// (no-reply@anydomain.com, notifications@anydomain.com, ...).
 const AUTOMATED_LOCAL_PART =
   /^(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer(-daemon)?|bounces?|postmaster|newsletter|digest|reminders?|calendar-notification|drive-shares-noreply)(?:[+.\-_]|$)/i;
 

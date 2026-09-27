@@ -1,7 +1,6 @@
 import { IconCheck, IconCopy } from "@tabler/icons-react";
 import { useState } from "react";
 
-/** Shared hover-revealed "copy to clipboard" chip used by code-surface blocks. */
 export function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (

@@ -514,7 +514,6 @@ describe("/api/video/:recordingId route", () => {
   });
 
   it("serves a public recording to anonymous viewers without a share grant", async () => {
-    // Anonymous viewer on a public share page: no session, no grant.
     mockGetSession.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue(null);
     mockGetDb.mockReturnValue(
@@ -631,11 +630,6 @@ describe("/api/video/:recordingId route", () => {
   });
 
   it("does not 500 when application-state is unavailable for anonymous viewers", async () => {
-    // Reproduces the production bug: `resolveAccess` grants public clips to
-    // anonymous viewers, but `readAppState` throws without an authenticated
-    // identity ("Application state access requires an authenticated request
-    // context"). The route must swallow that and fall through to the provider
-    // media URL instead of surfacing an unhandled 500.
     mockGetSession.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

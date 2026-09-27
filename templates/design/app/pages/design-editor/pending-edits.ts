@@ -94,8 +94,6 @@ export function normalizeRuntimeStructureClasses(
 export function normalizeRuntimeStructureText(
   value: string | null | undefined,
 ): string {
-  // The code-layer projection collapses text before it reaches this matcher;
-  // keep this cap below that projection's 157-character snippet ceiling.
   return value?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
 }
 
@@ -124,42 +122,15 @@ export interface PendingVisualStyleEdit {
   screenName: string;
   selector: string;
   sourceId?: string | null;
-  /**
-   * The selector/node id the canvas bridge reported, kept when the host
-   * canonicalized the selection onto its source projection
-   * (canonicalElementInfoForCodeLayerNode). A localhost screen runs two
-   * disjoint node-id namespaces: the injected bridge stamps `runtime-…` ids on
-   * the live document, while the host stamps `an-…` ids on the source html it
-   * fetched separately. Only this pair addresses the running app, so every
-   * replay into the live frame must prefer it. Absent for inline/snapshot
-   * screens, where the bridge reuses the ids already in the document and the
-   * two pairs are the same value.
-   */
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   sourceAnchor?: ReactSourceAnchor;
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
-  /** Relative scrub operations are source intent; `styles` remains the live preview/result value. */
   relativeOperations?: Record<string, PendingRelativeStyleOperation>;
-  /**
-   * Element pseudo-class being authored. Omitted for ordinary/base styles.
-   * Localhost screens cannot persist the editor's managed HTML block because
-   * their DesignFile content is the route URL, so interaction-state edits use
-   * the same guarded coding-agent handoff as other live visual edits while the
-   * iframe bridge keeps a temporary state-scoped preview.
-   */
   interactionState?: InteractionState;
-  /** Base computed values used only to restore inspector fields after the
-   * first pending state override is undone. Runtime preview cleanup still
-   * uses `originalStyles` (empty values remove the temporary CSSOM rule). */
   baseStyles?: Record<string, string>;
-  /**
-   * Inline style values to replay when the user discards the live preview.
-   * Missing authored inline values are stored as "" so the bridge removes the
-   * temporary inline style and lets the app's real CSS win again.
-   */
   originalStyles: Record<string, string>;
   updatedAt: number;
   /**
@@ -178,7 +149,6 @@ export interface PendingVisualStyleEdit {
 
 let lastPendingLiveEditTimestamp = 0;
 
-/** Keep mixed pending edits strictly ordered even when several land in one millisecond. */
 export function nextPendingLiveEditTimestamp(now = Date.now()): number {
   lastPendingLiveEditTimestamp = Math.max(
     lastPendingLiveEditTimestamp + 1,
@@ -197,11 +167,6 @@ export function mergePendingLiveNonStyleEdits(
   const merged: PendingLiveNonStyleEdit[] = [];
   for (const edit of edits) {
     if (edit.kind === "structure") {
-      // Deleting a node this session INSERTED nets to zero in source: the
-      // markup was never written there. Queuing both would hand the coding
-      // agent markup to add plus a node to delete, and an apply that runs the
-      // insert can resurrect exactly what the user deleted. Both entries stay
-      // on the undo stack, so undoing the delete re-queues the insertion.
       const supersededInsertIndex = edit.removed
         ? merged.findIndex(
             (candidate) =>
@@ -437,17 +402,8 @@ export interface PendingLiveStructureEdit {
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
   anchorSignature?: RuntimeStructureNodeSignature;
-  /**
-   * Project-relative route module reported by the localhost manifest. A
-   * top-level canvas insert targets the live document body, which intentionally
-   * has no framework element provenance; this keeps Apply bounded to the route
-   * source without inventing a fake body line/column.
-   */
   routeSourceFile?: string;
   placement: "before" | "after" | "inside";
-  /** Runtime layout semantics captured at drop time. These are required for
-   * the coding agent to distinguish a flow/auto-layout insertion from an
-   * absolute child whose visual offset must be rebased into its new parent. */
   dropMode?: "flow-insert" | "absolute-container";
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
@@ -468,30 +424,13 @@ export interface PendingLiveStructureEdit {
       rowEnd: number;
     };
   }>;
-  /**
-   * Markup this edit ADDED to the running app. Present only for a drop whose
-   * subject had no counterpart in the screen's source, so the coding agent
-   * must insert this markup rather than relocate an existing element.
-   */
   insertedHtml?: string;
   remintCollidingNodeIds?: boolean;
-  /** The inserted markup replaced `selector` instead of landing beside it. */
   replaced?: true;
-  /** Runtime identity of the optimistic replacement used for verification. */
   replacementSelector?: string;
   replacementSourceId?: string | null;
   replacementSignature?: RuntimeStructureNodeSignature;
-  /** Expected visual tree captured by the bridge while it still owns the
-   * original DOM element. Runtime ids and computed styles are excluded.
-   * Missing evidence or later context changes cannot prove replacement. */
   replacementSnapshotSignature?: string;
-  /**
-   * This edit DELETED the subject from the running app. A removal has no
-   * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
-   * consumer that pairs a subject with a target (the semantic handoff, the
-   * source-path collection before apply, runtime verification) must branch on
-   * this instead of reading anchor fields that were never captured.
-   */
   removed?: true;
   requestId?: string;
   transactionId?: string;
@@ -499,11 +438,6 @@ export interface PendingLiveStructureEdit {
   updatedAt: number;
 }
 
-/**
- * Convert bridge provenance into a bounded semantic source anchor. Runtime
- * ids remain useful for correlating the live preview, but they are never
- * treated as source identities by the coding-agent handoff.
- */
 interface NormalizedResolvablePath {
   value: string;
   absolute: boolean;
@@ -522,7 +456,6 @@ function normalizeResolvablePath(
   let caseInsensitive = false;
   const drive = raw.match(/^([a-z]):(\/.*)?$/i);
   if (drive) {
-    // `C:foo` is drive-relative and must not be treated as a project path.
     if (!drive[2]?.startsWith("/")) return undefined;
     prefix = `${drive[1]!.toUpperCase()}:/`;
     remainder = drive[2].slice(1);
@@ -540,7 +473,6 @@ function normalizeResolvablePath(
     remainder = raw.slice(1);
     absolute = true;
   } else if (/^[a-z]+:/i.test(raw)) {
-    // URL-like values and unsupported drive-relative paths are not files.
     return undefined;
   }
 
@@ -551,7 +483,6 @@ function normalizeResolvablePath(
       if (segments.length > 0) {
         segments.pop();
       } else if (!absolute) {
-        // A relative path may not escape its unknown project root.
         return undefined;
       }
       continue;
@@ -642,19 +573,12 @@ export function reactSourceAnchorForPendingEdit(args: {
       args.info?.sourceId?.trim() ||
       args.info?.selector?.trim() ||
       undefined,
-    // Keep the raw Fiber value here so prompt serialization can retain an
-    // absolute path when the connection root cannot resolve a relPath.
     sourceFile,
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
     column: provenance.column,
-    // Which tier produced line/column, so no consumer can read a React 19
-    // owner-stack (transformed) position as the authored JSX line.
     ...(provenance.method ? { method: provenance.method } : {}),
     component: provenance.component,
-    // The nearest component's INSTANTIATION site — the `.map()` call site for a
-    // mapped instance. Dropping it here is what left the handoff unable to say
-    // where a mapped sibling actually comes from.
     ...(ownerSourceFile ? { ownerSourceFile } : {}),
     ...(ownerRelPath ? { ownerRelPath } : {}),
     ...(provenance.ownerLine ? { ownerLine: provenance.ownerLine } : {}),
@@ -662,11 +586,7 @@ export function reactSourceAnchorForPendingEdit(args: {
     ...(provenance.ownerComponentName
       ? { ownerComponent: provenance.ownerComponentName }
       : {}),
-    // The owner's own tier: a data-attribute element can still owe its owner
-    // line to a transformed owner stack.
     ...(provenance.ownerMethod ? { ownerMethod: provenance.ownerMethod } : {}),
-    // Every `.map()` sibling shares one call site, so runtimeMultiplicity alone
-    // cannot say WHICH instance was selected; the React key can.
     ...(provenance.ownerKey ? { ownerKey: provenance.ownerKey } : {}),
     runtimeMultiplicity,
     ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
@@ -675,12 +595,6 @@ export function reactSourceAnchorForPendingEdit(args: {
   };
 }
 
-/**
- * Why an anchor could not be built: a runtime that reports it exposes no
- * source locations at all is a permanent answer, not a slow one. Returns
- * undefined when nothing has reported a reason yet — that case is still
- * "loading", and callers must not present it as unsupported.
- */
 export function reactSourceAnchorUnavailableReason(
   infos: ReadonlyArray<Pick<ElementInfo, "provenance"> | null | undefined>,
 ): ElementProvenanceUnavailableReason | undefined {
@@ -702,7 +616,6 @@ export type PendingVisualStyleUndoTarget = {
   revertStyles: Record<string, string>;
 };
 export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
-  /** All targets changed by one inspector gesture share one undo entry. */
   gestureId?: string;
   groupedTargets?: PendingVisualStyleUndoTarget[];
 };
@@ -767,8 +680,6 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce only explicit multi-target gesture ticks. A missing gesture id is
- * one committed change, so it must stay an independent undo step. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
@@ -811,8 +722,6 @@ export function appendPendingVisualStyleUndoEntry(
         last.groupedTargets![index - 1] = nextTarget;
       }
     }
-    // Undo ordering compares the primary edit's timestamp with other pending
-    // edit kinds, so keep it at the time of the latest tick in this gesture.
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
     return;
   }
@@ -884,11 +793,6 @@ export function pendingLiveStructureEditsFromUndoEntry(
   return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
 }
 
-/**
- * Redo receives the final member as `entry.edit`, while a coalesced live move
- * keeps the full transaction on the undo entry. Reattach those members before
- * choosing the replay command so cross-screen insert/delete pairs stay atomic.
- */
 export function pendingLiveStructureRedoSourceEdit(
   entry: PendingLiveStructureUndoEntry,
 ): PendingLiveStructureEdit {
@@ -916,13 +820,6 @@ export function pendingLiveNonStyleEditsFromUndoStack(
   return edits;
 }
 
-/**
- * Project-relative source files that must be read before this edit can be
- * handed off. A removal has no anchor, and an INSERT has no subject — its
- * markup exists in no source file yet — so demanding both paths rejected every
- * insert as "anchors still loading". `null` means a path this edit does need
- * has not resolved yet, which is the only honest "not ready" answer.
- */
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
@@ -952,12 +849,6 @@ export type PendingStructureRedoCommand =
     }
   | { kind: "move" };
 
-/**
- * Which runtime command replays this edit. Undoing an insert REMOVED the node,
- * so replaying it as a move would address an element that is no longer in the
- * document and the bridge would return silently — a redo that reports success
- * and does nothing.
- */
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
@@ -1115,9 +1006,6 @@ export function buildPendingVisualStyleRevertPatches(
       routePath: edit.routePath,
       selector: edit.selector,
       sourceId: edit.sourceId,
-      // Carried, not resolved: consumers replay into the live frame (prefer the
-      // runtime pair) and into the source projection (prefer the canonical
-      // one), so the patch has to keep both.
       ...(edit.runtimeSelector
         ? { runtimeSelector: edit.runtimeSelector }
         : {}),
@@ -1149,14 +1037,6 @@ function nodeIdSelector(nodeId: string): string {
     .replace(/"/g, '\\"')}"]`;
 }
 
-/**
- * How a pending edit addresses the RUNNING document. The runtime pair wins
- * because a localhost screen's canonical selector/sourceId name nodes in the
- * host's source projection, which the live frame has never seen. Candidates
- * stay a runtime-first superset so nothing that used to resolve stops
- * resolving, and an inline screen — which records no runtime pair — produces
- * byte-identical output to the canonical-only list.
- */
 export function runtimeStyleTarget(target: {
   selector: string;
   sourceId?: string | null;
@@ -1201,12 +1081,6 @@ export function pendingVisualStyleRouteMatches(
   return !patch.routePath || patch.routePath === currentRoutePath;
 }
 
-/**
- * Forward, undo, and redo all use this exact per-property runtime channel.
- * The screen id is part of the command boundary so a retained/remounted
- * overview iframe cannot accidentally receive history intended for another
- * screen.
- */
 export function replayPendingVisualStyleRuntimePatch(
   patch: PendingVisualStyleRuntimePatch,
   sendProperty: SendPendingVisualStyleRuntimeProperty,
@@ -1214,10 +1088,6 @@ export function replayPendingVisualStyleRuntimePatch(
   const entries = Object.entries(patch.styles);
   if (entries.length === 0) return false;
   const target = runtimeStyleTarget(patch);
-  // No candidate at all is not "apply it to the obvious element": the bridge
-  // falls back to its own current selection when the candidate list is empty,
-  // so an unaddressable revert would silently restyle whatever happens to be
-  // selected. Report failure and let the caller surface it.
   if (target.selectorCandidates.length === 0) return false;
   return entries.every(([property, value]) =>
     sendProperty(patch.screenId, target.selector, property, value, {
@@ -1231,12 +1101,6 @@ export function replayPendingVisualStyleRuntimePatch(
   );
 }
 
-/**
- * Badge number on the Apply bar: how many user-meaningful updates Apply would
- * hand to the agent. A style edit is already coalesced by screen, target, and
- * interaction state, so counting its individual CSS declarations inflates one
- * inspector gesture into several apparent updates.
- */
 export function getPendingVisualEditCount(
   edits: readonly PendingVisualStyleEdit[],
   liveEdits: readonly PendingLiveNonStyleEdit[] = [],
@@ -1255,11 +1119,6 @@ export function shouldBlockPendingVisualStyleNavigation(args: {
   );
 }
 
-/**
- * Inserted markup is the only unbounded field in the pending-edit payload, and
- * that payload is JSON.stringified straight into an agent prompt. Truncation is
- * reported so the agent never mistakes a cut-off tree for the whole node.
- */
 const MAX_INSERTED_HTML_LENGTH = 4_000;
 
 function boundedInsertedHtml(html: string): {
@@ -1279,13 +1138,7 @@ export function formatPendingVisualStylePrompt(args: {
   localhostConnectionId?: string | null;
   edits: readonly PendingVisualStyleEdit[];
   liveEdits?: readonly PendingLiveNonStyleEdit[];
-  /**
-   * A coding agent has the repo and none of the Design source tools, and a
-   * screen's `.html` filename is the editor's own bookkeeping — naming it sends
-   * that agent hunting for a file the project does not contain.
-   */
   audience?: "design-agent" | "coding-agent";
-  /** Screen id → the route it renders, for naming screens the way the app does. */
   screenRoutes?: Readonly<Record<string, string>>;
 }): string {
   if (args.edits.length === 0 && (args.liveEdits?.length ?? 0) === 0) {
@@ -1432,10 +1285,6 @@ export function formatPendingVisualStylePrompt(args: {
     const targetAnchor = edit.anchorSourceAnchor
       ? { ...edit.anchorSourceAnchor, id: "target" }
       : undefined;
-    // An insert's subject is markup that does not exist in the program yet, so
-    // it has no source anchor and cannot be described as a move. Telling the
-    // agent to relocate an element the file has never contained is worse than
-    // reporting nothing.
     const insertedHtml = edit.insertedHtml
       ? boundedInsertedHtml(edit.insertedHtml)
       : undefined;
@@ -1546,8 +1395,6 @@ export function formatPendingVisualStylePrompt(args: {
                     screenId: edit.screenId,
                     description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
                   },
-                  // The packet intentionally starts without a hash: its execution
-                  // contract requires read-local-file before every write.
                   versionHashes: [],
                 })
               : {
@@ -1607,8 +1454,6 @@ export function formatPendingVisualStylePrompt(args: {
       ...(edit.subjectSignature
         ? { subjectSignature: edit.subjectSignature }
         : {}),
-      // A removal has no anchor; emitting empty anchor fields alongside a
-      // meaningless placement reads as a half-captured move.
       ...(edit.removed || edit.replaced
         ? edit.removed
           ? { removed: true as const }
@@ -1783,8 +1628,6 @@ export function shouldUseRuntimeLayerProjection(args: {
   fallbackSourceType?: DesignSourceType;
   content: string;
 }): boolean {
-  // A running app's live DOM is the ground truth; only inline screens carry
-  // their own source.
   if (
     !isRunningAppSourceType(
       resolveOverviewScreenSourceType(
@@ -1808,10 +1651,6 @@ export function shouldPreferRuntimeLayerProjection(args: {
   runtimeNodeCount: number;
   sourceNodeCount: number;
 }): boolean {
-  // A hydrated localhost tree is the visible app's ground truth even when SSR
-  // happened to emit the same number of nodes (or more wrappers). Keep the
-  // source projection separately for writes; never use counts to decide which
-  // tree represents the live Layers panel.
   void args.sourceNodeCount;
   return args.eligible && args.runtimeNodeCount > 0;
 }
@@ -1856,8 +1695,6 @@ export function applyScopedVisualStyleEdit(args: {
   value: string;
   upperBoundPx: number | null;
   source?: CodeLayerSource;
-  /** Inclusive lower bound for an exact-range edit. Omit for the normal
-   * desktop-down “this breakpoint and smaller” cascade. */
   lowerBoundPx?: number | null;
 }): ApplyVisualEditResult {
   const {
@@ -1870,7 +1707,6 @@ export function applyScopedVisualStyleEdit(args: {
     source,
   } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
-  // An empty value clears the declaration at the edit's own scope.
   if (value === "") {
     return applyVisualEdit(
       content,
@@ -1892,10 +1728,6 @@ export function applyScopedVisualStyleEdit(args: {
     );
   }
   if (upperBoundPx != null && isVectorEndpointProperty(normalizedProperty)) {
-    // Endpoint values require marker definitions and shape attributes, which
-    // cannot be represented by a media-scoped custom property. Let the shared
-    // breakpoint editor return its unsupported result before any existing
-    // scoped declaration is cleaned up.
     return applyVisualEdit(
       content,
       {
@@ -1960,7 +1792,6 @@ export function applyScopedVisualStyleEdit(args: {
       {
         kind: "responsive-class",
         target,
-        // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
         prefix: "base",
         maxWidthPx: plan.boundPx,
         operation: "replace",
@@ -2074,7 +1905,6 @@ function removeExactBreakpointDeclarationsBatch(
   });
 }
 
-/** Base-scope K scaling writes all ordinary properties as one atomic patch. */
 export function applyScopedVisualStyleBatch(args: {
   content: string;
   source?: CodeLayerSource;
@@ -2148,21 +1978,6 @@ export function resolveVisualStyleCommitContent(args: {
   return { error: args.scopedFailure };
 }
 
-/**
- * Interaction-states phase 2 — the pure content transform behind
- * `commitInteractionStateStyles` (DesignEditor's useCallback wrapper, which
- * only resolves `activeFile`/`selectedElement`/`canEditDesign` and calls
- * `applyFileContentUpdate`). Extracted as a top-level function so it's
- * unit-testable the same way `applyScopedVisualStyleEdit` is above.
- *
- * Writes every property in `styles` into the managed
- * `[data-agent-native-node-id="<nodeId>"]:<state> { … }` rule
- * (`upsertStateStyles`) and regenerates that rule's forced-preview twin
- * (`duplicateStatePreviewRules`) in one pass, so a caller that folds the
- * result into a single `applyFileContentUpdate`/history-recording call gets
- * exactly one undo step for the whole commit — see
- * `shared/interaction-states.ts`'s module doc for the twin-rule mechanism.
- */
 export function applyInteractionStateStyleCommit(
   content: string,
   nodeId: string,
@@ -2183,18 +1998,6 @@ export function applyInteractionStateStyleCommit(
   return duplicateStatePreviewRules(withStateStyles);
 }
 
-/**
- * Interaction-states phase 2 — the pure decision behind `statePreviewTarget`,
- * the value DesignEditor forwards into both the single-screen and overview
- * `DesignCanvas` instances' `statePreviewTarget` prop, which in turn drives
- * the `state-preview` postMessage that sets/clears the bridge's
- * `data-an-state-preview` attribute (see interaction-states.ts's "Forced-
- * preview mechanism" doc comment for the full pipeline). Returns null
- * whenever there's no active non-default interaction state OR no resolvable
- * single-element screen/node target — both must be present for a preview to
- * make sense, matching EditPanel's InteractionStatePanel only ever offering
- * the state selector for a single selection with a stable node id.
- */
 export function deriveStatePreviewTarget(
   activeState: InteractionState | null,
   screenId: string | null | undefined,

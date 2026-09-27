@@ -155,11 +155,6 @@ describe("EnvironmentBadge render", () => {
       status: "unauthenticated",
     });
 
-    // flushSync commits the render synchronously without flushing passive
-    // effects, so this captures exactly what React reconciles against the
-    // server-rendered HTML: the server (no window) always renders nothing,
-    // so this first commit must too, or React logs a hydration mismatch and
-    // discards the subtree.
     flushSync(() => root.render(<EnvironmentBadge />));
     expect(container.querySelector('[role="status"]')).toBeNull();
 
@@ -397,8 +392,6 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    // Marked as the lane's own doing, so beta can send the visitor back when
-    // it turns out they have no session there.
     expect(replace).toHaveBeenCalledWith(
       "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
     );

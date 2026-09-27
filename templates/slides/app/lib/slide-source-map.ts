@@ -8,26 +8,12 @@ import {
 import { mermaidBlockPattern } from "./mermaid-blocks";
 import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
 
-/**
- * Save boundary for slide HTML.
- *
- * The editor canvas shows `render(stored)`: logo filters, `sanitizeSlideHtml`
- * (scoped `<style>`, dropped svg, rewritten style attributes) and
- * `prepareImportedFonts`, then autofit wrappers and editor ids. Serializing that
- * DOM back into storage is what flattened whole slides. Instead every rendered
- * element carries a stamp naming the stored element it came from, and a save
- * diffs the live DOM against a fresh render and splices only the difference
- * into the stored string. Bytes outside the changed elements are copied.
- */
-
 export const SOURCE_STAMP_ATTR = "data-src-i";
 
 export interface SlideSourceRange {
   tag: string;
   openStart: number;
-  /** After the start tag's `>`. */
   openEnd: number;
-  /** `null` when the end tag is implied or the element is void. */
   closeStart: number | null;
   closeEnd: number;
 }
@@ -37,11 +23,9 @@ export interface StampedSlideSource {
   ranges: SlideSourceRange[];
 }
 
-/** What a canvas root was rendered from; registered by the renderer. */
 export interface RenderedSlideSource {
   stored: string;
   ranges: SlideSourceRange[];
-  /** The exact HTML the renderer mounted (stamped, sanitized). */
   base: string;
   nonce: string;
 }
@@ -53,7 +37,6 @@ export class SlideSourceMapError extends Error {
   }
 }
 
-/** Attributes the editor adds to live nodes; never content. */
 const TRANSIENT_ATTRS = new Set([
   SOURCE_STAMP_ATTR,
   "data-builder-id",
@@ -62,10 +45,8 @@ const TRANSIENT_ATTRS = new Set([
   "data-editing-block",
   "spellcheck",
 ]);
-/** Renderer wrappers whose children belong to the wrapper's parent. */
 const TRANSPARENT = "[data-fmd-autofit-content]";
 const MERMAID_INDEX_ATTR = "data-mermaid-index";
-/** The document parse puts these around the fragment; they are not content. */
 const DOCUMENT_TAGS = new Set(["html", "head", "body"]);
 const VOID_TAGS = new Set([
   "area",
@@ -84,12 +65,9 @@ const VOID_TAGS = new Set([
   "wbr",
 ]);
 
-// ------------------------------------------------------------- locating ---
-
 interface SourceElement {
   node: P5.Element;
   range: SlideSourceRange;
-  /** Offset to insert a stamp at, or the existing stamp attribute to replace. */
   stamp: { at: number } | { start: number; end: number } | null;
 }
 
@@ -98,18 +76,10 @@ interface LocatedSource {
   ordinalOf: Map<P5.Element, number>;
   head: P5.ChildNode[];
   body: P5.ChildNode[];
-  /** By placeholder index: the stored block and its element ordinal. */
   mermaid: Array<{ source: string; ordinal: number | null }>;
-  /**
-   * Ordinals of formatting elements the parser also rebuilt elsewhere (an
-   * unclosed `<b>` reopened in each later paragraph). Every copy carries the
-   * one stamp, and only the first is the stored element.
-   */
   reconstructed: Set<number>;
 }
 
-// Parse as the sanitizer's DOMParser does: scripting off, so `<noscript>`
-// content is markup, not text.
 const PARSE_OPTIONS = { scriptingEnabled: false } as const;
 
 const isElement = (node: P5.Node): node is P5.Element =>
@@ -117,12 +87,6 @@ const isElement = (node: P5.Node): node is P5.Element =>
 const isComment = (node: P5.Node): node is P5.CommentNode =>
   node.nodeName === "#comment";
 
-/**
- * Parses the stored string the way the sanitizer does (a full document parse),
- * so the stamps land on the elements the browser builds. Ordinals are preorder
- * over elements that have a start tag in the source; parser-implied elements
- * (tbody, adoption-agency clones) get none.
- */
 function locateSource(stored: string): LocatedSource {
   const doc = parse(stored, { ...PARSE_OPTIONS, sourceCodeLocationInfo: true });
   const mermaid: LocatedSource["mermaid"] = [];
@@ -149,7 +113,6 @@ function locateSource(stored: string): LocatedSource {
       }
       const original = ordinalAt.get(start.startOffset);
       if (original !== undefined) {
-        // A rebuilt copy reports the original's start tag.
         reconstructed.add(original);
         visit(child);
         continue;
@@ -170,8 +133,6 @@ function locateSource(stored: string): LocatedSource {
       });
       const block = mermaidAt.get(start.startOffset);
       if (block !== undefined) {
-        // The block's content is diagram source handed to mermaid verbatim;
-        // a stamp inside it would change the diagram.
         mermaid[block].ordinal = ordinal;
         continue;
       }
@@ -180,8 +141,6 @@ function locateSource(stored: string): LocatedSource {
   };
   visit(doc);
 
-  // Comments before the first tag or after `</body>` hang off the document
-  // and `<html>`; they sit before or after the body's children.
   let afterBody = false;
   const levels = (nodes: P5.ChildNode[]) => {
     for (const node of nodes) {
@@ -201,11 +160,6 @@ function locateSource(stored: string): LocatedSource {
 
 type ElementLocation = NonNullable<P5.Element["sourceCodeLocation"]>;
 
-/**
- * Where a new attribute goes in a start tag: before the self-closing `/`,
- * unless that `/` ends an unquoted value (`src=a/`), where inserting before it
- * would change the value. `null` for a tag with no `>`.
- */
 function attributeInsertionPoint(
   stored: string,
   loc: ElementLocation,
@@ -229,11 +183,6 @@ function stampPosition(
   return at === null ? null : { at };
 }
 
-/**
- * Inserts `data-src-i="<nonce>:<ordinal>"` into every located start tag. The
- * stamp goes at the end of the tag so the mermaid and logo regexes, which read
- * a tag's leading attributes, still match.
- */
 export function stampSlideSource(
   stored: string,
   nonce: string,
@@ -262,8 +211,6 @@ export function stampSlideSource(
   };
 }
 
-// ---------------------------------------------------------------- merge ---
-
 type Kid = Element | string;
 
 const escapeText = (text: string) =>
@@ -287,7 +234,6 @@ function styleOf(el: Element): CSSStyleDeclaration | null {
   return (el as HTMLElement).style ?? null;
 }
 
-/** Per-longhand base→live change; `null` means the property was removed. */
 function styleDelta(base: Element, live: Element): Map<string, string | null> {
   const delta = new Map<string, string | null>();
   const bs = styleOf(base);
@@ -296,8 +242,6 @@ function styleDelta(base: Element, live: Element): Map<string, string | null> {
   const props = new Set<string>();
   for (let i = 0; i < bs.length; i++) props.add(bs[i]);
   for (let i = 0; i < ls.length; i++) props.add(ls[i]);
-  // A shorthand holding `var()` reads back only as itself, with every
-  // longhand empty, so it is compared by its declared name.
   for (const el of [base, live]) {
     for (const { name } of splitDeclarations(el.getAttribute("style") ?? "")) {
       if (
@@ -331,14 +275,12 @@ function sameAttrs(a: Element, b: Element): boolean {
     const other = y.get(name);
     if (other === undefined) return false;
     if (other === value) continue;
-    // Touching `el.style` reserializes the attribute without changing it.
     if (name === "style" && styleDelta(b, a).size === 0) continue;
     return false;
   }
   return true;
 }
 
-/** Declarations of a style attribute, split outside quotes and parentheses. */
 function splitDeclarations(
   style: string,
 ): Array<{ name: string; raw: string }> {
@@ -370,11 +312,6 @@ function splitDeclarations(
   return out;
 }
 
-/**
- * The stored style text with the user's per-property change applied. Untouched
- * declarations keep their stored bytes, so renderer rewrites (sanitized
- * formatting, font renames, the logo filter) never reach storage.
- */
 function mergeStyle(
   stored: string | undefined,
   base: Element,
@@ -400,8 +337,6 @@ function mergeStyle(
       kept.push(decl.raw.trim());
       continue;
     }
-    // A shorthand that also set a removed longhand: keep what it set for the
-    // properties the user did not touch.
     const liveStyle = styleOf(live);
     for (let i = 0; i < scratch.length; i++) {
       const longhand = scratch[i];
@@ -424,10 +359,6 @@ function textOf(node: P5.Node): string {
   return (node as P5.ParentNode).childNodes.map(textOf).join("");
 }
 
-/**
- * Elements under `node` that its own source slice (from `from`) produces: a
- * formatting element rebuilt from a start tag before the slice is not one.
- */
 function elementCount(node: P5.ParentNode, from: number): number {
   let n = 0;
   for (const child of node.childNodes) {
@@ -443,28 +374,11 @@ export interface MergeRenderedEditsInput {
   stored: string;
   ranges: SlideSourceRange[];
   base: string;
-  /** A root the caller owns (a clone of the canvas): the merge mutates it. */
   live: Element;
   nonce: string;
-  /** Applied to both the base and the live root before they are compared. */
   prepare?: (root: ParentNode) => void;
 }
 
-/**
- * The stored string with the live DOM's changes, relative to `base`, spliced
- * in. No change returns `stored` itself.
- *
- * - Unchanged elements are copied as their exact stored source slice.
- * - A changed element keeps its stored start tag; changed attributes are
- *   spliced into it, and a style change is applied per declaration.
- * - Its children are walked over the stored bytes when only children changed
- *   or were deleted; otherwise they are rebuilt, and stored-only nodes
- *   (`<style>`, svg, comments) are put back after their previous sibling.
- * - A stamped element whose source slice does not parse back to itself
- *   (misnested markup) is written canonically, for that subtree only.
- * - Unstamped or foreign-stamped elements are new content, written from the
- *   live DOM.
- */
 export function mergeRenderedEdits(input: MergeRenderedEditsInput): {
   html: string;
   changed: boolean;
@@ -473,12 +387,6 @@ export function mergeRenderedEdits(input: MergeRenderedEditsInput): {
   return { html, changed: html !== input.stored };
 }
 
-/**
- * Replays an edit of `stored` (`edited`, its merged result) onto `next`, a
- * newer version of the slide someone else wrote. The edit moves as the
- * smallest stored element around it that `next` still holds exactly once.
- * Null when `next` changed that element too: both cannot be kept.
- */
 export function rebaseSlideEdit(
   stored: string,
   ranges: readonly SlideSourceRange[],
@@ -516,12 +424,6 @@ export function rebaseSlideEdit(
   return null;
 }
 
-/**
- * The stored-form HTML of one live element (or a detached copy of one): its
- * stored source with its own changes applied, free of stamps and of anything
- * the renderer added. Clipboard copies use this, so a pasted logo does not
- * carry the rendered logo filter back into storage.
- */
 export function storedFormOf(
   source: RenderedSlideSource,
   element: Element,
@@ -538,7 +440,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     );
   }
   const ranges = located.elements.map((element) => element.range);
-  // Parsed in a template's inert document so base images never load.
   const template = live.ownerDocument.createElement("template");
   template.innerHTML = input.base;
   const baseRoot = template.content;
@@ -556,8 +457,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
       ? ordinal
       : null;
   };
-  // The renderer swaps each mermaid block for a placeholder the diagram
-  // component replaces; both stand for the stored block's element.
   for (const root of [baseRoot, live]) {
     for (const el of Array.from(
       root.querySelectorAll(`[${MERMAID_INDEX_ATTR}]`),
@@ -576,8 +475,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const ordinal = stampOf(el);
     if (ordinal !== null && !baseBy.has(ordinal)) baseBy.set(ordinal, el);
   }
-  // The parser's later copies of a reconstructed element: the stored markup
-  // reopens them, so only their children are content.
   const rebuilt = new Set<Element>();
   for (const root of [baseRoot, live]) {
     const first = new Set<number>();
@@ -591,8 +488,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     }
   }
   const scratch = inert.createElement("div").style;
-  // The parser adds <tbody>/<colgroup> to a stored <table> that omits them;
-  // they have no source, so writing them would change the stored bytes.
   const isImplied = (el: Element) =>
     (el.tagName === "TBODY" || el.tagName === "COLGROUP") &&
     stampOf(el) === null &&
@@ -608,8 +503,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
           el.childNodes.forEach(push);
           return;
         }
-        // The rendered <style> is the scoped copy; the stored one is
-        // written from its source bytes.
         if (el.tagName === "STYLE" && stampOf(el) === null) return;
         out.push(el);
       } else if (child.nodeType === 3) {
@@ -631,7 +524,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     const y = kids(b);
     return x.length === y.length && x.every((kid, i) => sameKid(kid, y[i]));
   };
-  /** `a` is live, `b` is base. */
   const sameKid = (a: Kid, b: Kid): boolean => {
     if (typeof a === "string" || typeof b === "string") return a === b;
     const memo = sameMemo.get(a);
@@ -648,7 +540,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
   };
 
   const trustMemo = new Map<number, boolean>();
-  /** The source slice parses back to exactly this element. */
   const isTrusted = (ordinal: number): boolean => {
     const cached = trustMemo.get(ordinal);
     if (cached !== undefined) return cached;
@@ -674,10 +565,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
       : serializeOuter(node);
   };
 
-  /**
-   * A stored parent's children as the renderer sees them: unwrapped tags
-   * contribute their children, parser-implied elements are transparent.
-   */
   const renderLevel = (nodes: P5.ChildNode[], inHead: boolean) => {
     const out: P5.ChildNode[] = [];
     const walk = (list: P5.ChildNode[]) => {
@@ -721,7 +608,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     return `${out}>`;
   };
 
-  /** Stored start tag with the base→live attribute change spliced in. */
   const mergedOpenTag = (
     ordinal: number,
     base: Element,
@@ -831,12 +717,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     return out;
   };
 
-  /**
-   * Children written over the stored bytes: valid when the live children are
-   * the base children minus deleted ones with the text between them intact,
-   * and every stored child the renderer shows is one of those base children,
-   * in source order.
-   */
   const bySource = (
     ok: Kid[],
     bk: Kid[],
@@ -855,8 +735,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     ) {
       return null;
     }
-    // Match each live element to the next base element with its stamp; the
-    // base elements skipped over were deleted.
     const kept = new Map<Element, Element>();
     const liveText = [""];
     const baseText = [""];
@@ -924,9 +802,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
     }
     const first = !seen.has(ordinal);
     seen.add(ordinal);
-    // A second live copy of one stored element (a split that cloned it) gets
-    // its own tag; copying the stored slice again would duplicate what the
-    // slice holds beyond the live children, such as svg and comments.
     if (isOpaque(kid) || (first && sameKid(kid, base)))
       return sourceOf(ordinal);
     const range = ranges[ordinal];
@@ -937,8 +812,6 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         ? stored.slice(range.openStart, range.openEnd)
         : mergedOpenTag(ordinal, base, kid, tag, trusted && sameTag);
     if (VOID_TAGS.has(tag)) return open;
-    // An implied end stays implied: closing an unclosed `<b>` explicitly
-    // would stop the parser reopening it in the paragraphs after it.
     const close =
       trusted && sameTag
         ? range.closeStart === null
@@ -968,22 +841,9 @@ function sourceMerge(input: MergeRenderedEditsInput) {
   return { mergeRoot, emit };
 }
 
-// --------------------------------------------------------------- guard ---
-
-/** The scoped stylesheet's selectors, which the renderer writes into `<style>`. */
 export const SCOPED_STYLE_SELECTOR_MARKER = "scoped-style-selector";
 const SCOPED_SELECTOR = /\[data-slide-content-scope\s*=/g;
 
-/**
- * Markers only the renderer or the editor puts into slide HTML: the scoped
- * stylesheet's selectors, source stamps and editor attributes. A write that
- * adds one stored rendered markup; the growth check lets content that already
- * carries them (older flattened decks) keep saving. Author-writable styling,
- * such as a logo filter or a hidden element, is not a marker: a copy of stored
- * content legitimately carries it. Markers are read from parsed attributes and
- * `<style>` text, so text that names one is not a marker and a quoted `>` in
- * an earlier attribute cannot hide one.
- */
 const MARKER_ATTRS = [
   "data-slide-content-scope",
   SOURCE_STAMP_ATTR,
@@ -1011,8 +871,6 @@ function countRenderArtifacts(html: string): Map<string, number> {
     for (const node of parent.childNodes) {
       if (!isElement(node)) continue;
       for (const { name, value } of node.attrs) {
-        // Older editors stored contenteditable="false" on text elements, so
-        // only an editable value marks the live editing surface.
         if (name === "contenteditable" && value.toLowerCase() === "false")
           continue;
         if (MARKER_ATTRS.includes(name)) add(name);
@@ -1034,11 +892,6 @@ function countRenderArtifacts(html: string): Map<string, number> {
   return counts;
 }
 
-/**
- * Names of the render/editor markers `next` has more of than `prev`. The
- * client checks its own saves and the actions check agent and old-client
- * writes with the same list.
- */
 export function renderArtifactGrowth(prev: string, next: string): string[] {
   const before = countRenderArtifacts(prev);
   const after = countRenderArtifacts(next);
@@ -1047,7 +900,6 @@ export function renderArtifactGrowth(prev: string, next: string): string[] {
   );
 }
 
-/** Removes source stamps from HTML that leaves the canvas. */
 export function stripSourceStamps(root: Element | DocumentFragment): void {
   if (root instanceof Element) root.removeAttribute(SOURCE_STAMP_ATTR);
   for (const el of Array.from(

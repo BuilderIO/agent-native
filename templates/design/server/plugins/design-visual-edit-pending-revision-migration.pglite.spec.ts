@@ -88,8 +88,6 @@ describe("visual-edit pending revision forward migration", () => {
       revision: 2147483000,
     });
 
-    // Old workers still write the legacy column name; new workers read that
-    // same column through the widened schema.
     await getDbExec().execute({
       sql: `UPDATE design_visual_edit_pending
             SET revision = 1750000000000,

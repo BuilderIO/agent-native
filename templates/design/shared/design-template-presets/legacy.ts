@@ -1,10 +1,5 @@
 import type { DesignTemplatePreset } from "../design-template-presets.js";
 
-/**
- * The original generated starters, kept verbatim under their original ids so
- * existing links, tests, and the Figma export baseline keep resolving. New
- * presets are hand-authored in their own files; do not extend this generator.
- */
 interface PresetCopy {
   eyebrow: string;
   headline: string;

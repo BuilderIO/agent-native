@@ -16,23 +16,16 @@ export type TrackingExceptionLevel =
   | "debug";
 
 export interface TrackingExceptionContext extends CaptureErrorContext {
-  /** Whether the caller handled the error. Server error hooks default false. */
   handled?: boolean;
   level?: TrackingExceptionLevel;
   release?: string;
   environment?: string;
   runtime?: "node" | "cli";
   source?: "server" | "cli";
-  /**
-   * Who the exception is attributed to. Without it every server exception is
-   * ingested as `anonymous`, which splits one person into two in any backend
-   * that also receives their browser events.
-   */
   userId?: string;
   orgId?: string;
 }
 
-/** Emit a bounded, redacted Node/CLI exception through first-party tracking. */
 export function captureException(
   error: unknown,
   context: TrackingExceptionContext = {},
@@ -69,7 +62,6 @@ export function captureException(
           ? { environment: boundedText(context.environment, 100) }
           : {}),
         ...(context.orgId ? { orgId: boundedText(context.orgId, 200) } : {}),
-        // Top-level so error tracking and LLM analytics join on it.
         ...(context.aiTraceId
           ? { $ai_trace_id: boundedText(context.aiTraceId, 200) }
           : {}),

@@ -396,10 +396,8 @@ describe("action discovery", () => {
 
     const entry = registry["greet"];
     expect(entry).toBeDefined();
-    // A synthesized tool definition exposes a single space-separated `args` param.
     expect(entry.tool.parameters?.properties).toHaveProperty("args");
 
-    // Single `args` string is shell-split into CLI tokens.
     const out = await entry.run({ args: '--name "Ada Lovelace"' });
     expect(seenArgs[0]).toEqual(["--name", "Ada Lovelace"]);
     expect(out).toContain("hello Ada Lovelace");
@@ -416,7 +414,6 @@ describe("action discovery", () => {
     });
 
     await registry["kv-action"].run({ id: "abc", title: "Hi there" });
-    // Each entry becomes `--key`, `value` (order follows Object.entries).
     expect(seenArgs[0]).toEqual(["--id", "abc", "--title", "Hi there"]);
   });
 
@@ -498,12 +495,10 @@ describe("action discovery", () => {
     };
     await mergeCoreSharingActions(registry);
 
-    // The template's own share-resource must survive — core must not clobber it.
     expect(registry["share-resource"].run).toBe(templateRun);
     expect(registry["share-resource"].tool.description).toBe(
       "Template share override",
     );
-    // Other core actions still get merged in.
     expect(registry["unshare-resource"]).toBeDefined();
   });
 
@@ -566,10 +561,6 @@ describe("action discovery", () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
 
-    // Drift guard. An action added to mergeCoreSharingActions without a
-    // CORE_ACTION_GROUPS entry would silently become always-on and ride along
-    // in every app's first request — the exact default `frameworkTools` exists
-    // to undo. Failing here forces the author to make that call on purpose.
     const unclassified = Object.keys(registry).filter(
       (name) =>
         CORE_ACTION_GROUPS[name] === undefined &&
@@ -591,14 +582,10 @@ describe("action discovery", () => {
     expect(registry["restore-resource-version"].frameworkGroup).toBe("history");
     expect(registry["set-feature-flag"].frameworkGroup).toBe("featureFlags");
     expect(registry["change-password"].frameworkGroup).toBe("userProfile");
-    // Always-on: no group, so no `frameworkTools` switch can remove it.
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });
 
-  // These three kits were always-on for years, which also put twelve schemas in
-  // every app's first request — an app with no Team page still paid for
-  // `delete-workspace-user-group` on turn one, and could not turn it off.
   it("gives the formerly always-on kits a switch without changing the default", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
@@ -630,7 +617,6 @@ describe("action discovery", () => {
         expect(registry[name]?.frameworkGroup, name).toBe(group);
         expect(ALWAYS_ON_CORE_ACTIONS.has(name), name).toBe(false);
       }
-      // Default is on: an app that says nothing keeps today's surface.
       expect(resolveFrameworkTools({}).isEnabled(group as any), group).toBe(
         true,
       );

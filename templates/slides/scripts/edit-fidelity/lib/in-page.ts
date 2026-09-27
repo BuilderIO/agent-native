@@ -38,13 +38,9 @@ export interface TextTarget {
   tag: string;
   className: string;
   text: string;
-  /** Which same-tag, same-text element this is, in document order. */
   occurrence: number;
-  /** Viewport point on the first non-space glyph. */
   point: { x: number; y: number };
-  /** Relative to the slide canvas. */
   rect: Rect;
-  /** Viewport point is covered by something other than the target. */
   covered: boolean;
 }
 
@@ -70,7 +66,6 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
-  /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
 }
 
@@ -80,15 +75,12 @@ export interface EditorState {
   blocks: number;
   editorRect: Rect | null;
   sourceRect: Rect | null;
-  /** Top of the edited element's content, which moves with anchored text. */
   contentTop: number | null;
-  /** The caret's box, or null unless the selection is a caret in the edited element. */
   caretRect: Rect | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
   editorHtml: string;
-  /** The editor's rendered lines, which the element shows once saved. */
   editorText: string;
 }
 
@@ -105,7 +97,6 @@ export interface InPageHelpers {
     edited: { targetIndex?: number; text?: string },
   ): Snapshot;
   editorState(canvasSel: string): EditorState;
-  /** Why the selection entering edit left is not at the gesture's point, or null. */
   entryCaretProblem(
     point: { x: number; y: number },
     gesture: string,
@@ -117,9 +108,7 @@ export interface InPageHelpers {
     saved: string,
     target: { tag: string; text: string; occurrence: number },
   ): CanonicalPair;
-  /** Call stacks of content writes sent since the last call, oldest first. */
   takeWriteStacks(): string[];
-  /** Keepalive content writes sent since the last call, in this tab. */
   takeKeepaliveWrites(): number;
 }
 
@@ -266,8 +255,6 @@ export function installInPageHelpers(chromeSelector: string) {
     for (const p of props) out[p] = cs.getPropertyValue(p).trim();
     return out;
   };
-  // getComputedStyle resolves an `auto` margin to its used length, which
-  // moves whenever a flex sibling grows; the computed value stays `auto`.
   const boxProps = (el: Element, cs: CSSStyleDeclaration) => {
     const out = pick(cs, BOX_PROPS);
     const map = el.computedStyleMap();
@@ -323,7 +310,6 @@ export function installInPageHelpers(chromeSelector: string) {
     return n;
   }
 
-  /** Deepest-first match for text an edit may have extended. */
   function findByText(root: Element, text: string): Element | null {
     const want = strip(text);
     if (!want) return null;
@@ -335,7 +321,6 @@ export function installInPageHelpers(chromeSelector: string) {
       const have = strip(el.textContent);
       if (!have.startsWith(prefix)) continue;
       const score = Math.abs(have.length - want.length);
-      // Ties go to the outermost element, which is what the editor targets.
       if (score < bestScore) {
         best = el;
         bestScore = score;
@@ -344,10 +329,6 @@ export function installInPageHelpers(chromeSelector: string) {
     return best;
   }
 
-  /**
-   * The element's box grown to its content: text that overflows a fixed-size
-   * box (a freeform object) paints outside the box but is still the edit.
-   */
   function paintedRect(el: Element): DOMRect {
     const box = el.getBoundingClientRect();
     const range = document.createRange();
@@ -389,7 +370,6 @@ export function installInPageHelpers(chromeSelector: string) {
     });
   }
 
-  /** The focused editor root, in place or floating; a fix may move it. */
   function activeEditor(): HTMLElement | null {
     const a = document.activeElement as HTMLElement | null;
     if (a && a.isContentEditable) {
@@ -402,7 +382,6 @@ export function installInPageHelpers(chromeSelector: string) {
     );
   }
 
-  /** Editor surface living outside the slide canvas (the floating host). */
   function floatingHost(root: Element, editor: HTMLElement | null) {
     if (!editor || root.contains(editor)) return null;
     return editor.closest(".slide-rich-editor-host") ?? editor;
@@ -697,8 +676,6 @@ export function installInPageHelpers(chromeSelector: string) {
     const visit = (el: Element) => {
       if (el.tagName === "STYLE" || el.tagName === "SCRIPT") return;
       if (isChrome(el)) return;
-      // The hidden source of a floating editor is represented by the
-      // editor's own copy; counting both would double every edited run.
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
@@ -902,8 +879,6 @@ export function installInPageHelpers(chromeSelector: string) {
       };
     const path = pathOf(el, a);
     const other = atPath(b, path);
-    // Enter in a list item adds sibling items right after the edited one;
-    // they belong to the edit, not to "everything else".
     const extra =
       other && other.parentNode && el.parentNode
         ? Math.max(

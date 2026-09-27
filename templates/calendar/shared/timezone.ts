@@ -1,9 +1,3 @@
-/**
- * Constructing an `Intl.DateTimeFormat` costs ~45µs, and resolving one wall
- * clock probes the zone a dozen times — so formatters are cached per zone and
- * option set. Only the date varies per call, and that is an argument to
- * `format`/`formatToParts`, never part of the formatter.
- */
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
 export function timezoneFormatter(
@@ -23,14 +17,6 @@ export function timezoneFormatter(
   return formatter;
 }
 
-/**
- * Whether a value names a zone this calendar can use. Only a `RangeError` means
- * Intl rejected the zone; any other failure is a real fault and must surface
- * instead of being reported as "invalid".
- *
- * Several older helpers around the template still run their own version of this
- * check with a bare `catch`; prefer this one and delete those as you touch them.
- */
 export function isCalendarTimezone(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   try {

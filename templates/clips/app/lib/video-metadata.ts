@@ -4,10 +4,6 @@ const ACCEPTED_UPLOAD_MIME_TYPES = new Set([
   "video/quicktime",
 ]);
 
-/** Derives the upload mime type from a picked/dropped file, falling back to
- * the file extension when the browser doesn't supply one (common for macOS
- * .mov files dragged from Finder). Returns null when the file isn't a
- * supported video type. */
 export function resolveVideoMimeType(file: File): string | null {
   const baseType = (file.type || "").split(";")[0]?.trim().toLowerCase();
   if (baseType && ACCEPTED_UPLOAD_MIME_TYPES.has(baseType)) return baseType;
@@ -19,9 +15,6 @@ export function resolveVideoMimeType(file: File): string | null {
   return null;
 }
 
-/** Reads duration/width/height from a local video file via a hidden
- * `<video>` element. Resolves with zeros rather than rejecting so callers can
- * still create the recording row when metadata can't be read. */
 export function probeVideoMetadata(
   file: File,
 ): Promise<{ durationMs: number; width: number; height: number }> {

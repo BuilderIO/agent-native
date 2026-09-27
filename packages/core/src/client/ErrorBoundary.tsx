@@ -220,12 +220,6 @@ export function isExpectedRouteNotFound(error: unknown): boolean {
   return isRouteErrorResponse(error) && error.status === 404;
 }
 
-/**
- * When a route renders against a stale lazy chunk after a deploy (the chunk's
- * hashed filename no longer exists), the import rejection surfaces here. Reload
- * once to fetch fresh assets instead of stranding the user on an error screen.
- * The reload is loop-guarded; if it cannot recover, fall back to the screen.
- */
 function useStaleChunkRecovery(error: unknown): boolean {
   const [recovering, setRecovering] = useState(() =>
     isDynamicImportFailureMessage(errorMessageOf(error)),
@@ -270,9 +264,6 @@ function ErrorScreen({ error }: { error: unknown }) {
       },
     });
   }, [error, recovering]);
-  // While auto-recovering a stale chunk, show a neutral state and skip the
-  // console.error below so the transient, self-healing failure does not get
-  // reported as a hard error.
   if (recovering) return <UpdatingScreen />;
 
   let status: number | null = null;
@@ -290,10 +281,6 @@ function ErrorScreen({ error }: { error: unknown }) {
       details = error.statusText || details;
     }
   } else if (error instanceof Error) {
-    // Always surface the underlying error message — a generic
-    // "An unexpected error occurred." in production tells users (and us)
-    // nothing. The stack trace is still gated to dev so we don't leak
-    // internals to end users.
     if (error.message) {
       details = error.message;
     }
@@ -307,8 +294,6 @@ function ErrorScreen({ error }: { error: unknown }) {
     details = error;
   }
 
-  // Log to the console so the underlying failure is recoverable from
-  // browser devtools / Sentry even when the UI hides the stack.
   if (typeof console !== "undefined" && error) {
     console.error("[ErrorBoundary]", error);
   }

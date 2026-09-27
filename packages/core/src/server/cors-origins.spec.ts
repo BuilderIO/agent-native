@@ -52,9 +52,6 @@ describe("getAllowedCorsOrigin", () => {
   });
 
   it("admits a real Origin header when the allowlist entry has different casing", () => {
-    // A legitimate origin, e.g. copy-pasted from a UI that preserves entered
-    // case, must still resolve — the browser's Origin header is always
-    // lowercase, but the allowlist config is operator-entered text.
     expect(
       getAllowedCorsOrigin("https://app.example.com", {
         allowedOrigins: ["HTTPS://App.Example.com"],
@@ -71,9 +68,6 @@ describe("getAllowedCorsOrigin", () => {
   });
 
   it("admits a real Origin header when the allowlist entry is a bare domain with no scheme", () => {
-    // CORS_ALLOWED_ORIGINS is operationally a "domain allowlist" — an
-    // operator entering "app.example.com" (no scheme) is a legitimate
-    // first-party origin, not a different one.
     expect(
       getAllowedCorsOrigin("https://app.example.com", {
         allowedOrigins: ["app.example.com"],

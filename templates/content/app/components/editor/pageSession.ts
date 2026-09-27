@@ -21,10 +21,6 @@ export interface PageSaveResult {
   };
 }
 
-/**
- * Run one primary Page save and retain only rejected or conflict-blocked edits.
- * Cleanup failures do not create a second draft after the primary write landed.
- */
 export async function savePageWithRecovery({
   save,
   retain,

@@ -1,5 +1,5 @@
-// Coefficients after each level's canonical radius are zero, so one fixed
-// 22-tap loop reproduces front's 6/10/14/18/22 specialized pipelines.
+
+
 const KERNEL_RADIUS: u32 = 22u;
 struct BlurUniforms {
   direction: vec2f,
@@ -28,7 +28,7 @@ fn coefficient(i: u32) -> f32 {
 }
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  // UnrealBloomPass._getSeparableBlurMaterial @ three 0.184.0.
+
   var weightSum = coefficient(0u);
   var diffuseSum = textureSample(colorTexture, linearSampler, uv).rgb * weightSum;
   for (var i = 1u; i < KERNEL_RADIUS; i = i + 1u) {

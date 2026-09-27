@@ -100,7 +100,6 @@ interface BuilderSourceDetails {
   builderStatus?: string;
   sourceKind?: BuilderSourceKind;
   tokenValues?: Record<string, string>;
-  /** null when Builder could not be read at all; 0 means still indexing. */
   docCount?: number | null;
   warning?: string;
   githubSources?: Array<{
@@ -288,9 +287,6 @@ function DesignSystemSetupContent({
     editingId ? { id: editingId } : undefined,
     {
       enabled: !!editingId && open,
-      // Builder's status string lags the real index state; a zero document
-      // count is the only reliable "still indexing" signal. A null count
-      // means Builder could not be read, so stop rather than spin.
       refetchInterval: (query) =>
         query.state.data?.builder?.docCount === 0 ? 5_000 : false,
     },
@@ -645,9 +641,6 @@ function DesignSystemSetupContent({
       }
     }
 
-    // Cap inlined file content so a giant pasted README doesn't blow the
-    // prompt budget. Append a marker so the agent doesn't treat the
-    // truncation point as the end of the document.
     const TEXT_INLINE_MAX = 5000;
     const inlineText = (text: string) =>
       text.length > TEXT_INLINE_MAX
@@ -1617,9 +1610,6 @@ function BuilderSourceStatus({
   syncing?: boolean;
 }) {
   const t = useT();
-  // Builder's status string drifts out of sync with the real index state, so
-  // the reported document count decides: absent means Builder could not be
-  // read at all, zero means indexing, positive means ready.
   const docCount = builder.docCount;
   const docs = docCount ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;

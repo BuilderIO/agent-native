@@ -1,11 +1,3 @@
-/**
- * Durable send log for transactional emails.
- *
- * Written by `sendEmail` on every attempt, successful or not. Read by Dispatch
- * to report per-email send counts and last-sent without depending on the
- * provider's activity retention window.
- */
-
 import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
@@ -36,8 +28,6 @@ export async function ensureTable(): Promise<void> {
         EMAIL_LOG_ORG_STATUS_INDEX_SQL,
         EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
       } = await import("./schema.js");
-      // Generic INTEGER maps to BIGINT on Postgres, which millisecond
-      // timestamps need.
       const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
       await ensureTableExists("email_log", createSql);
       await widenIntColumnsToBigInt("email_log", ["created_at"]);
@@ -75,8 +65,6 @@ export async function ensureTable(): Promise<void> {
         EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
       );
     })().catch((error) => {
-      // Don't memoize a failed bootstrap — the next send should retry rather
-      // than log nothing forever.
       _initPromise = undefined;
       throw error;
     });
@@ -92,34 +80,15 @@ export interface RecordEmailSendArgs {
   sender: string;
   subject: string;
   status: "sent" | "failed";
-  /** Set when the call never reached the provider (threw before/without an HTTP response). */
   error?: string;
   provider: string;
-  /** Exact outbound JSON body sent to the provider, credential- and attachment-body-free. */
   requestPayload?: string;
-  /** Raw HTTP status code from the provider, when a response was received. */
   responseStatus?: number;
-  /** Raw HTTP response body text from the provider, when a response was received. */
   responseBody?: string;
-  /**
-   * Rendered HTML body of the message that was sent. Callers must pass this
-   * through `redactSensitiveEmailBodyContent` first — this table is org-admin
-   * readable, and an un-redacted body can carry a live magic-link, reset
-   * link, or OTP code.
-   */
   htmlBody?: string;
-  /** Rendered plain-text body, when the send included one. Same redaction requirement as `htmlBody`. */
   textBody?: string;
 }
 
-/**
- * Append one send record.
- *
- * Callers treat logging as best-effort: a logging failure must not turn a
- * delivered email into a thrown send. The failure is surfaced on the console
- * rather than swallowed, so a persistently broken log is visible instead of
- * quietly producing an empty activity view.
- */
 export async function recordEmailSend(
   args: RecordEmailSendArgs,
 ): Promise<void> {
@@ -161,11 +130,6 @@ export interface EmailSendStats {
   lastSentAt: number | null;
 }
 
-/**
- * Per-template send counts and last-sent, for sends at or after `since`.
- * Templates with no rows are absent from the result — callers distinguish
- * "never sent" from "sent zero times in window" by that absence.
- */
 export async function getEmailSendStats(
   since: number,
   app: string,
@@ -211,19 +175,13 @@ export interface ListEmailLogFilters {
   app: string;
   templateId?: string;
   excludeTemplateIds?: string[];
-  /** Substring match against the recipient address. */
   to?: string;
-  /** Exclude recipient addresses containing this substring. */
   excludeTo?: string;
-  /** Substring match against the resolved sender address. */
   from?: string;
-  /** Exclude resolved sender addresses containing this substring. */
   excludeFrom?: string;
   status?: "sent" | "failed";
   provider?: string;
-  /** Only sends at or after this Unix epoch (ms). */
   sinceMs?: number;
-  /** Only sends at or before this Unix epoch (ms). */
   untilMs?: number;
   limit?: number;
   offset?: number;
@@ -233,21 +191,10 @@ const LOG_COLUMNS =
   "id, template_id, app, recipient, sender, subject, status, error, provider, " +
   "request_payload, response_status, response_body, created_at";
 
-// Address filters are documented as literal substrings; escape the
-// characters LIKE treats as wildcards so an address like `no_reply@x.com`
-// or one containing `%` can't match unrelated rows.
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-/**
- * Most recent sends for one app, newest first, combinably filtered — modeled
- * on `queryAuditEvents` so this admin-facing query builds the same way every
- * other filterable log in the framework does. Deliberately does NOT select
- * `html_body`/`text_body`: at the 500-row page limit those columns alone can
- * run into the megabytes, and the list UI never renders a body until one row
- * is selected. Fetch a single row's body with `getEmailLogEntryBody` instead.
- */
 export async function listEmailLog(
   options: ListEmailLogFilters,
 ): Promise<EmailLogEntry[]> {
@@ -260,8 +207,6 @@ export async function listEmailLog(
   };
   if (options.templateId) push("template_id = ?", options.templateId);
   if (options.excludeTemplateIds?.length) {
-    // `template_id` is nullable; `NOT IN` evaluates to unknown against NULL,
-    // so unregistered/legacy sends must be preserved explicitly.
     where.push(
       `(template_id IS NULL OR template_id NOT IN (${options.excludeTemplateIds.map(() => "?").join(", ")}))`,
     );
@@ -298,10 +243,6 @@ export async function listEmailLog(
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
 
   const { rows } = await getDbExec().execute({
-    // `id DESC` breaks ties on `created_at` (millisecond resolution, so
-    // concurrent/bulk sends can share a timestamp) — without it, tied rows
-    // can sort differently across page requests and the Send log UI would
-    // skip or duplicate entries when paging.
     sql: `SELECT ${LOG_COLUMNS} FROM email_log
       WHERE ${where.join(" AND ")}
       ORDER BY created_at DESC, id DESC
@@ -359,7 +300,6 @@ export async function getEmailLogEntryBody(options: {
   };
 }
 
-/** Provider category that is safe to query for one organization only. */
 export function getScopedEmailProviderCategory(
   templateId: string,
   orgId: string,

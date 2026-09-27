@@ -13,13 +13,6 @@ export interface DatabaseRuntimeFingerprint {
   configured: boolean;
   source: string;
   urlHash?: string;
-  /**
-   * Pooler-agnostic identity of the physical database: `postgres:database:endpoint`,
-   * where `endpoint` is the Neon endpoint id when present (shared by a pooled
-   * and unpooled URL to the same database) or else a short hash of the host.
-   * No credentials — for comparing "is this the same database", not for
-   * telling two databases on the same host apart by name alone.
-   */
   fingerprint?: string;
   protocol?: string;
   host?: string;
@@ -130,14 +123,6 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
-/**
- * Better Auth's own core tables (see better-auth-instance.ts's pgAuthSchema) -
- * only the columns request-serving code actually reads,
- * not every column Better Auth defines. `jwks` is the one most likely to be
- * missing in practice: it is created lazily on first key generation rather
- * than by the framework's own migrations, so a deploy can look schema-ok on
- * every other table while `/auth/ba/jwks` 500s.
- */
 export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
   { table: "user", columns: ["id", "email", "name", "email_verified"] },
   { table: "session", columns: ["id", "user_id", "token", "expires_at"] },
@@ -155,16 +140,10 @@ export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
   },
 ];
 
-/** Same AUTH_DISABLED resolution as getRuntimeConfigReport() in shared/runtime-config.ts. */
 function isAuthDisabled(): boolean {
   return isTruthyRuntimeValue(envValue("AUTH_DISABLED"));
 }
 
-/**
- * The schema this process should have. Better Auth's tables are appended only
- * when auth is enabled — an `AUTH_DISABLED` deployment never creates them, so
- * requiring them there would report a permanent false "missing table".
- */
 export function getRequiredSchema(
   authEnabled: boolean = !isAuthDisabled(),
 ): RequiredSchemaTable[] {
@@ -235,10 +214,6 @@ export function getDatabaseRuntimeFingerprint(): DatabaseRuntimeFingerprint {
   };
 }
 
-/**
- * Report whether a declared database URL represents the effective shared
- * database, without exposing its value to the caller.
- */
 export function getEffectiveDatabaseEnvStatus(
   key: string,
 ): boolean | undefined {
@@ -296,18 +271,6 @@ async function tableColumns(
   return postgresTableColumns(exec, table);
 }
 
-/**
- * Memo for the default probe, which several client surfaces re-run on every
- * page load at one `information_schema` round trip per required table.
- *
- * Only a clean, completed result is memoized: a probe reporting a missing table
- * or an unreadable database must never be served from cache, or the repair that
- * follows stays invisible for the whole window. Schema changes are additive and
- * applied by migrations, so a clean answer cannot silently go bad — but the
- * window is still kept to seconds, short enough that anything a deploy changes
- * shows up on the next page load rather than being pinned. Callers that
- * override `exec` or `required` bypass it entirely.
- */
 const SCHEMA_HEALTH_MEMO_MS = 5_000;
 let schemaHealthMemo: {
   at: number;
@@ -335,7 +298,6 @@ export async function runDatabaseSchemaHealthCheck(
   const missingColumns: Array<{ table: string; column: string }> = [];
 
   try {
-    // Independent probes: serially they cost one network round trip each.
     const found = await Promise.all(
       required.map((requirement) => tableColumns(exec, requirement.table)),
     );

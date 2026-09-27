@@ -30,13 +30,6 @@ export interface DesignTemplatePreset {
   content: string;
 }
 
-/**
- * Built-in starters, in gallery order. Each new preset is hand-authored in its
- * own file with its own brand, typography, and composition; the original
- * generated starters follow at the end under their original ids. Every preset
- * carries exactly two locked layers (`template-background` and
- * `template-logo`) with inline styles.
- */
 export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
   socialStory,
   keynoteTitle,

@@ -38,10 +38,6 @@ function tmpDir(): string {
   return root;
 }
 
-// ---------------------------------------------------------------------------
-// writeJsonMcpEntry
-// ---------------------------------------------------------------------------
-
 describe("writeJsonMcpEntry", () => {
   it("creates a fresh file when the target does not exist", () => {
     const dir = tmpDir();
@@ -63,7 +59,6 @@ describe("writeJsonMcpEntry", () => {
     const dir = tmpDir();
     const file = path.join(dir, "claude.json");
 
-    // Simulate existing Claude Code state
     fs.writeFileSync(
       file,
       JSON.stringify(
@@ -86,10 +81,8 @@ describe("writeJsonMcpEntry", () => {
     });
 
     const written = JSON.parse(fs.readFileSync(file, "utf-8"));
-    // Pre-existing state must survive
     expect(written.projects).toEqual({ "/foo/bar": { name: "bar" } });
     expect(written.numStartups).toBe(42);
-    // Old and new entries both present
     expect(written.mcpServers["old-server"]).toEqual({
       type: "http",
       url: "https://old.com",
@@ -121,7 +114,6 @@ describe("writeJsonMcpEntry", () => {
       writeJsonMcpEntry(file, "srv", { type: "http", url: "https://x.com" }),
     ).toThrow(/Cannot parse JSON config file/);
 
-    // File must be untouched
     expect(fs.readFileSync(file, "utf-8")).toBe(corruptContent);
   });
 
@@ -194,10 +186,6 @@ describe("writeJsonMcpEntry", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// hasJsonMcpEntry
-// ---------------------------------------------------------------------------
-
 describe("hasJsonMcpEntry", () => {
   it("returns false for a missing file", () => {
     expect(hasJsonMcpEntry("/nonexistent/path.json", "srv")).toBe(false);
@@ -215,18 +203,12 @@ describe("hasJsonMcpEntry", () => {
     try {
       result = hasJsonMcpEntry(file, "srv");
     } catch {
-      // throwing is also acceptable
       result = null;
     }
-    // file untouched
     expect(fs.readFileSync(file, "utf-8")).toBe("{bad}");
     if (result !== null) expect(result).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// writeHttpEntryForClient — claude-code project scope (local .mcp.json)
-// ---------------------------------------------------------------------------
 
 describe("writeHttpEntryForClient", () => {
   it("writes a project-scope claude-code entry to .mcp.json", () => {
@@ -403,10 +385,6 @@ describe("buildLocalMcpEntryForClient", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildHttpMcpEntry
-// ---------------------------------------------------------------------------
-
 describe("buildHttpMcpEntry", () => {
   it("includes Authorization header when a token is supplied", () => {
     const entry = buildHttpMcpEntry("https://x.com", "tok_123");
@@ -433,10 +411,6 @@ describe("buildHttpMcpEntry", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// canonicalUrl
-// ---------------------------------------------------------------------------
-
 describe("canonicalUrl", () => {
   it("strips trailing slash", () => {
     expect(canonicalUrl("https://x.com/mcp/")).toBe("https://x.com/mcp");
@@ -462,10 +436,6 @@ describe("canonicalUrl", () => {
     expect(canonicalUrl(undefined)).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// removeJsonSameUrlDuplicates
-// ---------------------------------------------------------------------------
 
 describe("removeJsonSameUrlDuplicates", () => {
   it("removes entries whose URL matches the canonical URL, preserving keepName", () => {
@@ -541,7 +511,6 @@ describe("removeJsonSameUrlDuplicates", () => {
     );
 
     expect(removed).toEqual([]);
-    // File should not be rewritten unnecessarily (content unchanged modulo parse).
     const cfg = JSON.parse(fs.readFileSync(file, "utf-8"));
     expect(Object.keys(cfg.mcpServers)).toEqual(["plan"]);
   });
@@ -585,10 +554,6 @@ describe("removeJsonSameUrlDuplicates", () => {
     expect(removed).toEqual(["old-alias"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// removeCodexSameUrlDuplicates
-// ---------------------------------------------------------------------------
 
 describe("removeCodexSameUrlDuplicates", () => {
   it("removes Codex TOML blocks whose url matches, preserving keepName", () => {
@@ -681,26 +646,17 @@ describe("removeCodexSameUrlDuplicates", () => {
 
     expect(removed).toEqual(["agent-native-plans"]);
     const content = fs.readFileSync(file, "utf-8");
-    // The alias AND its now-orphan sub-table are both gone.
     expect(content).not.toContain("agent-native-plans");
     expect(content).not.toContain("stale-token");
-    // The kept server and the unrelated server survive intact.
     expect(content).toContain('[mcp_servers."plan"]');
     expect(content).toContain("[mcp_servers.other]");
   });
 });
 
-// ---------------------------------------------------------------------------
-// writeCodexBlock — sub-table-aware footprint replacement
-// ---------------------------------------------------------------------------
-
 describe("writeCodexBlock", () => {
   const PLAN_URL = "https://plan.agent-native.com/_agent-native/mcp";
 
   it("removes a stale standalone sub-table so a re-install never duplicates a key", () => {
-    // Repro of the real bug: a `[mcp_servers.plan.http_headers]` sub-table sat
-    // separately from the server's own block. Re-writing the server must clear
-    // it, or `mcp_servers.plan.http_headers` ends up defined twice (TOML error).
     const dir = tmpDir();
     const file = path.join(dir, "config.toml");
     fs.writeFileSync(
@@ -729,14 +685,11 @@ describe("writeCodexBlock", () => {
     );
 
     const content = fs.readFileSync(file, "utf-8");
-    // The orphaned sub-table header is gone — no duplicate key possible.
     expect(content).not.toContain("[mcp_servers.plan.http_headers]");
     expect(content).not.toContain("OLD-token");
-    // Exactly one server table and one inline http_headers for plan.
     expect(content.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
     expect(content.match(/http_headers = \{/g)).toHaveLength(1);
     expect(content).toContain("NEW-token");
-    // Unrelated server untouched.
     expect(content).toContain("[mcp_servers.other]");
     expect(content).toContain('model = "gpt-5.5"');
   });
@@ -811,8 +764,6 @@ describe("writeCodexBlock", () => {
   });
 
   it("does not corrupt a neighbouring multi-line value when removing a block", () => {
-    // A block whose body contains lines that merely start with `[` (e.g. shell
-    // in a triple-quoted args value) must not be treated as a table boundary.
     const dir = tmpDir();
     const file = path.join(dir, "config.toml");
     const okBlock = [
@@ -833,7 +784,6 @@ describe("writeCodexBlock", () => {
 
     const content = fs.readFileSync(file, "utf-8");
     expect(content).not.toContain('[mcp_servers."plan"]');
-    // open-knowledge block fully intact, including its `[`-prefixed body lines.
     expect(content).toContain('[mcp_servers."open-knowledge"]');
     expect(content).toContain('[ -f "$BUNDLE" ] && exec "$BUNDLE" mcp');
     expect(content).toContain('exit 127"""]');

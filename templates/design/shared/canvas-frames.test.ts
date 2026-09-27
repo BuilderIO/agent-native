@@ -236,8 +236,6 @@ describe("nextFreeCanvasRowY", () => {
   });
 
   it("clears the lowest existing frame by the gap", () => {
-    // Without this, a second variant set is placed at y=0 straight on top of
-    // the first — the reported "Show another set" overlap.
     const existing = {
       a: { x: 0, y: 0, width: 390, height: 844 },
       b: { x: 486, y: 0, width: 390, height: 844 },

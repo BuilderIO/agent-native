@@ -19,8 +19,8 @@ export interface ScheduledJob {
   emailId: string | null;
   threadId?: string | null;
   accountEmail?: string | null;
-  payload: string; // JSON string
-  runAt: number; // epoch ms
+  payload: string;
+  runAt: number;
   status: "pending" | "processing" | "done" | "cancelled";
   createdAt: number;
 }
@@ -114,7 +114,6 @@ export function useSnoozeEmail() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      // Delay email/label refetch — Gmail eventual consistency
       setTimeout(() => {
         void qc.invalidateQueries({ queryKey: ["emails"] });
         void qc.invalidateQueries({ queryKey: LABELS_QUERY_KEY });

@@ -55,11 +55,6 @@ export function elementIsComponentSelection(
   return componentNameForElementInfo(element).length > 0;
 }
 
-/**
- * Only the explicit annotation, for gating. React provenance names the
- * component an element was *rendered by*, which is true of nearly every
- * element — using it to gate made "Create component" impossible app-wide.
- */
 export function elementHasComponentAnnotation(
   element: ElementInfo | null | undefined,
 ): boolean {
@@ -127,11 +122,6 @@ export function autoLayoutAlignmentFromStyles(
   };
 }
 
-/**
- * Block-level container tags that act the same way frames. Selecting any of
- * these shows the Auto layout section (in an "add" state when not yet flex),
- * mirroring the editor pattern where any frame/container exposes auto-layout controls.
- */
 const CONTAINER_TAGS = new Set([
   "body",
   "div",
@@ -156,7 +146,6 @@ const CONTAINER_TAGS = new Set([
   "tr",
 ]);
 
-/** Leaf tags that never get auto-layout (text, media, vectors, controls). */
 const LEAF_TAGS = new Set([
   "img",
   "video",
@@ -173,20 +162,6 @@ const LEAF_TAGS = new Set([
   "iframe",
 ]);
 
-/**
- * Explicit, unambiguous signals that an element IS a text object: directly
- * owned text on a text tag, a whole inline text-style root, an authoritative
- * `primitiveKind === "text"` marker, or a `draft-text-*` tool-drawn id.
- * Deliberately excludes `isTextElement()`'s
- * last-resort fallback for payloads with no primitive marker at all (a
- * childless div with its own text content) — that heuristic exists to catch
- * genuine T-tool text primitives whose payload happens to be missing
- * `primitiveKind`, but it also matches ordinary content divs with no
- * relation to the T-tool at all (Tailwind pill/badge/button-label markup is
- * routinely a childless `<div>` with its own text). Used by
- * `isContainerElement()` below, which must not misclassify those ordinary
- * divs as text just because they're childless and have text content.
- */
 function hasExplicitTextIdentity(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag)) {
@@ -197,30 +172,9 @@ function hasExplicitTextIdentity(element: ElementInfo): boolean {
   return nodeId.startsWith("draft-text-");
 }
 
-/**
- * Whether the element should expose the Auto layout section. True for anything
- * already laid out with flexbox, or any block-level container tag that isn't a
- * known leaf/text element. This is what makes a plain frame/container with
- * children show the full Auto layout section the same way does.
- */
 export function isContainerElement(element: ElementInfo): boolean {
   if (element.isGroup === true) return false;
-  // T-tool text primitives are divs and use `display:flex` for vertical text
-  // alignment, but they are still leaf text layers rather than auto-layout
-  // containers, so check text identity before the flex/container shortcuts
-  // (fixing empty frame controls must not expose Flow/Padding on text
-  // layers). This short-circuit must only fire on an EXPLICIT text signal
-  // (see `hasExplicitTextIdentity`) rather than `isTextElement()`'s generic
-  // childless-div-with-text fallback: that fallback alone would also match
-  // ordinary text-only divs with no primitive/tag/id marker at all —
-  // ubiquitous in generated markup (Tailwind pills/badges/button-label
-  // divs) — stripping the Flow/Padding/Auto-layout sections from every one
-  // of them even though they're legitimate flex/block containers.
   if (hasExplicitTextIdentity(element)) return false;
-  // Canvas primitive markers are authoritative. This code-backed editor lets
-  // rectangles act as lightweight containers (nest-on-drop promotes them to
-  // auto layout), and frames are containers by definition. Other drawn
-  // shapes remain leaves even though several are represented by a plain div.
   const primitiveKind = element.primitiveKind?.trim().toLowerCase();
   if (primitiveKind) {
     return ["frame", "rectangle", "rect"].includes(primitiveKind);
@@ -231,23 +185,13 @@ export function isContainerElement(element: ElementInfo): boolean {
   return CONTAINER_TAGS.has(tag);
 }
 
-/**
- * Whether Hug is useful for the element. A deny-list on purpose: an allow-list
- * of container/text tags silently denied Hug to every tag in neither list —
- * `button`, `td`, `summary` — and the control then no-oped indistinguishably
- * from a failed write.
- */
 export function canHugContent(element: ElementInfo): boolean {
   const primitiveKind = element.primitiveKind?.trim().toLowerCase();
   const tag = (element.tagName || "").toLowerCase();
-  // Auto-layout containers can hug before they have children; padding itself
-  // gives an empty frame measurable bounds.
   const isAutoLayoutContainer =
     element.isFlexContainer || element.isGridContainer;
-  // A text layer hugs its own text, and an empty one is mid-authoring.
   if (primitiveKind === "text" || TEXT_TAGS.has(tag)) return true;
   if (primitiveKind) {
-    // Drawn shapes other than these are leaves; hug would collapse them.
     if (!["frame", "rectangle", "rect"].includes(primitiveKind)) return false;
     return isAutoLayoutContainer || hasMeasurableContent(element);
   }
@@ -255,7 +199,6 @@ export function canHugContent(element: ElementInfo): boolean {
   return isAutoLayoutContainer || hasMeasurableContent(element);
 }
 
-/** Absent signals mean "cannot tell", which must not read as "empty". */
 function hasMeasurableContent(element: ElementInfo): boolean {
   const children = element.childElementCount;
   const text = element.textContent?.trim();
@@ -274,9 +217,6 @@ export function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
 }
 
-/** What is unknowable is whether there IS a flex parent, not its direction: a
- *  flex parent with no authored `flex-direction` is a row per CSS, and
- *  `<div class="flex">` authors exactly that. */
 export function parentFlexDirection(
   element: ElementInfo,
 ): AutoLayoutSizingAxis | null {
@@ -286,7 +226,6 @@ export function parentFlexDirection(
   return isParentFlex(element) ? "horizontal" : null;
 }
 
-/** Drawn vector primitives — an `<svg>` wrapper around one shape child. */
 const VECTOR_PRIMITIVE_KINDS = new Set([
   "pasted-svg",
   "path",
@@ -302,11 +241,6 @@ const VECTOR_PRIMITIVE_KINDS = new Set([
   "boolean-operand",
 ]);
 
-/**
- * True for a pen path, line, arrow, polygon, or star. Their paint is SVG
- * `fill`/`stroke` on the shape child, not `background`/`border` on the box —
- * see `vectorPaintTarget` (bridge) and `vectorPaintChild` (code-layer).
- */
 export function isVectorShapeElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
   if (
@@ -320,51 +254,22 @@ export function isVectorShapeElement(element: ElementInfo): boolean {
   ) {
     return true;
   }
-  // The board's migrated polygons and stars are plain divs carrying the same
-  // primitiveKind, and their paint really is background/border — only an
-  // <svg> has a shape child for `vectorPaintTarget` to redirect to.
   if (tag !== "svg") return false;
   return VECTOR_PRIMITIVE_KINDS.has(element.primitiveKind ?? "");
 }
 
 export function isTextElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
-  // A tag that usually carries text but holds none of its own is a container:
-  // a row of dot + label + checkbox paints nothing, so its Fill is a
-  // background and the Text layer inside owns the text colour. `undefined`
-  // keeps the tag-only reading for hand-built payloads.
   if (TEXT_TAGS.has(tag)) {
     return element.hasOwnText !== false || element.wholeTextStyleRoot === true;
   }
-  // T-tool text primitives are plain `div`s stamped with
-  // data-an-primitive="text" (see DesignEditor primitive creation). The
-  // bridge forwards that marker as ElementInfo.primitiveKind — prefer it
-  // when present since it's exact.
   if (element.primitiveKind) return element.primitiveKind === "text";
-  // Canvas-drawn primitives carry a `draft-<tool>-<timestamp>-<random>` node
-  // id (see MultiScreenCanvas's draft-id minting). Some selection payloads —
-  // notably board/overview layer-panel selections built by parsing the source
-  // HTML rather than by the in-iframe bridge — omit `primitiveKind` entirely
-  // even though the DOM node carries data-an-primitive="text". The id prefix
-  // identifies the tool that drew the element just as exactly for those
-  // payloads.
   const nodeId = element.sourceId || element.pendingNodeId || "";
   if (nodeId.startsWith("draft-text-")) return true;
   if (nodeId.startsWith("draft-rect-") || nodeId.startsWith("draft-frame-")) {
     return false;
   }
-  // Direct text ownership also covers text nodes containing styled inline children.
   if (element.hasOwnText !== undefined) return element.hasOwnText;
-  // Fallback for payloads with no primitive marker at all: approximate a
-  // text node with a content heuristic — a childless div that has its own
-  // text content. This intentionally excludes empty frames/shapes (no text)
-  // and containers with element children. NOTE: deliberately no
-  // isFlexContainer/isGridContainer exclusion here — the T-tool's own text
-  // primitives are `display: flex` divs (flex is how their vertical
-  // alignment works), so "is a flex container" does NOT imply "not text" for
-  // a leaf node. Excluding flex containers made the Typography section
-  // vanish for exactly those text nodes whenever the payload lacked
-  // primitiveKind (B5-12: text nested in a rectangle via nest-on-drop).
   if (
     tag === "div" &&
     (element.childElementCount ?? 0) === 0 &&
@@ -375,17 +280,6 @@ export function isTextElement(element: ElementInfo): boolean {
   return false;
 }
 
-/**
- * Per-axis sizing availability following the design editor's contextual rules:
- *   - Fixed: always.
- *   - Hug contents: measurable content, text layers, and flex/grid containers
- *     (which may be empty) — see `canHugContent`.
- *   - Fill container: only when the element participates in a flex/grid (auto
- *     layout) parent, OR is a block-flow child (which fills via width:100%).
- * Hug applies to width and height independently; the same set is offered on
- * both axes here and the per-axis CSS in `commitElementSizing` resolves the
- * exact behavior (main-axis grow vs cross-axis stretch).
- */
 export function availableSizingForElement(
   element: ElementInfo,
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
@@ -396,13 +290,11 @@ export function availableSizingForElement(
   )?.toLowerCase();
   const isOutOfFlowLayoutChild =
     isFlexChildEl && (position === "absolute" || position === "fixed");
-  // Block-flow children can still "fill" via width:100% on the horizontal axis.
   const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
 
   const buildAxis = (axis: AutoLayoutSizingAxis): AutoLayoutSizing[] => {
     const options: AutoLayoutSizing[] = ["fixed"];
     if (canHug) options.push("hug");
-    // Fill: flex/grid child on either axis; block child only fills width.
     if (
       (isFlexChildEl && !isOutOfFlowLayoutChild) ||
       (isBlockChild && axis === "horizontal")
@@ -418,7 +310,6 @@ export function availableSizingForElement(
   };
 }
 
-/** Read the currently-set min/max constraints (px) for a sizing axis. */
 export function readElementMinMax(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
@@ -432,11 +323,6 @@ export function readElementMinMax(
   };
 }
 
-/**
- * Parse a min/max CSS length into a px number, or null when unset. Browser
- * computed values are "0px"/"none" for the defaults — both read as "not set"
- * so we don't surface a constraint sub-row the user never added.
- */
 export function parseConstraintLength(
   value: string | undefined,
 ): number | null {
@@ -454,10 +340,6 @@ export function parseConstraintLength(
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Commit a single min/max constraint (px) or clear it when value is null.
- * `meta` forwards the originating ScrubInput's gesture metadata (phase
- * preview/commit) so constraint scrubs ride the host's live fast path per
- * tick and only persist on release — same threading as padding/gap. */
 export function commitElementMinMax(
   axis: AutoLayoutSizingAxis,
   kind: "min" | "max",
@@ -475,7 +357,6 @@ export function commitElementMinMax(
         ? "maxWidth"
         : "maxHeight";
   if (value == null) {
-    // Clearing: min → 0 (CSS initial), max → none (CSS initial).
     onStyleChange(property, kind === "min" ? "0px" : "none", meta);
     return;
   }
@@ -492,11 +373,6 @@ export function inferElementSizing(
 ): AutoLayoutSizing {
   const styles = element.computedStyles;
   const property = axis === "horizontal" ? "width" : "height";
-  // Computed width/height are always pixels, including for `auto`,
-  // `fit-content`, and percentage values. Prefer the bridge's winning CSS
-  // Typed OM value so a stylesheet `!important` declaration cannot be hidden
-  // by stale inline intent; inline styles remain the fallback for older
-  // payloads and the only writeable source.
   const authoredSize =
     element.authoredSizeStyles?.[property]?.trim().toLowerCase() ||
     element.inlineStyles?.[property]?.trim().toLowerCase();
@@ -521,23 +397,6 @@ export function inferElementSizing(
   return "fixed";
 }
 
-/**
- * Return the element's geometric dimension on the given axis in CSS pixels.
- *
- * `getComputedStyle().width/height` always resolves to a computed px value
- * (even for `width: auto` the browser returns e.g. "200px"). For rotated
- * elements this is the pre-rotation CSS box size — what Figma shows in the
- * inspector — while `getBoundingClientRect().width/height` would be the
- * axis-aligned bounding box which is inflated by the rotation.
- *
- * Falls back to the bounding-rect dimension only when the computed style is
- * missing or unparseable (e.g. the bridge hasn't populated it yet).
- */
-/**
- * Measured px for the axis, or `null` when this payload cannot report one:
- * after a keyword commit, `boundingRect` still holds the pre-commit
- * measurement, so the last known number is not the current one.
- */
 export function measuredElementSize(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
@@ -547,22 +406,15 @@ export function measuredElementSize(
       ? element.computedStyles.width
       : element.computedStyles.height;
   const parsed = resolvedPxSize(reported);
-  // A collapsed layer really is 0 wide; blanking that loses a valid value and
-  // disables aspect locking.
   if (parsed !== null) return parsed;
-  // A relative or intrinsic value the host cannot resolve: unknown, not stale.
   if (reported?.trim()) return null;
   const rect =
     axis === "horizontal"
       ? element.boundingRect.width
       : element.boundingRect.height;
-  // 0 here is `elementInfoFromCodeLayerNode`'s placeholder rect rather than a
-  // measurement — the opposite of the computed-style case above.
   return Number.isFinite(rect) && rect > 0 ? rect : null;
 }
 
-/** px is the only unit a computed-style readout can be trusted as a length in:
- *  `100%` and `fit-content` both need a measurement from the iframe. */
 export function resolvedPxSize(value: string | undefined): number | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
@@ -571,7 +423,6 @@ export function resolvedPxSize(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Whether a size needs a fresh measurement before it can be shown. */
 export function sizeNeedsMeasurement(styles: Record<string, string>): boolean {
   return (["width", "height"] as const).some((property) => {
     const value = styles[property]?.trim();
@@ -608,7 +459,6 @@ export function commitElementSizing(
   );
 }
 
-/** Commit one or both explicit dimensions as Fixed in one style transaction. */
 export function commitFixedElementSizes(
   element: ElementInfo,
   sizes: Partial<Record<AutoLayoutSizingAxis, number>>,
@@ -633,24 +483,16 @@ function elementSizingStylePatch(
 ): Record<string, string> {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
-  // Use CSS computed dimension (pre-rotation box size) as the seed for "fixed"
-  // sizing so a rotated element is locked to its actual CSS width/height rather
-  // than the inflated axis-aligned bounding rect.
   const resolvedSize =
     fixedSizePx ?? Math.max(1, Math.round(cssElementSize(element, axis)));
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isGrid = isParentGrid(element);
   const isMainFlexAxis = isFlex && parentDirection === axis;
-  // The self-alignment property that stretches this axis. Fill sets it and
-  // hug clears it, so both must name the same one or hug reads as applied
-  // while a prior Fill's stretch still wins.
   const stretchProperty = isFlex || !isHorizontal ? "alignSelf" : "justifySelf";
   const patch: Record<string, string> = {};
 
   if (sizing === "fixed") {
-    // Fixed → explicit px dimension. Reset flex sizing on the main axis and
-    // any self-stretch that made the cross axis read as Fill.
     patch[sizeProperty] = `${resolvedSize}px`;
     if (isMainFlexAxis) {
       patch.flexGrow = "0";
@@ -660,11 +502,8 @@ function elementSizingStylePatch(
       patch[stretchProperty] = "auto";
     }
   } else if (sizing === "hug") {
-    // Hug contents → shrink to fit children/content.
     patch[sizeProperty] = "fit-content";
     if (isMainFlexAxis) {
-      // A flex container hugging on its main axis uses flex-basis:auto + no
-      // stretch (spec: "flex-basis: auto + no stretch").
       patch.flexGrow = "0";
       patch.flexShrink = "0";
       patch.flexBasis = "auto";
@@ -672,20 +511,15 @@ function elementSizingStylePatch(
       patch[stretchProperty] = "auto";
     }
   } else {
-    // Fill container.
     if (isMainFlexAxis) {
-      // Parent main axis → grow into available space: flex: 1 0 0.
       patch.flexGrow = "1";
       patch.flexShrink = "0";
       patch.flexBasis = "0";
-      // Clear any explicit dimension so flex-basis governs.
       patch[sizeProperty] = "auto";
     } else if (isFlex || isGrid) {
-      // Cross axis → stretch to the parent's cross size.
       patch[stretchProperty] = "stretch";
       patch[sizeProperty] = "auto";
     } else {
-      // Child of a non-flex (block) parent → fill width with 100%.
       patch[sizeProperty] = "100%";
     }
   }

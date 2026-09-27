@@ -34,7 +34,6 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-// Override the default image serializer to treat images as block elements
 defaultMarkdownSerializer.nodes.image = function (state: any, node: any) {
   const src = node.attrs.src || "";
   const alt = node.attrs.alt || "";

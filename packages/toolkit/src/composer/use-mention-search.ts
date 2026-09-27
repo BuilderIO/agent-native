@@ -22,7 +22,6 @@ export function useMentionSearch(
       return;
     }
 
-    // Cancel any in-flight stream
     abortRef.current?.abort();
     const abort = new AbortController();
     abortRef.current = abort;
@@ -53,7 +52,7 @@ export function useMentionSearch(
 
           buf += decoder.decode(value, { stream: true });
           const lines = buf.split("\n");
-          buf = lines.pop()!; // last line may be incomplete
+          buf = lines.pop()!;
 
           for (const line of lines) {
             if (!line.trim()) continue;
@@ -63,7 +62,6 @@ export function useMentionSearch(
               };
               if (id === requestIdRef.current && batch?.length) {
                 setItems((prev) => {
-                  // Deduplicate by id
                   const seen = new Set(prev.map((x) => x.id));
                   const fresh = batch.filter((x) => !seen.has(x.id));
                   return fresh.length ? [...prev, ...fresh] : prev;

@@ -56,7 +56,6 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    // The frontend sends the full availability config as the body
     const bookingUsername = args.bookingUsername
       ? await updateBookingUsername(email, args.bookingUsername)
       : await ensureBookingUsername(email);

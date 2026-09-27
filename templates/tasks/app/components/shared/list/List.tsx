@@ -8,13 +8,6 @@ import type {
 import type { ListIdentifiable } from "@/components/shared/list/types";
 import type { ListSelection } from "@/components/shared/selection/use-list-selection";
 
-/**
- * Generic sortable list shell.
- *
- * Composers own scroll layout, loading, empty states, and row UI; `List` wires
- * dnd-kit reordering, listbox ARIA when bulk selection is active, and block-drag
- * for selected items.
- */
 export interface ListProps<T extends ListIdentifiable> {
   items: T[];
   ariaLabel: string;

@@ -25,8 +25,6 @@ vi.mock("./deploy-environment.js", () => ({
 vi.mock("./credential-provider.js", () => ({
   getBuilderGatewayBaseUrl: () =>
     "https://api.builder.io/agent-native/gateway/v1",
-  // Mirrors the real resolver, so the "no deployment key" case still exercises
-  // the same absence the module sees in production.
   readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
   isHostedWorkspaceRuntime: mockHostedWorkspace,
   hasPlatformRuntimeMarker: mockPlatformMarker,
@@ -54,9 +52,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetRealtimeRegistrationCache();
   vi.stubGlobal("fetch", fetchMock);
-  // A deployed Netlify function: the platform names this deploy's own URL. The
-  // fallback rung (`app.url`, shared by every environment built from the prod
-  // env file) is gated separately below.
   vi.stubEnv("DEPLOY_PRIME_URL", "https://slides.agent-native.com");
   process.env.AGENT_NATIVE_REALTIME_TRANSPORT = "hosted";
   process.env.BUILDER_PRIVATE_KEY = "bpk-test";
@@ -98,9 +93,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
     expect(key).toBe("agent-native-realtime-registration");
     expect(value.channelId).toBe(CHANNEL.channelId);
     expect(value.fingerprint).toEqual(expect.any(String));
-    // The row lives in the app's OWN database, and a Neon branch is a copy of
-    // it. A plaintext secret there mints valid tokens against the production
-    // channel for anyone with read access to any branch.
     expect(value).not.toHaveProperty("hmacSecret");
     expect(value.hmacSecretEncrypted).toMatch(/^v1:/);
     expect(value.hmacSecretEncrypted).not.toContain(CHANNEL.hmacSecret);
@@ -154,9 +146,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   describe("how long a failure is remembered", () => {
-    // A refusal is a settled answer and deserves the long backoff. A timeout
-    // settles nothing, and holding a warm isolate on local polling for ten
-    // minutes after the gateway came back is a second, self-inflicted outage.
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
@@ -169,7 +158,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
       await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      // Recovered, and the app picks it up without waiting out the long backoff.
       await vi.advanceTimersByTimeAsync(25_000);
       fetchMock.mockResolvedValue(ok(CHANNEL));
       await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(
@@ -215,7 +203,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
       () => mockSelfUrl.mockReturnValue("not a url"),
     ],
     [
-      // The container's env key belongs to someone else's org.
       "it is running inside a hosted Builder workspace",
       () => mockHostedWorkspace.mockReturnValue(true),
     ],
@@ -239,7 +226,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
       () => mockGetDatabaseUrl.mockReturnValue("postgresql://u:p@10.0.0.5/app"),
     ],
     [
-      // The fully-qualified spelling of the same names.
       "the database host is a rooted localhost",
       () =>
         mockGetDatabaseUrl.mockReturnValue("postgresql://u:p@localhost./app"),
@@ -258,10 +244,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("does not accept the generic URL variable as deployment evidence", async () => {
-    // `URL` lives in the app's own env file and is not per-deploy even on
-    // Netlify, where it is the site's canonical address. A copied production
-    // `.env` carries it to a laptop, which is exactly the process this gate
-    // exists to exclude.
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     vi.stubEnv("URL", "https://slides.agent-native.com");
     mockPlatformMarker.mockReturnValue(false);
@@ -270,8 +252,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("registers the origin a self-hosted deploy declares for itself", async () => {
-    // A bare container has no platform marker to offer, so it asserts the
-    // origin it serves under a name nobody sets by accident.
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     mockPlatformMarker.mockReturnValue(false);
     vi.stubEnv(
@@ -279,20 +259,12 @@ describe("resolveRegisteredRealtimeChannel", () => {
       "https://self-hosted.example.com/ignored/path",
     );
     await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(CHANNEL);
-    // Collapsed to the origin, and it wins over the resolved self URL.
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).appUrl).toBe(
       "https://self-hosted.example.com",
     );
   });
 
   it("does not register the canonical origin from a process that may not be the deploy", async () => {
-    // No per-deploy platform var means `resolveDeploymentBaseUrl` fell back
-    // to `app.url` — the CANONICAL origin, shared by every environment built
-    // from the production env file. A built server run on a laptop against a
-    // branch database resolves "production" (the default with no platform
-    // context) and would repoint production's channel at that branch, which
-    // production never heals from: its own fingerprint still matches, so it
-    // never re-registers.
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     mockPlatformMarker.mockReturnValue(false);
     await expect(resolveRegisteredRealtimeChannel()).resolves.toBeNull();
@@ -300,16 +272,11 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("registers on the canonical origin from a real deployed runtime", async () => {
-    // A Vercel function or a Lambda has no Netlify deploy vars, but the
-    // PLATFORM marks itself (VERCEL, AWS_LAMBDA_FUNCTION_NAME, K_SERVICE, …).
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     await expect(resolveRegisteredRealtimeChannel()).resolves.toEqual(CHANNEL);
   });
 
   it("does not accept NODE_ENV=production as a substitute for that marker", async () => {
-    // NODE_ENV lives in the app's own env file, so it travels to a laptop with
-    // a copied `.env` and says nothing about where the process runs. It is the
-    // one signal a developer running a production build locally would have.
     vi.stubEnv("DEPLOY_PRIME_URL", "");
     vi.stubEnv("NODE_ENV", "production");
     mockPlatformMarker.mockReturnValue(false);
@@ -358,9 +325,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("logs a 403 that is not the rollout flag", async () => {
-    // Revoked key, org opt-out, suspension, unverified email and PAT policy all
-    // 403 here. Treating every one as "not in the rollout yet" sent operators to
-    // check a flag while the deployment re-POSTed forever in silence.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       fetchMock.mockResolvedValue(ok({ code: "invalid_credentials" }, 403));
@@ -385,10 +349,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   describe("separating 'told no' from 'could not ask'", () => {
-    // `/_agent-native/health` reports these as different fields, and on a
-    // diagnostic endpoint the difference is the whole point. Collapsing an
-    // unreachable gateway into the same `null` a rollout refusal produces is
-    // what made "is this deploy on the gateway?" unanswerable.
     it.each([
       [
         "a network failure",
@@ -435,10 +395,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("does not let a superseded attempt overwrite the current registration", async () => {
-    // The first attempt is still in flight when the inputs rotate. When it
-    // finally resolves it must not persist or memoize its channel: that is the
-    // one the current inputs just moved away from, and writing it back also
-    // makes the next request miss on fingerprint and register a third time.
     const rotatedUrl = DB_URL.replace("pw@", "rotated@");
     let releaseOriginal: (v: Response) => void = () => {};
     fetchMock.mockImplementation((_url: string, init: { body: string }) => {
@@ -457,12 +413,10 @@ describe("resolveRegisteredRealtimeChannel", () => {
     await resolveRegisteredRealtimeChannel();
     mockPutSetting.mockClear();
 
-    // The superseded attempt lands last.
     releaseOriginal(ok(CHANNEL));
     await first;
 
     expect(mockPutSetting).not.toHaveBeenCalled();
-    // The memo still answers with the rotated channel, so no re-registration.
     fetchMock.mockClear();
     await expect(resolveRegisteredRealtimeChannel()).resolves.toMatchObject({
       channelId: "rt_rotated",
@@ -472,9 +426,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
 
   it.each([
     ["a missing field", { channelId: "rt_abc" }],
-    // Truthy but not a string. These reach `createHash().update()` in the
-    // health probe and the token signer, where a non-string throws — a 500 on
-    // routes whose whole contract is to fail soft to local sync.
     ["a non-string channel id", { channelId: {}, hmacSecret: "s".repeat(64) }],
     ["a non-string secret", { channelId: "rt_abc", hmacSecret: 12345 }],
     ["an empty string", { channelId: "", hmacSecret: "s".repeat(64) }],
@@ -485,8 +436,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("registers this deployment's own address, not the app's canonical URL", async () => {
-    // A deploy preview sharing prod's origin would repoint prod's channel at
-    // the preview database, because the gateway upserts on (org, appUrl).
     mockSelfUrl.mockReturnValue(
       "https://deploy-preview-42--slides.netlify.app",
     );
@@ -514,8 +463,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
     const stored = mockPutSetting.mock.calls[0][1];
     fetchMock.mockClear();
     resetRealtimeRegistrationCache();
-    // Deliberately ancient: only the fingerprint gates reuse, so a healthy app
-    // never re-registers on a timer.
     mockGetSetting.mockResolvedValue({
       ...stored,
       registeredAt: Date.now() - 365 * 24 * 60 * 60 * 1000,
@@ -525,8 +472,6 @@ describe("resolveRegisteredRealtimeChannel", () => {
   });
 
   it("does not serve a concurrent caller whose inputs changed mid-flight", async () => {
-    // Dispatch on the posted body, not call order: the two attempts interleave
-    // their settings reads, so which one reaches fetch first is not fixed.
     const rotatedUrl = DB_URL.replace("pw@", "rotated@");
     let releaseOriginal: (v: Response) => void = () => {};
     fetchMock.mockImplementation((_url: string, init: { body: string }) => {

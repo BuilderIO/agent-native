@@ -57,8 +57,6 @@ describe("styled bullet editing", () => {
   });
 
   it("resolves a native list item to its UL or OL", () => {
-    // Editing the LI in isolation traps Enter inside that one item, so the
-    // list itself has to become the edit host.
     const root = document.createElement("div");
     root.innerHTML = "<ul><li>One</li><li>Two</li></ul><ol><li>First</li></ol>";
     document.body.append(root);
@@ -360,13 +358,6 @@ describe("styled bullet editing", () => {
   });
 
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
-    // Regression test: Range.extractContents() on a collapsed range (caret at
-    // the very end of the text, the common case) still clones the boundary
-    // text node with empty data instead of returning a childless fragment.
-    // If that empty node is mistaken for a real "tail" to move over, the new
-    // row's text span ends up with a contentless text node instead of the
-    // zero-width-space placeholder, and the caret has nothing to anchor its
-    // font to.
     const { list } = setup();
     const thirdText = list.children[2].children[1] as HTMLElement;
     const textNode = thirdText.firstChild as Text;
@@ -484,17 +475,6 @@ describe("styled bullet editing", () => {
     expect(isBulletList(list)).toBe(true);
   });
 
-  // ENG-13998: reproduces the exact agent-generated markup from the bug
-  // report \u2014 a label row plus glyph-marker rows in one shot \u2014 to prove
-  // findEnclosingList correctly resolves the whole column as one list. This
-  // is necessary but not sufficient for Shift+Arrow/Shift+click to extend a
-  // text selection across rows: slide-text-targets.ts's
-  // findSlideRichTextOwner (called before findSmartBlock's own loop that
-  // would reach findEnclosingList) stops earlier, at the single clicked row,
-  // because a bullet row satisfies isTextLeaf and isTextLeaf short-circuits
-  // canEnterRichTextEdit's hasUnsafeRichTextDescendant check \u2014 so each row
-  // becomes its own isolated contentEditable root and only within-row
-  // selection is structurally possible today.
   it("resolves the enclosing list for realistic agent-generated bullet HTML", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="fmd-slide"><div style="border-top:2px solid var(--deck-accent);padding-top:12px;display:flex;flex-direction:column;gap:10px;">' +

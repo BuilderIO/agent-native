@@ -57,11 +57,6 @@ function inferImportedPlanTitle(planText: string): string {
 const CONTENT_DESCRIPTION =
   "Structured editable plan content. Prefer this for rich text, inline diagrams, annotated code, question-form open questions, and optional canvas/prototype UI surfaces. Call the get-plan-blocks tool FIRST for the authoritative block catalog, visual frame guidance, authoring rules, and style tokens — do not author from memory. Key rules: canvas frames use wireframe data.html/html semantic HTML, not legacy kit-tree screen arrays; use diagram blocks with .diagram-* primitives and --wf-* tokens (no hex/rgb/hsl, no custom fonts); for file maps use annotated-code blocks in a vertical tabs block; put unresolved decisions in a bottom question-form block.";
 
-// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
-// a compact `content` field instead of duplicating every other key. The
-// `.refine()` (brief/goal/planText requirement) is applied only to the real
-// runtime `schema` further down — refine predicates aren't serializable JSON
-// Schema anyway, so the advertised copy never needs it.
 const createVisualPlanSchema = z.object({
   title: z.string().optional().describe("Short plan title"),
   brief: z
@@ -112,9 +107,6 @@ export default defineAction({
     (args) => Boolean(args.brief || args.goal || args.planText),
     { message: "Either brief, goal, or planText is required." },
   ),
-  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
-  // per-block-type union for a compact `type`-enum stand-in. Runtime
-  // validation always runs the full schema above — see the `actions` skill.
   agentInputSchema: createVisualPlanSchema.extend({
     content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
   }),
@@ -230,10 +222,6 @@ export default defineAction({
         visibility: "private",
       });
 
-    // `planSections.id` is a GLOBAL primary key, so a client-supplied id (e.g.
-    // "section-1") collides across plans/retries and throws on insert. Always
-    // generate a unique server id; keep a logical-id -> row-id map so comment
-    // anchors can be remapped instead of failing the foreign key.
     const sectionIdByLogical = new Map<string, string>();
     const sectionRows = sections.map((section, index) => {
       const rowId = newId("sec");
@@ -255,9 +243,6 @@ export default defineAction({
     });
     await getDb().insert(schema.planSections).values(sectionRows);
 
-    // Remap each comment's sectionId to its real row id; drop (undefined)
-    // anchors that match no section rather than failing the FK and blocking the
-    // publish.
     const commentsForInsert = args.comments.map((comment) => {
       if (!comment.sectionId) return comment;
       const mapped = sectionIdByLogical.get(comment.sectionId);

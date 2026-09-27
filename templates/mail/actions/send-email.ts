@@ -144,9 +144,6 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
-  // Interactive sends stay human-approved. Event-triggered automations may
-  // opt out through the owner's Mail Automation settings, which are read from
-  // trusted action context rather than from tool input.
   needsApproval: (_args, ctx?: ActionRunContext) =>
     requiresEmailSendApproval(ctx),
   run: async (args, ctx) => {
@@ -162,7 +159,6 @@ export default defineAction({
     }
     const settings = await readSettings();
 
-    // Resolve attachments eagerly — fail before touching Gmail if any are missing.
     let resolvedAttachments: Awaited<
       ReturnType<typeof resolveComposeAttachments>
     > = [];
@@ -343,7 +339,6 @@ export default defineAction({
           console.error("[send-email] persistTracking failed:", err),
         );
       }
-      // Emit mail.message.sent event (best-effort)
       try {
         emit(
           "mail.message.sent",

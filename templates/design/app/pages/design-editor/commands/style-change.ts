@@ -110,8 +110,6 @@ export function runStyleChange(
     return;
   }
 
-  // Gesture cancellation is paired with a preceding preview that restored the
-  // pointerdown value. It must not enter this command's preview or commit path.
   if (meta?.phase === "cancel") {
     if (selectedScreenId && selectedScreenStyleChange) {
       selectedScreenStyleChange(
@@ -202,19 +200,6 @@ export function runStyleChange(
     );
     return;
   }
-  // PF12: a mid-gesture scrub/color-drag preview tick (ScrubInput's
-  // `phase: "preview"`, DesignColorPicker's per-tick `onChange`) is cheap
-  // to show live but must NOT run the expensive source commit
-  // (projection parse + HTML patch + history entry) on every tick — only
-  // the gesture's final "commit" (or a caller that never passes meta at
-  // all, e.g. keyboard/agent edits) does that. Route preview ticks
-  // through the same cheap iframe postMessage path the text-range case
-  // above already uses, and skip commitVisualStyles entirely so there is
-  // no source write — and therefore no history entry — for any preview
-  // tick. Multi-layer-selection commits (commitStylesToSelectedLayers)
-  // have no equivalent cheap multi-element preview channel, so previews
-  // for that case conservatively fall through to the existing full-commit
-  // behavior below (unchanged from before PF12).
   if (
     shouldSkipVisualStyleCommitForPreview({
       phase: meta?.phase,
@@ -228,8 +213,6 @@ export function runStyleChange(
         nodeId: selectedElement?.sourceId,
       });
     }
-    // No live bridge available for this preview tick (e.g. inactive
-    // screen) — nothing cheap to do; wait for the gesture's "commit".
     return;
   }
   if (selectedScreenId && selectedScreenStyleChange) {
@@ -261,11 +244,6 @@ export function runStyleChange(
     )
       return;
   }
-  // Page properties render only when there is no concrete DOM element
-  // selection. Screen/layer ids can remain in the broader selection ref
-  // while Escape exposes Page (especially after overview/breakpoint
-  // navigation); never let that stale structural selection hijack a page
-  // background/font edit away from the body.
   if (
     selectedElement &&
     commitStylesToSelectedLayers({ [property]: value }, meta?.phase)
