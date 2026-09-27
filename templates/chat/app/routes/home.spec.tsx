@@ -9,7 +9,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const routeState = vi.hoisted(() => ({
   basePath: "",
   threadId: undefined as string | undefined,
-  messages: [] as Array<{ id: string }>,
+  messages: [] as Array<{
+    id: string;
+    role?: string;
+    parts?: Array<
+      | { type: "text"; text: string }
+      | {
+          type: "file";
+          name: string;
+          url?: string;
+          fileId?: string;
+          mediaType?: string;
+        }
+    >;
+    metadata?: unknown;
+  }>,
   title: undefined as string | undefined,
   navigate: vi.fn(),
   transport: undefined as
@@ -75,6 +89,12 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
 }));
 
 vi.mock("@agent-native/agentkit/react/components", () => ({
+  AgentMessageView: ({ value }: { value: { id: string } }) => (
+    <div data-testid="rendered-agent-message">{value.id}</div>
+  ),
+  AgentRunFailure: ({ error }: { error: { message: string } }) => (
+    <div data-testid="generic-run-failure">{error.message}</div>
+  ),
   AgentConnectionRequestCard: () => null,
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
@@ -86,6 +106,20 @@ vi.mock("@agent-native/agentkit/react/components", () => ({
       </div>
     );
   },
+}));
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
+    <button data-testid="chat-builder-setup" onClick={onRetry} />
+  ),
+  isMissingLlmProviderRunError: ({
+    errorCode,
+    details,
+  }: {
+    errorCode?: string;
+    details?: string;
+  }) =>
+    errorCode === "missing_credentials" ||
+    /No LLM provider key was found/i.test(details ?? ""),
 }));
 vi.mock("@agent-native/agentkit/react/context", () => ({
   useAgentKit: () => ({
@@ -192,7 +226,9 @@ describe("ChatRoute AgentKit surface", () => {
       labels: { composerPlaceholder: "chat.composerPlaceholder" },
       slots: {
         emptyState: expect.any(Function),
+        message: expect.any(Function),
         messageSupplement: expect.any(Function),
+        runFailure: expect.any(Function),
         connectionRequest: expect.any(Function),
         footer: expect.any(Function),
       },
@@ -216,6 +252,204 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-agent-page-workspace-toggle]"),
     ).toBeNull();
+  });
+
+  it("shows Builder setup only for a missing key on the first user message", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [{ id: "user-1", role: "user" }];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    const failure = slots.runFailure;
+    const failureProps = {
+      error: { code: "missing_credentials", message: "Missing credentials" },
+      runId: "run-one",
+      threadId: "thread-one",
+    };
+    act(() => root.render(React.createElement(failure, failureProps)));
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).toBeNull();
+
+    routeState.messages = [
+      { id: "user-1", role: "user" },
+      { id: "assistant-1", role: "assistant" },
+      { id: "user-2", role: "user" },
+    ];
+    act(() => root.render(React.createElement(failure, failureProps)));
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).not.toBeNull();
+  });
+
+  it("detects missing provider details and retries the original turn once", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "Summarize this file" },
+          {
+            type: "file",
+            name: "brief.pdf",
+            url: "/uploads/brief.pdf",
+            mediaType: "application/pdf",
+          },
+        ],
+      },
+    ];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    const failure = slots.runFailure;
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "provider_error",
+            message: "The request could not be processed.",
+            details: "No LLM provider key was found.",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        ?.click(),
+    );
+
+    expect(routeState.sendMessage).toHaveBeenCalledOnce();
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-one",
+      text: "Summarize this file",
+      attachments: [
+        {
+          type: "file",
+          name: "brief.pdf",
+          url: "/uploads/brief.pdf",
+          mediaType: "application/pdf",
+        },
+      ],
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
+    });
+
+    const messageSlot = (
+      routeState.rootProps?.slots as {
+        message: React.ComponentType<{
+          value: { id: string; role: string; metadata?: unknown };
+          threadId: string;
+        }>;
+      }
+    ).message;
+    act(() =>
+      root.render(
+        React.createElement(messageSlot, {
+          value: {
+            id: "recovery-1",
+            role: "user",
+            metadata: {
+              custom: { agentNativeRecoveryAction: "retry" },
+            },
+          },
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    expect(
+      container.querySelector("[data-testid='rendered-agent-message']"),
+    ).toBeNull();
+    act(() =>
+      root.render(
+        React.createElement(messageSlot, {
+          value: { id: "user-1", role: "user" },
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    expect(
+      container.querySelector("[data-testid='rendered-agent-message']"),
+    ).not.toBeNull();
+
+    routeState.messages.push({
+      id: "recovery-1",
+      role: "user",
+      parts: [{ type: "text", text: "Summarize this file" }],
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
+    });
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "provider_error",
+            message: "The request could not be processed.",
+            details: "No LLM provider key was found.",
+          },
+          runId: "run-two",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).toBeNull();
+
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "provider_error",
+            message: "The request could not be processed.",
+            details: "No LLM provider key was found.",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector("[data-testid='chat-builder-setup']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='generic-run-failure']"),
+    ).not.toBeNull();
   });
 
   it("keeps one owned transport across routed threads", () => {
