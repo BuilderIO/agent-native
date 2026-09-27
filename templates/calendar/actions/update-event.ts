@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
@@ -89,6 +90,19 @@ function workingLocationTitle(
     return properties.officeLocation?.label || "Office";
   }
   return properties.customLocation?.label || "Working location";
+}
+
+function eventChange(id: string, title: string) {
+  return {
+    verb: "updated" as const,
+    kind: "calendar-event",
+    title: title.trim().slice(0, 180) || "Event",
+    url: buildDeepLink({
+      app: "calendar",
+      view: "calendar",
+      params: { eventId: id },
+    }),
+  };
 }
 
 export default defineAction({
@@ -425,15 +439,17 @@ export default defineAction({
         },
         actionContext,
       );
+      const id = googleEventResultId(args.id, result.id, targetAccountEmail!);
       return {
         success: true,
-        id: googleEventResultId(args.id, result.id, targetAccountEmail!),
+        id,
         replacedId: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail: targetAccountEmail,
         updated: ["accountEmail"],
         htmlLink: result.htmlLink,
         hangoutLink: result.meetLink,
         conferenceData: result.conferenceData,
+        change: eventChange(id, existingEvent.title),
         ...(guestNotification ? { guestNotification } : {}),
       };
     }
@@ -726,9 +742,19 @@ export default defineAction({
       );
     }
 
+    const id = googleEventResultId(
+      args.id,
+      returnedGoogleEventId,
+      accountEmail,
+    );
+    const title =
+      hasWorkingLocationPatch && updates.workingLocationProperties
+        ? workingLocationTitle(updates.workingLocationProperties)
+        : (args.title ?? existingEvent?.title ?? "Event");
+
     return {
       success: true,
-      id: googleEventResultId(args.id, returnedGoogleEventId, accountEmail),
+      id,
       ...(returnedGoogleEventId !== googleEventId
         ? {
             replacedId: googleEventResultId(
@@ -746,6 +772,7 @@ export default defineAction({
       conferenceData: result.conferenceData,
       ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
+      change: eventChange(id, title),
       ...(guestNotification ? { guestNotification } : {}),
     };
   },

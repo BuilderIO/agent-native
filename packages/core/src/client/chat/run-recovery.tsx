@@ -336,9 +336,13 @@ export type BuilderSetupCardLayout = "default" | "sidebar";
 
 export function BuilderSetupContent({
   onConnected,
+  onRetry,
+  retryDisabled = false,
   layout = "default",
 }: {
   onConnected?: () => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
   const t = useT();
@@ -358,9 +362,23 @@ export function BuilderSetupContent({
         )}
       >
         <div className="agent-builder-setup-card__copy min-w-0">
-          <h3 className="text-[13px] font-medium text-foreground">
-            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
-          </h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[13px] font-medium text-foreground">
+              {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
+            </h3>
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retryDisabled}
+                aria-label={t("agentChat.common.retry")}
+                title={t("agentChat.common.retry")}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                <IconRefresh size={13} strokeWidth={1.8} />
+              </button>
+            ) : null}
+          </div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
             {t("agentPanel.builderOrOwnKeys", {
               defaultValue: "Choose Builder.io or custom keys.",
@@ -457,7 +475,12 @@ export function BuilderSetupCard({
         {onDismiss ? (
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <BuilderSetupContent onConnected={onConnected} layout={layout} />
+              <BuilderSetupContent
+                onConnected={onConnected}
+                onRetry={onRetry ? handleRetry : undefined}
+                retryDisabled={retryRequested}
+                layout={layout}
+              />
             </div>
             <button
               type="button"
@@ -469,22 +492,14 @@ export function BuilderSetupCard({
             </button>
           </div>
         ) : (
-          <BuilderSetupContent onConnected={onConnected} layout={layout} />
+          <BuilderSetupContent
+            onConnected={onConnected}
+            onRetry={onRetry ? handleRetry : undefined}
+            retryDisabled={retryRequested}
+            layout={layout}
+          />
         )}
       </div>
-      {onRetry ? (
-        <div className="flex justify-center px-3 pt-1">
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={retryRequested}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          >
-            <IconRefresh size={13} />
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -512,7 +527,6 @@ export function RunErrorRecoveryCard({
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const retryRequestedRef = useRef(false);
-  const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
@@ -587,7 +601,6 @@ export function RunErrorRecoveryCard({
   const handleMissingProviderRetry = useCallback(() => {
     if (retryRequestedRef.current) return;
     retryRequestedRef.current = true;
-    setRetryRequested(true);
     onRetry();
   }, [onRetry]);
 
@@ -624,6 +637,7 @@ export function RunErrorRecoveryCard({
               ? handleProviderConnected
               : handleMissingProviderConnected
           }
+          onRetry={handleMissingProviderRetry}
         />
         {/*
           Deliberately not gated on `providerConnected`. That gate assumed
@@ -638,17 +652,6 @@ export function RunErrorRecoveryCard({
           stop producing, one step later. `handleMissingProviderRetry` fires at
           most once per card, so offering it cannot loop.
         */}
-        <div className="flex justify-center px-3 pt-1">
-          <button
-            type="button"
-            onClick={handleMissingProviderRetry}
-            disabled={retryRequested}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          >
-            <IconRefresh size={13} />
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
       </div>
     );
   }

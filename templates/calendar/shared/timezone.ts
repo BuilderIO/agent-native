@@ -17,6 +17,14 @@ export function timezoneFormatter(
   return formatter;
 }
 
+export function timezoneShortName(timezone: string, locale = "en-US"): string {
+  return (
+    timezoneFormatter(timezone, { timeZoneName: "shortGeneric" }, locale)
+      .formatToParts(new Date())
+      .find((part) => part.type === "timeZoneName")?.value ?? timezone
+  );
+}
+
 export function isCalendarTimezone(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   try {

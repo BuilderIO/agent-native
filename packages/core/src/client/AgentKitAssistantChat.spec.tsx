@@ -1847,11 +1847,26 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     chatMocks.thread.activeRunIds = ["run-1"];
     const blockedEvents: CustomEvent[] = [];
+    const providerRefreshEvents: Event[] = [];
     const onBlocked = (event: Event) =>
       blockedEvents.push(event as CustomEvent);
+    const onProviderRefresh = (event: Event) =>
+      providerRefreshEvents.push(event);
     window.addEventListener("agent-chat:missing-api-key", onBlocked);
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      onProviderRefresh,
+    );
     await mount(baseProps({ providerStatusChecksEnabled: true }));
 
+    expect(
+      container
+        .querySelector(".agentkit-host-composer")
+        ?.classList.contains("agent-composer-area--attached-above"),
+    ).toBe(true);
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+    await act(async () => chatMocks.setupCardProps.onRetry());
+    expect(providerRefreshEvents).toHaveLength(1);
     const stopButton = chatMocks.composerProps.stopButton as React.ReactElement;
     expect(stopButton.props).toMatchObject({
       "aria-label": "agentChat.composer.stopResponse",
@@ -1864,6 +1879,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
+    window.removeEventListener(
+      "agent-engine:configured-changed",
+      onProviderRefresh,
+    );
   });
 
   it("dispatches custom-transport running changes to the chat host", async () => {

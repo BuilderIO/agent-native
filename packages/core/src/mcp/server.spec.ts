@@ -2948,6 +2948,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("serializes bounded action images as MCP image content without exposing base64 in text or structured content", async () => {
+    const png = "aGVsbG8=";
+    const imageConfig = {
+      ...config,
+      actions: {
+        "export-png": {
+          tool: {
+            description: "Export a screen as a PNG",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          mcpTool: true,
+          http: { method: "GET" as const },
+          run: async () => ({
+            ok: true,
+            url: "https://files.example.test/design.png",
+            mimeType: "image/png",
+            _agentImages: [
+              { data: png, mediaType: "image/png", label: "index.html" },
+            ],
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 301,
+        method: "tools/call",
+        params: { name: "export-png", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: imageConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("https://files.example.test/design.png"),
+      }),
+      { type: "image", data: png, mimeType: "image/png" },
+    ]);
+    expect(out.result.content[0].text).toContain("attached #1");
+    expect(out.result.content[0].text).not.toContain(png);
+    expect(out.result.structuredContent).toMatchObject({
+      ok: true,
+      url: "https://files.example.test/design.png",
+      mimeType: "image/png",
+    });
+    expect(out.result.structuredContent._agentImages).toBeUndefined();
+    expect(JSON.stringify(out.result.structuredContent)).not.toContain(png);
+  });
+
   it("publishes one scoped action change after a successful mutating direct MCP call", async () => {
     actionChangeMocks.writeMarker.mockClear();
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");

@@ -1,15 +1,26 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlugConnected,
   IconPlugConnectedX,
   IconX,
 } from "@tabler/icons-react";
+import { useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -29,6 +40,8 @@ export function LocalNetworkAccessPrompt({
   onDismiss: () => void;
   proactive?: boolean;
 }) {
+  const t = useT();
+  const [confirmClose, setConfirmClose] = useState(false);
   // "unreachable" is the one confident case (permission is confirmed
   // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
@@ -36,14 +49,18 @@ export function LocalNetworkAccessPrompt({
   const isConfirmedUnreachable = kind === "unreachable";
   const isStalePreviewToken = kind === "stalePreviewToken";
   const title = proactive
-    ? "Connect your local screens" /* i18n-ignore first-land localhost permission dialog title */
+    ? t("designCanvas.localBridge.permissionPromptTitle", {
+        defaultValue: "Connect your local screens",
+      })
     : isStalePreviewToken
       ? "Reconnect this screen" /* i18n-ignore stale local dev preview token title */
       : isConfirmedUnreachable
         ? "Local dev server unreachable" /* i18n-ignore local dev connect card title */
         : "Can't reach your local dev server" /* i18n-ignore local dev connect card title */;
   const description = proactive
-    ? "Allow this Design tab to connect to your localhost app so live layers can load and be edited. Click Allow if Chrome asks." /* i18n-ignore first-land localhost permission dialog body */
+    ? t("designCanvas.localBridge.permissionPromptDescription", {
+        defaultValue: "Choose Allow in Chrome's prompt to enable live editing.",
+      })
     : isStalePreviewToken
       ? "The local bridge restarted, so this screen's preview token is stale. Run design connect again, then click Retry." /* i18n-ignore stale local dev preview token body */
       : isConfirmedUnreachable
@@ -51,35 +68,100 @@ export function LocalNetworkAccessPrompt({
         : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */;
   const actionLabel = connecting
     ? "Connecting…" /* i18n-ignore local dev connect card button, transient */
-    : proactive
-      ? "Allow local access" /* i18n-ignore first-land localhost permission dialog button */
-      : isStalePreviewToken || isConfirmedUnreachable
-        ? "Retry" /* i18n-ignore local dev connect card button */
-        : "Connect" /* i18n-ignore local dev connect card button */;
+    : kind === "maybePermissionBlocked"
+      ? t("designCanvas.localBridge.permissionPromptRetry", {
+          defaultValue: "Retry connection",
+        })
+      : "Retry" /* i18n-ignore local dev connect card button */;
+  const showPermissionHelp = proactive || kind === "maybePermissionBlocked";
+  const noPromptLabel = t("designCanvas.localBridge.permissionPromptNoPrompt", {
+    defaultValue: "No Chrome prompt?",
+  });
+  const permissionSettingsInstructions = t(
+    "designCanvas.localBridge.permissionPromptSettingsInstructions",
+    {
+      defaultValue:
+        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+    },
+  );
+  const permissionHelp = showPermissionHelp ? (
+    <details className="text-xs text-muted-foreground">
+      <summary className="cursor-pointer">{noPromptLabel}</summary>
+      <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
+      <img
+        src="/local-network-access-settings.jpg"
+        alt={permissionSettingsInstructions}
+        className="mt-3 block w-full rounded-md border border-border"
+        width={200}
+        height={140}
+        loading="lazy"
+      />
+    </details>
+  ) : null;
 
   if (proactive) {
     return (
-      <Dialog
-        open
-        onOpenChange={(open) => {
-          if (!open) onDismiss();
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <IconPlugConnected className="size-4" />
-              {title}
-            </DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" onClick={onConnect} disabled={connecting}>
-              {actionLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <>
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirmClose(true);
+          }}
+        >
+          <DialogContent
+            className="sm:max-w-md"
+            overlayClassName="bg-[color-mix(in_srgb,var(--design-editor-accent-color)_22%,transparent)] backdrop-blur-[2px]"
+          >
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <IconPlugConnected className="size-4" />
+                {title}
+              </DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <img
+              src="/local-network-access-permission.jpg"
+              alt={description}
+              className="block w-full rounded-md border border-border"
+              width={240}
+              height={150}
+            />
+            {permissionHelp}
+          </DialogContent>
+        </Dialog>
+        <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("designCanvas.localBridge.permissionCloseTitle", {
+                  defaultValue: "Close setup?",
+                })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("designCanvas.localBridge.permissionCloseDescription", {
+                  defaultValue:
+                    "Live editing won't work until you allow access in Chrome.",
+                })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>
+                {t("designCanvas.localBridge.permissionCloseStay", {
+                  defaultValue: "Keep setup open",
+                })}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={onDismiss}
+              >
+                {t("designCanvas.localBridge.permissionCloseAnyway", {
+                  defaultValue: "Close anyway",
+                })}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
     );
   }
 
@@ -111,6 +193,7 @@ export function LocalNetworkAccessPrompt({
           <div className="text-sm font-medium text-foreground">{title}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
+        {permissionHelp}
         <Button
           type="button"
           size="sm"

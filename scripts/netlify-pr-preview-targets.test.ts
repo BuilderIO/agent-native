@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   previewEligibleSiteNames,
+  previewSiteFromCommand,
   previewSitesForChangedPaths,
   workspacePackages,
 } from "./netlify-pr-preview-targets.ts";
@@ -16,6 +17,14 @@ test("workspacePackages throws when a checkout has no package manifests", () => 
     () => workspacePackages(emptyRepoRoot),
     /neither packages\/, templates\/, nor community-templates\/ exists/,
   );
+});
+
+test("preview command must match one eligible site exactly", () => {
+  assert.equal(previewSiteFromCommand("/preview analytics"), "analytics");
+  assert.equal(previewSiteFromCommand("/preview analytics\n"), undefined);
+  assert.equal(previewSiteFromCommand("/preview analytics\r\n"), undefined);
+  assert.equal(previewSiteFromCommand("/preview unknown"), undefined);
+  assert.equal(previewSiteFromCommand("/preview  analytics"), undefined);
 });
 
 test("selects the app sites touched by a PR", () => {

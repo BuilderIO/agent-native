@@ -313,6 +313,13 @@ ON slide_comments (deck_id, created_at);
 CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx
 ON slide_comments (deck_id, slide_id, created_at)`,
     },
+    {
+      version: 31,
+      name: "slides-deck-client-write-revisions",
+      sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_client_id TEXT;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_client_sequence INTEGER;
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS last_write_revision TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

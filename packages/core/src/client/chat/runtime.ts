@@ -1567,6 +1567,38 @@ interface AgentNativeMessageProjectionState {
   };
 }
 
+function pendingApprovalStructuredHistory(
+  state: AgentNativeMessageProjectionState,
+) {
+  return state.message.content.flatMap((part) => {
+    if (part.type !== "tool-call" || part.result === undefined) return [];
+    return [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            id: part.toolCallId,
+            name: part.toolName,
+            input: part.args,
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: part.toolCallId,
+            content: part.result,
+            ...(part.isError ? { isError: true } : {}),
+          },
+        ],
+      },
+    ];
+  });
+}
+
 function definedMetadata(
   values: AgentChatRuntimeMetadata,
 ): AgentChatRuntimeMetadata | undefined {
@@ -2567,10 +2599,26 @@ export function createAgentNativeChatRuntime(
       if (continuationMessageState) {
         messageStates.set(turnId, continuationMessageState);
       }
+      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const pendingApprovalHistory =
+        approvedToolCalls && continuationMessageState
+          ? pendingApprovalStructuredHistory(continuationMessageState)
+          : [];
       return {
         message: prompt,
         displayMessage: prompt,
-        history: nativeHistoryFromMessages(turn.messages, prompt),
+        history,
+        ...(pendingApprovalHistory.length
+          ? {
+              structuredHistory: [
+                ...history.map(({ role, content }) => ({
+                  role,
+                  content: [{ type: "text" as const, text: content }],
+                })),
+                ...pendingApprovalHistory,
+              ],
+            }
+          : {}),
         turnId: continuationTurnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] ===

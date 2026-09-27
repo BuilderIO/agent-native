@@ -43,6 +43,7 @@ const messages = {
       aiSetupArchiveLabel: "跳过收件箱",
       aiSetupSave: "保存设置",
       aiSetupSkip: "暂时跳过",
+      aiSetupSkipSetup: "跳过收件箱设置",
       aiSetupImportantHeadline: "哪些内容重要",
       aiSetupSkipInboxHeadline: "哪些内容可以跳过收件箱",
       aiSetupTagsHeadline: "选择标签页",
@@ -435,6 +436,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "连接你的 Google 账号",
+      connectionNotConfigured:
+        "此应用尚未配置 Gmail 连接。请联系管理员启用，或暂时跳过此步骤。",
       heroDescription: "发送和接收真实邮件。连接你的 Gmail 账号即可开始。",
       setupIntro: "按照这些步骤连接你的 Google 账号。大约需要 3 分钟。",
       enableGmailApi: "启用 Gmail API",

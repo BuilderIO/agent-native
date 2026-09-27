@@ -1501,6 +1501,18 @@ export default {
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
       connectionNotConfirmed:
         "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
+      permissionPromptTitle: "Connecter vos écrans locaux",
+      permissionPromptDescription:
+        "Choisissez Autoriser dans l’invite de Chrome pour activer la modification en direct.",
+      permissionPromptNoPrompt: "Aucune invite Chrome ?",
+      permissionPromptSettingsInstructions:
+        "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis autorisez l’accès aux applications sur votre appareil.",
+      permissionCloseTitle: "Fermer la configuration ?",
+      permissionCloseDescription:
+        "La modification en direct ne fonctionnera pas tant que vous n’aurez pas autorisé l’accès dans Chrome.",
+      permissionCloseStay: "Garder la configuration ouverte",
+      permissionCloseAnyway: "Fermer quand même",
+      permissionPromptRetry: "Réessayer la connexion",
     },
   },
   multiScreenCanvas: {

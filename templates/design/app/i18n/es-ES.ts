@@ -1488,6 +1488,18 @@ export default {
         "El puente del editor en vivo no confirmó la conexión tras varios intentos.",
       connectionNotConfirmed:
         "El puente del editor en vivo no confirmó la conexión. ¿Sigue ejecutándose el servidor de desarrollo local?",
+      permissionPromptTitle: "Conecta tus pantallas locales",
+      permissionPromptDescription:
+        "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
+      permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
+      permissionPromptSettingsInstructions:
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+      permissionCloseTitle: "¿Cerrar la configuración?",
+      permissionCloseDescription:
+        "La edición en vivo no funcionará hasta que permitas el acceso en Chrome.",
+      permissionCloseStay: "Mantenerla abierta",
+      permissionCloseAnyway: "Cerrar de todos modos",
+      permissionPromptRetry: "Reintentar conexión",
     },
   },
   multiScreenCanvas: {

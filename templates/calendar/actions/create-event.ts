@@ -24,6 +24,7 @@ import {
   addDaysToDateKey,
   dateKeyInTimezone,
   isCalendarTimezone,
+  timezoneShortName,
 } from "../shared/timezone.js";
 import { zoomAddFailedMessages } from "../shared/zoom-add-failed-messages.js";
 import {
@@ -89,8 +90,10 @@ function eventTime(
       }).format(instant);
 }
 
-function eventTimezoneLabel(timezone: string): string {
-  return /^[+-]\d{2}:\d{2}$/.test(timezone) ? `UTC${timezone}` : timezone;
+function eventTimezoneLabel(timezone: string, locale: string): string {
+  return /^[+-]\d{2}:\d{2}$/.test(timezone)
+    ? `UTC${timezone}`
+    : timezoneShortName(timezone, locale);
 }
 
 function localizedDate(value: string, locale: string): string | undefined {
@@ -177,7 +180,7 @@ function eventChangeDetail(
     const start = localizedDate(args.start, locale);
     const end = localizedDate(args.end, locale);
     if (start && end && startTimezone) {
-      when = `${start}${start === end ? "" : `–${end}`} ${eventTimezoneLabel(startTimezone)}`;
+      when = `${start}${start === end ? "" : `–${end}`} ${eventTimezoneLabel(startTimezone, locale)}`;
     }
   } else if (
     event.allDay ||
@@ -205,8 +208,8 @@ function eventChangeDetail(
       if (localizedStart && localizedEnd) {
         when =
           startDate === endDate && startTimezone === endTimezone
-            ? `${localizedStart} · ${startTime}–${endTime} ${eventTimezoneLabel(startTimezone)}`
-            : `${localizedStart} ${startTime} ${eventTimezoneLabel(startTimezone)}–${localizedEnd} ${endTime} ${eventTimezoneLabel(endTimezone)}`;
+            ? `${localizedStart} · ${startTime}–${endTime} ${eventTimezoneLabel(startTimezone, locale)}`
+            : `${localizedStart} ${startTime} ${eventTimezoneLabel(startTimezone, locale)}–${localizedEnd} ${endTime} ${eventTimezoneLabel(endTimezone, locale)}`;
       }
     }
   }

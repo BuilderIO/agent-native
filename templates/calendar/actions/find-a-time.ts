@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
 import {
   getRequestTimezone,
   getRequestUserEmail,
@@ -20,6 +21,7 @@ import type {
   FindTimeParticipant,
   FindTimeResult,
 } from "../shared/api.js";
+import { calendarTimeChoiceChange } from "./action-chat-ui.js";
 import { listCalendarEvents } from "./list-events.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -142,6 +144,23 @@ function addCalendarEventBusyBlocks(
   }
 }
 
+function projectTimeChoice(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
+  const value = result as FindTimeResult;
+  const slot = value.slots?.[0];
+  if (
+    value.googleConnected &&
+    !value.errors?.length &&
+    slot &&
+    value.range?.timezone
+  ) {
+    return calendarTimeChoiceChange(slot.start, slot.end, value.range.timezone);
+  }
+  return null;
+}
+
 export default defineAction({
   description:
     "Find shared available time slots for a calendar event organizer and attendees using Google free/busy plus local calendar conflicts.",
@@ -195,6 +214,11 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => projectTimeChoice(result) !== null,
+    projectResult: (_args, result) => projectTimeChoice(result),
+  },
   run: async (args): Promise<FindTimeResult> => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

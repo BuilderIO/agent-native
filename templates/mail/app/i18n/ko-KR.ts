@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "받은편지함 건너뛰기",
       aiSetupSave: "설정 저장",
       aiSetupSkip: "나중에 하기",
+      aiSetupSkipSetup: "받은편지함 설정 건너뛰기",
       aiSetupImportantHeadline: "중요한 항목",
       aiSetupSkipInboxHeadline: "받은편지함을 건너뛸 항목",
       aiSetupTagsHeadline: "탭 선택",
@@ -444,6 +445,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google 계정 연결",
+      connectionNotConfigured:
+        "이 앱에는 Gmail 연결이 설정되어 있지 않습니다. 관리자에게 활성화를 요청하거나 지금은 이 단계를 건너뛰세요.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

@@ -44,6 +44,7 @@ const messages = {
       aiSetupArchiveLabel: "تجاوز البريد الوارد",
       aiSetupSave: "حفظ الإعداد",
       aiSetupSkip: "تخط الآن",
+      aiSetupSkipSetup: "تخطي إعداد البريد الوارد",
       aiSetupImportantHeadline: "ما المهم؟",
       aiSetupSkipInboxHeadline: "ما الذي يمكنه تجاوز صندوق الوارد؟",
       aiSetupTagsHeadline: "اختر علامات التبويب",
@@ -445,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "ربط حساب Google",
+      connectionNotConfigured:
+        "اتصال Gmail غير مُعدّ لهذا التطبيق. اطلب من مسؤول النظام تفعيله أو تخطَّ هذه الخطوة الآن.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

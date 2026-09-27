@@ -2029,6 +2029,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   return (
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
+      connectionAttached={agentEngine.missing}
       mobileToolbar={
         isHome ? (
           <div className="slides-home-mobile-toolbar flex min-w-0 flex-1 items-center gap-2">

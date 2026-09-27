@@ -1044,7 +1044,7 @@
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem;
+  margin-bottom: -1.875rem;
   padding-bottom: 0 !important;
 }
 
@@ -1075,7 +1075,7 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem !important;
+  margin-bottom: -1.875rem !important;
   padding-bottom: calc(0.625rem + 1.875rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
@@ -1171,6 +1171,10 @@
 
 .agent-composer-area--attached-above {
   padding-top: 0 !important;
+}
+
+.agentkit-host-composer {
+  pointer-events: auto;
 }
 
 .agent-composer-area--attached-above .agent-composer-root {

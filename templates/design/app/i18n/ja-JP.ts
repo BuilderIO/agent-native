@@ -1489,6 +1489,18 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptDescription:
+        "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
+      permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
+      permissionPromptSettingsInstructions:
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionCloseTitle: "設定を閉じますか？",
+      permissionCloseDescription:
+        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
+      permissionCloseStay: "設定を開いたままにする",
+      permissionCloseAnyway: "閉じる",
+      permissionPromptRetry: "接続を再試行",
     },
   },
   multiScreenCanvas: {

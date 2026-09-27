@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
+      aiSetupSkipSetup: "Postfacheinrichtung überspringen",
       aiSetupImportantHeadline: "Was ist wichtig?",
       aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
       aiSetupTagsHeadline: "Tabs auswählen",
@@ -456,6 +457,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
+      connectionNotConfigured:
+        "Die Gmail-Verbindung ist für diese App nicht konfiguriert. Bitte wende dich an die Administration, um sie zu aktivieren, oder überspringe diesen Schritt vorerst.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

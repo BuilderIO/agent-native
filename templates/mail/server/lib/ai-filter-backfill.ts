@@ -1540,7 +1540,6 @@ async function processRunningBatch(
       }
       if (disposition === "ignore") {
         state.processedIds.push(key);
-        if (!(await saveRunState(row.id, claimId, state, "running"))) return;
         continue;
       }
       const existingSnapshot = state.snapshots[candidate.key];
@@ -1653,7 +1652,6 @@ async function processRunningBatch(
     if (!candidateFailed) {
       state.processedThreads += 1;
       state.candidateIndex += 1;
-      if (!(await saveRunState(row.id, claimId, state, "running"))) return;
     }
   }
 
