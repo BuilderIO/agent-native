@@ -589,7 +589,7 @@ const messages = {
       skipInboxRuleHelp:
         "自然な言葉で指示を書きます。一致したメールをアーカイブして受信トレイをスキップします。",
       spamRuleHelp:
-        "自然な言葉で指示を書きます。一致したメールに迷惑メールのラベルを付けてアーカイブします。",
+        "自然な言葉で指示を書きます。Jev は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
       filteredMode: "フィルター済み",
       manageSettings: "管理",
       askJev: "Jev に相談",

@@ -584,7 +584,7 @@ const messages = {
       skipInboxRuleHelp:
         "اكتب توجيهًا بلغة طبيعية. يؤرشف Jev الرسائل المطابقة لتجاوز صندوق الوارد.",
       spamRuleHelp:
-        "اكتب توجيهًا بلغة طبيعية. يصنف Jev الرسائل المطابقة كرسائل مزعجة ويؤرشفها.",
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
       filteredMode: "مصفّى",
       manageSettings: "إدارة",
       askJev: "اسأل Jev",

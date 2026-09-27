@@ -103,7 +103,15 @@ export default function Settings() {
     conflictsSkipped: boolean;
     reason: string | null;
     registered: boolean;
-  }>("get-event-rules-status");
+  }>(
+    "get-event-rules-status",
+    {},
+    {
+      staleTime: 0,
+      // request-storm-allow: refresh this one capability query when API-key settings return from another tab.
+      refetchOnWindowFocus: true,
+    },
+  );
   const jevConnectFlow = useBuilderConnectFlow({
     trackingSource: "calendar_jev_invitation_rules",
     trackingFlow: "connect_jev",
@@ -214,6 +222,20 @@ export default function Settings() {
       { eventRules },
       {
         onSuccess: () => toast.success(t("settings.saved")),
+        onError: () => toast.error(t("settings.saveFailed")),
+      },
+    );
+  }
+
+  function handleClearSavedRules() {
+    const emptyRules = { accept: "", decline: "", hide: "" };
+    updateSettings.mutate(
+      { eventRules: emptyRules },
+      {
+        onSuccess: () => {
+          setEventRules(emptyRules);
+          toast.success(t("settings.saved"));
+        },
         onError: () => toast.error(t("settings.saveFailed")),
       },
     );
@@ -332,6 +354,9 @@ export default function Settings() {
     [t],
   );
   const hasEventRules = Object.values(eventRules).some((rule) => rule.trim());
+  const hasSavedEventRules = Object.values(settings?.eventRules ?? {}).some(
+    (rule) => rule?.trim(),
+  );
   const statusData = eventRulesStatus.data;
   const jevConfigured = statusData?.jevConfigured === true;
   const canEditEventRules =
@@ -498,6 +523,19 @@ export default function Settings() {
                 >
                   {t("settings.eventRulesSave")}
                 </Button>
+                {!eventRulesStatus.isLoading &&
+                !eventRulesStatus.isError &&
+                !jevConfigured &&
+                hasSavedEventRules ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearSavedRules}
+                    disabled={updateSettings.isPending}
+                  >
+                    {t("settings.eventRulesClearSaved")}
+                  </Button>
+                ) : null}
               </TabsContent>
               <TabsContent value="activity">
                 {settings?.eventRuleActivity?.length ? (

@@ -563,7 +563,7 @@ const messages = {
       skipInboxRuleHelp:
         "以自然語言撰寫指示。符合條件的郵件會封存並略過收件匣。",
       spamRuleHelp:
-        "以自然語言撰寫指示。符合條件的郵件會標記為垃圾郵件並封存。",
+        "以自然語言撰寫指示。Jev 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
       filteredMode: "已篩選",
       manageSettings: "管理",
       askJev: "詢問 Jev",

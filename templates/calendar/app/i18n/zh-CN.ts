@@ -255,6 +255,7 @@ export default {
     eventRulePlaceholderDecline: "例如：拒绝供应商演示和下班后的活动",
     eventRulePlaceholderHide: "例如：隐藏专注时段和提醒",
     eventRulesSave: "保存规则",
+    eventRulesClearSaved: "清除已保存的规则",
     eventRulesRecentActivity: "最近活动",
     eventRulesNoActivity: "暂无活动",
     eventRuleActivityAccepted: "已接受",

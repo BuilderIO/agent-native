@@ -586,7 +586,7 @@ const messages = {
       skipInboxRuleHelp:
         "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
       spamRuleHelp:
-        "Write a natural-language prompt. Jev labels matching mail as Spam and archives it.",
+        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
       filteredMode: "Filtered",
       manageSettings: "Manage",
       askJev: "Ask Jev",

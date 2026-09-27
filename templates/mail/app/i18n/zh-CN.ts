@@ -565,7 +565,7 @@ const messages = {
       skipInboxRuleHelp:
         "用自然语言编写指令。符合条件的邮件会被归档并跳过收件箱。",
       spamRuleHelp:
-        "用自然语言编写指令。符合条件的邮件会标记为垃圾邮件并归档。",
+        "用自然语言编写指令。Jev 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
       filteredMode: "已筛选",
       manageSettings: "管理",
       askJev: "询问 Jev",

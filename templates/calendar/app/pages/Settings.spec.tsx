@@ -6,8 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   eventRulesStatusMock,
+  eventRulesStatusOptionsMock,
   requestMeetingStartNotificationPermissionMock,
   undoEventRuleActivityMock,
+  settingsMock,
+  updateSettingsMock,
 } = vi.hoisted(() => ({
   eventRulesStatusMock: {
     data: {
@@ -26,8 +29,32 @@ const {
     isLoading: false,
     refetch: vi.fn(async () => undefined),
   },
+  eventRulesStatusOptionsMock: {
+    options: undefined as Record<string, unknown> | undefined,
+  },
   requestMeetingStartNotificationPermissionMock: vi.fn(async () => "granted"),
   undoEventRuleActivityMock: vi.fn(),
+  settingsMock: {
+    data: {
+      bookingPageDescription: "",
+      bookingPageTitle: "",
+      defaultEventDuration: 30,
+      eventRuleActivity: [
+        {
+          id: "activity-1",
+          eventId: "event-1",
+          accountEmail: "user@example.test",
+          title: "Project kickoff",
+          action: "accepted",
+          occurredAt: "2026-09-26T18:00:00.000Z",
+        },
+      ],
+      eventRules: { accept: "", decline: "", hide: "" },
+      timezone: "America/New_York",
+      weekStart: "sunday",
+    },
+  },
+  updateSettingsMock: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/changelog", () => ({
@@ -40,7 +67,14 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     isPending: false,
     mutate: undoEventRuleActivityMock,
   }),
-  useActionQuery: () => eventRulesStatusMock,
+  useActionQuery: (
+    _name: string,
+    _params?: unknown,
+    options?: Record<string, unknown>,
+  ) => {
+    eventRulesStatusOptionsMock.options = options;
+    return eventRulesStatusMock;
+  },
   actionErrorMessage: () => null,
 }));
 
@@ -220,28 +254,10 @@ vi.mock("@/hooks/use-google-auth", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: () => ({
-    data: {
-      bookingPageDescription: "",
-      bookingPageTitle: "",
-      defaultEventDuration: 30,
-      timezone: "America/New_York",
-      weekStart: "sunday",
-      eventRuleActivity: [
-        {
-          id: "activity-1",
-          eventId: "event-1",
-          accountEmail: "user@example.test",
-          title: "Project kickoff",
-          action: "accepted",
-          occurredAt: "2026-09-26T18:00:00.000Z",
-        },
-      ],
-    },
-  }),
+  useSettings: () => settingsMock,
   useUpdateSettings: () => ({
     isPending: false,
-    mutate: vi.fn(),
+    mutate: updateSettingsMock,
   }),
 }));
 
@@ -295,6 +311,9 @@ describe("Calendar Settings", () => {
     eventRulesStatusMock.isError = false;
     eventRulesStatusMock.isFetching = false;
     eventRulesStatusMock.isLoading = false;
+    eventRulesStatusOptionsMock.options = undefined;
+    settingsMock.data.eventRules = { accept: "", decline: "", hide: "" };
+    updateSettingsMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -446,6 +465,49 @@ describe("Calendar Settings", () => {
         (button) => button.textContent === "settings.eventRulesSave",
       )?.disabled,
     ).toBe(true);
+  });
+
+  it("clears saved invitation rules when Jev is disconnected", async () => {
+    eventRulesStatusMock.data = {
+      ...eventRulesStatusMock.data,
+      jevConfigured: false,
+    };
+    settingsMock.data.eventRules = {
+      accept: "Accept team meetings",
+      decline: "",
+      hide: "",
+    };
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    const clearButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "settings.eventRulesClearSaved",
+    );
+    expect(clearButton).toBeDefined();
+    await act(async () => clearButton?.click());
+
+    expect(updateSettingsMock).toHaveBeenCalledWith(
+      { eventRules: { accept: "", decline: "", hide: "" } },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("refreshes Jev status when the settings tab regains focus", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(eventRulesStatusOptionsMock.options).toMatchObject({
+      refetchOnWindowFocus: true,
+      staleTime: 0,
+    });
   });
 
   it("keeps invitation rule editing disabled when the Jev status read fails", async () => {

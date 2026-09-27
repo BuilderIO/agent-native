@@ -253,6 +253,7 @@ export default {
     eventRulePlaceholderDecline: "例如：拒絕供應商示範和下班後的活動",
     eventRulePlaceholderHide: "例如：隱藏專注時段和提醒",
     eventRulesSave: "儲存規則",
+    eventRulesClearSaved: "清除已儲存的規則",
     eventRulesRecentActivity: "最近活動",
     eventRulesNoActivity: "尚無活動",
     eventRuleActivityAccepted: "已接受",

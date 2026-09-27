@@ -595,7 +595,7 @@ const messages = {
       skipInboxRuleHelp:
         "Escreva uma instrução em linguagem natural. O Jev arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
       spamRuleHelp:
-        "Escreva uma instrução em linguagem natural. O Jev marca como spam e arquiva os e-mails correspondentes.",
+        "Escreva uma instrução em linguagem natural. O Jev adiciona a etiqueta agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
       filteredMode: "Filtrado",
       manageSettings: "Gerenciar",
       askJev: "Perguntar ao Jev",

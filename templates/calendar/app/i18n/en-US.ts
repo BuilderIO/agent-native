@@ -266,6 +266,7 @@ export default {
       "Example: Decline vendor demos and after-hours events",
     eventRulePlaceholderHide: "Example: Hide focus blocks and reminders",
     eventRulesSave: "Save rules",
+    eventRulesClearSaved: "Clear saved rules",
     eventRulesRecentActivity: "Recent activity",
     eventRulesNoActivity: "No activity yet",
     eventRuleActivityAccepted: "Accepted",

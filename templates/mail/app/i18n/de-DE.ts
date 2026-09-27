@@ -602,7 +602,7 @@ const messages = {
       skipInboxRuleHelp:
         "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
       spamRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als Spam und archiviert sie.",
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
       filteredMode: "Gefiltert",
       manageSettings: "Verwalten",
       askJev: "Jev fragen",

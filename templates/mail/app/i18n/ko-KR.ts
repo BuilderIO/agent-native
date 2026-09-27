@@ -584,7 +584,7 @@ const messages = {
       skipInboxRuleHelp:
         "자연어로 지침을 작성하세요. 일치하는 메일을 보관해 받은편지함을 건너뜁니다.",
       spamRuleHelp:
-        "자연어로 지침을 작성하세요. 일치하는 메일을 스팸으로 표시하고 보관합니다.",
+        "자연어로 지침을 작성하세요. Jev는 일치하는 메일에 agent-native-filtered 라벨을 추가하고 보관합니다. Gmail 스팸으로 보내지는 않습니다.",
       filteredMode: "필터됨",
       manageSettings: "관리",
       askJev: "Jev에게 묻기",

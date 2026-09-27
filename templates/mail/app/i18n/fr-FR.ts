@@ -600,7 +600,7 @@ const messages = {
       skipInboxRuleHelp:
         "Rédigez une consigne en langage naturel. Jev archive les messages correspondants pour ignorer la boîte de réception.",
       spamRuleHelp:
-        "Rédigez une consigne en langage naturel. Jev marque les messages correspondants comme indésirables et les archive.",
+        "Rédigez une consigne en langage naturel. Jev ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
       filteredMode: "Filtrés",
       manageSettings: "Gérer",
       askJev: "Demander à Jev",

@@ -263,6 +263,7 @@ export default {
     eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
     eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
     eventRulesSave: "규칙 저장",
+    eventRulesClearSaved: "저장된 규칙 지우기",
     eventRulesRecentActivity: "최근 활동",
     eventRulesNoActivity: "아직 활동이 없습니다",
     eventRuleActivityAccepted: "수락함",

@@ -279,6 +279,7 @@ export default {
     eventRulePlaceholderHide:
       "Beispiel: Fokuszeiten und Erinnerungen ausblenden",
     eventRulesSave: "Regeln speichern",
+    eventRulesClearSaved: "Gespeicherte Regeln löschen",
     eventRulesRecentActivity: "Letzte Aktivitäten",
     eventRulesNoActivity: "Noch keine Aktivitäten",
     eventRuleActivityAccepted: "Angenommen",

@@ -279,6 +279,7 @@ export default {
       "Exemplo: recusar demonstrações de fornecedores e eventos após o expediente",
     eventRulePlaceholderHide: "Exemplo: ocultar blocos de foco e lembretes",
     eventRulesSave: "Salvar regras",
+    eventRulesClearSaved: "Limpar regras salvas",
     eventRulesRecentActivity: "Atividade recente",
     eventRulesNoActivity: "Nenhuma atividade ainda",
     eventRuleActivityAccepted: "Aceito",

@@ -14,6 +14,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import enUS from "../../i18n/en-US";
+
 const mocks = vi.hoisted(() => ({
   rules: [] as Array<Record<string, any>>,
   decisions: [] as Array<Record<string, any>>,
@@ -295,6 +297,13 @@ describe("AiFilterSection", () => {
     expect((await screen.findByRole("tooltip")).textContent).toContain(
       `mail.aiFilter.${helpKey}`,
     );
+  });
+
+  it("describes filtered rules without promising Gmail Spam", () => {
+    const help = enUS.mail.aiFilter.spamRuleHelp;
+    expect(help).toContain("agent-native-filtered");
+    expect(help).toContain("archives");
+    expect(help).toContain("not Gmail Spam");
   });
 
   it("creates a rule from one sentence and a selected mode", async () => {

@@ -284,6 +284,7 @@ export default {
     eventRulePlaceholderHide:
       "Exemple : masquer les plages de concentration et les rappels",
     eventRulesSave: "Enregistrer les règles",
+    eventRulesClearSaved: "Effacer les règles enregistrées",
     eventRulesRecentActivity: "Activité récente",
     eventRulesNoActivity: "Aucune activité pour le moment",
     eventRuleActivityAccepted: "Accepté",

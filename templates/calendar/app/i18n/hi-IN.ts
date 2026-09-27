@@ -262,6 +262,7 @@ export default {
       "उदाहरण: विक्रेता डेमो और काम के घंटों के बाद के कार्यक्रम अस्वीकार करें",
     eventRulePlaceholderHide: "उदाहरण: फ़ोकस समय और रिमाइंडर छिपाएँ",
     eventRulesSave: "नियम सहेजें",
+    eventRulesClearSaved: "सहेजे गए नियम साफ़ करें",
     eventRulesRecentActivity: "हाल की गतिविधि",
     eventRulesNoActivity: "अभी कोई गतिविधि नहीं",
     eventRuleActivityAccepted: "स्वीकार किया",

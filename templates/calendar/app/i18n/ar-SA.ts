@@ -278,6 +278,7 @@ export default {
       "مثال: ارفض عروض الموردين والفعاليات بعد ساعات العمل",
     eventRulePlaceholderHide: "مثال: أخفِ أوقات التركيز والتذكيرات",
     eventRulesSave: "حفظ القواعد",
+    eventRulesClearSaved: "مسح القواعد المحفوظة",
     eventRulesRecentActivity: "النشاط الأخير",
     eventRulesNoActivity: "لا يوجد نشاط بعد",
     eventRuleActivityAccepted: "تم القبول",

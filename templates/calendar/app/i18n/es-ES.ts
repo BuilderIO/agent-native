@@ -281,6 +281,7 @@ export default {
     eventRulePlaceholderHide:
       "Ejemplo: Ocultar bloques de concentración y avisos",
     eventRulesSave: "Guardar reglas",
+    eventRulesClearSaved: "Borrar reglas guardadas",
     eventRulesRecentActivity: "Actividad reciente",
     eventRulesNoActivity: "Aún no hay actividad",
     eventRuleActivityAccepted: "Aceptado",

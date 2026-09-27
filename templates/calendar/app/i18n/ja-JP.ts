@@ -268,6 +268,7 @@ export default {
       "例: ベンダーのデモや営業時間外の予定を辞退する",
     eventRulePlaceholderHide: "例: 集中時間やリマインダーを非表示にする",
     eventRulesSave: "ルールを保存",
+    eventRulesClearSaved: "保存済みルールを消去",
     eventRulesRecentActivity: "最近のアクティビティ",
     eventRulesNoActivity: "まだアクティビティはありません",
     eventRuleActivityAccepted: "承諾済み",
