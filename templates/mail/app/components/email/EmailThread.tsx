@@ -2919,7 +2919,15 @@ function measureEmailDocumentHeight(doc: Document): number {
   );
 }
 
-function HtmlEmailBody({
+// Ready once parsed, not on load: load waits for every remote image, so one
+// tracking pixel that never responds would hide the email indefinitely.
+function parsedEmailFrameDocument(iframe: HTMLIFrameElement | null) {
+  const doc = iframe?.contentDocument;
+  if (!doc?.body || doc.URL !== "about:srcdoc") return null;
+  return doc.readyState === "loading" ? null : doc;
+}
+
+export function HtmlEmailBody({
   html,
   senderEmail,
   searchTerm,
@@ -2934,8 +2942,10 @@ function HtmlEmailBody({
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
-  const [iframeReady, setIframeReady] = useState(false);
-  const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
+  const [readyFrame, setReadyFrame] = useState<{
+    source: string;
+    doc: Document;
+  } | null>(null);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
@@ -2992,6 +3002,33 @@ function HtmlEmailBody({
       ),
     [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
   );
+  const frameDoc =
+    readyFrame?.source === iframeDocument ? readyFrame.doc : null;
+  const iframeReady = frameDoc !== null;
+
+  const markFrameReady = useCallback(
+    (iframe: HTMLIFrameElement | null) => {
+      const doc = parsedEmailFrameDocument(iframe);
+      if (!doc) return false;
+      setReadyFrame((current) =>
+        current?.doc === doc ? current : { source: iframeDocument, doc },
+      );
+      return true;
+    },
+    [iframeDocument],
+  );
+
+  useEffect(() => {
+    if (frameDoc) return;
+    let frame = 0;
+    const check = () => {
+      if (!markFrameReady(iframeRef.current)) {
+        frame = requestAnimationFrame(check);
+      }
+    };
+    check();
+    return () => cancelAnimationFrame(frame);
+  }, [frameDoc, markFrameReady]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -3004,10 +3041,7 @@ function HtmlEmailBody({
   };
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    const doc = iframe.contentDocument;
+    const doc = frameDoc;
     if (!doc) return;
     const head = doc.head;
     if (!head) return;
@@ -3480,20 +3514,11 @@ function HtmlEmailBody({
       window.removeEventListener("resize", resize);
       if (ownsThemeStyle) themeStyle.remove();
     };
-  }, [
-    processedEmailHtml.bodyHtml,
-    processedEmailHtml.headHtml,
-    isDark,
-    useDarkIframeCss,
-    IFRAME_BG,
-    iframeCss,
-    iframeLoadVersion,
-  ]);
+  }, [frameDoc, iframeCss, useDarkIframeCss]);
 
   useEffect(() => {
     const injectHighlights = () => {
-      const iframe = iframeRef.current;
-      const doc = iframe?.contentDocument;
+      const doc = frameDoc;
       if (!doc?.body) return;
 
       doc.querySelectorAll("mark[data-search]").forEach((mark) => {
@@ -3548,11 +3573,10 @@ function HtmlEmailBody({
 
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
+  }, [searchTerm, frameDoc]);
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    const doc = iframe?.contentDocument;
+    const doc = frameDoc;
     if (!doc?.body) return;
 
     doc.querySelectorAll("mark[data-search]").forEach((m) => {
@@ -3568,7 +3592,7 @@ function HtmlEmailBody({
       active.style.color = "#000";
       active.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [activeLocalIdx, searchTerm, iframeLoadVersion]);
+  }, [activeLocalIdx, searchTerm, frameDoc]);
 
   const showBanner =
     effectivePolicy === "block-all" &&
@@ -3625,7 +3649,10 @@ function HtmlEmailBody({
             <Skeleton className="h-3 w-[84%]" />
           </div>
         )}
+        {/* A new document gets a new frame: Safari can leave a srcdoc frame
+            blank after navigating it in place. */}
         <iframe
+          key={iframeDocument}
           ref={iframeRef}
           data-agent-native-session-replay=""
           srcDoc={iframeDocument}
@@ -3644,10 +3671,7 @@ function HtmlEmailBody({
             borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
           }}
           title={t("mail.thread.emailContent")}
-          onLoad={() => {
-            setIframeReady(true);
-            setIframeLoadVersion((version) => version + 1);
-          }}
+          onLoad={(event) => markFrameReady(event.currentTarget)}
         />
       </div>
     </div>
