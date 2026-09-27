@@ -1902,9 +1902,9 @@ describe("session replay", () => {
               id: 1,
               tagName: "img",
               attributes: {
-                src: "https://cdn.example.test/mail.png?token=signed-image&q=sender%40example.test",
+                src: "https://cdn.example.test/mail.png?token=signed-image&q=sender%40example.test,other%40example.test",
                 srcset:
-                  "https://cdn.example.test/mail-2x.png?token=signed-2x&q=sender%40example.test 2x",
+                  "https://cdn.example.test/mail-2x.png?token=signed-2x&q=sender%40example.test,other%40example.test 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=third%40example.test 3x",
               },
             },
             {
@@ -1929,7 +1929,7 @@ describe("session replay", () => {
       "https://cdn.example.test/mail.png?token=signed-image&q=%3Credacted%3E",
     );
     expect(image.attributes.srcset).toBe(
-      "https://cdn.example.test/mail-2x.png?token=signed-2x&q=%3Credacted%3E 2x",
+      "https://cdn.example.test/mail-2x.png?token=signed-2x&q=%3Credacted%3E 2x, https://cdn.example.test/mail-3x.png?token=signed-3x&q=%3Credacted%3E 3x",
     );
     expect(stylesheet.attributes.href).toBe(
       "https://cdn.example.test/mail.css?token=signed-style&q=%3Credacted%3E",
@@ -1943,7 +1943,7 @@ describe("session replay", () => {
           {
             id: 1,
             attributes: {
-              src: "https://cdn.example.test/next.png?token=rotated&q=private",
+              src: "https://cdn.example.test/next.png?token=rotated&q=private,also-private",
             },
           },
         ],

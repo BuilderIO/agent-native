@@ -1125,6 +1125,7 @@ function replayPreservedResourceAttributes(
 function scrubPreservedResourceUrl(
   value: string,
   sensitiveQueryParams: readonly string[],
+  isSrcset: boolean,
 ): string {
   if (sensitiveQueryParams.length === 0) return value;
   const sensitive = new Set(
@@ -1132,8 +1133,8 @@ function scrubPreservedResourceUrl(
   );
   // Preserve signed resource parameters while redacting app-specific secrets, including srcset URLs.
   return value.replace(
-    /([?&#])([^=&#,\s]+)=([^&#,\s]*)/g,
-    (match, separator: string, key: string) => {
+    /([?&#])([^=&#,\s]+)=([^&#\s]*)/g,
+    (match, separator: string, key: string, rawValue: string) => {
       let decodedKey: string;
       try {
         decodedKey = decodeURIComponent(key.replace(/\+/g, " "));
@@ -1141,7 +1142,7 @@ function scrubPreservedResourceUrl(
         return match;
       }
       return sensitive.has(decodedKey.toLowerCase())
-        ? `${separator}${key}=%3Credacted%3E`
+        ? `${separator}${key}=%3Credacted%3E${isSrcset && rawValue.endsWith(",") ? "," : ""}`
         : match;
     },
   );
@@ -1200,7 +1201,11 @@ function createReplayScrubReplacer(
       typeof this === "object" &&
       preservedAttributes.get(this)?.has(key.toLowerCase())
     ) {
-      return scrubPreservedResourceUrl(value, sensitiveQueryParams);
+      return scrubPreservedResourceUrl(
+        value,
+        sensitiveQueryParams,
+        key.toLowerCase() === "srcset",
+      );
     }
     return typeof value === "string"
       ? scrubStringValue(key, value, sensitiveQueryParams)
