@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPutPrivateBlob = vi.hoisted(() => vi.fn());
@@ -20,11 +21,13 @@ vi.mock("@agent-native/core/secrets/crypto", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
+  getRequestUserEmail: () => "owner@example.com",
   getRequestOrgId: (...args: unknown[]) => mockGetRequestOrgId(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
 }));
 
+import { readUserUploadedFile } from "../../actions/_uploaded-files";
 import {
   isHostedSlidesRuntime,
   readUploadedReferenceBlob,
@@ -146,6 +149,31 @@ describe("Slides uploaded reference storage", () => {
     await expect(
       readUploadedReferenceBlob(reference!, "other@example.com"),
     ).rejects.toThrow("Access denied");
+    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("stops instead of retrying a foreign reference from the storage reader", async () => {
+    const reference = await storeUploadedReferenceBlob({
+      email: "other@example.com",
+      filename: "deck.pptx",
+      data: new Uint8Array([1]),
+      mimeType: "application/octet-stream",
+    });
+    mockReadPrivateBlob.mockClear();
+
+    const error = await readUserUploadedFile(reference!).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: expect.stringContaining(
+        "not valid for this user or organization",
+      ),
+      errorCode: "permanent_precondition",
+      toolResult: expect.stringContaining("Do not retry this filePath"),
+    });
     expect(mockReadPrivateBlob).not.toHaveBeenCalled();
   });
 
