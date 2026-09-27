@@ -44,6 +44,7 @@ describe("prompt home and library", () => {
         title="Create"
         composer={<textarea defaultValue="Draft" />}
         connection={<button>Connect</button>}
+        connectionAttached
         mobileToolbar={<button>Import</button>}
         quickActions={<button>Start</button>}
       >
@@ -62,6 +63,13 @@ describe("prompt home and library", () => {
         .querySelector("textarea")
         ?.closest(".agent-prompt-home-composer"),
     ).not.toBeNull();
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(true);
     expect(container.textContent).not.toContain("Getting Started");
   });
 
@@ -72,6 +80,13 @@ describe("prompt home and library", () => {
       </main>,
     );
     expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(false);
   });
 
   it("keeps the existing composer mounted when connection or library changes", () => {
@@ -86,6 +101,13 @@ describe("prompt home and library", () => {
     );
     render(home(false));
     const textarea = container.querySelector("textarea")!;
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(false);
     textarea.value = "Unsaved user draft";
     render(home(true));
     expect(container.querySelector("textarea")).toBe(textarea);
