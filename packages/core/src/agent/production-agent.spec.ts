@@ -169,6 +169,7 @@ function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
 function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
+  timeoutMs?: number;
   allowInPlanMode?: boolean;
   planMode?: ActionEntry["planMode"];
   parallelSafe?: boolean;
@@ -194,6 +195,9 @@ function actionEntry(opts: {
           },
     },
     ...(typeof opts.readOnly === "boolean" ? { readOnly: opts.readOnly } : {}),
+    ...(typeof opts.timeoutMs === "number"
+      ? { timeoutMs: opts.timeoutMs }
+      : {}),
     ...(typeof opts.allowInPlanMode === "boolean"
       ? { allowInPlanMode: opts.allowInPlanMode }
       : {}),
@@ -7939,6 +7943,7 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-1",
               toolName: "save-data",
               toolInput: '{"content":"big payload"}',
+              isError: true,
               content: "Interrupted before this tool returned a result.",
             },
           ],
@@ -7962,6 +7967,7 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-2",
               toolName: "save-data",
               toolInput: '{"content":"big payload"}',
+              isError: true,
               content: "Interrupted before this tool returned a result.",
             },
           ],
@@ -8002,8 +8008,9 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("still runs write tools on first interruption (allows one retry)", async () => {
+  it("does not retry a write tool after an unresolved timeout", async () => {
     const writeAction = vi.fn(async () => ({ ok: true }));
+    const events: any[] = [];
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -8071,7 +8078,9 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-1",
               toolName: "save-data",
               toolInput: '{"content":"small payload"}',
-              content: "Interrupted before this tool returned a result.",
+              isError: true,
+              content:
+                "Error running save-data: Tool call timed out after 12 seconds",
             },
           ],
         },
@@ -8091,11 +8100,183 @@ describe("runAgentLoop", () => {
           run: writeAction,
         },
       },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
 
+    expect(writeAction).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
+  });
+
+  it("does not treat successful write results mentioning a timeout as interrupted", async () => {
+    const writeAction = vi.fn(
+      async () => 'Saved the note "Tool call timed out after 12 seconds".',
+    );
+    const events: any[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls < 3) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `successful-write-${streamCalls}`,
+                name: "save-data",
+                input: { content: "small payload" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "save this" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "successful-prior-write",
+              name: "save-data",
+              input: { content: "small payload" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "successful-prior-write",
+              toolName: "save-data",
+              toolInput: '{"content":"small payload"}',
+              content: 'Saved the note "Tool call timed out after 12 seconds".',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: continue`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(writeAction).toHaveBeenCalledTimes(2);
+    expect(
+      events.filter((event) => event.type === "tool_done" && event.isError),
+    ).toHaveLength(0);
+  });
+
+  it("does not repeat a write tool after it times out in the current run", async () => {
+    const writeAction = vi.fn(() => new Promise(() => {}));
+    const events: any[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-timeout-${streamCalls}`,
+              name: "save-data",
+              input: { content: "small payload" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false, timeoutMs: 1 }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
     expect(writeAction).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
   });
 
   it("passes the turn's attachments into each tool action's run context", async () => {

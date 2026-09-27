@@ -101,6 +101,8 @@ export interface RequestContext {
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;
+  /** Keep data-source credentials within the selected org, not the user. */
+  credentialScope?: "org";
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
   authUserId?: string;
@@ -511,10 +513,16 @@ export function getIntegrationRequestContext():
 export function getCredentialContext(): {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 } | null {
   const userEmail = getRequestUserEmail();
   if (!userEmail) return null;
-  return { userEmail, orgId: getRequestOrgId() ?? null };
+  const store = als.getStore();
+  return {
+    userEmail,
+    orgId: getRequestOrgId() ?? null,
+    ...(store?.credentialScope === "org" ? { credentialScope: "org" } : {}),
+  };
 }
 
 export function getRequestRunContext(): RequestRunContext | undefined {

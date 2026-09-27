@@ -67,7 +67,7 @@ import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal"
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
-import { useSqlQuery } from "@/lib/sql-query";
+import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
 import {
   resolveDualAxis,
   type ChartAxisSide,
@@ -1236,6 +1236,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  resultOverride?: SqlQueryResult;
   showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
@@ -1249,6 +1250,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  resultOverride,
   showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
@@ -1261,12 +1263,12 @@ export function SqlChart({
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const isSection = panel.chartType === "section";
   const isExtension = panel.chartType === "extension";
-  const shouldQuery = !isSection && !isExtension && loadData;
+  const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const {
-    data: result,
-    isLoading,
-    isFetching,
+    data: queryResult,
+    isLoading: queryIsLoading,
+    isFetching: queryIsFetching,
     error: queryError,
     refetch,
   } = useSqlQuery(
@@ -1276,6 +1278,9 @@ export function SqlChart({
     { enabled: shouldQuery, reportScreenshot },
   );
 
+  const result = resultOverride ?? queryResult;
+  const isLoading = resultOverride ? false : queryIsLoading;
+  const isFetching = resultOverride ? false : queryIsFetching;
   const rawRows = result?.rows ?? [];
   const error =
     rawRows.length === 0

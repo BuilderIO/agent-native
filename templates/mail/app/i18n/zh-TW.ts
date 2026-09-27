@@ -69,6 +69,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub、Vercel 和 Dependabot 的機器人與 CI 通知",
       aiSetupFilteredExample: "我尚未回覆的陌生銷售郵件和招募訊息",
       aiSetupSortingHeadline: "正在整理收件匣",
+      aiSetupFindingRecentMail: "正在尋找近期郵件…",
       aiSetupSortingProgress:
         "正在整理近期郵件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在復原收件匣變更…",
@@ -554,6 +555,7 @@ const messages = {
       settingsFailed: "無法儲存 AI 篩選設定。",
       automationRulesLoadFailed: "無法載入分類規則。",
       instructionFailed: "無法儲存 AI 篩選指示。",
+      autoArchiveMode: "自動封存",
       skipInboxMode: "略過收件匣",
       spamMode: "垃圾郵件",
       tagMode: "標籤",
@@ -571,6 +573,9 @@ const messages = {
       askJevPrompt:
         "幫我調整這條 Mail 規則：{{condition}}。先詢問我想變更什麼，再更新規則。",
       composerPlaceholder: "請 Jev 幫你整理收件匣…",
+      chatSuggestionFilter: "篩選類似這樣的郵件",
+      chatSuggestionPriority: "優先處理來自…的郵件",
+      chatSuggestionArchive: "自動封存機器人通知",
       ruleBackfillStarting: "正在將此規則套用到近期郵件…",
       ruleBackfillProgress:
         "正在套用到近期郵件：{{total}} 封中的 {{processed}} 封",
@@ -680,6 +685,9 @@ const messages = {
     suggestionSummarize: "總結我的未讀郵件",
     suggestionReplies: "今天哪些郵件需要我回覆？",
     suggestionWidget: "為我的收件箱建立自訂小元件",
+    ruleSuggestionFilter: "篩選掉這類郵件",
+    ruleSuggestionImportant: "優先處理來自我主管的郵件",
+    ruleSuggestionArchive: "自動封存機器人通知郵件",
   },
   settings: {
     openAgentSettings: "管理代理",

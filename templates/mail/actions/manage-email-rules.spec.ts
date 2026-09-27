@@ -89,6 +89,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
       "rule-1",
     ]);
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: "rule-1",
       mode: "tag",
@@ -100,6 +101,19 @@ describe("manage-email-rules chat action", () => {
       backfillStatus: "queued",
       settingsHref: "/settings?section=ai-filter",
     });
+  });
+
+  it("routes a non-agent AI rule through shared rule creation", async () => {
+    await createManageEmailRulesAction(false).run({
+      action: "create",
+      mode: "important",
+      sentence: "Messages from my team lead",
+    });
+
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({ kind: "ai-filter" }),
+    );
   });
 
   it("lists rule names and action effects with their mode classification", async () => {
@@ -148,13 +162,7 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
-  it("returns per-rule counts when the backfill has started", async () => {
-    mocks.readMailAiFilterBackfill.mockResolvedValue({
-      runId: "run-1",
-      status: "running",
-      perRule: [{ ruleId: "rule-1", name: "Newsletters", appliedCount: 2 }],
-    });
-
+  it("returns the queued start result without reading status again", async () => {
     const action = createManageEmailRulesAction(true);
     const result = await action.run({
       action: "create",
@@ -163,12 +171,14 @@ describe("manage-email-rules chat action", () => {
       actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
     });
 
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      appliedCounts: [
-        { ruleId: "rule-1", name: "Newsletters", appliedCount: 2 },
-      ],
+      appliedCounts: null,
       backfillRunId: "run-1",
-      backfillStatus: "running",
+      backfillStatus: "queued",
     });
   });
 
@@ -239,10 +249,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
       "rule-1",
     ]);
-    expect(mocks.readMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      "run-1",
-    );
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       operation: "update",
       backfillRunId: "run-1",

@@ -55,15 +55,21 @@ export const manageAiFilterBackfillInputSchema = z.discriminatedUnion(
         .optional(),
     }),
     z.object({
-      operation: z.literal("status"),
-      runId: z.string().min(1).max(64),
-    }),
-    z.object({ operation: z.literal("recent") }),
-    z.object({
       operation: z.literal("undo"),
       runId: z.string().min(1).max(64),
       undoToken: z.string().min(1).max(64),
     }),
+  ],
+);
+
+export const getAiFilterBackfillInputSchema = z.discriminatedUnion(
+  "operation",
+  [
+    z.object({
+      operation: z.literal("status"),
+      runId: z.string().min(1).max(64),
+    }),
+    z.object({ operation: z.literal("recent") }),
   ],
 );
 
