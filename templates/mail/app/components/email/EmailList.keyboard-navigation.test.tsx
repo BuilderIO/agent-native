@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   searchQuery: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
+  freezeVirtualStart: false,
   view: "all",
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
@@ -62,7 +63,10 @@ vi.mock("@tanstack/react-virtual", () => ({
     measureElement: vi.fn(),
     scrollToIndex: (index: number, options?: { align: string }) => {
       mocks.scrollToIndex(index, options);
-      if (Number.isFinite(mocks.virtualWindowSize)) {
+      if (
+        Number.isFinite(mocks.virtualWindowSize) &&
+        !mocks.freezeVirtualStart
+      ) {
         mocks.virtualStart = Math.max(
           0,
           index - Math.floor(mocks.virtualWindowSize / 2),
@@ -333,6 +337,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.searchQuery = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
+    mocks.freezeVirtualStart = false;
     mocks.view = "all";
     mocks.headerActions = null;
     mocks.automations = [];
@@ -574,6 +579,8 @@ describe("EmailList keyboard navigation interactions", () => {
       ),
     );
 
+    mocks.virtualStart = AI_PRIORITY_MAX_EMAILS - 2;
+    mocks.freezeVirtualStart = true;
     rerender(
       <Harness
         emails={[newestEmail, ...baseEmails]}
@@ -584,7 +591,14 @@ describe("EmailList keyboard navigation interactions", () => {
 
     await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(rows()[0].textContent).toContain("Subject newest-email"),
+      expect(
+        rows()
+          .slice(-2)
+          .map((row) => row.textContent),
+      ).toEqual([
+        expect.stringContaining(`Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`),
+        expect.stringContaining(`Subject email-${AI_PRIORITY_MAX_EMAILS}`),
+      ]),
     );
   });
 
