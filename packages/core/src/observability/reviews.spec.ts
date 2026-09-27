@@ -62,7 +62,10 @@ vi.mock("./store.js", () => ({
     mockGetSuccessfulToolSpansForReview(...args),
   getRecentReviewRunsForReviewGroups: (...args: unknown[]) =>
     Promise.resolve(mockGetRecentReviewRunsForReviewGroups(...args)).then(
-      normalizeReviewRows,
+      ({ runs, runThreadScopes }) => ({
+        runs: normalizeReviewRows(runs),
+        runThreadScopes,
+      }),
     ),
   getTraceSummaries: (...args: unknown[]) =>
     Promise.resolve(mockGetTraceSummaries(...args)).then(normalizeReviewRows),
@@ -150,7 +153,10 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", "A real thread"]]),
     );
     mockGetHumanReviewSummariesForThreads.mockResolvedValue(new Map());
-    mockGetRecentReviewRunsForReviewGroups.mockResolvedValue([]);
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValue({
+      runs: [],
+      runThreadScopes: [],
+    });
     mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
     mockGetFeedback.mockResolvedValue([
       {
@@ -236,16 +242,22 @@ describe("listOutputReviews", () => {
         reviewGroupRunIds: ["run-1", "run-old"],
       },
     ]);
-    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce([
-      {
-        runId: "run-1",
-        orgId: "org-a",
-        threadId: "thread-1",
-        userId: "alice@example.com",
-        model: "test-model",
-        createdAt: 123,
-      },
-    ]);
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce({
+      runs: [
+        {
+          runId: "run-1",
+          orgId: "org-a",
+          threadId: "thread-1",
+          userId: "alice@example.com",
+          model: "test-model",
+          createdAt: 123,
+        },
+      ],
+      runThreadScopes: [
+        { orgId: "org-a", runId: "run-1", threadId: "thread-1" },
+        { orgId: "org-a", runId: "run-old", threadId: "thread-old" },
+      ],
+    });
     mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
       new Map([
         [
@@ -305,7 +317,7 @@ describe("listOutputReviews", () => {
     );
   });
 
-  it("includes cross-thread executions from the same automation rollup", async () => {
+  it("includes thread-only feedback from grouped runs hidden from the picker", async () => {
     mockGetTraceSummaries.mockResolvedValueOnce([
       {
         runId: "run-new",
@@ -327,24 +339,22 @@ describe("listOutputReviews", () => {
         ],
       ]),
     );
-    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce([
-      {
-        runId: "run-new",
-        orgId: "org-a",
-        threadId: "thread-new",
-        userId: "alice@example.com",
-        model: "new-model",
-        createdAt: 200,
-      },
-      {
-        runId: "run-old",
-        orgId: "org-a",
-        threadId: "thread-old",
-        userId: "alice@example.com",
-        model: "old-model",
-        createdAt: 100,
-      },
-    ]);
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce({
+      runs: [
+        {
+          runId: "run-new",
+          orgId: "org-a",
+          threadId: "thread-new",
+          userId: "alice@example.com",
+          model: "new-model",
+          createdAt: 200,
+        },
+      ],
+      runThreadScopes: [
+        { orgId: "org-a", runId: "run-new", threadId: "thread-new" },
+        { orgId: "org-a", runId: "run-old", threadId: "thread-old" },
+      ],
+    });
     mockGetFeedback.mockResolvedValueOnce([
       {
         id: "legacy-thread-feedback",
@@ -371,12 +381,6 @@ describe("listOutputReviews", () => {
         threadId: "thread-new",
         model: "new-model",
         createdAt: 200,
-      },
-      {
-        runId: "run-old",
-        threadId: "thread-old",
-        model: "old-model",
-        createdAt: 100,
       },
     ]);
     expect(row?.feedback).toContainEqual(

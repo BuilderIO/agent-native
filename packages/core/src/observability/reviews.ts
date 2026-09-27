@@ -605,7 +605,7 @@ export async function listOutputReviews(opts: {
     runScopesByReview.set(summary.runId, scopes);
   }
   const reviewRunScopes = [...runScopesByReview.values()].flat();
-  const [updates, reviewRuns] = await Promise.all([
+  const [updates, reviewGroupRuns] = await Promise.all([
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
       perThreadLimit: 1,
@@ -617,19 +617,24 @@ export async function listOutputReviews(opts: {
       sinceMs: opts.sinceMs,
     }),
   ]);
+  const reviewRuns = reviewGroupRuns.runs;
+  const reviewThreadByRun = new Map(
+    reviewGroupRuns.runThreadScopes.map((scope) => [
+      JSON.stringify([scope.orgId, scope.runId]),
+      scope,
+    ]),
+  );
   const feedbackThreadScopes = new Map(
     threadScopes.map((threadScope) => [
       observabilityReviewThreadKey(threadScope.orgId, threadScope.threadId),
       threadScope,
     ]),
   );
-  for (const run of reviewRuns) {
-    if (!run.orgId || !run.threadId) continue;
-    const threadScope = { orgId: run.orgId, threadId: run.threadId };
-    feedbackThreadScopes.set(
-      observabilityReviewThreadKey(run.orgId, run.threadId),
-      threadScope,
-    );
+  for (const { orgId, threadId } of reviewGroupRuns.runThreadScopes) {
+    feedbackThreadScopes.set(observabilityReviewThreadKey(orgId, threadId), {
+      orgId,
+      threadId,
+    });
   }
   const feedback = await getFeedback({
     sinceMs: opts.sinceMs,
@@ -707,11 +712,19 @@ export async function listOutputReviews(opts: {
       );
       const groupedThreadKeys = new Set([
         key,
-        ...(runsByReview.get(summary.runId) ?? []).flatMap((run) =>
-          run.orgId && run.threadId
-            ? [observabilityReviewThreadKey(run.orgId, run.threadId)]
-            : [],
-        ),
+        ...reviewRunScopes.flatMap((runScope) => {
+          const scopedRun = reviewThreadByRun.get(
+            JSON.stringify([runScope.orgId, runScope.runId]),
+          );
+          return scopedRun
+            ? [
+                observabilityReviewThreadKey(
+                  scopedRun.orgId,
+                  scopedRun.threadId,
+                ),
+              ]
+            : [];
+        }),
       ]);
       const savedSummary =
         reviewRunScopes

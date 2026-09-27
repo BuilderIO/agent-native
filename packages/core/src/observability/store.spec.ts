@@ -523,10 +523,85 @@ describe("observability store: per-user isolation", () => {
         /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
       );
       expect(call.sql).toContain("(summary.org_id = ? AND summary.run_id = ?)");
-      expect(call.sql).toContain(
-        "name = 'agent_run:observability:human-review-summary'",
-      );
+      expect(call.sql).toContain("AS is_human_review_summary_run");
       expect(call.args).toEqual([100, "org-a", "run-a", "org-b", "run-a"]);
+    });
+
+    it("keeps scoped threads from summary runs without exposing those runs", async () => {
+      const pg = await createTestPglite();
+      try {
+        await pg.exec(`
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT,
+            created_at BIGINT NOT NULL
+          );
+          CREATE TABLE agent_trace_spans (
+            run_id TEXT NOT NULL, org_id TEXT, span_type TEXT NOT NULL, name TEXT NOT NULL
+          );
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT
+          );
+        `);
+        for (const run of [
+          {
+            runId: "summary-run",
+            threadId: "summary-thread",
+            createdAt: 200,
+          },
+          { runId: "normal-run", threadId: "normal-thread", createdAt: 100 },
+          { runId: "other-org-run", threadId: "other-thread", createdAt: 150 },
+        ]) {
+          const orgId = run.runId === "other-org-run" ? "org-b" : "org-a";
+          await pg.query(
+            `INSERT INTO agent_trace_summaries
+              (run_id, thread_id, user_id, org_id, created_at)
+              VALUES ($1, $2, 'alice@example.com', $3, $4)`,
+            [run.runId, run.threadId, orgId, run.createdAt],
+          );
+          await pg.query(
+            `INSERT INTO chat_threads (id, org_id, owner_email)
+              VALUES ($1, $2, 'alice@example.com')`,
+            [run.threadId, orgId],
+          );
+        }
+        await pg.query(
+          `INSERT INTO agent_trace_spans (run_id, org_id, span_type, name)
+            VALUES ('summary-run', 'org-a', 'agent_run',
+              'agent_run:observability:human-review-summary')`,
+        );
+        vi.mocked(mockDb.execute).mockImplementationOnce(async (input) => {
+          const result =
+            typeof input === "string"
+              ? await pg.query(input)
+              : await pg.query(input.sql, input.args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+
+        const result = await getRecentReviewRunsForReviewGroups({
+          runScopes: [
+            { orgId: "org-a", runId: "summary-run" },
+            { orgId: "org-a", runId: "normal-run" },
+            { orgId: "org-a", runId: "other-org-run" },
+          ],
+          sinceMs: 0,
+        });
+
+        expect(result.runs.map((run) => run.runId)).toEqual(["normal-run"]);
+        expect(result.runThreadScopes).toEqual([
+          {
+            orgId: "org-a",
+            runId: "summary-run",
+            threadId: "summary-thread",
+          },
+          {
+            orgId: "org-a",
+            runId: "normal-run",
+            threadId: "normal-thread",
+          },
+        ]);
+      } finally {
+        await pg.close();
+      }
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {

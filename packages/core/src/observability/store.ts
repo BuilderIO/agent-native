@@ -784,7 +784,10 @@ export async function getTraceSummaries(opts: {
 export async function getRecentReviewRunsForReviewGroups(opts: {
   runScopes: readonly ObservabilityReviewRunScope[];
   sinceMs: number;
-}): Promise<TraceSummary[]> {
+}): Promise<{
+  runs: TraceSummary[];
+  runThreadScopes: Array<ObservabilityReviewThreadScope & { runId: string }>;
+}> {
   const scopes = [
     ...new Map(
       opts.runScopes
@@ -792,30 +795,47 @@ export async function getRecentReviewRunsForReviewGroups(opts: {
         .map((scope) => [JSON.stringify([scope.orgId, scope.runId]), scope]),
     ).values(),
   ].slice(0, 1200);
-  if (scopes.length === 0) return [];
+  if (scopes.length === 0) return { runs: [], runThreadScopes: [] };
   await ensureObservabilityTables();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT summary.* FROM agent_trace_summaries summary
+    sql: `SELECT summary.*,
+      EXISTS (
+        SELECT 1 FROM agent_trace_spans review_span
+        WHERE review_span.run_id = summary.run_id
+          AND review_span.org_id = summary.org_id
+          AND review_span.span_type = 'agent_run'
+          AND review_span.name = 'agent_run:observability:human-review-summary'
+      ) AS is_human_review_summary_run
+      FROM agent_trace_summaries summary
       INNER JOIN chat_threads thread
         ON thread.id = summary.thread_id AND thread.org_id = summary.org_id
           AND LOWER(thread.owner_email) = LOWER(summary.user_id)
       WHERE summary.created_at >= ? AND (${scopes
         .map(() => "(summary.org_id = ? AND summary.run_id = ?)")
         .join(" OR ")})
-        AND NOT EXISTS (
-          SELECT 1 FROM agent_trace_spans review_span
-          WHERE review_span.run_id = summary.run_id
-            AND review_span.org_id = summary.org_id
-            AND review_span.span_type = 'agent_run'
-            AND review_span.name = 'agent_run:observability:human-review-summary'
-        )
       ORDER BY summary.created_at DESC, summary.run_id DESC`,
     args: [
       opts.sinceMs,
       ...scopes.flatMap(({ orgId, runId }) => [orgId, runId]),
     ],
   });
-  return (rows as Array<Record<string, unknown>>).map(rowToTraceSummary);
+  const summaries = rows as Array<Record<string, unknown>>;
+  return {
+    runs: summaries
+      .filter((row) => !row.is_human_review_summary_run)
+      .map(rowToTraceSummary),
+    runThreadScopes: summaries.flatMap((row) =>
+      row.org_id && row.run_id && row.thread_id
+        ? [
+            {
+              orgId: String(row.org_id),
+              runId: String(row.run_id),
+              threadId: String(row.thread_id),
+            },
+          ]
+        : [],
+    ),
+  };
 }
 
 export async function getTraceSummary(
