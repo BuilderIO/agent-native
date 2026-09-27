@@ -29,6 +29,7 @@ import {
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
   suggestionPresentation,
+  suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
   suggestionAmendmentTargetIsResolved,
@@ -48,7 +49,10 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
-import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
+import {
+  markdownSuggestionOperation,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
   it("attests an identified revert even when its snapshot matches the saved page", () => {
@@ -474,6 +478,20 @@ describe("document editor layout", () => {
       from: insertion.anchor.from,
       to: insertion.anchor.from + insertion.after.changedText.length,
     });
+  });
+  it("shows precise regions for an existing broad suggestion without splitting its decision", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const saved = markdownSuggestionOperation(before, after)!;
+    const precise = suggestionPresentations(
+      { id: "existing", status: "pending", operations: [saved] },
+      before,
+    );
+
+    expect(precise).toHaveLength(2);
+    expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
+    expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
+    expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -2011,7 +2029,8 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "suggestionDraftOperations(base, suggestionDraft)",
     );
-    expect(source).toContain("persistSuggestionDraftOperations(");
+    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
+    expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
     expect(source).toContain("baseRevision: base.baseRevision");
   });
@@ -2095,7 +2114,7 @@ describe("document editor layout", () => {
     expect(source).toContain("decisionRefreshInFlightRef.current = true");
     expect(source).toContain("decisionRefreshInFlightRef.current = false");
     expect(source).toMatch(
-      /decisionRefreshFailed &&\s+pendingSuggestionDecision/,
+      /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
     expect(source).toContain(
       "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
