@@ -104,10 +104,10 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
     expect(source).toContain("aiTagDisplayNames.get(tab.id) ?? tab.name");
+    expect(source).toContain("labelAliases[tag.id]?.trim() || tag.name");
     expect(source).toContain(
-      "new Map(aiTags.map((tag) => [tag.id, tag.name]))",
+      "label={labelAliases[tag.id]?.trim() || tag.name}",
     );
-    expect(source).toContain("label={tag.name}");
     expect(source).toContain('t("mail.aiFilter.chatSuggestionFilter")');
     expect(source).toContain('t("mail.aiFilter.chatSuggestionPriority")');
     expect(source).toContain('t("mail.aiFilter.chatSuggestionArchive")');

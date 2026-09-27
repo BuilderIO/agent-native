@@ -622,8 +622,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return [...tags.values()];
   }, [automations, labels]);
   const aiTagDisplayNames = useMemo(
-    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
-    [aiTags],
+    () =>
+      new Map(
+        aiTags.map((tag) => [tag.id, labelAliases[tag.id]?.trim() || tag.name]),
+      ),
+    [aiTags, labelAliases],
   );
   const hasFilteredRule = automations.some(
     (rule) =>
@@ -860,7 +863,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           tab.kind === "all"
             ? t("mail.views.all")
             : (aiTagDisplayNames.get(tab.id) ?? tab.name),
-        fullLabel: label?.name,
+        fullLabel: aiTagDisplayNames.get(tab.id) ?? label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,
@@ -2925,7 +2928,7 @@ function TabSettingsPopover({
                 <CheckboxRow
                   key={tag.id}
                   checked={pinnedLabels.includes(tag.id)}
-                  label={tag.name}
+                  label={labelAliases[tag.id]?.trim() || tag.name}
                   color={labels.find((label) => label.id === tag.id)?.color}
                   onToggle={() => onToggle(tag.id)}
                 />

@@ -516,6 +516,81 @@ describe("EmailList keyboard navigation interactions", () => {
     });
   });
 
+  it("returns messages evicted from the priority window to chronological order", async () => {
+    mocks.view = "inbox";
+    const baseEmails = Array.from(
+      { length: AI_PRIORITY_MAX_EMAILS + 1 },
+      (_, index) => ({
+        ...messages[index % messages.length],
+        id: `email-${index}`,
+        threadId: `thread-email-${index}`,
+        subject: `Subject email-${index}`,
+        date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+        labelIds: ["inbox"],
+      }),
+    );
+    const newestEmail = {
+      ...baseEmails[0]!,
+      id: "newest-email",
+      threadId: "thread-newest-email",
+      subject: "Subject newest-email",
+      date: new Date(Date.UTC(2026, 0, 21)).toISOString(),
+    };
+    mocks.priorityRequest
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === `email-${AI_PRIORITY_MAX_EMAILS - 1}` ? 0.99 : 0.2,
+          })),
+        }),
+      )
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: 0.8,
+          })),
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={baseEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain(
+        `Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`,
+      ),
+    );
+
+    rerender(
+      <Harness
+        emails={[newestEmail, ...baseEmails]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    const tailRows = rows()
+      .slice(-2)
+      .map((row) => row.textContent);
+    expect(tailRows[0]).toContain(
+      `Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`,
+    );
+    expect(tailRows[1]).toContain(`Subject email-${AI_PRIORITY_MAX_EMAILS}`);
+  });
+
   it("ignores a frozen priority order while updated rules are rescored", async () => {
     mocks.view = "inbox";
     const inboxEmails = messages.map((email) => ({

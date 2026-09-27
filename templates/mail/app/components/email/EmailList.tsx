@@ -1045,9 +1045,15 @@ export function EmailList({
     if (currentSortMode !== "priority") return chronologicalThreads;
     if (!activePriorityOrder) return rankedPriorityThreads;
     const order = new Map(
-      activePriorityOrder.keys.map((key, index) => [key, index]),
+      activePriorityOrder.keys
+        .filter((key) => priorityWindowIds.has(key))
+        .map((key, index) => [key, index]),
     );
-    const frozenPriorityKeys = new Set(activePriorityOrder.priorityKeys);
+    const frozenPriorityKeys = new Set(
+      activePriorityOrder.priorityKeys.filter((key) =>
+        priorityWindowIds.has(key),
+      ),
+    );
     return [...rankedPriorityThreads].sort((a, b) => {
       const aKey = aiPriorityEmailKey(
         a.latestMessage.accountEmail,
