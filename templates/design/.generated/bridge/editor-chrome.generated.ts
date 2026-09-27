@@ -12451,7 +12451,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               clientY,
               dragged
             );
-            if (betweenChildren) return betweenChildren;
+            if (betweenChildren && (hit === el.parentElement || isAutoLayoutElement(hit))) {
+              return betweenChildren;
+            }
             return {
               anchor: hit,
               placement: "inside",

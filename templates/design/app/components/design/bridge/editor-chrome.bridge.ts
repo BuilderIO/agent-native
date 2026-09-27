@@ -15648,7 +15648,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             clientY,
             dragged,
           );
-          if (betweenChildren) return betweenChildren;
+          if (
+            betweenChildren &&
+            (hit === el.parentElement || isAutoLayoutElement(hit))
+          ) {
+            return betweenChildren;
+          }
           return {
             anchor: hit,
             placement: "inside",

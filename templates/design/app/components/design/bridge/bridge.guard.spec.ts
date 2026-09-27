@@ -9441,6 +9441,58 @@ it(
   },
 );
 
+it("editor chrome bridge appends cross-parent drops into plain frames but keeps layout slots", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const container = {
+    parentElement: body,
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 320, bottom: 220 }),
+  } as unknown as Element;
+  const existing = { parentElement: container } as unknown as Element;
+  const sourceOutside = { parentElement: body } as unknown as Element;
+  const sourceInside = { parentElement: container } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  let autoLayout = false;
+  const slot = {
+    anchor: existing,
+    placement: "before",
+    axis: "y",
+    dropMode: "flow-insert",
+  };
+  const reorderTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("reorderTargetForPoint", "flowMoveTargetForPoint", {
+    document,
+    window: {
+      getComputedStyle: () => ({ display: "block", gridTemplateColumns: "" }),
+    },
+    elementFromEditorPoint: () => container,
+    isOverlayElement: () => false,
+    isTemplateCloneElement: () => false,
+    isAutoLayoutElement: (element: Element) =>
+      element === container && autoLayout,
+    isContainerDropTarget: (element: Element) => element === container,
+    isTextBearingLeaf: () => false,
+    edgePlacementForRect: () => null,
+    nearestChildInsertionTarget: () => slot,
+    parentFlowAxis: () => "y",
+    isAbsolutePrimitiveContainer: () => true,
+    isFreeformRelativeContainer: () => false,
+  });
+
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toMatchObject({
+    anchor: container,
+    placement: "inside",
+    dropMode: "absolute-container",
+  });
+  expect(reorderTargetForPoint(sourceInside, 20, 70)).toBe(slot);
+
+  autoLayout = true;
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
+});
+
 it("editor chrome bridge converts a body flow slot to an absolute board-root drop", () => {
   const body = { parentElement: null } as unknown as Element;
   const frame = {
