@@ -838,18 +838,18 @@ export function encodeSealedCrmCursor(offset: number): string {
 
 export function decodeSealedCrmCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
-  let value = Number.NaN;
-  try {
-    value = Number(decryptSecretValue(cursor));
-  } catch {
-    // Falls through to the error below.
-  }
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new CrmListError(
+  const unreadable = () =>
+    new CrmListError(
       "crm-list-cursor-invalid",
       "CRM list entry cursor is not readable. Restart without a cursor.",
     );
+  let value: number;
+  try {
+    value = Number(decryptSecretValue(cursor));
+  } catch (error) {
+    throw Object.assign(unreadable(), { cause: error });
   }
+  if (!Number.isSafeInteger(value) || value < 0) throw unreadable();
   return value;
 }
 
