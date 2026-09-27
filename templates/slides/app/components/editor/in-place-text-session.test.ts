@@ -546,6 +546,11 @@ describe("in-place text session: Enter", () => {
     caret(el.firstChild!, 4);
     for (let i = 0; i < 3; i++) beforeInput(el, "insertParagraph");
     type(el, "new line");
+    expect(
+      textNodes(el)
+        .filter((node) => node.data)
+        .at(-1)?.data,
+    ).toBe("new line");
     session.end();
     expect(el.innerHTML).toBe("Text<br><br><br>new line");
   });

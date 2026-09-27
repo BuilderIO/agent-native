@@ -575,6 +575,35 @@ export function installInPageHelpers(chromeSelector: string) {
     const offset = pos?.offset ?? range?.startOffset ?? 0;
     if (!node || !editor.contains(node))
       return "the click point is outside the editor";
+    const pointHitsPunctuation = () => {
+      if (!(node instanceof Text)) return false;
+      let at = 0;
+      for (const character of node.data) {
+        const from = at;
+        at += character.length;
+        if (
+          (from !== offset && at !== offset) ||
+          !/[\p{P}\p{S}]/u.test(character)
+        ) {
+          continue;
+        }
+        const glyph = document.createRange();
+        glyph.setStart(node, from);
+        glyph.setEnd(node, at);
+        if (
+          Array.from(glyph.getClientRects()).some(
+            (r) =>
+              point.x >= r.left &&
+              point.x <= r.right &&
+              point.y >= r.top &&
+              point.y <= r.bottom,
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
     let row: Element = editor;
     let marker: Element | null = null;
     for (
@@ -637,7 +666,8 @@ export function installInPageHelpers(chromeSelector: string) {
           ({ index, segment, isWordLike }) =>
             isWordLike &&
             index <= pointOffset &&
-            pointOffset <= index + segment.length,
+            // A caret at the word's end is on the following punctuation.
+            pointOffset < index + segment.length,
         );
         if (wordIndex >= 0) {
           const word = segments[wordIndex]!;
@@ -646,8 +676,19 @@ export function installInPageHelpers(chromeSelector: string) {
           localTo = wordEnd;
           const next = segments[wordIndex + 1]?.segment;
           if (next && !next.trim()) localTo += next.length;
-          if (start - rowStart > localFrom || end - rowStart < wordEnd)
-            return "double-click did not select the complete word";
+          const collapsedOnPunctuation =
+            sel.collapsed &&
+            Math.abs(start - rowStart - word.index) <= 1 &&
+            pointHitsPunctuation();
+          if (
+            !collapsedOnPunctuation &&
+            (start - rowStart > localFrom || end - rowStart < wordEnd)
+          )
+            return `double-click did not select the complete word (selection ${start - rowStart}-${end - rowStart}, click ${pointOffset}, word ${localFrom}-${wordEnd})`;
+          if (collapsedOnPunctuation) {
+            localFrom = start - rowStart;
+            localTo = end - rowStart;
+          }
         }
       }
       if (wordEnd === undefined) {

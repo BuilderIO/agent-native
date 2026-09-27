@@ -699,6 +699,24 @@ export function startInPlaceTextSession(
     );
   }
 
+  function placeholderFlags(text: Text) {
+    if (!text.data.includes(ZERO_WIDTH_SPACE)) return null;
+    const texts = textNodesIn(el);
+    const index = texts.indexOf(text);
+    return index < 0 ? null : authorFlags(texts)[index];
+  }
+
+  function isSessionPlaceholder(
+    text: Text,
+    offset: number,
+    flags = placeholderFlags(text),
+  ) {
+    return (
+      text.data[offset] === ZERO_WIDTH_SPACE &&
+      flags?.[countZwsp(text.data.slice(0, offset))] === false
+    );
+  }
+
   function keepZwsp(data: string, flags: boolean[]) {
     let index = 0;
     return data.replaceAll(ZERO_WIDTH_SPACE, (char) =>
@@ -1164,10 +1182,12 @@ export function startInPlaceTextSession(
   }
 
   function isNativeInsert(range: Range) {
+    const text = range.startContainer;
     return (
       range.collapsed &&
-      range.startContainer instanceof Text &&
-      range.startContainer.length > 0 &&
+      text instanceof Text &&
+      text.length > 0 &&
+      !placeholderFlags(text)?.some((author) => !author) &&
       !atRowTextStart(range)
     );
   }
@@ -1202,8 +1222,16 @@ export function startInPlaceTextSession(
     if (!caret || !data) return;
     const node = caret.startContainer;
     if (node instanceof Text) {
-      node.insertData(caret.startOffset, data);
-      placeCaret(node, caret.startOffset + data.length);
+      let offset = caret.startOffset;
+      const flags = placeholderFlags(node);
+      for (const candidate of [offset - 1, offset]) {
+        if (!isSessionPlaceholder(node, candidate, flags)) continue;
+        node.deleteData(candidate, 1);
+        if (candidate < offset) offset--;
+        break;
+      }
+      node.insertData(offset, data);
+      placeCaret(node, offset + data.length);
       return;
     }
     const text = document.createTextNode(data);
