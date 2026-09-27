@@ -455,16 +455,27 @@ test.describe("URL-backed live auto-layout probe", () => {
       .toBeGreaterThan(30);
 
     const focusFrame = liveFrames.first().contentFrame();
-    const readOrder = () =>
-      focusFrame
-        .locator(
-          '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((elements) =>
-          elements.map((element) =>
-            element.getAttribute("data-agent-native-node-id"),
-          ),
-        );
+    const readOrder = async () => {
+      try {
+        return await focusFrame
+          .locator(
+            '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
+          )
+          .evaluateAll((elements) =>
+            elements.map((element) =>
+              element.getAttribute("data-agent-native-node-id"),
+            ),
+          );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Frame was detached")
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
     const sourceBounds = await source.boundingBox();
