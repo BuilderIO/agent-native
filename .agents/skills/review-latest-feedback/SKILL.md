@@ -48,10 +48,10 @@ every actionable defect in that parent has a verified fix.
 
 ### Checkmark gate
 
-Add `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
-Phase 2's four bars; for a shared fix, add it to each claimed source report it
-resolves. It records a fix verified at that time; newer thread evidence
-controls the current disposition. Never remove reactions.
+`✅` is for verified **Fixed** only, after Phase 2's four bars. For a shared
+fix, add it to every claimed report it resolves. **Shipped** and **Live
+verified** alone do not qualify. Never remove reactions; newer evidence
+controls status.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -255,7 +255,8 @@ not `👀`, fix-altitude, verification, or question-budget requirements. The
 upvote overrides the bug gate, not ownership; build the smallest endorsed
 version and name Sid or Alice in the recap. Add `👀` before investigation or
 delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; only then use **Shipped** with `✅`.
+2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
+**Fixed**.
 
 Every run, exhaust oldest-first `has::eyes:` pages. Revisit active/waiting
 claims at any age, even without replies; terminal claims reopen on new evidence:

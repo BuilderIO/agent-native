@@ -800,18 +800,34 @@ export async function getDashboard(
   );
 }
 
-export async function getOrgDashboardForReview(
+export type DashboardReviewScope =
+  | { kind: "organization"; orgId: string }
+  | { kind: "super-organization"; orgId: string };
+
+export async function getDashboardForReview(
   id: string,
-  orgId: string,
+  scope: DashboardReviewScope,
 ): Promise<DashboardRecord | null> {
-  const [row] = await getDb()
-    .select()
+  const [scopeRow] = await getDb()
+    .select({
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+    })
     .from(schema.dashboards)
     .where(
-      and(eq(schema.dashboards.id, id), eq(schema.dashboards.orgId, orgId)),
+      and(
+        eq(schema.dashboards.id, id),
+        eq(schema.dashboards.orgId, scope.orgId),
+      ),
     )
     .limit(1);
-  return row ? rowToDashboard(row, "viewer") : null;
+  if (!scopeRow) return null;
+  const access = await resolveAccess("dashboard", id, {
+    userEmail: scopeRow.ownerEmail,
+    orgId: scopeRow.orgId ?? undefined,
+  });
+  if (!access || access.resource.orgId !== scopeRow.orgId) return null;
+  return rowToDashboard(access.resource, "viewer");
 }
 
 export async function getPublicDashboardMetadata(id: string) {
@@ -2420,6 +2436,31 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+}
+
+export type AnalysisReviewScope = DashboardReviewScope;
+
+export async function getAnalysisForReview(
+  id: string,
+  scope: AnalysisReviewScope,
+): Promise<AnalysisRecord | null> {
+  const [scopeRow] = await getDb()
+    .select({
+      ownerEmail: schema.analyses.ownerEmail,
+      orgId: schema.analyses.orgId,
+    })
+    .from(schema.analyses)
+    .where(
+      and(eq(schema.analyses.id, id), eq(schema.analyses.orgId, scope.orgId)),
+    )
+    .limit(1);
+  if (!scopeRow) return null;
+  const access = await resolveAccess("analysis", id, {
+    userEmail: scopeRow.ownerEmail,
+    orgId: scopeRow.orgId ?? undefined,
+  });
+  if (!access || access.resource.orgId !== scopeRow.orgId) return null;
+  return rowToAnalysis(access.resource, "viewer");
 }
 
 export async function getPublicAnalysisMetadata(id: string) {

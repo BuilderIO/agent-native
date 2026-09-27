@@ -76,6 +76,7 @@ const messages = {
       aiSetupFilteredExample:
         "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
       aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupFindingRecentMail: "Buscando e-mails recentes…",
       aiSetupSortingProgress:
         "Organizando e-mails recentes: {{processed}} de {{total}}",
       aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
@@ -584,6 +585,7 @@ const messages = {
       automationRulesLoadFailed:
         "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      autoArchiveMode: "Arquivar automaticamente",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
       tagMode: "Tag",
@@ -603,6 +605,9 @@ const messages = {
       askJevPrompt:
         "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
       composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      chatSuggestionFilter: "Filtrar mensagens como esta",
+      chatSuggestionPriority: "Priorizar e-mails de…",
+      chatSuggestionArchive: "Arquivar notificações de bots automaticamente",
       ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
       ruleBackfillProgress:
         "Aplicando aos e-mails recentes: {{processed}} de {{total}}",
@@ -725,6 +730,9 @@ const messages = {
     suggestionReplies: "O que precisa da minha resposta hoje?",
     suggestionWidget:
       "Crie um widget personalizado para minha caixa de entrada",
+    ruleSuggestionFilter: "Filtrar mensagens como esta",
+    ruleSuggestionImportant: "Priorizar e-mails do meu chefe",
+    ruleSuggestionArchive: "Arquivar notificações de bots automaticamente",
   },
   settings: {
     openAgentSettings: "Gerenciar agente",

@@ -361,7 +361,13 @@ async function runProgramPanel(
     programId: descriptor.programId,
     appId: getInitializedDataProgramsAppId() ?? ANALYTICS_APP_ID,
     params: descriptor.params,
-    ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
+    ctx: {
+      userEmail: ctx.userEmail,
+      orgId: ctx.orgId ?? null,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
+    },
     triggeredBy: "panel_view",
   });
 
@@ -454,6 +460,9 @@ export async function runDashboardPanelQuery(args: {
         {
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
+          ...(ctx.credentialScope === "org"
+            ? { credentialScope: "org" as const }
+            : {}),
         },
         {
           cache: true,

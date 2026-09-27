@@ -3159,10 +3159,14 @@ export function isCachedToolResultVisibleInContext(
 
 const INTERRUPTED_TOOL_RESULT_MARKER =
   "Interrupted before this tool returned a result.";
-const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
+const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+
+function isToolCallTimeoutResult(content: string): boolean {
+  return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
+}
 
 export interface TerminalActionStop {
   message: string;
@@ -3198,7 +3202,8 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
-        part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER)
+        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
+          (part.isError === true && isToolCallTimeoutResult(part.content)))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -5853,15 +5858,20 @@ export async function runAgentLoop(opts: {
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
 
-        if (priorInterruptions > 0 && opts.threadId) {
-          const ledgerResult = await waitForInterruptedToolLedgerEntry({
-            threadId: opts.threadId,
-            toolKey: writeCacheKey,
-            toolName: toolCall.name,
-            timeoutMs: toolTimeoutMs,
-            signal,
-            send,
-          });
+        if (priorInterruptions > 0) {
+          const ledgerResult = opts.threadId
+            ? await waitForInterruptedToolLedgerEntry({
+                threadId: opts.threadId,
+                toolKey: writeCacheKey,
+                toolName: toolCall.name,
+                timeoutMs: Math.min(
+                  toolTimeoutMs,
+                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
+                ),
+                signal,
+                send,
+              })
+            : null;
           if (ledgerResult !== null) {
             const result =
               `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
@@ -5915,13 +5925,9 @@ export async function runAgentLoop(opts: {
               content: result,
             };
           }
-        }
-
-        if (priorInterruptions >= MAX_WRITE_TOOL_INTERRUPTIONS) {
           const result =
-            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in this session — ` +
-            `likely a connection timeout with a large payload. Please start a new chat and try again, ` +
-            `or split the request into smaller pieces.`;
+            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
+            `I stopped without running it again. Check whether it completed before asking me to retry.`;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -5935,15 +5941,13 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             isError: true,
-            completedSideEffect: false,
           });
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in a row. ` +
-              `This usually means the connection timed out while processing a large request. ` +
-              `Please start a new chat and try again, or break the request into smaller parts.`,
-            errorCode: "repeated_write_tool_interruption",
+              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) and its result is unknown. ` +
+              `Check whether it completed before asking me to retry.`,
+            errorCode: "write_tool_outcome_unknown",
           };
           return {
             type: "tool-result" as const,
@@ -6401,6 +6405,18 @@ export async function runAgentLoop(opts: {
             result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
+        }
+        if (
+          !actionEntry.readOnly &&
+          isError &&
+          typeof result === "string" &&
+          isToolCallTimeoutResult(result)
+        ) {
+          const key = toolCallCacheKey(toolCall.name, toolCall.input);
+          writeToolInterruptions.set(
+            key,
+            (writeToolInterruptions.get(key) ?? 0) + 1,
+          );
         }
         if (isError) {
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {

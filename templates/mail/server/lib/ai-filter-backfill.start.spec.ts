@@ -208,7 +208,6 @@ vi.mock("./automation-engine.js", () => ({
   evaluateAiFilterBackfillRules: mocks.evaluateAiFilterBackfillRules,
 }));
 vi.mock("./automations.js", () => ({
-  assertMailJevEnabled: vi.fn(),
   listAutomationRules: mocks.listAutomationRules,
 }));
 vi.mock("./automation-actions.js", () => ({
@@ -396,6 +395,15 @@ describe("startMailAiFilterBackfill", () => {
     mocks.mutateUserSetting.mockResolvedValue(undefined);
     mocks.buildLabelCache.mockResolvedValue(new Map());
     mocks.ensureGmailLabel.mockResolvedValue("label-id");
+  });
+
+  it("queues without synchronously resolving model availability", async () => {
+    mocks.rules = [rule("rule-a")];
+
+    const result = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+
+    expect(result).toMatchObject({ status: "queued" });
+    expect(database.rows).toHaveLength(1);
   });
 
   it("rejects an omitted selection above the enabled-rule limit before inserting a run", async () => {

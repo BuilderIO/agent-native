@@ -20,6 +20,16 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("dynamicSuggestions={false}");
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
+    expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
+  });
+
   it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
@@ -119,9 +129,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("mergeOptimisticInboxTabCounts(");
     expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
+    expect(source).toContain("const aiTagName = aiTagDisplayNames.get(tab.id)");
     expect(source).toContain(
-      'tab.kind === "all" ? t("mail.views.all") : tab.name',
+      "new Map(aiTags.map((tag) => [tag.id, tag.name]))",
     );
+    expect(source).toContain("fullLabel: aiTagName ?? label?.name");
+    expect(source).toContain("labelAliases[tag.id]?.trim() || tag.name");
+    expect(source).toContain(
+      "label={labelAliases[tag.id]?.trim() || tag.name}",
+    );
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
+    expect(source).toContain("hasFilteredRule || hasFilteredLabel");
     expect(source).toContain("allTabVisible={showAllTab}");
     expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
     expect(source).not.toContain('"relative hidden sm:block"');
@@ -369,6 +389,36 @@ describe("AppLayout inbox tab bar", () => {
       "useLabels(\n    activeAccounts.size > 0 ? [...activeAccounts] : undefined,\n  )",
     );
     expect(source).toContain("accountEmails: inboxAccountEmails,");
+  });
+
+  it("exposes Filtered as a system view when its rule, label, or pin exists", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      "data: connectedLabelsData, accountErrors: connectedLabelErrors, isError: connectedLabelsFailed, } = useLabels();",
+    );
+    expect(source).toContain("connectedLabelsFailed ||");
+    expect(source).toContain("Boolean(connectedLabelErrors?.length)");
+    expect(source).toContain(
+      "[connectedLabelsData ?? EMPTY_LABELS, labels].some(",
+    );
+    expect(source).toContain(
+      "const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;",
+    );
+    expect(source).toContain(
+      "hasFilteredRule || hasFilteredLabel || hasFilteredPin",
+    );
+    expect(source).toContain(
+      'id: AI_FILTER_LABEL, labelKey: "mail.aiFilter.filteredMode"',
+    );
+    expect(source).toContain(
+      "return pinnedLabels .filter((id) => systemViews.some((v) => v.id === id))",
+    );
+    expect(source).toContain("label: t(sysView.labelKey)");
+    expect(source).toContain(
+      "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
+    );
+    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {

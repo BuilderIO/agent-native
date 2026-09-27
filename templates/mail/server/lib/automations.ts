@@ -7,11 +7,13 @@ import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import { resolvePinnedLabels } from "../../app/lib/inbox-tabs.js";
 import {
   aiFilterRuleLabelName,
   aiFilterRuleMode,
   normalizedAiFilterLabelId,
 } from "../../shared/ai-filter-rules.js";
+import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import type {
   AutomationAction,
   AutomationRule,
@@ -19,7 +21,7 @@ import type {
 } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
-import { getClientsWithErrors } from "./google-auth.js";
+import { getClientsWithErrors, isConnected } from "./google-auth.js";
 import { readCachedLabels } from "./inbox-store.js";
 import { normalizeMailSettings } from "./mail-settings.js";
 
@@ -34,21 +36,26 @@ function aiTagLabel(
   return aiFilterRuleLabelName(rule).trim() || null;
 }
 
-async function existingAiTagLabelIds(ownerEmail: string): Promise<Set<string>> {
+async function existingAiFilterRuleState(ownerEmail: string): Promise<{
+  tagLabelIds: Set<string>;
+  hasFilteredRule: boolean;
+}> {
   const rules = await db
     .select()
     .from(schema.automationRules)
     .where(eq(schema.automationRules.ownerEmail, ownerEmail));
-  return new Set(
-    rules.flatMap((rule: any) => {
-      const labelName = aiTagLabel(
-        rule.domain,
-        rule.kind,
-        JSON.parse(rule.actions) as AutomationAction[],
-      );
-      return labelName ? [normalizedAiFilterLabelId(labelName)] : [];
-    }),
-  );
+  const tagLabelIds = new Set<string>();
+  let hasFilteredRule = false;
+  for (const rule of rules as any[]) {
+    const actions = JSON.parse(rule.actions) as AutomationAction[];
+    const mode = aiFilterRuleMode({ actions });
+    if (rule.domain === "mail" && rule.kind === "ai-filter") {
+      hasFilteredRule ||= mode === "filtered";
+    }
+    const labelName = aiTagLabel(rule.domain, rule.kind, actions);
+    if (labelName) tagLabelIds.add(normalizedAiFilterLabelId(labelName));
+  }
+  return { tagLabelIds, hasFilteredRule };
 }
 
 function labelsFromSetting(value: unknown): Label[] {
@@ -68,15 +75,18 @@ async function reconcileAiTagPins(
   ownerEmail: string,
   changedLabels: string[],
   newlyAddedLabels: string[] = [],
+  autoPinFilteredView = false,
 ): Promise<void> {
-  const [rules, storedLabels, cachedLabels] = await Promise.all([
-    db
-      .select()
-      .from(schema.automationRules)
-      .where(eq(schema.automationRules.ownerEmail, ownerEmail)),
-    getUserSetting(ownerEmail, "labels"),
-    readCachedLabels(ownerEmail).then((result) => result.labels),
-  ]);
+  const [rules, storedLabels, cachedLabels, googleConnected] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.automationRules)
+        .where(eq(schema.automationRules.ownerEmail, ownerEmail)),
+      getUserSetting(ownerEmail, "labels"),
+      readCachedLabels(ownerEmail).then((result) => result.labels),
+      isConnected(ownerEmail),
+    ]);
   const knownLabels = [...cachedLabels, ...labelsFromSetting(storedLabels)];
   const tags = new Map<string, string>();
   for (const rule of rules as any[]) {
@@ -111,7 +121,9 @@ async function reconcileAiTagPins(
 
   await mutateUserSetting(ownerEmail, "mail-settings", (current) => {
     const settings = normalizeMailSettings(current, ownerEmail);
-    const pinned = [...new Set(settings.pinnedLabels ?? [])];
+    const pinned = [
+      ...new Set(resolvePinnedLabels(settings.pinnedLabels, googleConnected)),
+    ];
     const newLabelIds = new Set(
       newlyAddedLabels.map(normalizedAiFilterLabelId),
     );
@@ -133,6 +145,24 @@ async function reconcileAiTagPins(
       ) {
         pinned.push(canonicalId(tags.get(normalized)!));
       }
+    }
+    const filteredAliases = aliasesFor(AI_FILTER_LABEL);
+    const existingPinIndex = pinned.findIndex((id) =>
+      filteredAliases.has(normalizedAiFilterLabelId(id)),
+    );
+    if (existingPinIndex !== -1) {
+      pinned[existingPinIndex] = AI_FILTER_LABEL;
+      for (
+        let index = pinned.length - 1;
+        index > existingPinIndex;
+        index -= 1
+      ) {
+        if (filteredAliases.has(normalizedAiFilterLabelId(pinned[index]))) {
+          pinned.splice(index, 1);
+        }
+      }
+    } else if (autoPinFilteredView) {
+      pinned.push(AI_FILTER_LABEL);
     }
     return { ...settings, pinnedLabels: pinned } as unknown as Record<
       string,
@@ -264,14 +294,17 @@ export async function createAutomationRule(
   const domain = input.domain ?? "mail";
   const kind = input.kind ?? "automation";
   let existingTagIds = new Set<string>();
+  let hadFilteredRule = false;
   if (domain === "mail" && kind === "ai-filter") {
-    await assertMailJevEnabled(ownerEmail);
     assertAiFilterActions(input.actions);
     const tagLabel = aiTagLabel(domain, kind, input.actions);
-    if (tagLabel) {
-      existingTagIds = await existingAiTagLabelIds(ownerEmail);
-      await ensureAiTagLabelExists(ownerEmail, tagLabel);
+    const mode = aiFilterRuleMode({ actions: input.actions });
+    if (tagLabel || mode === "filtered") {
+      const existingRules = await existingAiFilterRuleState(ownerEmail);
+      existingTagIds = existingRules.tagLabelIds;
+      hadFilteredRule = existingRules.hasFilteredRule;
     }
+    if (tagLabel) await ensureAiTagLabelExists(ownerEmail, tagLabel);
   }
   const now = Math.floor(Date.now() / 1_000);
   const rule = {
@@ -290,11 +323,19 @@ export async function createAutomationRule(
   await db.insert(schema.automationRules).values(rule as any);
   const result = toApiRule(rule);
   const tagLabel = aiTagLabel(result.domain, result.kind, result.actions);
-  if (tagLabel) {
+  if (
+    tagLabel ||
+    (result.domain === "mail" &&
+      result.kind === "ai-filter" &&
+      aiFilterRuleMode(result) === "filtered")
+  ) {
     await reconcileAiTagPins(
       ownerEmail,
-      [tagLabel],
-      existingTagIds.has(normalizedAiFilterLabelId(tagLabel)) ? [] : [tagLabel],
+      tagLabel ? [tagLabel] : [],
+      tagLabel && !existingTagIds.has(normalizedAiFilterLabelId(tagLabel))
+        ? [tagLabel]
+        : [],
+      !hadFilteredRule && aiFilterRuleMode(result) === "filtered",
     );
   }
   return result;
@@ -318,23 +359,20 @@ export async function updateAutomationRule(
     .where(ownedRule(ownerEmail, id));
   if (!existing) throw new Error("Rule not found");
 
-  const existingIsMailAiFilter =
-    existing.domain === "mail" &&
-    (existing.kind ?? "automation") === "ai-filter";
   const nextDomain = patch.domain ?? existing.domain;
   const nextKind = patch.kind ?? existing.kind ?? "automation";
   const disableOnly =
     Object.keys(patch).length === 1 && patch.enabled === false;
   const nextIsMailAiFilter = nextDomain === "mail" && nextKind === "ai-filter";
-  if ((existingIsMailAiFilter || nextIsMailAiFilter) && !disableOnly) {
-    await assertMailJevEnabled(ownerEmail);
-  }
   const nextActions =
     patch.actions ?? (JSON.parse(existing.actions) as AutomationAction[]);
   if (nextIsMailAiFilter && !disableOnly) {
     assertAiFilterActions(nextActions);
   }
   const existingActions = JSON.parse(existing.actions) as AutomationAction[];
+  const previousMode = aiFilterRuleMode({ actions: existingActions });
+  const nextMode =
+    nextIsMailAiFilter && aiFilterRuleMode({ actions: nextActions });
   const oldTagLabel = aiTagLabel(
     existing.domain,
     existing.kind,
@@ -346,10 +384,13 @@ export async function updateAutomationRule(
     ? normalizedAiFilterLabelId(nextTagLabel)
     : null;
   const tagChanged = oldTagId !== nextTagId;
-  const existingTagIds =
-    nextTagLabel && tagChanged
-      ? await existingAiTagLabelIds(ownerEmail)
-      : new Set<string>();
+  const enteringFiltered =
+    previousMode !== "filtered" && nextMode === "filtered";
+  const existingRules =
+    (nextTagLabel && tagChanged) || enteringFiltered
+      ? await existingAiFilterRuleState(ownerEmail)
+      : undefined;
+  const existingTagIds = existingRules?.tagLabelIds ?? new Set<string>();
   if (nextTagLabel && tagChanged) {
     await ensureAiTagLabelExists(ownerEmail, nextTagLabel);
   }
@@ -382,13 +423,14 @@ export async function updateAutomationRule(
   if (!updated) throw new Error("Rule not found");
   const result = toApiRule(updated);
   const nextTag = aiTagLabel(result.domain, result.kind, result.actions);
-  if (tagChanged) {
+  if (tagChanged || enteringFiltered) {
     await reconcileAiTagPins(
       ownerEmail,
       [oldTagLabel, nextTag].filter((label): label is string => label !== null),
       nextTag && !existingTagIds.has(normalizedAiFilterLabelId(nextTag))
         ? [nextTag]
         : [],
+      enteringFiltered && !existingRules?.hasFilteredRule,
     );
   }
   return result;
@@ -428,7 +470,6 @@ export async function consolidateAutomationRules(
     actions: AutomationAction[];
   },
 ): Promise<boolean> {
-  await assertMailJevEnabled(ownerEmail);
   assertAiFilterActions(input.actions);
   const ids = [input.id, ...input.duplicateIds];
   if (new Set(ids).size !== ids.length) return false;
