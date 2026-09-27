@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: netlify-pr-preview-${{ github.event.pull_request.number || github.event.issue.number }}-${{ (github.event_name == 'pull_request_target' || (startsWith(github.event.comment.body, '/preview ') && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))) && 'shared' || github.run_id }}
+  group: >-
+    netlify-pr-preview-${{ github.event.pull_request.number || github.event.issue.number }}-${{ (github.event_name == 'pull_request_target' || (github.event.issue.pull_request && github.event.issue.state == 'open' && contains(fromJSON('["OWNER","MEMBER"]'), github.event.issue.author_association) && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) && github.event.comment.user.type == 'User' && contains(fromJSON('["/preview analytics","/preview assets","/preview calendar","/preview clips","/preview content","/preview design","/preview dispatch","/preview forms","/preview mail","/preview plan","/preview slides","/preview starter","/preview fw"]'), github.event.comment.body))) && 'shared' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:

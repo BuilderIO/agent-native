@@ -24,6 +24,7 @@ import {
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
+import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -220,6 +221,20 @@ describe("Netlify PR preview workflow guard", () => {
       String(preview.concurrency.group),
       /github\.event\.pull_request\.number/,
     );
+    assert.match(
+      String(preview.concurrency.group),
+      /github\.event\.issue\.state == 'open'/,
+    );
+    assert.match(
+      String(preview.concurrency.group),
+      /github\.event\.issue\.author_association/,
+    );
+    assert.equal(
+      String(preview.concurrency.group).includes(
+        `fromJSON('${JSON.stringify(previewEligibleSiteNames().map((site) => `/preview ${site}`))}')`,
+      ),
+      true,
+    );
     assert.equal(
       preview.concurrency["cancel-in-progress"],
       "${{ github.event_name == 'pull_request_target' }}",
@@ -317,6 +332,12 @@ describe("Netlify PR preview workflow guard", () => {
         "${{ github.event_name == 'pull_request_target' }}",
         "${{ github.event_name == 'issue_comment' }}",
       ],
+      ["github.event.issue.state == 'open'", "false"],
+      [
+        "github.event.issue.author_association",
+        "github.event.comment.author_association",
+      ],
+      ["/preview analytics", "/preview unknown"],
       ["types: [closed]", "types: [opened]"],
     ]) {
       assert.notDeepEqual(mutate(needle, replacement), []);

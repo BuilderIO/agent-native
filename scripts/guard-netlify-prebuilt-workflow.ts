@@ -238,6 +238,9 @@ export function validateNetlifyPrPreviewWorkflow(
   const pullRequestTarget = asRecord(triggers?.pull_request_target);
   const pullRequestTargetTypes = pullRequestTarget?.types;
   const concurrency = asRecord(workflow.concurrency);
+  const previewCommands = JSON.stringify(
+    previewEligibleSiteNames().map((site) => `/preview ${site}`),
+  );
   const authorize = asRecord(jobs?.authorize);
   const authorizeSteps =
     (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
@@ -298,6 +301,12 @@ export function validateNetlifyPrPreviewWorkflow(
     typeof concurrency?.group !== "string" ||
     !concurrency.group.includes("github.event.pull_request.number") ||
     !concurrency.group.includes("github.event.issue.number") ||
+    !concurrency.group.includes("github.event.issue.pull_request") ||
+    !concurrency.group.includes("github.event.issue.state == 'open'") ||
+    !concurrency.group.includes("github.event.issue.author_association") ||
+    !concurrency.group.includes("github.event.comment.author_association") ||
+    !concurrency.group.includes("github.event.comment.user.type == 'User'") ||
+    !concurrency.group.includes(`fromJSON('${previewCommands}')`) ||
     concurrency["cancel-in-progress"] !==
       "${{ github.event_name == 'pull_request_target' }}"
   ) {
