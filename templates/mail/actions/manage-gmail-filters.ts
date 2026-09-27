@@ -590,6 +590,20 @@ export default defineAction({
         typeof (filter as Record<string, unknown>).actionSummary === "string"
       );
     },
+    projectResult: (_args, result) => {
+      const record = result as Record<string, unknown>;
+      const filter = record.filter as Record<string, unknown>;
+      return {
+        ok: record.ok,
+        message: record.message,
+        accountEmail: record.accountEmail,
+        filter: {
+          id: filter.id,
+          criteriaSummary: filter.criteriaSummary,
+          actionSummary: filter.actionSummary,
+        },
+      };
+    },
   },
   run: async (args) => {
     const accounts = await allAccounts();

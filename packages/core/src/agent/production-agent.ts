@@ -895,16 +895,25 @@ export interface ActionEntry {
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
 
+interface ResolvedActionChatUI {
+  chatUI: Omit<
+    import("../action-ui.js").ActionChatUIConfig,
+    "when" | "projectResult"
+  >;
+  result: unknown;
+}
+
 function actionChatUIForResult(
   actionName: string,
   actionEntry: ActionEntry,
   args: Record<string, unknown>,
   result: unknown,
   isError: boolean,
-): Omit<import("../action-ui.js").ActionChatUIConfig, "when"> | undefined {
+  storedWidgetResult = false,
+): ResolvedActionChatUI | undefined {
   const chatUI = actionEntry.chatUI;
   if (!chatUI || isError) return undefined;
-  if (chatUI.when) {
+  if (!storedWidgetResult && chatUI.when) {
     try {
       if (!chatUI.when(args, result)) return undefined;
     } catch (error) {
@@ -915,10 +924,25 @@ function actionChatUIForResult(
       return undefined;
     }
   }
+  let widgetResult = result;
+  if (!storedWidgetResult && chatUI.projectResult) {
+    try {
+      widgetResult = chatUI.projectResult(args, result);
+    } catch (error) {
+      console.warn(
+        `Could not project chatUI result for ${actionName}; omitting the widget.`,
+        error,
+      );
+      return undefined;
+    }
+  }
   return {
-    renderer: chatUI.renderer,
-    ...(chatUI.title ? { title: chatUI.title } : {}),
-    ...(chatUI.description ? { description: chatUI.description } : {}),
+    chatUI: {
+      renderer: chatUI.renderer,
+      ...(chatUI.title ? { title: chatUI.title } : {}),
+      ...(chatUI.description ? { description: chatUI.description } : {}),
+    },
+    result: widgetResult,
   };
 }
 
@@ -5826,17 +5850,18 @@ export async function runAgentLoop(opts: {
               ledgerResult.result,
               ledgerResult.resultIsString,
             );
-            const recoveredChatUIResult =
-              "chatUIResult" in ledgerResult
-                ? { value: ledgerResult.chatUIResult }
-                : recoveredActionResult;
-            const chatUI = recoveredChatUIResult
+            const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
+            const recoveredChatUIResult = hasStoredChatUIResult
+              ? { value: ledgerResult.chatUIResult }
+              : recoveredActionResult;
+            const resolvedChatUI = recoveredChatUIResult
               ? actionChatUIForResult(
                   toolCall.name,
                   actionEntry,
                   toolCall.input as Record<string, unknown>,
                   recoveredChatUIResult?.value,
                   false,
+                  hasStoredChatUIResult,
                 )
               : undefined;
             send({
@@ -5855,9 +5880,9 @@ export async function runAgentLoop(opts: {
               ...(ledgerResult.artifacts.length > 0
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
-              ...(chatUI ? { chatUI } : {}),
-              ...(chatUI && recoveredChatUIResult
-                ? { chatUIResult: recoveredChatUIResult.value }
+              ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+              ...(resolvedChatUI
+                ? { chatUIResult: resolvedChatUI.result }
                 : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
@@ -6226,7 +6251,7 @@ export async function runAgentLoop(opts: {
                   zombieArtifacts,
                   typeof zombieResultForAgent === "string",
                   zombieChatUI
-                    ? JSON.stringify(zombieResultForAgent)
+                    ? JSON.stringify(zombieChatUI.result)
                     : undefined,
                 );
               })
@@ -6370,7 +6395,7 @@ export async function runAgentLoop(opts: {
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
 
-        const chatUI = actionChatUIForResult(
+        const resolvedChatUI = actionChatUIForResult(
           toolCall.name,
           actionEntry,
           toolCall.input as Record<string, unknown>,
@@ -6413,8 +6438,8 @@ export async function runAgentLoop(opts: {
               ? { completedSideEffect: true }
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
-          ...(chatUI ? { chatUI } : {}),
-          ...(chatUI ? { chatUIResult } : {}),
+          ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+          ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });

@@ -143,7 +143,30 @@ describe("tool-call result ledger", () => {
     // meaning the zombie .then() fires. With threadId set, writeLedgerEntry
     // must be called with the thread + tool key.
     const action = makeWriteAction();
-    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue("zombie-result");
+    const actionResult = {
+      draft: {
+        subject: "Launch notes",
+        to: "ana@example.test",
+        body: "x".repeat(70_000),
+      },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const widgetResult = {
+      draft: { subject: "Launch notes", to: "ana@example.test" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    (action.run as ReturnType<typeof vi.fn>).mockResolvedValue(actionResult);
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, result) => Boolean(result && typeof result === "object"),
+      projectResult: (_args, result) => {
+        const record = result as typeof actionResult;
+        return {
+          draft: { subject: record.draft.subject, to: record.draft.to },
+          deepLink: record.deepLink,
+        };
+      },
+    };
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { payload: "x" }),
@@ -160,10 +183,10 @@ describe("tool-call result ledger", () => {
     expect(writeLedgerMock).toHaveBeenCalledWith(
       "thread-zombie",
       expect.stringContaining("save-data"),
-      "zombie-result",
+      JSON.stringify(actionResult, null, 2),
       [],
-      true,
-      undefined,
+      false,
+      JSON.stringify(widgetResult),
     );
   });
 
@@ -292,7 +315,11 @@ describe("tool-call result ledger", () => {
 
   it("emits raw structured results for matching action widgets", async () => {
     const result = {
-      draft: { subject: "Launch notes" },
+      draft: { subject: "Launch notes", to: "ana@example.test", body: "x" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const widgetResult = {
+      draft: { subject: "Launch notes", to: "ana@example.test" },
       deepLink: "/_agent-native/open?composeDraftId=draft-1",
     };
     const action = makeWriteAction();
@@ -301,6 +328,13 @@ describe("tool-call result ledger", () => {
       renderer: "mail.draft-created",
       when: (_args, value) =>
         Boolean(value) && typeof value === "object" && "deepLink" in value,
+      projectResult: (_args, value) => {
+        const record = value as typeof result;
+        return {
+          draft: { subject: record.draft.subject, to: record.draft.to },
+          deepLink: record.deepLink,
+        };
+      },
     };
     const events: any[] = [];
 
@@ -321,7 +355,7 @@ describe("tool-call result ledger", () => {
     expect(events.find((event) => event.type === "tool_done")).toMatchObject({
       result: JSON.stringify(result, null, 2),
       chatUI: { renderer: "mail.draft-created" },
-      chatUIResult: result,
+      chatUIResult: widgetResult,
     });
     expect(writeLedgerMock).toHaveBeenCalledWith(
       "thread-structured-widget",
@@ -329,7 +363,7 @@ describe("tool-call result ledger", () => {
       JSON.stringify(result, null, 2),
       [],
       false,
-      JSON.stringify(result),
+      JSON.stringify(widgetResult),
     );
   });
 
@@ -433,7 +467,6 @@ describe("tool-call result ledger", () => {
 
     expect(action.run).not.toHaveBeenCalled();
 
-    // Recovery context does not trim the stored result.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -468,7 +501,7 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("evaluates chatUI.when against the full recovered result when the ledger summary is truncated", async () => {
+  it("restores a projected widget result without re-evaluating its predicate", async () => {
     const input = {
       action: "create",
       subject: "Launch notes",
@@ -477,7 +510,6 @@ describe("tool-call result ledger", () => {
     const result = {
       draft: { subject: input.subject, to: input.to },
       deepLink: "/_agent-native/open?composeDraftId=draft-1",
-      detail: "x".repeat(12_000),
     };
     readLedgerMock.mockResolvedValue({
       result: '{"draft":[ledger truncated at 8000 chars]',
@@ -489,11 +521,10 @@ describe("tool-call result ledger", () => {
     const action = makeWriteAction();
     action.chatUI = {
       renderer: "mail.draft-created",
-      when: (args, result) =>
-        args.action === "create" &&
-        Boolean(result) &&
-        typeof result === "object" &&
-        typeof (result as Record<string, unknown>).deepLink === "string",
+      when: vi.fn(() => false),
+      projectResult: vi.fn(() => {
+        throw new Error("stored widget result must not be projected again");
+      }),
     };
     const events: any[] = [];
 
@@ -544,6 +575,8 @@ describe("tool-call result ledger", () => {
     });
 
     expect(action.run).not.toHaveBeenCalled();
+    expect(action.chatUI.when).not.toHaveBeenCalled();
+    expect(action.chatUI.projectResult).not.toHaveBeenCalled();
     const toolDone = events.find((event: any) => event.type === "tool_done");
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
     expect(toolDone?.chatUIResult).toEqual(result);

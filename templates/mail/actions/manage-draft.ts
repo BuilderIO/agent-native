@@ -158,6 +158,14 @@ export default defineAction({
         typeof record.draft === "object"
       );
     },
+    projectResult: (_args, result) => {
+      const record = result as Record<string, unknown>;
+      const draft = record.draft as Record<string, unknown>;
+      return {
+        draft: { subject: draft.subject, to: draft.to },
+        deepLink: record.deepLink,
+      };
+    },
   },
   mcpApp: {
     compactCatalog: true,
