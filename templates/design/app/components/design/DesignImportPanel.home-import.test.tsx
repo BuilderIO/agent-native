@@ -46,7 +46,8 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => mocks.fileStorageStatus,
 }));
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => <div data-testid="file-storage-setup" />,
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="file-storage-setup" /> : null,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({

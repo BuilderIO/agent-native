@@ -51,7 +51,6 @@ import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,7 +60,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -1059,23 +1057,13 @@ export default function EditorToolbar({
         onChange={handleImportFile}
         className="hidden"
       />
-      <Dialog open={showStorageSetup} onOpenChange={setShowStorageSetup}>
-        <DialogContent className="max-w-lg">
-          {storageQuery.isLoading ? (
-            <div className="grid gap-3">
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <UploadStorageGate
-              configured={fileStorageConfigured}
-              unavailable={storageQuery.isError}
-              onRetry={() => void storageQuery.refetch()}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={showStorageSetup}
+        onOpenChange={setShowStorageSetup}
+        onRetry={() => void storageQuery.refetch()}
+      />
 
       <div className="flex items-center gap-1">
         <RunsTray pollMs={0} />

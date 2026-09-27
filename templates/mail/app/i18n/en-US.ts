@@ -60,7 +60,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Messages that need a reply or have a deadline, including comments from people on GitHub. Skip bot comments.",
       aiSetupArchiveSpamPrompt:
-        "Auto-archive: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
+        "Skip inbox: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
       aiSetupCustomTag: "Custom",
       aiSetupDone: "Done",
       aiSetupRunAgain: "Run setup again",
@@ -578,8 +578,16 @@ const messages = {
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "AI tags",
+      ruleHelpLabel: "Explain {{mode}} rules",
+      aiTagRuleHelp:
+        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+      importantRuleHelp:
+        "Write a natural-language prompt. Jev marks matching mail as Important.",
+      skipInboxRuleHelp:
+        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+      spamRuleHelp:
+        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
       filteredMode: "Filtered",
-      autoArchiveMode: "Auto-archive",
       manageSettings: "Manage",
       askJev: "Ask Jev",
       askJevPrompt:
@@ -633,7 +641,7 @@ const messages = {
       promptRulesCleared: "Triage rules removed.",
       tagTabsHelp: "Each tag becomes an inbox tab",
       addTag: "Add tag",
-      triageTitle: "Triage",
+      triageTitle: "AI triage",
       connectJev: "Connect Jev",
       connectJevToRunTriage: "Connect Jev to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
@@ -821,7 +829,7 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
-    aiFilter: "Triage",
+    aiFilter: "AI triage",
     gmailFilters: "Gmail Filters",
     aliases: "Aliases",
     tracking: "Tracking",

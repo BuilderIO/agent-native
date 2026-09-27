@@ -56,7 +56,7 @@ const messages = {
       aiSetupImportantPrompt:
         "需要回复或有截止日期的邮件，包括 GitHub 上的人类评论。跳过机器人评论。",
       aiSetupArchiveSpamPrompt:
-        "自动归档：包含机器人评论或自动状态更新的 GitHub 通知。\n垃圾邮件：我未请求的明显促销或不需要的邮件。",
+        "跳过收件箱：包含机器人评论或自动状态更新的 GitHub 通知。\n垃圾邮件：我未请求的明显促销或不需要的邮件。",
       aiSetupCustomTag: "自定义",
       aiSetupDone: "完成",
       aiSetupRunAgain: "重新运行设置",
@@ -559,8 +559,14 @@ const messages = {
       spamMode: "垃圾邮件",
       tagMode: "标签",
       aiTagsTitle: "AI 标签",
+      ruleHelpLabel: "说明{{mode}}规则",
+      aiTagRuleHelp: "用自然语言编写指令。符合条件的邮件会添加此标签。",
+      importantRuleHelp: "用自然语言编写指令。符合条件的邮件会标记为重要。",
+      skipInboxRuleHelp:
+        "用自然语言编写指令。符合条件的邮件会被归档并跳过收件箱。",
+      spamRuleHelp:
+        "用自然语言编写指令。Jev 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
       filteredMode: "已筛选",
-      autoArchiveMode: "自动归档",
       manageSettings: "管理",
       askJev: "询问 Jev",
       askJevPrompt:
@@ -611,7 +617,7 @@ const messages = {
       promptRulesCleared: "已移除分类规则。",
       tagTabsHelp: "每个标签都会成为收件箱标签页",
       addTag: "添加标签",
-      triageTitle: "分类",
+      triageTitle: "AI 分类",
       connectJev: "连接 Jev",
       connectJevToRunTriage: "连接 Jev 以运行分类",
       freeBuilderOrApiKey: "通过 Builder.io 免费使用，或添加 API 密钥。",
@@ -792,7 +798,7 @@ const messages = {
     deleteSnippet: "删除片段",
     deleteSnippetDescription: "删除片段“{{name}}”？此操作无法撤销。",
     automations: "自动化",
-    aiFilter: "分类",
+    aiFilter: "AI 分类",
     gmailFilters: "Gmail 筛选器",
     aliases: "别名",
     tracking: "跟踪",

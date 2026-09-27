@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { PlanContent } from "@shared/plan-content";
-import { act } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ const fileStorage = vi.hoisted(() => ({
   isSuccess: true as boolean,
   isError: false as boolean,
   refetch: vi.fn(),
+  setupPopoverOpen: false,
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
@@ -17,7 +18,29 @@ vi.mock("@agent-native/core/client/uploads", () => ({
   useFileUploadStatus: () => fileStorage,
 }));
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => <div data-testid="file-storage-setup-card" />,
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: string;
+    onRetry?: () => void;
+  }) => {
+    fileStorage.setupPopoverOpen = open;
+    return open
+      ? createElement(
+          "div",
+          { "data-testid": "file-storage-setup-popover" },
+          status === "unavailable"
+            ? "onboarding.fileStorage.statusUnavailable"
+            : "onboarding.fileStorage.title",
+          status === "unavailable"
+            ? createElement("button", { onClick: onRetry }, "common.retry")
+            : null,
+        )
+      : null;
+  },
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -37,6 +60,7 @@ beforeEach(() => {
   fileStorage.isSuccess = true;
   fileStorage.isError = false;
   fileStorage.refetch.mockClear();
+  fileStorage.setupPopoverOpen = false;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -60,13 +84,21 @@ async function flushEditorEffects() {
 }
 
 describe("PlanDocumentEditor image node", () => {
-  it("keeps setup closed while file storage status is unavailable and offers retry", async () => {
+  it("shows retry only after an image replacement is attempted", async () => {
     vi.stubEnv("DEV", false);
     fileStorage.data = undefined;
+    fileStorage.isSuccess = false;
+    fileStorage.isError = true;
     const configureImageNode = vi.spyOn(PlanImageNode, "configure");
     const content: PlanContent = {
       version: 2,
-      blocks: [{ id: "body", type: "rich-text", data: { markdown: "Body." } }],
+      blocks: [
+        {
+          id: "body",
+          type: "rich-text",
+          data: { markdown: `![A cat](${IMAGE_SRC})` },
+        },
+      ],
     };
 
     act(() => {
@@ -80,28 +112,47 @@ describe("PlanDocumentEditor image node", () => {
     });
     await flushEditorEffects();
 
-    expect(configureImageNode).toHaveBeenCalledWith({ onImageUpload: null });
-    expect(
-      container.querySelector("[data-testid=file-storage-setup-card]"),
-    ).toBeNull();
-    expect(container.textContent).toContain(
-      "plansPage.loadError.storageStatusUnavailable",
+    expect(configureImageNode).toHaveBeenCalledWith({
+      onImageUpload: expect.any(Function),
+    });
+    expect(fileStorage.setupPopoverOpen).toBe(false);
+    expect(container.textContent).not.toContain(
+      "onboarding.fileStorage.statusUnavailable",
     );
-    const retry = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "plansPage.loadError.retry",
-    );
-    expect(retry).toBeTruthy();
-    act(() => retry?.click());
+    const retryBeforeAttempt = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "common.retry");
+    expect(retryBeforeAttempt).toBeUndefined();
+    const upload = configureImageNode.mock.calls
+      .map(([options]) => options.onImageUpload)
+      .find((candidate) => typeof candidate === "function");
+    expect(upload).toBeTypeOf("function");
+    let pendingUpload: Promise<{ src: string; alt?: string }>;
+    act(() => {
+      pendingUpload = upload!(
+        new File(["image"], "cat.png", { type: "image/png" }),
+      );
+    });
+    void pendingUpload!.catch(() => {});
     expect(fileStorage.refetch).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "onboarding.fileStorage.statusUnavailable",
+    );
+    expect(fileStorage.setupPopoverOpen).toBe(true);
+    const retry = container.querySelector<HTMLButtonElement>("button");
+    expect(retry?.textContent).toBe("common.retry");
+    act(() => retry?.click());
+    expect(fileStorage.refetch).toHaveBeenCalledTimes(2);
   });
 
-  it("shows setup only after the status confirms storage is missing", async () => {
+  it("shows setup only after a file upload is attempted", async () => {
     vi.stubEnv("DEV", false);
     fileStorage.data = { configured: false };
     const content: PlanContent = {
       version: 2,
       blocks: [{ id: "body", type: "rich-text", data: { markdown: "Body." } }],
     };
+    const configureImageNode = vi.spyOn(PlanImageNode, "configure");
 
     act(() => {
       root.render(
@@ -114,12 +165,22 @@ describe("PlanDocumentEditor image node", () => {
     });
     await flushEditorEffects();
 
-    expect(
-      container.querySelector("[data-testid=file-storage-setup-card]"),
-    ).toBeTruthy();
+    expect(fileStorage.setupPopoverOpen).toBe(false);
     expect(container.textContent).not.toContain(
-      "plansPage.loadError.storageStatusUnavailable",
+      "onboarding.fileStorage.statusUnavailable",
     );
+    let pendingUpload: Promise<{ src: string; alt?: string }>;
+    const upload = configureImageNode.mock.calls
+      .map(([options]) => options.onImageUpload)
+      .find((candidate) => typeof candidate === "function");
+    expect(upload).toBeTypeOf("function");
+    act(() => {
+      pendingUpload = upload!(
+        new File(["image"], "cat.png", { type: "image/png" }),
+      );
+    });
+    void pendingUpload!.catch(() => {});
+    expect(fileStorage.setupPopoverOpen).toBe(true);
   });
 
   it("does not enable image replacement from stale configured storage data", async () => {
@@ -154,9 +215,10 @@ describe("PlanDocumentEditor image node", () => {
         ".plan-image-node input[type=file]",
       )?.disabled,
     ).toBe(true);
-    expect(
-      container.querySelector("[data-testid=file-storage-setup-card]"),
-    ).toBeNull();
+    expect(fileStorage.setupPopoverOpen).toBe(false);
+    expect(container.textContent).not.toContain(
+      "onboarding.fileStorage.statusUnavailable",
+    );
   });
 
   it("mounts markdown images without reading editor.view.dom before the view exists", async () => {

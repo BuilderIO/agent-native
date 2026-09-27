@@ -73,7 +73,6 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
-  "onboarding.useOwnApiKeys": "Use my own API keys",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Create Builder.io account",
   "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
@@ -109,10 +108,11 @@ const messages = {
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
   "onboarding.fileStorage.title": "Connect storage to upload files",
+  "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
     "Connect Builder.io (free) or configure your own S3-compatible object storage.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
-  "onboarding.fileStorage.custom": "Add your own object storage keys",
+  "onboarding.fileStorage.custom": "Use custom keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",

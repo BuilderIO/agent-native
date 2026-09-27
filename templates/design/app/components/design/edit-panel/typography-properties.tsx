@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
@@ -23,7 +23,7 @@ import {
   IconUpload,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
@@ -377,9 +377,17 @@ export function TypographyProperties({
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
-  const canUploadFonts = fileUploadStatus.data?.configured === true;
+  const canUploadFonts =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const fontUploadInputRef = useRef<HTMLInputElement>(null);
   const [fontUploading, setFontUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadFonts) setStorageSetupOpen(false);
+  }, [canUploadFonts]);
   const styles = element.computedStyles;
   const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
@@ -478,6 +486,11 @@ export function TypographyProperties({
     } finally {
       setFontUploading(false);
     }
+  };
+  const requestFontUpload = () => {
+    if (fontUploading) return;
+    if (canUploadFonts) fontUploadInputRef.current?.click();
+    else setStorageSetupOpen(true);
   };
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
@@ -613,10 +626,10 @@ export function TypographyProperties({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      disabled={fontUploading || !canUploadFonts}
+                      disabled={fontUploading}
                       aria-label={t("promptDialog.uploadFile")}
                       className="size-6 shrink-0"
-                      onClick={() => fontUploadInputRef.current?.click()}
+                      onClick={requestFontUpload}
                     >
                       <IconUpload className="size-3.5" />
                     </Button>
@@ -630,11 +643,20 @@ export function TypographyProperties({
           </div>
         </InspectorGridCell>
       </InspectorGrid>
-      {designId && onFontUploaded && !canUploadFonts ? (
-        <div className="mt-2">
-          <FileStorageSetupCard />
-        </div>
-      ) : null}
+      <FileStorageSetupPopover
+        open={
+          storageSetupOpen &&
+          (fileStorageMissing || !fileUploadStatus.isSuccess)
+        }
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
 
       {/* Row 2: weight + size side by side */}
       <InspectorGrid className="items-center" layout="action-pair">

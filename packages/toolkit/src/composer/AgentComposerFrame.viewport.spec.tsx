@@ -57,6 +57,21 @@ afterEach(() => {
 });
 
 describe("AgentComposerFrame visual viewport sizing", () => {
+  it("exposes the composer frame as a stable setup popover anchor", async () => {
+    const anchorRef = { current: null as HTMLElement | null };
+    await act(async () => {
+      root.render(
+        <AgentComposerFrame anchorRef={anchorRef}>
+          <button type="button">Upload</button>
+        </AgentComposerFrame>,
+      );
+    });
+
+    expect(anchorRef.current).toBe(
+      container.querySelector('[data-agent-composer-slot="area"]'),
+    );
+  });
+
   it("keeps a focused composer above the keyboard and restores the shell height", async () => {
     await act(async () => {
       root.render(
