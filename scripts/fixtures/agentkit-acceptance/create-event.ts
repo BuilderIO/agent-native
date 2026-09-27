@@ -10,7 +10,6 @@ export default defineAction({
     startTimeZone: z.string(),
     location: z.string(),
   }),
-  chatUI: { renderer: "calendar.event-created", title: "Event created" },
   http: false,
   readOnly: true,
   run: async ({ title, start, end, startTimeZone, location }) => ({
@@ -20,5 +19,12 @@ export default defineAction({
     end,
     startTimeZone,
     location,
+    change: {
+      verb: "created",
+      kind: "calendar-event",
+      title,
+      detail: `${start} · ${location}`,
+      url: "/calendar?eventId=agentkit-sample-event",
+    },
   }),
 });

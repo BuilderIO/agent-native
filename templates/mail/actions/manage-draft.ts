@@ -145,28 +145,6 @@ export default defineAction({
     "delete before a matching create - to draft a reply, first call with " +
     "action=create, mode=reply, replyToId, to, subject, body.",
   schema: manageDraftSchema,
-  chatUI: {
-    renderer: "mail.draft-created",
-    when: (args, result) => {
-      if (args.action !== "create" || !result || typeof result !== "object") {
-        return false;
-      }
-      const record = result as Record<string, unknown>;
-      return (
-        typeof record.deepLink === "string" &&
-        Boolean(record.draft) &&
-        typeof record.draft === "object"
-      );
-    },
-    projectResult: (_args, result) => {
-      const record = result as Record<string, unknown>;
-      const draft = record.draft as Record<string, unknown>;
-      return {
-        draft: { subject: draft.subject, to: draft.to },
-        deepLink: record.deepLink,
-      };
-    },
-  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -321,11 +299,21 @@ export default defineAction({
         },
         ctx,
       );
+      const deepLink = composeDeepLink(draft);
+      const subject = draft.subject.trim();
+      const recipient = draft.to.trim();
       return {
         id,
         draft,
-        deepLink: composeDeepLink(draft),
+        deepLink,
         message: `Created draft ${id}`,
+        change: {
+          verb: "created",
+          kind: "email-draft",
+          title: (subject || recipient || id).slice(0, 180),
+          ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+          url: deepLink,
+        },
       };
     }
 

@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
 } from "../../action-ui.js";
 import {
   createDataInsightsWidgetResult,
@@ -230,6 +231,178 @@ describe("AgentKitActionWidget", () => {
       expect(container.textContent).toContain("Responses by source");
       expect(container.textContent).toContain("Webinar");
       expect(container.textContent).toContain("checkout_completed");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("groups persisted change cards attached to the same assistant message", async () => {
+    await import("../chat/widgets/RecordChangeWidget.js");
+    const messageId = "assistant-message-1";
+    const toolCalls: AgentToolCall[] = [
+      {
+        id: "draft-create",
+        name: "manage-draft",
+        input: { action: "create" },
+        output: {
+          change: {
+            verb: "created",
+            kind: "email-draft",
+            title: "Launch notes",
+            detail: "ana@example.test",
+            url: "/_agent-native/open?composeDraftId=draft-1",
+          },
+        },
+        status: "completed",
+      },
+      {
+        id: "filter-create",
+        name: "manage-gmail-filters",
+        input: { action: "create" },
+        output: {
+          change: {
+            verb: "created",
+            kind: "gmail-filter",
+            title: "from:agentkit-test@example.invalid",
+            detail: "Skip inbox",
+          },
+        },
+        status: "completed",
+      },
+    ];
+    const widgets: AgentWidget[] = toolCalls.map((tool) => ({
+      id: `${tool.id}:chat-ui`,
+      kind: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+      data: { toolCallId: tool.id, toolName: tool.name },
+    }));
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        async getThreadSnapshot() {
+          return {
+            id: "thread-1",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:00:00.000Z",
+            messages: [],
+            toolCalls,
+            widgets: widgets.map((widget) => ({ messageId, widget })),
+          };
+        },
+      } satisfies AgentTransport,
+    });
+    await client.loadThread("thread-1");
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider persistPreference={false}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              <>
+                {widgets.map((widget) => (
+                  <AgentKitActionWidget
+                    key={widget.id}
+                    value={widget}
+                    threadId="thread-1"
+                  />
+                ))}
+              </>
+            </AgentKitProvider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      expect(container.querySelectorAll('[role="group"]')).toHaveLength(1);
+      expect(container.textContent).toContain("2 changes");
+      expect(container.textContent).toContain("Launch notes");
+      expect(container.textContent).toContain(
+        "from:agentkit-test@example.invalid",
+      );
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("shows a completed change when an earlier change is still running", async () => {
+    await import("../chat/widgets/RecordChangeWidget.js");
+    const messageId = "assistant-message-1";
+    const toolCalls: AgentToolCall[] = [
+      {
+        id: "draft-create-running",
+        name: "manage-draft",
+        input: { action: "create" },
+        status: "running",
+      },
+      {
+        id: "filter-create-complete",
+        name: "manage-gmail-filters",
+        input: { action: "create" },
+        output: {
+          change: {
+            verb: "created",
+            kind: "gmail-filter",
+            title: "from:agentkit-test@example.invalid",
+            detail: "Skip inbox",
+          },
+        },
+        status: "completed",
+      },
+    ];
+    const widgets: AgentWidget[] = toolCalls.map((tool) => ({
+      id: `${tool.id}:chat-ui`,
+      kind: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+      data: { toolCallId: tool.id, toolName: tool.name },
+    }));
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        async getThreadSnapshot() {
+          return {
+            id: "thread-1",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:00:00.000Z",
+            messages: [],
+            toolCalls,
+            widgets: widgets.map((widget) => ({ messageId, widget })),
+          };
+        },
+      } satisfies AgentTransport,
+    });
+    await client.loadThread("thread-1");
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider persistPreference={false}>
+            <AgentKitProvider controller={client} threadId="thread-1">
+              {widgets.map((widget) => (
+                <AgentKitActionWidget
+                  key={widget.id}
+                  value={widget}
+                  threadId="thread-1"
+                />
+              ))}
+            </AgentKitProvider>
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      expect(container.textContent).toContain(
+        "from:agentkit-test@example.invalid",
+      );
+      expect(container.textContent).toContain("Skip inbox");
+      expect(container.querySelector("[data-action-card]")).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
     }

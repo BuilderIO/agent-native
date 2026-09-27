@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "연결",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "이벤트를 불러올 수 없습니다",
     noEventId: "이벤트 ID가 없습니다. URL에 ?id=<eventId>를 추가하세요.",
     openCalendar: "캘린더 열기",
-  },
-  eventCreation: {
-    created: "일정이 생성되었습니다",
-    zoomNotAdded: "일정은 생성되었지만 Zoom을 추가하지 못했습니다.",
-    openInCalendar: "Calendar에서 일정 열기",
   },
   agentSidebar: {
     emptyState: "캘린더에 대해 무엇이든 물어보세요",
@@ -1008,7 +1005,7 @@ export default {
     year: "년",
     zoom: "Zoom",
     zoomAdded: "Zoom 추가됨",
-    zoomAddFailed: "Zoom를 추가하지 못했습니다.",
+    zoomAddFailed: zoomAddFailedMessages["ko-KR"],
     zoomConnectFailed: "Zoom를 연결할 수 없습니다",
     zoomConnectionOpened: "Zoom 연결이 열렸습니다.",
     zoomNotConfigured: "Zoom OAuth가 구성되지 않았습니다.",

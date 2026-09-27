@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "连接",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "无法加载事件",
     noEventId: "未提供事件 ID。请在 URL 中添加 ?id=<eventId>。",
     openCalendar: "打开日历",
-  },
-  eventCreation: {
-    created: "活动已创建",
-    zoomNotAdded: "活动已创建，但无法添加 Zoom。",
-    openInCalendar: "在 Calendar 中打开活动",
   },
   agentSidebar: {
     emptyState: "问我任何关于你的日历的问题",
@@ -965,7 +962,7 @@ export default {
     year: "年",
     zoom: "Zoom",
     zoomAdded: "添加Zoom",
-    zoomAddFailed: "添加Zoom失败",
+    zoomAddFailed: zoomAddFailedMessages["zh-CN"],
     zoomConnectFailed: "无法连接Zoom",
     zoomConnectionOpened: "Zoom 连接已打开",
     zoomNotConfigured: "Zoom OAuth 未配置。",
