@@ -73,7 +73,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
       <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
       <button type="button">Keep focus in app</button>
-      <script>window.__runStartupFocus = () => { const input = document.querySelector("#startup-search"); window.parent.postMessage({ type: "fixture-autofocus-started" }, "*"); input?.focus(); const focused = document.activeElement === input; document.body.dataset.autofocusReady = "true"; window.parent.postMessage({ type: "fixture-autofocus-complete", focused }, "*"); }; setTimeout(() => window.__runStartupFocus?.(), location.pathname === "/settings" ? 8500 : 250);</script>
+      <script>window.__runStartupFocus = () => { const input = document.querySelector("#startup-search"); window.parent.postMessage({ type: "fixture-autofocus-started" }, "*"); requestAnimationFrame(() => { input?.focus({ preventScroll: true }); const focused = document.activeElement === input; document.body.dataset.autofocusReady = "true"; window.parent.postMessage({ type: "fixture-autofocus-complete", focused }, "*"); }); }; setTimeout(() => window.__runStartupFocus?.(), location.pathname === "/settings" ? 8500 : 250);</script>
     </main></body></html>`;
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
@@ -335,6 +335,23 @@ test.describe("URL-backed live auto-layout probe", () => {
           ) ?? -1
         );
       });
+    const latestSettingsFocusSafety = () =>
+      page.evaluate(() => {
+        const reports = (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              type: string;
+              sourceIndex: number;
+              focusSafe?: boolean;
+            }>;
+          }
+        ).__canvasFocusReports?.filter(
+          (report) =>
+            report.type === "agent-native:canvas-focus-state" &&
+            report.sourceIndex === 1,
+        );
+        return reports?.[reports.length - 1]?.focusSafe ?? null;
+      });
     await expect.poll(autofocusResultIndex).toBeGreaterThanOrEqual(0);
     const getAutofocusMarkerIndex = () =>
       page.evaluate(() => {
@@ -382,6 +399,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       )
       .toBe(true);
     await expectCanvasFocus();
+    await expect.poll(latestSettingsFocusSafety).toBe(true);
     await page.mouse.move(emptyPoint.x, emptyPoint.y);
     const panFrame = page.locator("[data-screen-shell]").first();
     const canvasSurface = page.locator("[data-multi-screen-canvas-surface]");
@@ -487,6 +505,34 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v2", "v3", "v1"]);
+    await expectCanvasFocus();
+    const settingsFocusReportCount = () =>
+      page.evaluate(
+        () =>
+          (
+            window as Window & {
+              __canvasFocusReports?: Array<{
+                type: string;
+                sourceIndex: number;
+              }>;
+            }
+          ).__canvasFocusReports?.filter(
+            (report) =>
+              report.type === "agent-native:canvas-focus-state" &&
+              report.sourceIndex === 1,
+          ).length ?? 0,
+      );
+    const previousSettingsFocusReportCount = await settingsFocusReportCount();
+    await settingsFrame.locator("body").evaluate((body) => {
+      const testWindow = window as Window & {
+        __runStartupFocus?: () => void;
+      };
+      testWindow.__runStartupFocus?.();
+    });
+    await expect
+      .poll(settingsFocusReportCount)
+      .toBeGreaterThan(previousSettingsFocusReportCount);
+    await expect.poll(latestSettingsFocusSafety).toBe(true);
     await expectCanvasFocus();
     await page.keyboard.press("ControlOrMeta+z");
     await expect

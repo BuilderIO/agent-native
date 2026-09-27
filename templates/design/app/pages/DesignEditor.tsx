@@ -11837,7 +11837,13 @@ function DesignEditor() {
   }, []);
 
   useEffect(() => {
-    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    if (
+      shellMode ||
+      (embedded && !embedChromeRequested) ||
+      (pendingQuestions && pendingQuestions.length > 0)
+    ) {
+      return;
+    }
     const handleForwardedSpaceKeyUp = (event: MessageEvent) => {
       const data = event.data as { type?: unknown; code?: unknown } | null;
       if (!data || data.type !== "design-hotkey-up" || data.code !== "Space") {
@@ -11857,7 +11863,7 @@ function DesignEditor() {
     window.addEventListener("message", handleForwardedSpaceKeyUp);
     return () =>
       window.removeEventListener("message", handleForwardedSpaceKeyUp);
-  }, [embedded, pendingQuestions]);
+  }, [embedded, embedChromeRequested, pendingQuestions, shellMode]);
 
   const handleIframeContextMenu = useCallback(
     (payload: IframeContextMenuPayload) =>

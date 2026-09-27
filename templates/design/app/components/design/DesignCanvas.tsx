@@ -334,7 +334,7 @@ function isAllowedFusionOrigin(
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
 
-const tabFocusedLiveFrames = new WeakSet<HTMLIFrameElement>();
+const tabFocusedLiveFrames = new WeakMap<HTMLIFrameElement, boolean>();
 const tabFocusNavigationPendingDocuments = new WeakSet<Document>();
 
 function markTabFocusedLiveFrame(document: Document) {
@@ -350,7 +350,10 @@ function markTabFocusedLiveFrame(document: Document) {
     .forEach((frame) => {
       if (frame !== focusedFrame) tabFocusedLiveFrames.delete(frame);
     });
-  tabFocusedLiveFrames.add(focusedFrame);
+  tabFocusedLiveFrames.set(
+    focusedFrame,
+    tabFocusedLiveFrames.get(focusedFrame) ?? false,
+  );
 }
 
 function clearTabFocusedLiveFrames(document: Document) {
@@ -3487,6 +3490,21 @@ export function DesignCanvas({
         markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
+      const tabFocusedFrame = iframeRef.current;
+      if (
+        trustedCurrentFrame &&
+        sourceType === "localhost" &&
+        !readOnly &&
+        editMode &&
+        !interactMode &&
+        e.data.type === "agent-native:canvas-focus-state" &&
+        e.data.focusSafe === false &&
+        tabFocusedFrame &&
+        document.activeElement === tabFocusedFrame &&
+        tabFocusedLiveFrames.has(tabFocusedFrame)
+      ) {
+        tabFocusedLiveFrames.set(tabFocusedFrame, true);
+      }
       if (
         trustedCurrentFrame &&
         sourceType === "localhost" &&
@@ -3499,6 +3517,14 @@ export function DesignCanvas({
           (e.data.type === "agent-native:canvas-focus-state" &&
             e.data.focusSafe === true))
       ) {
+        if (
+          tabFocusedFrame &&
+          document.activeElement === tabFocusedFrame &&
+          tabFocusedLiveFrames.has(tabFocusedFrame)
+        ) {
+          if (!tabFocusedLiveFrames.get(tabFocusedFrame)) return;
+          tabFocusedLiveFrames.delete(tabFocusedFrame);
+        }
         focusScrollSurfaceRef.current?.(
           e.data.type === "agent-native:editor-chrome-ready",
           true,

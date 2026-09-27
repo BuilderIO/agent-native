@@ -963,24 +963,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
-    function armTrustedFocusIntent(target) {
-      trustedFocusIntent = { target, expiresAt: Date.now() + 1e3 };
+    function armTrustedFocusIntent(target, kind) {
+      trustedFocusIntent = {
+        target,
+        kind,
+        expiresAt: Date.now() + 1e3
+      };
     }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
-      if (!intent) return;
-      if (Date.now() > intent.expiresAt) {
+      var target = getCanvasFocusTarget(event);
+      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind === "pointer" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
         trustedFocusIntent = null;
-        if (intent.target === userFocusedElement) userFocusedElement = null;
+        userFocusedElement = null;
         return;
       }
-      var target = event.target instanceof Element ? event.target : null;
-      if (intent.target && target && target !== intent.target && !intent.target.contains(target) && !target.contains(intent.target)) {
-        trustedFocusIntent = null;
-        if (intent.target === userFocusedElement) userFocusedElement = null;
-        return;
-      }
-      userFocusedElement = intent.target || target;
+      userFocusedElement = target;
       trustedFocusIntent = null;
     }
     function rememberTrustedCanvasInput(event) {
@@ -1002,13 +1000,21 @@ export const editorChromeBridgeScript: string = `"use strict";
             active = active.shadowRoot?.activeElement || null;
           }
         }
-        armTrustedFocusIntent(pointerFocusTarget);
+        trustedFocusIntent = pointerFocusTarget ? {
+          target: pointerFocusTarget,
+          kind: "pointer",
+          expiresAt: Date.now() + 1e3
+        } : null;
         return;
       }
       if (event.type === "keydown") {
         var keyEvent = event;
         if (keyEvent.key === "Tab") {
-          armTrustedFocusIntent(null);
+          armTrustedFocusIntent(null, "tab");
+          var tabIntent = trustedFocusIntent;
+          window.setTimeout(function() {
+            if (trustedFocusIntent === tabIntent) trustedFocusIntent = null;
+          }, 0);
           window.parent.postMessage(
             { type: "agent-native:canvas-tab-navigation" },
             "*"
@@ -1018,6 +1024,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         var active = document.activeElement;
         if (active instanceof Element && isCanvasFocusTarget(active)) {
           userFocusedElement = active;
+          if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape" || keyEvent.key.startsWith("Arrow")) {
+            armTrustedFocusIntent(active, "activation");
+          }
         }
       }
     }

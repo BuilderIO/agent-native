@@ -104,6 +104,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var userFocusedElement: Element | null = null;
   var trustedFocusIntent: {
     target: Element | null;
+    kind: "pointer" | "tab" | "activation";
     expiresAt: number;
   } | null = null;
   var focusTargetSelector =
@@ -131,31 +132,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return null;
   }
 
-  function armTrustedFocusIntent(target: Element | null): void {
-    trustedFocusIntent = { target: target, expiresAt: Date.now() + 1000 };
+  function armTrustedFocusIntent(
+    target: Element | null,
+    kind: "pointer" | "tab" | "activation",
+  ): void {
+    trustedFocusIntent = {
+      target: target,
+      kind: kind,
+      expiresAt: Date.now() + 1000,
+    };
   }
 
   function rememberUserFocusedElement(event: FocusEvent): void {
     var intent = trustedFocusIntent;
-    if (!intent) return;
-    if (Date.now() > intent.expiresAt) {
-      trustedFocusIntent = null;
-      if (intent.target === userFocusedElement) userFocusedElement = null;
-      return;
-    }
-    var target = event.target instanceof Element ? event.target : null;
+    var target = getCanvasFocusTarget(event);
     if (
-      intent.target &&
-      target &&
-      target !== intent.target &&
-      !intent.target.contains(target) &&
-      !target.contains(intent.target)
+      !intent ||
+      Date.now() > intent.expiresAt ||
+      !target ||
+      (intent.kind === "pointer" &&
+        (intent.target === null ||
+          (intent.target !== target &&
+            !event.composedPath().includes(intent.target) &&
+            !intent.target.contains(target) &&
+            !target.contains(intent.target))))
     ) {
       trustedFocusIntent = null;
-      if (intent.target === userFocusedElement) userFocusedElement = null;
+      userFocusedElement = null;
       return;
     }
-    userFocusedElement = intent.target || target;
+    userFocusedElement = target;
     trustedFocusIntent = null;
   }
 
@@ -181,13 +187,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           active = active.shadowRoot?.activeElement || null;
         }
       }
-      armTrustedFocusIntent(pointerFocusTarget);
+      trustedFocusIntent = pointerFocusTarget
+        ? {
+            target: pointerFocusTarget,
+            kind: "pointer",
+            expiresAt: Date.now() + 1000,
+          }
+        : null;
       return;
     }
     if (event.type === "keydown") {
       var keyEvent = event as KeyboardEvent;
       if (keyEvent.key === "Tab") {
-        armTrustedFocusIntent(null);
+        armTrustedFocusIntent(null, "tab");
+        var tabIntent = trustedFocusIntent;
+        window.setTimeout(function () {
+          if (trustedFocusIntent === tabIntent) trustedFocusIntent = null;
+        }, 0);
         (window.parent as Window).postMessage(
           { type: "agent-native:canvas-tab-navigation" },
           "*",
@@ -197,6 +213,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var active = document.activeElement;
       if (active instanceof Element && isCanvasFocusTarget(active)) {
         userFocusedElement = active;
+        if (
+          keyEvent.key === "Enter" ||
+          keyEvent.key === " " ||
+          keyEvent.key === "Escape" ||
+          keyEvent.key.startsWith("Arrow")
+        ) {
+          armTrustedFocusIntent(active, "activation");
+        }
       }
     }
   }
