@@ -111,9 +111,14 @@ describe("requestRecordingShortcutStop", () => {
     await vi.advanceTimersByTimeAsync(300);
     await stopRequest;
 
-    expect(
-      emit.mock.calls.filter(([event]) => event === "clips:tray-stop-request"),
-    ).toHaveLength(1);
+    const trayRequests = emit.mock.calls.filter(
+      ([event]) => event === "clips:tray-stop-request",
+    );
+    expect(trayRequests).toHaveLength(2);
+    expect(trayRequests[1]).toEqual([
+      "clips:tray-stop-request",
+      { fallback: true },
+    ]);
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 
@@ -146,7 +151,12 @@ describe("requestRecordingShortcutStop", () => {
     const setup = listenForRecordingShortcutStopAcks();
     const stopRequest = requestRecordingShortcutStop();
     emit.mockImplementation((event, payload) => {
-      if (event === "clips:tray-stop-request" && payload === undefined) {
+      if (
+        event === "clips:tray-stop-request" &&
+        payload &&
+        typeof payload === "object" &&
+        "fallback" in payload
+      ) {
         return new Promise(() => {});
       }
       return Promise.resolve(undefined);
@@ -158,14 +168,14 @@ describe("requestRecordingShortcutStop", () => {
     unlistenAcks = await setup;
     await vi.advanceTimersByTimeAsync(80);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(70);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
     await vi.advanceTimersByTimeAsync(1);
     await stopRequest;
 
     expect(
       emit.mock.calls.filter(([event]) => event === "clips:tray-stop-request"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 

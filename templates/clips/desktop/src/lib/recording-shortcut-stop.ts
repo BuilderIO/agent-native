@@ -26,29 +26,27 @@ async function stopDirectly(
   reason: DirectStopReason,
   stopDeadline: number,
 ): Promise<StopOutcome> {
-  if (reason !== "pill-did-not-acknowledge") {
-    const pillRequest = emit("clips:tray-stop-request", {
-      fallback: true,
-    }).then(
-      () => undefined,
-      (error) => {
-        console.error("[clips-tray] fallback pill stop request failed:", error);
-      },
-    );
-    const requestWaitMs = Math.min(
-      DIRECT_STOP_REQUEST_TIMEOUT_MS,
-      Math.max(0, stopDeadline - Date.now()),
-    );
-    if (requestWaitMs > 0) {
-      let requestTimeout: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        pillRequest,
-        new Promise<void>((resolve) => {
-          requestTimeout = setTimeout(resolve, requestWaitMs);
-        }),
-      ]);
-      if (requestTimeout) clearTimeout(requestTimeout);
-    }
+  const pillRequest = emit("clips:tray-stop-request", {
+    fallback: true,
+  }).then(
+    () => undefined,
+    (error) => {
+      console.error("[clips-tray] fallback pill stop request failed:", error);
+    },
+  );
+  const requestWaitMs = Math.min(
+    DIRECT_STOP_REQUEST_TIMEOUT_MS,
+    Math.max(0, stopDeadline - Date.now()),
+  );
+  if (requestWaitMs > 0) {
+    let requestTimeout: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      pillRequest,
+      new Promise<void>((resolve) => {
+        requestTimeout = setTimeout(resolve, requestWaitMs);
+      }),
+    ]);
+    if (requestTimeout) clearTimeout(requestTimeout);
   }
 
   const holdAttempt = invoke("set_toolbar_finishing", { hold: true }).then(

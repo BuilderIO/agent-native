@@ -301,6 +301,13 @@ describe("completion card actions", () => {
 
     tauriCore.invoke.mockClear();
     await act(async () =>
+      tauriEvents.emit("clips:tray-stop-request", { fallback: true }),
+    );
+    expect(tauriCore.invoke).not.toHaveBeenCalledWith(
+      "show_popover",
+      undefined,
+    );
+    await act(async () =>
       tauriEvents.emit("clips:tray-stop-request", undefined),
     );
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
@@ -427,11 +434,14 @@ describe("completion card actions", () => {
       "clips:tray-stop-ack",
       expect.anything(),
     );
-    expect(
-      tauriEvents.emit.mock.calls.filter(
-        ([event]) => event === "clips:tray-stop-request",
-      ),
-    ).toHaveLength(1);
+    const trayRequests = tauriEvents.emit.mock.calls.filter(
+      ([event]) => event === "clips:tray-stop-request",
+    );
+    expect(trayRequests).toHaveLength(2);
+    expect(trayRequests[1]).toEqual([
+      "clips:tray-stop-request",
+      { fallback: true },
+    ]);
     expect(tauriEvents.emit).toHaveBeenCalledWith("clips:recorder-stop");
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover");
     expect(tauriCore.invoke).toHaveBeenCalledWith("set_toolbar_finishing", {
