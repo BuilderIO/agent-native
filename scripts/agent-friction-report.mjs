@@ -69,21 +69,25 @@ const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
 );
 
 const BETA_VERIFICATION_RE =
-  /\b(?:test(?:ing)?|checks?|verify|verifying|smoke|e2e|end[- ]to[- ]end)\b/i;
+  /\b(?:tests?|testing|checks?|verify|verifying|smoke|e2e|end[- ]to[- ]end)\b/i;
 const BETA_REPETITION_RE =
   /\b(?:every|each|all|routine|always|by default|repeatedly)\b/i;
 const BETA_OVERUSE_RE =
-  /\b(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed|no need|(?:don['’]?t|do not)\s+(?:need|add|get|test|check|verify|run)|stop\s+(?:testing|checking|running))\b/i;
+  /\b(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed)\b/i;
+const BETA_ROUTINE_CORRECTION_RE =
+  /\bno need to\s+(?:test|check|verify|smoke|run)\b[^,;:\n]{0,12}\b(?:beta|staging)\b|\bno need for\b[^,;:\n]{0,12}\b(?:beta|staging|e2e|tests?|checks?)\b|\b(?:don['’]?t|do not)\s+need\b[^,;:\n]{0,16}\b(?:e2e|end[- ]to[- ]end|tests?|checks?)\b|\b(?:don['’]?t|do not)\s+(?:add|get|test|check|verify|run)\b[^,;:\n]{0,12}\b(?:beta|staging)\b|\bstop\s+(?:testing|checking|running)\b[^,;:\n]{0,20}\b(?:beta|staging)\b/i;
 const BETA_ENDORSE_SKIP_RE =
-  /\b(?:don['’]?t|do not)\s+need\s+(?:to\s+)?skip\b/i;
-const BETA_REFERENTIAL_RE = /\b(?:it|them|those|these|that|this)\b/i;
+  /\b(?:don['’]?t|do not)\s+(?:need\s+(?:to\s+)?)?(?:skip|stop|avoid|omit)\b|\bno need\s+to\s+(?:skip|stop|avoid|omit)\b/i;
+const BETA_REFERENTIAL_RE = /\b(?:it|they|them|those|these|that|this)\b/i;
 const BETA_OVERVERIFICATION_RE = {
   test(text) {
     let previousBetaChecks = false;
     let previousBetaRoutine = false;
     for (const clause of text.split(
-      /[.!?;:\n,]|\b(?:but|however|whereas|although)\b/i,
+      /[.!?;:\n,]|\b(?:and|but|however|whereas|although)\b/i,
     )) {
+      if (!clause.trim()) continue;
+
       if (
         previousBetaChecks &&
         BETA_REFERENTIAL_RE.test(clause) &&
@@ -106,7 +110,9 @@ const BETA_OVERVERIFICATION_RE = {
         previousBetaChecks && BETA_REPETITION_RE.test(context);
       if (
         previousBetaRoutine &&
-        BETA_OVERUSE_RE.test(context) &&
+        (BETA_OVERUSE_RE.test(context) ||
+          (BETA_ROUTINE_CORRECTION_RE.test(context) &&
+            !BETA_ENDORSE_SKIP_RE.test(context))) &&
         !BETA_ENDORSE_SKIP_RE.test(context)
       ) {
         return true;
@@ -119,6 +125,7 @@ const BETA_OVERVERIFICATION_RE = {
 const BETA_OVERVERIFICATION_REGEX_CASES = [
   [true, "All threads are testing beta right now and it's extensive."],
   [true, "No need to test beta on every PR."],
+  [true, "Beta tests on every PR are overkill."],
   [true, "Don't need an E2E check on every beta change."],
   [true, "Do not get a beta E2E check for every app."],
   [true, "Don't add beta E2E checks for every task."],
@@ -127,14 +134,20 @@ const BETA_OVERVERIFICATION_REGEX_CASES = [
   [true, "Don't test beta E2E on every small change."],
   [true, "Beta E2E runs on every PR. Running them on every PR is overkill."],
   [true, "All threads are testing beta right now, and it's extensive."],
+  [true, "Beta checks happen on every PR, and they're excessive."],
   [false, "Don't skip beta E2E checks for every task."],
   [false, "You don't need to skip beta checks."],
   [false, "You don't need to skip beta checks on every PR."],
+  [false, "You don't stop beta tests on every PR."],
   [false, "Don't run production tests but always run beta E2E for every page."],
   [false, "Don't run production tests and always run beta E2E for every page."],
   [
     false,
     "No need to change deployment, but always run beta E2E for every page.",
+  ],
+  [
+    false,
+    "No need to change deployment and always run beta E2E for every page.",
   ],
   [false, "Beta E2E is required for every auth callback."],
   [false, "All beta E2E checks passed."],
