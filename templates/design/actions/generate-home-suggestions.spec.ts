@@ -58,6 +58,18 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("accepts the JSON array when the model adds surrounding prose", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: `Here are three ideas:\n${JSON.stringify(suggestions)}\nHope these help!`,
+    });
+
+    const result = await action.run({}, {
+      userEmail: "user@example.test",
+    } as never);
+
+    expect(result).toEqual({ suggestions });
+  });
+
   it("uses generic design context when the role was skipped", async () => {
     mocks.getUserProfile.mockResolvedValue({
       email: "user@example.test",
