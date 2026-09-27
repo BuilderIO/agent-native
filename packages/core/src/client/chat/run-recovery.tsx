@@ -336,9 +336,13 @@ export type BuilderSetupCardLayout = "default" | "sidebar";
 
 export function BuilderSetupContent({
   onConnected,
+  onRetry,
+  retryDisabled = false,
   layout = "default",
 }: {
   onConnected?: () => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
   const t = useT();
@@ -358,9 +362,23 @@ export function BuilderSetupContent({
         )}
       >
         <div className="agent-builder-setup-card__copy min-w-0">
-          <h3 className="text-[13px] font-medium text-foreground">
-            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
-          </h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[13px] font-medium text-foreground">
+              {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
+            </h3>
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retryDisabled}
+                aria-label={t("agentChat.common.retry")}
+                title={t("agentChat.common.retry")}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                <IconRefresh size={13} strokeWidth={1.8} />
+              </button>
+            ) : null}
+          </div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
             {t("agentPanel.builderOrOwnKeys", {
               defaultValue: "Choose Builder.io or custom keys.",
@@ -457,7 +475,12 @@ export function BuilderSetupCard({
         {onDismiss ? (
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <BuilderSetupContent onConnected={onConnected} layout={layout} />
+              <BuilderSetupContent
+                onConnected={onConnected}
+                onRetry={onRetry ? handleRetry : undefined}
+                retryDisabled={retryRequested}
+                layout={layout}
+              />
             </div>
             <button
               type="button"
@@ -469,20 +492,13 @@ export function BuilderSetupCard({
             </button>
           </div>
         ) : (
-          <BuilderSetupContent onConnected={onConnected} layout={layout} />
+          <BuilderSetupContent
+            onConnected={onConnected}
+            onRetry={onRetry ? handleRetry : undefined}
+            retryDisabled={retryRequested}
+            layout={layout}
+          />
         )}
-        {onRetry ? (
-          <div className="mt-1 flex justify-end">
-            <button
-              type="button"
-              onClick={handleRetry}
-              disabled={retryRequested}
-              className="inline-flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-            >
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        ) : null}
       </div>
     </div>
   );
