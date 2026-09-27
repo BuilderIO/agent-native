@@ -1458,7 +1458,12 @@ export default {
         "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
       permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
       permissionPromptSettingsInstructions:
-        "انقر على رمز معلومات الموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الوصول إلى الشبكة المحلية على السماح.",
+        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اسمح بالوصول إلى التطبيقات على جهازك.",
+      permissionCloseTitle: "إغلاق الإعداد؟",
+      permissionCloseDescription:
+        "لن يعمل التحرير المباشر حتى تسمح بالوصول في Chrome.",
+      permissionCloseStay: "إبقاء الإعداد مفتوحًا",
+      permissionCloseAnyway: "إغلاق على أي حال",
       permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },

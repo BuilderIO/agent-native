@@ -1492,7 +1492,12 @@ export default {
         "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
       permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
       permissionPromptSettingsInstructions:
-        "Clique no ícone de informações do site, à esquerda da barra de endereço, abra Configurações do site e defina Acesso à rede local como Permitir.",
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
+      permissionCloseTitle: "Fechar a configuração?",
+      permissionCloseDescription:
+        "A edição ao vivo não funcionará até você permitir o acesso no Chrome.",
+      permissionCloseStay: "Manter a configuração aberta",
+      permissionCloseAnyway: "Fechar mesmo assim",
       permissionPromptRetry: "Tentar conexão novamente",
     },
   },

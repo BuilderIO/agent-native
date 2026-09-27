@@ -1478,7 +1478,12 @@ export default {
         "Choose Allow in Chrome's prompt to enable live editing.",
       permissionPromptNoPrompt: "No Chrome prompt?",
       permissionPromptSettingsInstructions:
-        "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+      permissionCloseTitle: "Close setup?",
+      permissionCloseDescription:
+        "Live editing won't work until you allow access in Chrome.",
+      permissionCloseStay: "Keep setup open",
+      permissionCloseAnyway: "Close anyway",
       permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
