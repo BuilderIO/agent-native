@@ -30,9 +30,41 @@ describe("suggestion decomposition", () => {
     expect(operations).toHaveLength(3);
 
     let current = before;
-    for (const operation of [operations[0]!, operations[2]!, operations[1]!]) {
+    for (const operation of [
+      operations[0]!,
+      operations[2]!,
+      operations[1]!,
+    ].map((value) => JSON.parse(JSON.stringify(value)) as typeof value)) {
       const range = resolveMarkdownSuggestionRange(current, operation);
-      expect(range).not.toBeNull();
+      expect(
+        range,
+        `operation ${operation.ordinal} against ${current}`,
+      ).not.toBeNull();
+      current =
+        current.slice(0, range!.from) +
+        operation.after.changedText +
+        current.slice(range!.to);
+    }
+    expect(current).toBe(after);
+  });
+
+  it("rebases a middle edit despite repeated context elsewhere", () => {
+    const before = "Intro cat a a dog. Another a a a dog.";
+    const after = "Intro lion b a hound. Another a a a dog.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(operations).toHaveLength(3);
+
+    let current = before;
+    for (const operation of [
+      operations[0]!,
+      operations[2]!,
+      operations[1]!,
+    ].map((value) => JSON.parse(JSON.stringify(value)) as typeof value)) {
+      const range = resolveMarkdownSuggestionRange(current, operation);
+      expect(
+        range,
+        `operation ${operation.ordinal} against ${current}`,
+      ).not.toBeNull();
       current =
         current.slice(0, range!.from) +
         operation.after.changedText +

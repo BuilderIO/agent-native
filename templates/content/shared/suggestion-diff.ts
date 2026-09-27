@@ -17,7 +17,13 @@ export type MarkdownSuggestionOperation = {
   targetId: "body";
   before: { markdown: string; changedText: string };
   after: { markdown: string; changedText: string };
-  anchor: { from: number; to: number; prefix: string; suffix: string };
+  anchor: {
+    from: number;
+    to: number;
+    prefix: string;
+    suffix: string;
+    siblingRanges?: Array<{ from: number; to: number }>;
+  };
   schemaVersion: 1;
 };
 
@@ -89,6 +95,11 @@ function isolateSiblingAnchorContexts(
           to,
           Math.min(nextStart, to + 32),
         ),
+        ...(operations.length > 1 && {
+          siblingRanges: operations
+            .filter((_, siblingIndex) => siblingIndex !== index)
+            .map(({ anchor }) => ({ from: anchor.from, to: anchor.to })),
+        }),
       },
     };
   });
@@ -789,21 +800,23 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
     if (!range) throw new SuggestionFormattingMappingError();
     return range;
   });
-  return markdownSuggestionOperationsForReplacements({
-    before: editorBefore,
-    after: input.after,
-    replacements,
-  }).map((operation, ordinal) => {
-    const range = resolveMarkdownSuggestionRange(input.before, operation);
-    if (!range) throw new SuggestionFormattingMappingError();
-    return operationForChange(
-      input.before,
-      range.from,
-      range.to,
-      operation.after.changedText,
-      ordinal,
-    );
-  });
+  return isolateSiblingAnchorContexts(
+    markdownSuggestionOperationsForReplacements({
+      before: editorBefore,
+      after: input.after,
+      replacements,
+    }).map((operation, ordinal) => {
+      const range = resolveMarkdownSuggestionRange(input.before, operation);
+      if (!range) throw new SuggestionFormattingMappingError();
+      return operationForChange(
+        input.before,
+        range.from,
+        range.to,
+        operation.after.changedText,
+        ordinal,
+      );
+    }),
+  );
 }
 
 export function draftSuggestionAnchors(
