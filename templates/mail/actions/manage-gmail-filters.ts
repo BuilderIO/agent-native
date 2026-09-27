@@ -156,6 +156,13 @@ const SYSTEM_LABEL_NAMES: Record<string, string> = {
   TRASH: "Trash",
 };
 
+function gmailFiltersUrl(accountEmail: string): string {
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("authuser", accountEmail);
+  url.hash = "settings/filters";
+  return url.toString();
+}
+
 const CRITERIA_KEYS = [
   "from",
   "to",
@@ -565,46 +572,6 @@ export default defineAction({
   description:
     "List, create, edit, or delete native Gmail filters. Use this for simple deterministic Gmail rules, such as auto-archive from a sender or query, instead of AI automations.",
   schema,
-  chatUI: {
-    renderer: "mail.gmail-filter-confirmation",
-    when: (args, result) => {
-      if (
-        (args.operation !== "create" && args.operation !== "replace") ||
-        !result ||
-        typeof result !== "object"
-      ) {
-        return false;
-      }
-      const record = result as Record<string, unknown>;
-      const filter = record.filter;
-      return (
-        record.ok === true &&
-        typeof record.message === "string" &&
-        typeof record.accountEmail === "string" &&
-        Boolean(filter) &&
-        typeof filter === "object" &&
-        !Array.isArray(filter) &&
-        typeof (filter as Record<string, unknown>).id === "string" &&
-        typeof (filter as Record<string, unknown>).criteriaSummary ===
-          "string" &&
-        typeof (filter as Record<string, unknown>).actionSummary === "string"
-      );
-    },
-    projectResult: (_args, result) => {
-      const record = result as Record<string, unknown>;
-      const filter = record.filter as Record<string, unknown>;
-      return {
-        ok: record.ok,
-        message: record.message,
-        accountEmail: record.accountEmail,
-        filter: {
-          id: filter.id,
-          criteriaSummary: filter.criteriaSummary,
-          actionSummary: filter.actionSummary,
-        },
-      };
-    },
-  },
   run: async (args) => {
     const accounts = await allAccounts();
 
@@ -680,11 +647,19 @@ export default defineAction({
         action,
       });
       await signalRefresh();
+      const filter = enrichFilter(account.email, created, labels);
       return {
         ok: true,
         message: `Created Gmail filter ${created.id} in ${account.email}.`,
         accountEmail: account.email,
-        filter: enrichFilter(account.email, created, labels),
+        filter,
+        change: {
+          verb: "created",
+          kind: "gmail-filter",
+          title: filter.criteriaSummary.slice(0, 180),
+          detail: filter.actionSummary.slice(0, 500),
+          url: gmailFiltersUrl(account.email),
+        },
       };
     }
 
@@ -729,12 +704,20 @@ export default defineAction({
       await gmailDeleteFilter(target.account.accessToken, args.id);
       await signalRefresh();
 
+      const filter = enrichFilter(target.account.email, created, labels);
       return {
         ok: true,
         message: `Replaced Gmail filter ${args.id} with ${created.id} in ${target.account.email}.`,
         accountEmail: target.account.email,
         deletedId: args.id,
-        filter: enrichFilter(target.account.email, created, labels),
+        filter,
+        change: {
+          verb: "updated",
+          kind: "gmail-filter",
+          title: filter.criteriaSummary.slice(0, 180),
+          detail: filter.actionSummary.slice(0, 500),
+          url: gmailFiltersUrl(target.account.email),
+        },
       };
     }
 

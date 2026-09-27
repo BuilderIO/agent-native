@@ -943,14 +943,106 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    var userFocusedElement = null;
+    var trustedFocusIntent = null;
+    var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+    function isCanvasFocusTarget(target) {
+      return !!(target && (isEditorTypingTarget(target) || target.matches(focusTargetSelector)));
+    }
+    function getCanvasFocusTarget(event) {
+      var path = event.composedPath();
+      for (var i = 0; i < path.length; i += 1) {
+        var node = path[i];
+        if (!(node instanceof Element)) continue;
+        if (node instanceof HTMLLabelElement && node.control) {
+          return node.control;
+        }
+        if (isCanvasFocusTarget(node)) return node;
+        var closest = node.closest(focusTargetSelector);
+        if (closest) return closest;
+      }
+      return null;
+    }
+    function armTrustedFocusIntent(target, kind) {
+      trustedFocusIntent = {
+        target,
+        kind,
+        expiresAt: Date.now() + 1e3
+      };
+    }
+    function rememberUserFocusedElement(event) {
+      var intent = trustedFocusIntent;
+      var target = getCanvasFocusTarget(event);
+      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind === "pointer" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
+        trustedFocusIntent = null;
+        userFocusedElement = null;
+        return;
+      }
+      userFocusedElement = target;
+      trustedFocusIntent = null;
+    }
+    function rememberTrustedCanvasInput(event) {
+      if (readOnly || interactionMode || !event.isTrusted) return;
+      var target = event.target;
+      if (target instanceof Node && editorChromeHost?.contains(target)) return;
+      if (event.type === "pointerdown") {
+        var pointerFocusTarget = getCanvasFocusTarget(event);
+        userFocusedElement = null;
+        if (pointerFocusTarget) {
+          var active = document.activeElement;
+          var visited = /* @__PURE__ */ new Set();
+          while (active && !visited.has(active)) {
+            visited.add(active);
+            if (active === pointerFocusTarget || pointerFocusTarget.contains(active)) {
+              userFocusedElement = pointerFocusTarget;
+              break;
+            }
+            active = active.shadowRoot?.activeElement || null;
+          }
+        }
+        trustedFocusIntent = pointerFocusTarget ? {
+          target: pointerFocusTarget,
+          kind: "pointer",
+          expiresAt: Date.now() + 1e3
+        } : null;
+        return;
+      }
+      if (event.type === "keydown") {
+        var keyEvent = event;
+        if (keyEvent.key === "Tab") {
+          armTrustedFocusIntent(null, "tab");
+          var tabIntent = trustedFocusIntent;
+          window.setTimeout(function() {
+            if (trustedFocusIntent === tabIntent) trustedFocusIntent = null;
+          }, 0);
+          window.parent.postMessage(
+            { type: "agent-native:canvas-tab-navigation" },
+            "*"
+          );
+          return;
+        }
+        var active = document.activeElement;
+        if (active instanceof Element && isCanvasFocusTarget(active)) {
+          userFocusedElement = active;
+          if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape" || keyEvent.key.startsWith("Arrow")) {
+            armTrustedFocusIntent(active, "activation");
+          }
+        }
+      }
+    }
     function isCanvasFocusTransferSafe() {
+      if (trustedFocusIntent && Date.now() > trustedFocusIntent.expiresAt) {
+        if (trustedFocusIntent.target === userFocusedElement) {
+          userFocusedElement = null;
+        }
+        trustedFocusIntent = null;
+      }
       if (activeTextEditEl) return false;
       var active = document.activeElement;
       var visited = /* @__PURE__ */ new Set();
-      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
       while (active && !visited.has(active)) {
         visited.add(active);
-        if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
+        if (userFocusedElement?.isConnected && (active === userFocusedElement || userFocusedElement.contains(active))) {
           return false;
         }
         var shadowActive = active.shadowRoot?.activeElement;
@@ -958,19 +1050,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           active = shadowActive;
           continue;
         }
-        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
-          return false;
-        }
         return true;
       }
       return true;
     }
-    function reportCanvasFocusState() {
+    function reportCanvasFocusState(reason) {
       if (readOnly || interactionMode) return;
       window.parent.postMessage(
         {
           type: "agent-native:canvas-focus-state",
-          focusSafe: isCanvasFocusTransferSafe()
+          focusSafe: isCanvasFocusTransferSafe(),
+          ...reason ? { reason } : {}
         },
         "*"
       );
@@ -12451,7 +12541,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               clientY,
               dragged
             );
-            if (betweenChildren) return betweenChildren;
+            if (betweenChildren && (hit === el.parentElement || isAutoLayoutElement(hit))) {
+              return betweenChildren;
+            }
             return {
               anchor: hit,
               placement: "inside",
@@ -12638,7 +12730,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var exitedContainer = el.parentElement;
       var receivingContainer = exitedContainer && exitedContainer.parentElement;
       var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && target.anchor?.parentElement !== document.body && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && !unnestPromotedBoardRootTarget && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
         target = {
           ...target,
           anchor: exitedContainer,
@@ -17630,11 +17722,35 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
-    document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener(
+      "focusin",
+      function(event) {
+        rememberUserFocusedElement(event);
+        reportCanvasFocusState();
+      },
+      true
+    );
+    document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
+    document.addEventListener("keydown", rememberTrustedCanvasInput, true);
     document.addEventListener(
       "focusout",
-      function() {
-        window.setTimeout(reportCanvasFocusState, 0);
+      function(event) {
+        var blurred = event.target instanceof Element ? event.target : null;
+        window.setTimeout(function() {
+          if (blurred && userFocusedElement && (blurred === userFocusedElement || userFocusedElement.contains(blurred))) {
+            var active = document.activeElement;
+            var visited = /* @__PURE__ */ new Set();
+            while (active && !visited.has(active)) {
+              visited.add(active);
+              if (active === userFocusedElement || userFocusedElement.contains(active)) {
+                break;
+              }
+              active = active.shadowRoot?.activeElement || null;
+            }
+            if (!active || !visited.has(active)) userFocusedElement = null;
+          }
+          reportCanvasFocusState();
+        }, 0);
       },
       true
     );
@@ -18756,7 +18872,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "agent-native:canvas-focus-state-probe") {
-        reportCanvasFocusState();
+        reportCanvasFocusState(
+          e.data.reason === "route-change" ? "route-change" : void 0
+        );
+        return;
+      }
+      if (e.data.type === "agent-native:canvas-focus-claimed") {
+        userFocusedElement = null;
+        trustedFocusIntent = null;
         return;
       }
       if (e.data.type === "resume-text-edit") {
@@ -18816,6 +18939,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
+        if (nextReadOnly !== readOnly) {
+          userFocusedElement = null;
+          trustedFocusIntent = null;
+        }
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
@@ -18837,6 +18964,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-interaction-mode") {
         var nextInteractionMode = e.data.interact === true;
+        if (nextInteractionMode !== interactionMode) {
+          userFocusedElement = null;
+          trustedFocusIntent = null;
+        }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
           var releaseSpacePan = bridgeSpaceKeyPressed;

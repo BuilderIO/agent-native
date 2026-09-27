@@ -84,6 +84,38 @@ describe("built-in Core chat translations", () => {
     }
   });
 
+  it("exposes localized human-review summary copy to the shared UI", async () => {
+    const summaryKeys = [
+      "summarizeWithAgent",
+      "regenerateSummary",
+      "summarizeWithAgentHelp",
+      "regenerateSummaryHelp",
+      "summarySending",
+      "summaryQueued",
+      "summaryFailed",
+      "summaryExpired",
+    ];
+    const englishSummaryQueued =
+      defaultEnglishMessages.observability.summaryQueued;
+
+    for (const locale of SUPPORTED_LOCALES) {
+      const [messages, agentChat] = await Promise.all([
+        loadCoreMessagesForLocale(locale),
+        loadAgentChatMessagesForLocale(locale),
+      ]);
+      const observability = messages.observability as Record<string, string>;
+
+      for (const key of summaryKeys) {
+        expect(observability[key], `${locale}:${key}`).toBe(
+          agentChat[`observability.${key}`],
+        );
+      }
+      if (locale !== "en-US") {
+        expect(observability.summaryQueued).not.toBe(englishSummaryQueued);
+      }
+    }
+  });
+
   it("does not silently ship the English Core chat catalog for other locales", async () => {
     const englishEntries = Object.entries(englishAgentChatMessages).filter(
       ([key]) => !/_(zero|one|two|few|many|other)$/.test(key),

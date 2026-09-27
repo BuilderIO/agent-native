@@ -7,6 +7,8 @@ export interface ToolRendererContext {
   args: Record<string, unknown>;
   resultText?: string;
   resultJson: unknown;
+  relatedResults?: Array<{ widgetId: string; result: unknown }>;
+  widgetId?: string;
   isRunning: boolean;
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;

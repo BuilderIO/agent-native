@@ -11054,7 +11054,13 @@ function DesignEditor() {
   }, []);
   const spaceForwardArmedRef = useRef(false);
   useEffect(() => {
-    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    if (
+      shellMode ||
+      (embedded && !embedChromeRequested) ||
+      (pendingQuestions && pendingQuestions.length > 0)
+    ) {
+      return;
+    }
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
@@ -11136,7 +11142,13 @@ function DesignEditor() {
       });
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [embedded, pendingQuestions, broadcastSpaceHeldToIframes]);
+  }, [
+    broadcastSpaceHeldToIframes,
+    embedChromeRequested,
+    embedded,
+    pendingQuestions,
+    shellMode,
+  ]);
 
   const shiftKeyHeldRef = useRef(false);
   useEffect(() => {
@@ -11826,7 +11838,13 @@ function DesignEditor() {
   }, []);
 
   useEffect(() => {
-    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    if (
+      shellMode ||
+      (embedded && !embedChromeRequested) ||
+      (pendingQuestions && pendingQuestions.length > 0)
+    ) {
+      return;
+    }
     const handleForwardedSpaceKeyUp = (event: MessageEvent) => {
       const data = event.data as { type?: unknown; code?: unknown } | null;
       if (!data || data.type !== "design-hotkey-up" || data.code !== "Space") {
@@ -11846,7 +11864,7 @@ function DesignEditor() {
     window.addEventListener("message", handleForwardedSpaceKeyUp);
     return () =>
       window.removeEventListener("message", handleForwardedSpaceKeyUp);
-  }, [embedded, pendingQuestions]);
+  }, [embedded, embedChromeRequested, pendingQuestions, shellMode]);
 
   const handleIframeContextMenu = useCallback(
     (payload: IframeContextMenuPayload) =>
@@ -24141,6 +24159,7 @@ function DesignEditor() {
               ? previewUrlAtLiveRoute(screenPreviewUrl, currentLiveRoutePath)
               : undefined
           }
+          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? screenContent}`}
           previewFrameId={
             breakpointWidthPx === undefined
               ? undefined
@@ -27571,6 +27590,7 @@ function DesignEditor() {
                               )
                             : undefined
                         }
+                        previewUrlSourceKey={`${activeFile.id}:${activeScreenPreviewUrl ?? ""}`}
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={
                           activeScreenSnapshotOnly

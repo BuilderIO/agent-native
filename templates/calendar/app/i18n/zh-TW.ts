@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "連線",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "無法載入事件",
     noEventId: "未提供事件 ID。請在 URL 中新增 ?id=<eventId>。",
     openCalendar: "開啟行事曆",
-  },
-  eventCreation: {
-    created: "活動已建立",
-    zoomNotAdded: "活動已建立，但無法新增 Zoom。",
-    openInCalendar: "在 Calendar 中開啟活動",
   },
   agentSidebar: {
     emptyState: "問我任何關於你的行事曆的問題",
@@ -993,7 +990,7 @@ export default {
     yearly: "每年",
     zoom: "Zoom",
     zoomAdded: "新增Zoom",
-    zoomAddFailed: "新增Zoom失敗",
+    zoomAddFailed: zoomAddFailedMessages["zh-TW"],
     zoomConnectFailed: "無法連線Zoom",
     zoomConnectionOpened: "Zoom 連線已開啟",
     zoomNotConfigured: "Zoom OAuth 未設定。",

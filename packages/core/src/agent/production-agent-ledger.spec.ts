@@ -313,6 +313,42 @@ describe("tool-call result ledger", () => {
     expect(events.some((event) => event.type === "widget.created")).toBe(false);
   });
 
+  it("opts actions with a standard change result into the shared card", async () => {
+    const result = {
+      draft: { id: "draft-1", subject: "Launch notes" },
+      change: {
+        verb: "created",
+        kind: "email-draft",
+        title: "Launch notes",
+        detail: "ana@example.test",
+        url: "/_agent-native/open?composeDraftId=draft-1",
+      },
+    };
+    const action = makeWriteAction();
+    action.run = vi.fn(async () => result);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      threadId: "thread-standard-change-widget",
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "core.record-change" },
+      chatUIResult: { change: result.change },
+    });
+  });
+
   it("emits raw structured results for matching action widgets", async () => {
     const result = {
       draft: { subject: "Launch notes", to: "ana@example.test", body: "x" },

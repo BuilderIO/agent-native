@@ -14,6 +14,10 @@ import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "../action-ui.js";
+import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
@@ -983,7 +987,17 @@ function actionChatUIForResult(
   isError: boolean,
   storedWidgetResult = false,
 ): ResolvedActionChatUI | undefined {
-  const chatUI = actionEntry.chatUI;
+  const chatUI =
+    actionEntry.chatUI ??
+    (normalizeActionChangeResult(result)
+      ? {
+          renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+          when: (_args: Record<string, unknown>, value: unknown) =>
+            normalizeActionChangeResult(value) !== null,
+          projectResult: (_args: Record<string, unknown>, value: unknown) =>
+            normalizeActionChangeResult(value),
+        }
+      : undefined);
   if (!chatUI || isError) return undefined;
   if (!storedWidgetResult && chatUI.when) {
     try {

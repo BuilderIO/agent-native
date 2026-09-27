@@ -934,7 +934,8 @@ export async function getHumanReviewSummaries(
 
 export async function getHumanReviewSummariesForThreads(
   scopes: readonly ObservabilityReviewThreadScope[],
-): Promise<Map<string, HumanReviewSummary>> {
+  requestedRuns: readonly { orgId: string; runId: string }[] = [],
+): Promise<Map<string, HumanReviewSummary[]>> {
   const uniqueScopes = [
     ...new Map(
       scopes
@@ -946,9 +947,21 @@ export async function getHumanReviewSummariesForThreads(
     ).values(),
   ].slice(0, 100);
   if (uniqueScopes.length === 0) return new Map();
+  const uniqueRuns = [
+    ...new Map(
+      requestedRuns
+        .filter(({ orgId, runId }) => orgId && runId)
+        .map((run) => [JSON.stringify([run.orgId, run.runId]), run]),
+    ).values(),
+  ].slice(0, 1200);
   await ensureObservabilityTables();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT review.*, trace.thread_id AS review_thread_id
+    sql: `SELECT review_summaries.* FROM (
+      SELECT review.*, trace.thread_id AS review_thread_id,
+        ROW_NUMBER() OVER (
+          PARTITION BY review.org_id, trace.thread_id
+          ORDER BY review.updated_at DESC, review.run_id DESC
+        ) AS thread_summary_number
       FROM agent_human_review_summaries review
       INNER JOIN agent_trace_summaries trace
         ON trace.run_id = review.run_id AND trace.org_id = review.org_id
@@ -958,16 +971,32 @@ export async function getHumanReviewSummariesForThreads(
       WHERE (${uniqueScopes
         .map(() => "(review.org_id = ? AND trace.thread_id = ?)")
         .join(" OR ")})
-      ORDER BY review.updated_at DESC, review.run_id DESC`,
-    args: uniqueScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+    ) review_summaries
+    WHERE review_summaries.thread_summary_number = 1${
+      uniqueRuns.length > 0
+        ? ` OR (${uniqueRuns
+            .map(
+              () =>
+                "(review_summaries.org_id = ? AND review_summaries.run_id = ?)",
+            )
+            .join(" OR ")})`
+        : ""
+    }
+    ORDER BY review_summaries.updated_at DESC, review_summaries.run_id DESC`,
+    args: [
+      ...uniqueScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+      ...uniqueRuns.flatMap(({ orgId, runId }) => [orgId, runId]),
+    ],
   });
-  const summaries = new Map<string, HumanReviewSummary>();
+  const summaries = new Map<string, HumanReviewSummary[]>();
   for (const row of rows as Array<Record<string, unknown>>) {
     const threadId = String(row.review_thread_id ?? "");
     const orgId = String(row.org_id ?? "");
     const key = observabilityReviewThreadKey(orgId, threadId);
-    if (threadId && orgId && !summaries.has(key)) {
-      summaries.set(key, parseHumanReviewSummaryRow(row));
+    if (threadId && orgId) {
+      const threadSummaries = summaries.get(key) ?? [];
+      threadSummaries.push(parseHumanReviewSummaryRow(row));
+      summaries.set(key, threadSummaries);
     }
   }
   return summaries;

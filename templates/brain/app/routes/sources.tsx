@@ -10,6 +10,7 @@ import {
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
+  IconBolt,
   IconChecks,
   IconChevronDown,
   IconCircleCheck,
@@ -1803,6 +1804,21 @@ function SourceListItem({
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const [builderCheckOpen, setBuilderCheckOpen] = useState(false);
+  const sourceAccess = useActionQuery<{ accessRole?: string }>(
+    "get-source" as any,
+    { id: source.id } as any,
+    { enabled: expanded, retry: false },
+  );
+  const checkBuilder = useActionMutation<
+    { provider: string; model: string; dimensions: number; success: boolean },
+    { sourceId: string; confirmProviderCost: true }
+  >("check-builder-embeddings" as any, {
+    skipActionQueryInvalidation: true,
+  });
+  const canCheckBuilder =
+    sourceAccess.data?.accessRole === "admin" ||
+    sourceAccess.data?.accessRole === "owner";
   const Icon = sourceProviderIcon(source.provider);
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
@@ -1976,6 +1992,25 @@ function SourceListItem({
                   </Button>
                 </div>
               ) : null}
+              {canCheckBuilder ? (
+                <div className="mt-3 flex flex-col gap-3 rounded-md border border-border bg-muted/25 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {t("sources.checkBuilderDescription")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => {
+                      checkBuilder.reset();
+                      setBuilderCheckOpen(true);
+                    }}
+                  >
+                    <IconBolt className="size-4" />
+                    {t("sources.checkBuilder")}
+                  </Button>
+                </div>
+              ) : null}
               {hasSyncNotice ? (
                 <div className="mt-3 flex gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
                   <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -2014,6 +2049,66 @@ function SourceListItem({
           ) : null}
         </div>
       ) : null}
+
+      <Dialog
+        open={builderCheckOpen}
+        onOpenChange={(open) => {
+          if (!open && checkBuilder.isPending) return;
+          setBuilderCheckOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md gap-5">
+          <DialogHeader>
+            <DialogTitle>{t("sources.checkBuilder")}</DialogTitle>
+            <DialogDescription>
+              {t("sources.checkBuilderConfirm", { source: sourceName(source) })}
+            </DialogDescription>
+          </DialogHeader>
+          {checkBuilder.data ? (
+            <p role="status" className="text-sm text-foreground">
+              {t("sources.checkBuilderSuccess", {
+                provider: checkBuilder.data.provider,
+                model: checkBuilder.data.model,
+                dimensions: checkBuilder.data.dimensions.toLocaleString(),
+              })}
+            </p>
+          ) : null}
+          {checkBuilder.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {checkBuilder.error.message}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={checkBuilder.isPending}
+              onClick={() => setBuilderCheckOpen(false)}
+            >
+              {checkBuilder.data ? t("sources.close") : t("sources.cancel")}
+            </Button>
+            {!checkBuilder.data ? (
+              <Button
+                type="button"
+                disabled={checkBuilder.isPending}
+                onClick={() =>
+                  checkBuilder.mutate({
+                    sourceId: source.id,
+                    confirmProviderCost: true,
+                  })
+                }
+              >
+                {checkBuilder.isPending ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconBolt className="size-4" />
+                )}
+                {t("sources.runBuilderCheck")}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

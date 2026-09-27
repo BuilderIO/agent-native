@@ -1106,12 +1106,15 @@ function ReviewTab({
   const [pendingNotes, setPendingNotes] = useState<Record<string, boolean>>({});
   const [noteErrors, setNoteErrors] = useState<Record<string, boolean>>({});
   const [summaryStatus, setSummaryStatus] = useState<
-    "sending" | "sent" | "failed" | null
+    "sending" | "queued" | "failed" | "expired" | null
   >(null);
   const [summaryRequests, setSummaryRequests] = useState<
     Record<string, ObservabilityReviewSummaryStatus>
   >({});
   const summaryRetryTimers = useRef(new Map<string, number>());
+  const summaryBaselineRef = useRef(new Map<string, number | null>());
+  const summaryBatchRunIds = useRef<string[]>([]);
+  const summaryBatchRetryTimer = useRef<number | null>(null);
   const summaryRequestMounted = useRef(false);
   const [openPopover, setOpenPopover] = useState<{
     runId: string;
@@ -1135,6 +1138,9 @@ function ReviewTab({
         window.clearTimeout(timer);
       }
       summaryRetryTimers.current.clear();
+      if (summaryBatchRetryTimer.current !== null) {
+        window.clearTimeout(summaryBatchRetryTimer.current);
+      }
     };
   }, []);
   const updateSummaryRequests = (
@@ -1144,17 +1150,34 @@ function ReviewTab({
     if (!summaryRequestMounted.current) return;
     const uniqueRunIds = [...new Set(runIds)];
     for (const runId of uniqueRunIds) {
+      if (status === "sending") {
+        const review = reviews?.find(
+          (candidate) =>
+            candidate.runId === runId ||
+            candidate.runs?.some((run) => run.runId === runId),
+        );
+        const runSummaryUpdatedAt = review?.runs?.find(
+          (run) => run.runId === runId,
+        )?.summaryUpdatedAt;
+        summaryBaselineRef.current.set(
+          runId,
+          runSummaryUpdatedAt ??
+            (review?.runId === runId
+              ? (review.summaryUpdatedAt ?? null)
+              : null),
+        );
+      } else if (status === null || status === "failed") {
+        summaryBaselineRef.current.delete(runId);
+      }
       const timer = summaryRetryTimers.current.get(runId);
       if (timer !== undefined) window.clearTimeout(timer);
       summaryRetryTimers.current.delete(runId);
-      if (status === "sent") {
+      if (status === "queued") {
         const retryTimer = window.setTimeout(() => {
           if (!summaryRequestMounted.current) return;
           setSummaryRequests((current) => {
-            if (current[runId] !== "sent") return current;
-            const next = { ...current };
-            delete next[runId];
-            return next;
+            if (current[runId] !== "queued") return current;
+            return { ...current, [runId]: "expired" };
           });
           summaryRetryTimers.current.delete(runId);
         }, SUMMARY_RETRY_AFTER_MS);
@@ -1177,6 +1200,70 @@ function ReviewTab({
         Boolean(review.threadId?.trim()) &&
         Boolean(review.summary || review.threadTitle.trim()),
     ) ?? [];
+  useEffect(() => {
+    if (!reviews) return;
+    const summarizedRunIds = new Map<string, number>();
+    for (const review of reviews) {
+      if (typeof review.summaryUpdatedAt === "number")
+        summarizedRunIds.set(review.runId, review.summaryUpdatedAt);
+      for (const run of review.runs ?? []) {
+        if (typeof run.summaryUpdatedAt === "number") {
+          summarizedRunIds.set(run.runId, run.summaryUpdatedAt);
+        }
+      }
+    }
+
+    const completedRunIds = Object.entries(summaryRequests)
+      .filter(([runId, status]) => {
+        const updatedAt = summarizedRunIds.get(runId);
+        if (
+          (status !== "queued" && status !== "expired") ||
+          updatedAt === undefined
+        ) {
+          return false;
+        }
+        const baseline = summaryBaselineRef.current.get(runId);
+        return baseline == null || updatedAt > baseline;
+      })
+      .map(([runId]) => runId);
+    if (completedRunIds.length > 0) {
+      for (const runId of completedRunIds) {
+        const timer = summaryRetryTimers.current.get(runId);
+        if (timer !== undefined) window.clearTimeout(timer);
+        summaryRetryTimers.current.delete(runId);
+        summaryBaselineRef.current.delete(runId);
+      }
+      setSummaryRequests((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const runId of completedRunIds) {
+          if (next[runId] !== "queued" && next[runId] !== "expired") continue;
+          delete next[runId];
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    }
+
+    const batchRunIds = summaryBatchRunIds.current;
+    if (
+      (summaryStatus === "queued" || summaryStatus === "expired") &&
+      batchRunIds.length > 0 &&
+      batchRunIds.every((runId) => {
+        const updatedAt = summarizedRunIds.get(runId);
+        if (updatedAt === undefined) return false;
+        const baseline = summaryBaselineRef.current.get(runId);
+        return baseline == null || updatedAt > baseline;
+      })
+    ) {
+      if (summaryBatchRetryTimer.current !== null) {
+        window.clearTimeout(summaryBatchRetryTimer.current);
+        summaryBatchRetryTimer.current = null;
+      }
+      summaryBatchRunIds.current = [];
+      setSummaryStatus(null);
+    }
+  }, [reviews, summaryRequests, summaryStatus]);
   useEffect(() => {
     if (!reviews) return;
     setOptimisticVotes((current) => {
@@ -1215,8 +1302,12 @@ function ReviewTab({
       review.summary?.outcome,
       review.threadTitle,
       review.authorName,
+      review.authorEmail,
       review.model,
       ...review.artifacts.map((artifact) => artifact.title),
+      ...review.feedback
+        .filter((entry) => entry.feedbackType === "text")
+        .map((entry) => entry.value),
     ]
       .filter(Boolean)
       .join(" ")
@@ -1464,7 +1555,7 @@ function ReviewTab({
         !review.summary &&
         !review.readOnly &&
         summaryRequests[review.runId] !== "sending" &&
-        summaryRequests[review.runId] !== "sent"
+        summaryRequests[review.runId] !== "queued"
       );
     }) ?? [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
@@ -1499,6 +1590,10 @@ function ReviewTab({
   });
   const summarizeVisible = () => {
     if (summaryStatus === "sending" || unsummarizedReviews.length === 0) return;
+    if (summaryBatchRetryTimer.current !== null) {
+      window.clearTimeout(summaryBatchRetryTimer.current);
+      summaryBatchRetryTimer.current = null;
+    }
     const batches = [];
     for (let offset = 0; offset < unsummarizedReviews.length; offset += 25) {
       batches.push(unsummarizedReviews.slice(offset, offset + 25));
@@ -1506,6 +1601,7 @@ function ReviewTab({
     const batchRunIds = batches.map((batch) =>
       batch.map((review) => review.runId),
     );
+    summaryBatchRunIds.current = batchRunIds.flat();
     setSummaryStatus("sending");
     updateSummaryRequests(batchRunIds.flat(), "sending");
     const requests = batches.map(async (batch, index) => {
@@ -1533,7 +1629,7 @@ function ReviewTab({
           chatTarget: "local",
           usageLabel: "observability:human-review-summary",
         });
-        status = result.delivered ? "sent" : "failed";
+        status = result.delivered ? "queued" : "failed";
       } catch {
         status = "failed";
       }
@@ -1542,9 +1638,19 @@ function ReviewTab({
     });
     void Promise.all(requests).then((results) => {
       if (!summaryRequestMounted.current) return;
-      setSummaryStatus(
-        results.every((result) => result.status === "sent") ? "sent" : "failed",
-      );
+      if (results.every((result) => result.status === "queued")) {
+        setSummaryStatus("queued");
+        summaryBatchRetryTimer.current = window.setTimeout(() => {
+          summaryBatchRetryTimer.current = null;
+          if (!summaryRequestMounted.current) return;
+          setSummaryStatus((current) =>
+            current === "queued" ? "expired" : current,
+          );
+        }, SUMMARY_RETRY_AFTER_MS);
+      } else {
+        summaryBatchRunIds.current = [];
+        setSummaryStatus("failed");
+      }
     });
   };
 
@@ -1722,9 +1828,11 @@ function ReviewTab({
             {t(
               summaryStatus === "sending"
                 ? "observability.summarySending"
-                : summaryStatus === "sent"
-                  ? "observability.summarySent"
-                  : "observability.summaryFailed",
+                : summaryStatus === "queued"
+                  ? "observability.summaryQueued"
+                  : summaryStatus === "expired"
+                    ? "observability.summaryExpired"
+                    : "observability.summaryFailed",
             )}
           </span>
         )}
@@ -2335,7 +2443,6 @@ function ReviewTab({
                                   status,
                                 )
                               }
-                              compact
                               refresh={Boolean(selectedSummary)}
                             />
                             <div

@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "कनेक्ट करें",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "इवेंट लोड नहीं हो सका",
     noEventId: "कोई इवेंट ID नहीं दिया गया। URL में ?id=<eventId> जोड़ें।",
     openCalendar: "कैलेंडर खोलें",
-  },
-  eventCreation: {
-    created: "इवेंट बनाया गया",
-    zoomNotAdded: "इवेंट बनाया गया, लेकिन Zoom नहीं जोड़ा जा सका।",
-    openInCalendar: "Calendar में इवेंट खोलें",
   },
   agentSidebar: {
     emptyState: "अपने कैलेंडर के बारे में कुछ भी पूछें",
@@ -1034,7 +1031,7 @@ export default {
     year: "वर्ष",
     zoom: "Zoom",
     zoomAdded: "Zoom जोड़ा गया",
-    zoomAddFailed: "Zoom जोड़ने में विफल",
+    zoomAddFailed: zoomAddFailedMessages["hi-IN"],
     zoomConnectFailed: "Zoom कनेक्ट नहीं हो सका",
     zoomConnectionOpened: "Zoom कनेक्शन खोला गया",
     zoomNotConfigured: "Zoom OAuth कॉन्फ़िगर नहीं है.",

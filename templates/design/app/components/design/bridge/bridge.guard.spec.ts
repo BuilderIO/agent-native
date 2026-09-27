@@ -9441,6 +9441,58 @@ it(
   },
 );
 
+it("editor chrome bridge appends cross-parent drops into plain frames but keeps layout slots", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const container = {
+    parentElement: body,
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 320, bottom: 220 }),
+  } as unknown as Element;
+  const existing = { parentElement: container } as unknown as Element;
+  const sourceOutside = { parentElement: body } as unknown as Element;
+  const sourceInside = { parentElement: container } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  let autoLayout = false;
+  const slot = {
+    anchor: existing,
+    placement: "before",
+    axis: "y",
+    dropMode: "flow-insert",
+  };
+  const reorderTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("reorderTargetForPoint", "flowMoveTargetForPoint", {
+    document,
+    window: {
+      getComputedStyle: () => ({ display: "block", gridTemplateColumns: "" }),
+    },
+    elementFromEditorPoint: () => container,
+    isOverlayElement: () => false,
+    isTemplateCloneElement: () => false,
+    isAutoLayoutElement: (element: Element) =>
+      element === container && autoLayout,
+    isContainerDropTarget: (element: Element) => element === container,
+    isTextBearingLeaf: () => false,
+    edgePlacementForRect: () => null,
+    nearestChildInsertionTarget: () => slot,
+    parentFlowAxis: () => "y",
+    isAbsolutePrimitiveContainer: () => true,
+    isFreeformRelativeContainer: () => false,
+  });
+
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toMatchObject({
+    anchor: container,
+    placement: "inside",
+    dropMode: "absolute-container",
+  });
+  expect(reorderTargetForPoint(sourceInside, 20, 70)).toBe(slot);
+
+  autoLayout = true;
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
+});
+
 it("editor chrome bridge converts a body flow slot to an absolute board-root drop", () => {
   const body = { parentElement: null } as unknown as Element;
   const frame = {
@@ -9485,6 +9537,95 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
     anchor: frame,
     placement: "after",
     dropMode: "absolute-container",
+  });
+});
+
+it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a promoted board-root drop", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const receiver = {
+    parentElement: body,
+    getBoundingClientRect: () => ({
+      left: 20,
+      top: 20,
+      right: 220,
+      bottom: 220,
+    }),
+  } as unknown as Element;
+  const exitedFrame = {
+    parentElement: receiver,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 200,
+      bottom: 200,
+    }),
+  } as unknown as Element;
+  const child = { parentElement: exitedFrame } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  let pointHit: Element = receiver;
+  let receiverIsAutoLayout = false;
+  let target: Record<string, unknown> = {
+    anchor: receiver,
+    placement: "inside",
+    dropMode: "flow-insert",
+  };
+  const flowMoveTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("flowMoveTargetForPoint", "clipsOverflow", {
+    document,
+    window: {
+      getComputedStyle: () => ({ display: "block" }),
+    },
+    elementFromEditorPoint: () => pointHit,
+    reorderTargetForPoint: () => target,
+    nearestChildInsertionTarget: () => target,
+    dropContainerForTarget: (dropTarget: Record<string, unknown>) => {
+      const anchor = dropTarget.anchor as Element;
+      return dropTarget.placement === "inside" ? anchor : anchor.parentElement;
+    },
+    isAutoLayoutElement: (element: Element) =>
+      receiverIsAutoLayout && element === receiver,
+    isContainerDropTarget: (element: Element) =>
+      element === receiver || element === exitedFrame,
+    parentFlowAxis: () => "y",
+    isEmptyDropContainer: () => false,
+  });
+
+  expect(flowMoveTargetForPoint(child, 240, 150)).toMatchObject({
+    anchor: exitedFrame,
+    placement: "after",
+    dropMode: "flow-insert",
+  });
+
+  pointHit = body;
+  target = {
+    anchor: exitedFrame,
+    placement: "inside",
+    dropMode: "flow-insert",
+  };
+  expect(flowMoveTargetForPoint(child, 240, 250)).toMatchObject({
+    anchor: receiver,
+    placement: "after",
+    dropMode: "absolute-container",
+  });
+
+  const pointerSlotSibling = {
+    parentElement: receiver,
+  } as unknown as Element;
+  pointHit = receiver;
+  receiverIsAutoLayout = true;
+  target = {
+    anchor: pointerSlotSibling,
+    placement: "after",
+    dropMode: "flow-insert",
+  };
+  expect(flowMoveTargetForPoint(child, 240, 250)).toMatchObject({
+    anchor: pointerSlotSibling,
+    placement: "after",
+    dropMode: "flow-insert",
   });
 });
 

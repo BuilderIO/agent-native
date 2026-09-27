@@ -100,7 +100,14 @@ describe("manage-email-rules chat action", () => {
       backfillRunId: "run-1",
       backfillStatus: "queued",
       settingsHref: "/settings?section=ai-filter",
+      change: {
+        verb: "created",
+        kind: "mail-rule",
+        title: "Newsletters",
+        detail: "from newsletters",
+      },
     });
+    expect(result.change).not.toHaveProperty("url");
   });
 
   it("routes a non-agent AI rule through shared rule creation", async () => {
@@ -160,6 +167,7 @@ describe("manage-email-rules chat action", () => {
         },
       ],
     });
+    expect(result).not.toHaveProperty("change");
   });
 
   it("returns the queued start result without reading status again", async () => {
@@ -195,6 +203,7 @@ describe("manage-email-rules chat action", () => {
       id: "rule-1",
       domain: "mail",
       kind: "ai-filter",
+      name: "Archive team mail",
       condition: "from the team",
       actions: [{ type: "archive" }],
       enabled: true,
@@ -219,6 +228,12 @@ describe("manage-email-rules chat action", () => {
       "rule-1",
     ]);
     expect(result).toMatchObject({ mode: "archive", operation: "update" });
+    expect(result.change).toEqual({
+      verb: "updated",
+      kind: "mail-rule",
+      title: "Archive team mail",
+      detail: "from the team",
+    });
   });
 
   it("reports a queued backfill for an updated AI rule", async () => {
@@ -236,6 +251,7 @@ describe("manage-email-rules chat action", () => {
       id: "rule-1",
       domain: "mail",
       kind: "ai-filter",
+      name: "AI archive: planning",
       condition: "from the team about planning",
       actions: [{ type: "archive" }],
       enabled: true,
@@ -306,6 +322,7 @@ describe("manage-email-rules chat action", () => {
       enabled: false,
       deleted: true,
     });
+    expect(result).not.toHaveProperty("change");
   });
 
   it("creates an Important rule from a mode and one sentence", async () => {
@@ -427,5 +444,90 @@ describe("manage-email-rules chat action", () => {
       }),
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
+  });
+
+  it("shows successful enable and disable transitions as rule changes", async () => {
+    const disabledRule = {
+      id: "rule-1",
+      domain: "mail",
+      kind: "automation",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: [{ type: "star" }],
+      enabled: false,
+    };
+    const enabledRule = { ...disabledRule, enabled: true };
+    mocks.listAutomationRules
+      .mockResolvedValueOnce([disabledRule])
+      .mockResolvedValueOnce([enabledRule]);
+    mocks.updateAutomationRule
+      .mockResolvedValueOnce(enabledRule)
+      .mockResolvedValueOnce(disabledRule);
+
+    const action = createManageEmailRulesAction(true);
+    const enabled = await action.run({ action: "enable", id: "rule-1" });
+    const disabled = await action.run({ action: "disable", id: "rule-1" });
+
+    expect(enabled.change).toEqual({
+      verb: "enabled",
+      kind: "mail-rule",
+      title: "Star my manager",
+      detail: "from my manager",
+    });
+    expect(disabled.change).toEqual({
+      verb: "disabled",
+      kind: "mail-rule",
+      title: "Star my manager",
+      detail: "from my manager",
+    });
+  });
+
+  it("leaves no-op updates and enables as ordinary tool rows", async () => {
+    const rule = {
+      id: "rule-1",
+      domain: "mail",
+      kind: "automation",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: [{ type: "star" }],
+      enabled: true,
+    };
+    mocks.listAutomationRules.mockResolvedValue([rule]);
+    mocks.updateAutomationRule.mockResolvedValue(rule);
+
+    const action = createManageEmailRulesAction(true);
+    const update = await action.run({
+      action: "update",
+      id: "rule-1",
+      name: "Star my manager",
+    });
+    const enable = await action.run({ action: "enable", id: "rule-1" });
+
+    expect(update).not.toHaveProperty("change");
+    expect(enable).not.toHaveProperty("change");
+  });
+
+  it("does not add a change when a rule mutation fails", async () => {
+    mocks.createAutomationRule.mockRejectedValueOnce(new Error("write failed"));
+
+    await expect(
+      createManageEmailRulesAction(true).run({
+        action: "create",
+        name: "Newsletters",
+        condition: "from newsletters",
+        actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
+      }),
+    ).rejects.toThrow("write failed");
+  });
+
+  it("keeps the legacy recurring-automation action on plain results", async () => {
+    const result = await createManageEmailRulesAction(false).run({
+      action: "create",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: JSON.stringify([{ type: "star" }]),
+    });
+
+    expect(result).not.toHaveProperty("change");
   });
 });

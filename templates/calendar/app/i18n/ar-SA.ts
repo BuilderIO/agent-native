@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "اتصال",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "تعذر تحميل الحدث",
     noEventId: "لم يتم تقديم ID للحدث. أضف ?id=<eventId> إلى URL.",
     openCalendar: "فتح التقويم",
-  },
-  eventCreation: {
-    created: "تم إنشاء الحدث",
-    zoomNotAdded: "تم إنشاء الحدث، ولكن تعذرت إضافة Zoom.",
-    openInCalendar: "فتح الحدث في Calendar",
   },
   agentSidebar: {
     emptyState: "اسألني أي شيء عن تقويمك",
@@ -1056,7 +1053,7 @@ export default {
     year: "سنة",
     zoom: "Zoom",
     zoomAdded: "تمت إضافة Zoom",
-    zoomAddFailed: "فشلت إضافة Zoom",
+    zoomAddFailed: zoomAddFailedMessages["ar-SA"],
     zoomConnectFailed: "لا يمكن الاتصال Zoom",
     zoomConnectionOpened: "تم فتح اتصال Zoom",
     zoomNotConfigured: "لم يتم تكوين Zoom OAuth.",
