@@ -8,6 +8,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentMessagePart,
+  AgentUploadTarget,
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
@@ -18,7 +19,9 @@ import {
   AgentChatError,
   callAppAction,
   getMobileAgentChatHeaders,
+  readErrorMessage,
 } from "./api";
+import { nextLocalId } from "./reducer";
 import type {
   ChatAttachment,
   ChatContentPart,
@@ -110,24 +113,144 @@ function formatAgentKitRunError(error: { code: string; message: string }) {
 export function mobileAttachmentsToAgentKitFiles(
   attachments: ChatAttachment[] = [],
 ): FilePart[] {
-  return attachments.flatMap((attachment) => {
-    const url =
-      attachment.url ??
-      attachment.data ??
-      (attachment.text
-        ? `data:text/plain,${encodeURIComponent(attachment.text)}`
-        : undefined);
-    if (!url) return [];
-    return [
-      {
-        type: "file",
-        name: attachment.name,
-        ...(attachment.contentType
-          ? { mediaType: attachment.contentType }
-          : {}),
-        url,
-      },
-    ];
+  return attachments.map((attachment) => {
+    if (
+      attachment.data !== undefined ||
+      attachment.text !== undefined ||
+      !isStoredAttachmentReference(attachment.url)
+    ) {
+      throw new Error(
+        `Attachment ${attachment.name} must be uploaded before it can be sent.`,
+      );
+    }
+    return {
+      type: "file",
+      name: attachment.name,
+      ...(attachment.contentType ? { mediaType: attachment.contentType } : {}),
+      url: attachment.url,
+    };
+  });
+}
+
+function isDataUrl(value: string | undefined): value is string {
+  return typeof value === "string" && /^data:/i.test(value);
+}
+
+function isStoredAttachmentReference(
+  value: string | undefined,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    !/^(?:data|blob|file):/i.test(value)
+  );
+}
+
+function attachmentToBlob(attachment: ChatAttachment): {
+  body: Blob;
+  mediaType: string;
+} {
+  const dataUrl =
+    attachment.data ?? (isDataUrl(attachment.url) ? attachment.url : undefined);
+  if (dataUrl) {
+    const comma = dataUrl.indexOf(",");
+    if (!isDataUrl(dataUrl) || comma < 0) {
+      throw new TypeError(
+        `Attachment ${attachment.name} has invalid file data.`,
+      );
+    }
+    const metadata = dataUrl.slice(5, comma).split(";");
+    const mediaType =
+      attachment.contentType || metadata[0] || "application/octet-stream";
+    const payload = dataUrl.slice(comma + 1);
+    const isBase64 = metadata.some((part) => part.toLowerCase() === "base64");
+    let body: Blob;
+    if (isBase64) {
+      const bytes = Uint8Array.from(atob(payload), (character) =>
+        character.charCodeAt(0),
+      );
+      body = new Blob([bytes], { type: mediaType });
+    } else {
+      body = new Blob([decodeURIComponent(payload)], { type: mediaType });
+    }
+    return { body, mediaType };
+  }
+  if (attachment.text !== undefined) {
+    const mediaType = attachment.contentType ?? "text/plain";
+    return {
+      body: new Blob([attachment.text], { type: mediaType }),
+      mediaType,
+    };
+  }
+  throw new TypeError(
+    `Attachment ${attachment.name} has no uploadable file content.`,
+  );
+}
+
+/** Upload staged bytes first, so AgentKit only receives durable file references. */
+export async function uploadMobileChatAttachments(
+  client: AgentKitController,
+  threadId: string,
+  attachments: ChatAttachment[] = [],
+): Promise<ChatAttachment[]> {
+  const pending: Array<{
+    attachmentIndex: number;
+    body: Blob;
+    mediaType: string;
+    name: string;
+  }> = [];
+  const references = new Map<number, string>();
+
+  attachments.forEach((attachment, attachmentIndex) => {
+    if (isStoredAttachmentReference(attachment.url)) {
+      references.set(attachmentIndex, attachment.url);
+      return;
+    }
+    const { body, mediaType } = attachmentToBlob(attachment);
+    pending.push({
+      attachmentIndex,
+      body,
+      mediaType,
+      name: attachment.name,
+    });
+  });
+
+  if (pending.length) {
+    const uploaded = await client.uploadFiles(
+      threadId,
+      pending.map(({ body, mediaType, name }) => ({
+        name,
+        mediaType,
+        size: body.size,
+        body,
+      })),
+    );
+    if (uploaded.length !== pending.length) {
+      throw new TypeError("File upload did not return every attachment.");
+    }
+    uploaded.forEach((file, index) => {
+      if (!isStoredAttachmentReference(file.url)) {
+        throw new TypeError(
+          "File upload response did not include a stored URL.",
+        );
+      }
+      references.set(pending[index]!.attachmentIndex, file.url);
+    });
+  }
+
+  return attachments.map((attachment, index) => {
+    const url = references.get(index);
+    if (!url) {
+      throw new TypeError(`File upload omitted ${attachment.name}.`);
+    }
+    return {
+      type: attachment.type,
+      name: attachment.name,
+      ...(attachment.contentType
+        ? { contentType: attachment.contentType }
+        : {}),
+      url,
+    };
   });
 }
 
@@ -286,6 +409,7 @@ export function createMobileAgentKitSession(input: {
   scope?: MobileChatScope;
   onError?: (error: Error) => void;
 }): MobileAgentKitSession {
+  const uploadedFiles = new Map<string, FilePart>();
   const transport = createAgentNativeAgentKitTransport({
     apiUrl: `${input.baseUrl}/_agent-native/agent-chat`,
     fetch: agentChatTransportFetch,
@@ -294,6 +418,24 @@ export function createMobileAgentKitSession(input: {
     ...(input.settings.mode ? { mode: input.settings.mode } : {}),
     ...(input.scope ? { scope: input.scope } : {}),
     operations: {
+      createUpload: async () =>
+        ({
+          uploadId: nextLocalId("upload") as AgentUploadTarget["uploadId"],
+          method: "POST",
+          url: `${input.baseUrl.replace(/\/+$/, "")}/_agent-native/file-upload`,
+          fields: {},
+        }) satisfies AgentUploadTarget,
+      completeUpload: async ({ uploadId }) => {
+        const uploaded = uploadedFiles.get(uploadId);
+        if (!uploaded) {
+          throw new Error(`Upload ${uploadId} did not complete.`);
+        }
+        uploadedFiles.delete(uploadId);
+        return uploaded;
+      },
+      cancelUpload: async ({ uploadId }) => {
+        uploadedFiles.delete(uploadId);
+      },
       invokeAction: async ({ invocation }): Promise<AgentActionResult> => {
         try {
           const payload = record(invocation.payload) ?? {};
@@ -326,6 +468,39 @@ export function createMobileAgentKitSession(input: {
     transport,
     transportOwnership: "owned",
     reconnect: { attempts: 3 },
+    upload: async (target, file, context) => {
+      const form = new FormData();
+      for (const [key, value] of Object.entries(target.fields ?? {})) {
+        form.append(key, value);
+      }
+      form.append("file", file.body, file.name);
+      const headers = await getMobileAgentChatHeaders();
+      delete headers["Content-Type"];
+      const response = await expoFetch(target.url, {
+        method: target.method,
+        headers,
+        body: form,
+        signal: context?.signal,
+      });
+      if (!response.ok) {
+        throw new AgentChatError(
+          await readErrorMessage(response),
+          response.status,
+        );
+      }
+      const uploaded: unknown = await response.json();
+      const result = record(uploaded);
+      if (typeof result?.url !== "string" || !result.url) {
+        throw new TypeError("File upload response did not include a URL.");
+      }
+      uploadedFiles.set(target.uploadId, {
+        type: "file",
+        name: file.name,
+        mediaType: file.mediaType,
+        url: result.url,
+        ...(typeof result.id === "string" ? { fileId: result.id } : {}),
+      });
+    },
     ...(input.onError
       ? {
           onError: (error) => input.onError?.(new Error(error.message)),

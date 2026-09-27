@@ -425,8 +425,6 @@ export function createAgentNativeAgentKitTransport(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
-  const queueCache = new Map<string, AgentQueuedMessage[]>();
-  const queueWrites = new Map<string, Promise<unknown>>();
   let transport: AgentKitProtocolAdapter;
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
@@ -467,7 +465,6 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
-    queueCache.set(threadId, queuedMessages);
     const agentKit = asRecord(repository.agentKit);
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
@@ -577,10 +574,22 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function persistQueue(
+  type QueueMutation =
+    | { type: "append"; message: AgentQueuedMessage }
+    | { type: "remove"; messageId: string }
+    | { type: "moveToTop"; messageId: string }
+    | { type: "claim"; messageId: string }
+    | { type: "restore"; message: AgentQueuedMessage; index: number };
+
+  async function persistQueueMutation(
     threadId: string,
-    queuedMessages: AgentQueuedMessage[],
-  ): Promise<void> {
+    mutation: QueueMutation,
+  ): Promise<{
+    queuedMessages: AgentQueuedMessage[];
+    message?: AgentQueuedMessage;
+    removedMessage?: AgentQueuedMessage;
+    index?: number;
+  }> {
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
     const response = await fetcher(
@@ -591,10 +600,26 @@ export function createAgentNativeAgentKitTransport(
       {
         method: "POST",
         headers: requestHeaders,
-        body: JSON.stringify({ queuedMessages }),
+        body: JSON.stringify({ mutation }),
       },
     );
     if (!response.ok) throw await responseError(response);
+    const value = asRecord(await response.json());
+    if (!value || !Array.isArray(value.queuedMessages)) {
+      throw new TypeError("Agent chat queue mutation response is invalid.");
+    }
+    const message = value.message
+      ? storedQueue([value.message], threadId, now())[0]
+      : undefined;
+    const removedMessage = value.removedMessage
+      ? storedQueue([value.removedMessage], threadId, now())[0]
+      : undefined;
+    return {
+      queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
+      ...(message ? { message } : {}),
+      ...(removedMessage ? { removedMessage } : {}),
+      ...(typeof value.index === "number" ? { index: value.index } : {}),
+    };
   }
 
   async function waitForRunSlot(threadId: string): Promise<void> {
@@ -636,27 +661,7 @@ export function createAgentNativeAgentKitTransport(
     );
   }
 
-  function withQueueWrite<T>(
-    threadId: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    const previous = queueWrites.get(threadId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(operation);
-    queueWrites.set(threadId, current);
-    void current.then(
-      () => {
-        if (queueWrites.get(threadId) === current) queueWrites.delete(threadId);
-      },
-      () => {
-        if (queueWrites.get(threadId) === current) queueWrites.delete(threadId);
-      },
-    );
-    return current;
-  }
-
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
-    const cached = queueCache.get(threadId);
-    if (cached) return cached;
     const thread = await snapshot(threadId);
     if (!thread) {
       throw new Error(
@@ -697,98 +702,86 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
-      queueMessage: ({ threadId, text, attachments, metadata }) =>
-        withQueueWrite(threadId, async () => {
-          const current = await readQueue(threadId);
-          const message: AgentQueuedMessage = {
-            id:
-              options.adapter?.createId?.("queued-message") ??
-              `queued-message-${
-                typeof crypto !== "undefined" && crypto.randomUUID
-                  ? crypto.randomUUID()
-                  : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-              }`,
+      queueMessage: async ({ threadId, text, attachments, metadata }) => {
+        const message: AgentQueuedMessage = {
+          id:
+            options.adapter?.createId?.("queued-message") ??
+            `queued-message-${
+              typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+            }`,
+          threadId,
+          text,
+          createdAt: now(),
+          attachments,
+          metadata,
+        };
+        const result = await persistQueueMutation(threadId, {
+          type: "append",
+          message,
+        });
+        if (!result.message) {
+          throw new TypeError("Agent chat queue mutation omitted its message.");
+        }
+        return { message: result.message };
+      },
+      removeQueuedMessage: async ({ threadId, messageId }) => {
+        await persistQueueMutation(threadId, { type: "remove", messageId });
+      },
+      moveQueuedMessageToTop: async ({ threadId, messageId }) => {
+        await persistQueueMutation(threadId, { type: "moveToTop", messageId });
+      },
+      steerQueuedMessage: async ({ threadId, messageId }) => {
+        const current = await readQueue(threadId);
+        if (!current.some((message) => message.id === messageId)) {
+          throw new Error(`Unknown queued message: ${messageId}`);
+        }
+        await waitForRunSlot(threadId);
+        const thread = await snapshot(threadId);
+        if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
+        const claim = await persistQueueMutation(threadId, {
+          type: "claim",
+          messageId,
+        });
+        const queued = claim.removedMessage;
+        if (!queued || typeof claim.index !== "number") {
+          throw new TypeError("Agent chat queue claim response is invalid.");
+        }
+        try {
+          return await transport.startRun({
             threadId,
-            text,
-            createdAt: now(),
-            attachments,
-            metadata,
-          };
-          const next = [...current, message];
-          await persistQueue(threadId, next);
-          queueCache.set(threadId, next);
-          return { message };
-        }),
-      removeQueuedMessage: ({ threadId, messageId }) =>
-        withQueueWrite(threadId, async () => {
-          const current = await readQueue(threadId);
-          const next = current.filter((message) => message.id !== messageId);
-          if (next.length === current.length) {
-            throw new Error(`Unknown queued message: ${messageId}`);
-          }
-          await persistQueue(threadId, next);
-          queueCache.set(threadId, next);
-        }),
-      moveQueuedMessageToTop: ({ threadId, messageId }) =>
-        withQueueWrite(threadId, async () => {
-          const current = await readQueue(threadId);
-          const index = current.findIndex(
-            (message) => message.id === messageId,
-          );
-          if (index < 0)
-            throw new Error(`Unknown queued message: ${messageId}`);
-          if (index === 0) return;
-          const selected = current[index]!;
-          const next = [
-            selected,
-            ...current.filter((message) => message.id !== messageId),
-          ];
-          await persistQueue(threadId, next);
-          queueCache.set(threadId, next);
-        }),
-      steerQueuedMessage: ({ threadId, messageId }) =>
-        withQueueWrite(threadId, async () => {
-          const current = await readQueue(threadId);
-          const queued = current.find((message) => message.id === messageId);
-          if (!queued) throw new Error(`Unknown queued message: ${messageId}`);
-          const next = current.filter((message) => message.id !== messageId);
-          await waitForRunSlot(threadId);
-          const thread = await snapshot(threadId);
-          if (!thread)
-            throw new Error(`Unknown agent chat thread: ${threadId}`);
-          await persistQueue(threadId, next);
-          queueCache.set(threadId, next);
+            messages: [
+              ...thread.messages,
+              {
+                id: queued.id,
+                role: "user",
+                parts: [
+                  { type: "text", text: queued.text },
+                  ...(queued.attachments ?? []),
+                ],
+                createdAt: queued.createdAt,
+                metadata: queued.metadata,
+              },
+            ],
+            metadata: queued.metadata,
+          });
+        } catch (error) {
           try {
-            return await transport.startRun({
-              threadId,
-              messages: [
-                ...thread.messages,
-                {
-                  id: queued.id,
-                  role: "user",
-                  parts: [
-                    { type: "text", text: queued.text },
-                    ...(queued.attachments ?? []),
-                  ],
-                  createdAt: queued.createdAt,
-                  metadata: queued.metadata,
-                },
-              ],
-              metadata: queued.metadata,
+            await persistQueueMutation(threadId, {
+              type: "restore",
+              message: queued,
+              index: claim.index,
             });
-          } catch (error) {
-            try {
-              await persistQueue(threadId, current);
-              queueCache.set(threadId, current);
-            } catch (restoreError) {
-              throw new AggregateError(
-                [error, restoreError],
-                "Queue promotion failed and its durable rollback also failed.",
-              );
-            }
-            throw error;
+          } catch (restoreError) {
+            throw new AggregateError(
+              [error, restoreError],
+              "Queue promotion failed and its durable rollback also failed.",
+            );
           }
-        }),
+          throw error;
+        }
+      },
       forkThread: async ({ threadId, fromMessageId, title, metadata }) => {
         const source = await fetchThread(threadId);
         if (!source) {

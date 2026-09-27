@@ -32,7 +32,11 @@ describe("createAgentNativeAgentKitTransport", () => {
         async (input: string | URL | Request, init?: RequestInit) => {
           const url = String(input);
           if (url.startsWith(`${apiUrl}/threads/thread-scope/queued`)) {
-            return json({ ok: true });
+            const mutation = JSON.parse(String(init?.body)).mutation;
+            return json({
+              queuedMessages: [mutation.message],
+              message: mutation.message,
+            });
           }
           if (url.startsWith(`${apiUrl}/threads/thread-scope`)) {
             return json({
@@ -62,16 +66,77 @@ describe("createAgentNativeAgentKitTransport", () => {
         fetcher.mock.calls
           .map(([input]) => String(input))
           .filter((url) => url.includes("/threads/thread-scope")),
-      ).toEqual([
-        `${apiUrl}/threads/thread-scope${expectedQuery}`,
-        `${apiUrl}/threads/thread-scope/queued${expectedQuery}`,
-      ]);
+      ).toEqual([`${apiUrl}/threads/thread-scope/queued${expectedQuery}`]);
       await transport.dispose();
     },
   );
 
+  it("appends queue messages from independent transports without replacing snapshots", async () => {
+    const persisted: Array<Record<string, unknown>> = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/threads/thread-cross-tab/queued")) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          if (
+            mutation.type === "append" &&
+            !persisted.some((message) => message.id === mutation.message.id)
+          ) {
+            persisted.push(mutation.message);
+          }
+          return json({
+            queuedMessages: persisted,
+            message: mutation.message,
+          });
+        }
+        if (url.endsWith("/threads/thread-cross-tab")) {
+          return json({
+            id: "thread-cross-tab",
+            threadData: JSON.stringify({ queuedMessages: persisted }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    let nextId = 0;
+    const createTransport = () =>
+      createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+        adapter: { createId: () => `queued-${++nextId}` },
+      });
+    const first = createTransport();
+    const second = createTransport();
+
+    await Promise.all([
+      first.queueMessage?.({ threadId: "thread-cross-tab", text: "First" }),
+      second.queueMessage?.({ threadId: "thread-cross-tab", text: "Second" }),
+    ]);
+
+    expect(persisted.map((message) => message.text)).toEqual([
+      "First",
+      "Second",
+    ]);
+    expect(
+      fetcher.mock.calls
+        .filter(([input]) => String(input).endsWith("/queued"))
+        .map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([
+      { mutation: expect.objectContaining({ type: "append" }) },
+      { mutation: expect.objectContaining({ type: "append" }) },
+    ]);
+    await Promise.all([first.dispose(), second.dispose()]);
+  });
+
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
+    let queuedMessages = [
+      {
+        id: "queued-1",
+        text: "Continue after approval",
+        createdAt: "2026-08-29T00:02:00.000Z",
+      },
+    ];
     let activeRunChecks = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -94,19 +159,21 @@ describe("createAgentNativeAgentKitTransport", () => {
                   content: [{ type: "text", text: "Review the release" }],
                 },
               ],
-              queuedMessages: [
-                {
-                  id: "queued-1",
-                  text: "Continue after approval",
-                  createdAt: "2026-08-29T00:02:00.000Z",
-                },
-              ],
+              queuedMessages,
             }),
           });
         }
         if (url.endsWith("/threads/thread-1/queued")) {
-          queueWrites.push(JSON.parse(String(init?.body)));
-          return json({ ok: true });
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          const index = queuedMessages.findIndex(
+            (message) => message.id === mutation.messageId,
+          );
+          const removedMessage = queuedMessages[index];
+          queuedMessages = queuedMessages.filter(
+            (message) => message.id !== mutation.messageId,
+          );
+          return json({ queuedMessages, removedMessage, index });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           const stream = [
@@ -177,7 +244,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       }
     }
 
-    expect(queueWrites).toEqual([{ queuedMessages: [] }]);
+    expect(queueWrites).toEqual([{ type: "claim", messageId: "queued-1" }]);
     expect(activeRunChecks).toBe(3);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
@@ -224,8 +291,25 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
   });
 
-  it("persists a queued-message move to the front under the queue write lock", async () => {
+  it("persists a queue reorder as an atomic message mutation", async () => {
     const queueWrites: unknown[] = [];
+    let queuedMessages = [
+      {
+        id: "queued-one",
+        text: "First",
+        createdAt: "2026-08-29T00:00:00.000Z",
+      },
+      {
+        id: "queued-two",
+        text: "Second",
+        createdAt: "2026-08-29T00:00:01.000Z",
+      },
+      {
+        id: "queued-three",
+        text: "Third",
+        createdAt: "2026-08-29T00:00:02.000Z",
+      },
+    ];
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -236,30 +320,25 @@ describe("createAgentNativeAgentKitTransport", () => {
             updatedAt: "2026-08-29T00:00:00.000Z",
             threadData: JSON.stringify({
               messages: [],
-              queuedMessages: [
-                {
-                  id: "queued-one",
-                  text: "First",
-                  createdAt: "2026-08-29T00:00:00.000Z",
-                },
-                {
-                  id: "queued-two",
-                  text: "Second",
-                  createdAt: "2026-08-29T00:00:01.000Z",
-                },
-                {
-                  id: "queued-three",
-                  text: "Third",
-                  createdAt: "2026-08-29T00:00:02.000Z",
-                },
-              ],
+              queuedMessages,
             }),
           });
         }
         if (url.endsWith("/threads/thread-queue/queued")) {
-          const body = JSON.parse(String(init?.body));
-          queueWrites.push(body);
-          return json({ ok: true });
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          const index = queuedMessages.findIndex(
+            (message) => message.id === mutation.messageId,
+          );
+          if (index > 0) {
+            queuedMessages = [
+              queuedMessages[index]!,
+              ...queuedMessages.filter(
+                (message) => message.id !== mutation.messageId,
+              ),
+            ];
+          }
+          return json({ queuedMessages });
         }
         return json({ error: "Not found" }, 404);
       },
@@ -276,13 +355,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
 
     expect(queueWrites).toEqual([
-      {
-        queuedMessages: [
-          expect.objectContaining({ id: "queued-three" }),
-          expect.objectContaining({ id: "queued-one" }),
-          expect.objectContaining({ id: "queued-two" }),
-        ],
-      },
+      { type: "moveToTop", messageId: "queued-three" },
     ]);
     await transport.dispose();
   });
@@ -739,6 +812,10 @@ describe("createAgentNativeAgentKitTransport", () => {
   it("keeps queued work behind approval and input waits", async () => {
     let activeRunChecks = 0;
     let queueWriteRunCheckCount = 0;
+    const queuedMessage = {
+      id: "queued-approval",
+      text: "Continue after approval",
+    };
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -756,15 +833,17 @@ describe("createAgentNativeAgentKitTransport", () => {
           return json({
             id: "thread-approval",
             threadData: JSON.stringify({
-              queuedMessages: [
-                { id: "queued-approval", text: "Continue after approval" },
-              ],
+              queuedMessages: [queuedMessage],
             }),
           });
         }
         if (url.endsWith("/threads/thread-approval/queued")) {
           queueWriteRunCheckCount = activeRunChecks;
-          return json({ ok: true });
+          return json({
+            queuedMessages: [],
+            removedMessage: queuedMessage,
+            index: 0,
+          });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           return new Response('data: {"type":"done"}\n\n', {
@@ -793,6 +872,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     "releases queued work after an active %s run is terminal",
     async (terminalStatus) => {
       const queueWrites: unknown[] = [];
+      let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
       let startRunRequests = 0;
       const fetcher = vi.fn(
         async (input: string | URL | Request, init?: RequestInit) => {
@@ -804,13 +884,25 @@ describe("createAgentNativeAgentKitTransport", () => {
             return json({
               id: "thread-terminal",
               threadData: JSON.stringify({
-                queuedMessages: [{ id: "queued-terminal", text: "Try again" }],
+                queuedMessages,
               }),
             });
           }
           if (url.endsWith("/threads/thread-terminal/queued")) {
-            queueWrites.push(JSON.parse(String(init?.body)));
-            return json({ ok: true });
+            const mutation = JSON.parse(String(init?.body)).mutation;
+            queueWrites.push(mutation);
+            if (mutation.type === "claim") {
+              const index = queuedMessages.findIndex(
+                (message) => message.id === mutation.messageId,
+              );
+              const removedMessage = queuedMessages[index];
+              queuedMessages = queuedMessages.filter(
+                (message) => message.id !== mutation.messageId,
+              );
+              return json({ queuedMessages, removedMessage, index });
+            }
+            queuedMessages.splice(mutation.index, 0, mutation.message);
+            return json({ queuedMessages });
           }
           if (url.endsWith("/_agent-native/agent-chat")) {
             startRunRequests += 1;
@@ -833,9 +925,14 @@ describe("createAgentNativeAgentKitTransport", () => {
 
       expect(startRunRequests).toBe(1);
       expect(queueWrites).toHaveLength(2);
-      expect(queueWrites[0]).toEqual({ queuedMessages: [] });
+      expect(queueWrites[0]).toEqual({
+        type: "claim",
+        messageId: "queued-terminal",
+      });
       expect(queueWrites[1]).toMatchObject({
-        queuedMessages: [{ id: "queued-terminal", text: "Try again" }],
+        type: "restore",
+        index: 0,
+        message: { id: "queued-terminal", text: "Try again" },
       });
       await transport.dispose();
     },

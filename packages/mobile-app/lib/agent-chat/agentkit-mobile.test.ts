@@ -25,8 +25,10 @@ import {
   createMobileAgentKitSession,
   mobileAgentKitEventToWireEvent,
   mobileAttachmentsToAgentKitFiles,
+  uploadMobileChatAttachments,
 } from "./agentkit-mobile";
 import { AgentChatError, parseMobileChatEligibility } from "./api";
+import type { ChatAttachment } from "./types";
 import {
   canShowMobileVersionHistory,
   mobileVersionHistoryListRequest,
@@ -361,8 +363,8 @@ describe("mobile AgentKit adapter", () => {
     ]);
   });
 
-  it("preserves image, URL, and text attachments through AgentKit file parts", () => {
-    expect(
+  it("requires attachments to be uploaded before creating AgentKit file parts", () => {
+    expect(() =>
       mobileAttachmentsToAgentKitFiles([
         {
           type: "image",
@@ -370,33 +372,180 @@ describe("mobile AgentKit adapter", () => {
           data: "data:image/jpeg;base64,ZmFrZQ==",
           contentType: "image/jpeg",
         },
-        {
-          type: "file",
-          name: "report.pdf",
-          url: "https://files.example.test/report.pdf",
-          contentType: "application/pdf",
-        },
+      ]),
+    ).toThrow("must be uploaded before it can be sent");
+    expect(() =>
+      mobileAttachmentsToAgentKitFiles([
         { type: "file", name: "notes.txt", text: "hello" },
+      ]),
+    ).toThrow("must be uploaded before it can be sent");
+    expect(
+      mobileAttachmentsToAgentKitFiles([
+        {
+          type: "image",
+          name: "photo.jpg",
+          url: "https://files.example.test/photo.jpg",
+          contentType: "image/jpeg",
+        },
       ]),
     ).toEqual([
       {
         type: "file",
         name: "photo.jpg",
         mediaType: "image/jpeg",
-        url: "data:image/jpeg;base64,ZmFrZQ==",
+        url: "https://files.example.test/photo.jpg",
+      },
+    ]);
+  });
+
+  it("uploads staged attachments before they enter AgentKit messages or requests", async () => {
+    getSessionTokenMock.mockResolvedValue("test-session-token");
+    expoFetchMock.mockClear();
+    const responseBody = '{"type":"done"}\n';
+    expoFetchMock.mockImplementation(
+      async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/_agent-native/file-upload")) {
+          const file = (init?.body as FormData).get("file") as File;
+          return Response.json(
+            {
+              url: `https://files.example.test/${file.name}`,
+              id: `stored-${file.name}`,
+            },
+            { status: 201 },
+          );
+        }
+        return new Response(responseBody, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        });
+      },
+    );
+    const session = createMobileAgentKitSession({
+      baseUrl: "https://app.example.test",
+      settings: {},
+    });
+    const staged: ChatAttachment[] = [
+      {
+        type: "image",
+        name: "photo.jpg",
+        contentType: "image/jpeg",
+        data: "data:image/jpeg;base64,ZmFrZQ==",
       },
       {
         type: "file",
         name: "report.pdf",
-        mediaType: "application/pdf",
-        url: "https://files.example.test/report.pdf",
+        contentType: "application/pdf",
+        data: "data:application/pdf;base64,JVBERi0x",
       },
-      {
+      { type: "file", name: "notes.txt", text: "private notes" },
+    ];
+
+    try {
+      const uploaded = await uploadMobileChatAttachments(
+        session.client,
+        "thread-1",
+        staged,
+      );
+      const files = mobileAttachmentsToAgentKitFiles(uploaded);
+      const run = await session.client.sendMessage({
+        threadId: "thread-1",
+        text: "Review these attachments",
+        attachments: files,
+      });
+      await run.completed;
+
+      const uploadCalls = expoFetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/_agent-native/file-upload"),
+      );
+      const uploadedFile = (index: number) =>
+        (uploadCalls[index]![1]?.body as FormData).get("file") as File;
+      expect(uploadCalls).toHaveLength(3);
+      await expect(uploadedFile(0).text()).resolves.toBe("fake");
+      await expect(uploadedFile(1).text()).resolves.toBe("%PDF-1");
+      await expect(uploadedFile(2).text()).resolves.toBe("private notes");
+
+      expect(uploaded).toEqual([
+        {
+          type: "image",
+          name: "photo.jpg",
+          contentType: "image/jpeg",
+          url: "https://files.example.test/photo.jpg",
+        },
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+        {
+          type: "file",
+          name: "notes.txt",
+          url: "https://files.example.test/notes.txt",
+        },
+      ]);
+      expect(staged[0]?.data).toBe("data:image/jpeg;base64,ZmFrZQ==");
+
+      const agentKitMessages = session.client.getThread("thread-1").messages;
+      const durableUserMessage = [...agentKitMessages]
+        .reverse()
+        .find((message) => message.role === "user");
+      expect(durableUserMessage?.parts).toContainEqual({
         type: "file",
-        name: "notes.txt",
-        url: "data:text/plain,hello",
-      },
-    ]);
+        name: "photo.jpg",
+        mediaType: "image/jpeg",
+        url: "https://files.example.test/photo.jpg",
+      });
+      const chatRequest = expoFetchMock.mock.calls.find(([url]) =>
+        String(url).endsWith("/_agent-native/agent-chat"),
+      );
+      expect(chatRequest).toBeDefined();
+      const requestBody = String(chatRequest?.[1]?.body);
+      expect(requestBody).toContain("https://files.example.test/photo.jpg");
+      expect(requestBody).not.toMatch(/data:|ZmFrZQ==|JVBERi0x|private notes/);
+      expect(JSON.stringify(agentKitMessages)).not.toMatch(
+        /data:|ZmFrZQ==|JVBERi0x|private notes/,
+      );
+    } finally {
+      await session.dispose();
+      expoFetchMock.mockReset();
+    }
+  });
+
+  it("surfaces storage setup guidance and does not send the message when upload fails", async () => {
+    getSessionTokenMock.mockResolvedValue("test-session-token");
+    expoFetchMock.mockClear();
+    const guidance =
+      "No object storage is connected. Connect Builder.io or add S3-compatible storage in Settings → File uploads.";
+    expoFetchMock.mockResolvedValue(
+      Response.json({ error: guidance }, { status: 503 }),
+    );
+    const session = createMobileAgentKitSession({
+      baseUrl: "https://app.example.test",
+      settings: {},
+    });
+
+    try {
+      await expect(
+        uploadMobileChatAttachments(session.client, "thread-1", [
+          {
+            type: "image",
+            name: "photo.jpg",
+            contentType: "image/jpeg",
+            data: "data:image/jpeg;base64,ZmFrZQ==",
+          },
+        ]),
+      ).rejects.toThrow(guidance);
+      expect(session.client.getThread("thread-1").messages).toEqual([]);
+      expect(
+        expoFetchMock.mock.calls.some(([url]) =>
+          String(url).endsWith("/_agent-native/agent-chat"),
+        ),
+      ).toBe(false);
+    } finally {
+      await session.dispose();
+      expoFetchMock.mockReset();
+    }
   });
 
   it("projects durable typed messages and history into the mobile chat model", () => {

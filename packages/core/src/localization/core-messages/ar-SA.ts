@@ -699,6 +699,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
+  "recovery.deferredSubmissionFailed":
+    "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":
     "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
   "codeRequired.builderAgentNotConnected":

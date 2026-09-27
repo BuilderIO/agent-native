@@ -11,6 +11,7 @@ import {
   MOBILE_CHAT_METADATA,
   mobileAgentKitEventToWireEvent,
   mobileAttachmentsToAgentKitFiles,
+  uploadMobileChatAttachments,
   type MobileAgentKitSession,
 } from "./agentkit-mobile";
 import {
@@ -203,6 +204,9 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const pendingApprovalRef = useRef<PendingApproval | null>(null);
   const mountedRef = useRef(true);
   const lastPromptRef = useRef<string | null>(null);
+  const lastExtraRef = useRef<
+    Pick<ChatSendOptions, "attachments" | "references">
+  >({});
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -430,6 +434,8 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       currentThreadId?: string,
     ) => {
       if (chatEligibilityRef.current !== "eligible") return;
+      lastPromptRef.current = text;
+      lastExtraRef.current = extra;
       const currentGeneration = ++activeGenerationRef.current;
       const activeThreadId = currentThreadId ?? threadIdRef.current;
       const targetBaseUrl = baseUrlRef.current;
@@ -521,22 +527,24 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         }
         markThreadEventsSeen(activeThreadId, loaded.events);
         turnBuffer.acceptEvents = true;
-        const details = (extra.attachments ?? [])
-          .filter(
-            (attachment) =>
-              attachment.data || attachment.url || attachment.text,
-          )
-          .map(({ type, name, contentType, text: attachmentText }) => ({
+        const durableAttachments = await uploadMobileChatAttachments(
+          currentAgentKit,
+          activeThreadId,
+          extra.attachments,
+        );
+        const details = durableAttachments.map(
+          ({ type, name, contentType, url }) => ({
             type,
             name,
             ...(contentType ? { contentType } : {}),
-            ...(attachmentText ? { text: attachmentText } : {}),
-          }));
+            url,
+          }),
+        );
         const runHandle = await currentAgentKit.sendMessage(
           {
             threadId: activeThreadId,
             text,
-            attachments: mobileAttachmentsToAgentKitFiles(extra.attachments),
+            attachments: mobileAttachmentsToAgentKitFiles(durableAttachments),
             options: {
               ...(settingsRef.current.model
                 ? { model: settingsRef.current.model }
@@ -674,6 +682,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         return;
       }
       lastPromptRef.current = trimmed;
+      lastExtraRef.current = {
+        ...(attachments?.length ? { attachments } : {}),
+        ...(references?.length ? { references } : {}),
+      };
       void runTurn(trimmed, {
         ...(attachments?.length ? { attachments } : {}),
         ...(references?.length ? { references } : {}),
@@ -708,19 +720,6 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         active?.runId === pending.runId ? active.state : stateRef.current;
       const buffered: ChatTurnState = {
         ...currentState,
-        messages:
-          decision === "deny"
-            ? currentState.messages.map((message) => ({
-                ...message,
-                parts: message.parts.map((part) =>
-                  part.type === "tool-call" &&
-                  part.status === "awaiting-approval" &&
-                  part.approvalKey === approvalKey
-                    ? { ...part, status: "failed" as const, error: "Denied" }
-                    : part,
-                ),
-              }))
-            : currentState.messages,
         isStreaming: true,
         activity: null,
         error: null,
@@ -955,7 +954,14 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
 
   const retry = useCallback(() => {
     const prompt = lastPromptRef.current;
-    if (!prompt || stateRef.current.isStreaming) return;
+    const extra = lastExtraRef.current;
+    if (
+      prompt === null ||
+      (!prompt.trim() && !extra.attachments?.length) ||
+      stateRef.current.isStreaming
+    ) {
+      return;
+    }
     setState((current) => {
       const messages = [...current.messages];
       const last = messages[messages.length - 1];
@@ -970,7 +976,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       return { ...current, messages, error: null, errorCode: null };
     });
     // Let the removal state land before re-sending so history is correct.
-    setTimeout(() => void runTurn(prompt), 0);
+    setTimeout(() => void runTurn(prompt, extra), 0);
   }, [runTurn]);
 
   const newChat = useCallback(
@@ -985,6 +991,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       setThreadId(nextThreadId);
       setBaseUrl(nextBaseUrl);
       lastPromptRef.current = null;
+      lastExtraRef.current = {};
       setHistoryLoading(false);
       const nextState: ChatTurnState = {
         messages: [],
@@ -1137,6 +1144,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
       lastPromptRef.current = null;
+      lastExtraRef.current = {};
       setHistoryLoading(true);
       const emptyState: ChatTurnState = {
         messages: [],
@@ -1309,6 +1317,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       );
       openThread(forkedThread.id, targetBaseUrl);
       lastPromptRef.current = text ?? messageText(source);
+      lastExtraRef.current = {};
     },
     [getSession, openThread],
   );

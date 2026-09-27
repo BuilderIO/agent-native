@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, createContext, createElement, type ReactNode } from "react";
+import { act, createElement, type ReactNode } from "react";
 // The mobile app already depends on react-dom at runtime, but not its types.
 // @ts-expect-error This test only needs the small React DOM root surface below.
 import { createRoot } from "react-dom/client";

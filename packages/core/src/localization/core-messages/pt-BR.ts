@@ -384,6 +384,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
+  "recovery.deferredSubmissionFailed":
+    "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":
     "O provedor do modelo rejeitou as credenciais salvas. Atualize sua conexão com o Builder.io ou a chave do provedor e tente enviar esta mensagem novamente.",
   "codeRequired.builderAgentNotConnected":

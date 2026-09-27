@@ -688,6 +688,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.deferredSubmissionFailed":
+    "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":
     "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
   "codeRequired.builderAgentNotConnected":

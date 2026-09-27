@@ -692,6 +692,8 @@ const messages = {
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.deferredSubmissionFailed":
+    "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":
     "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
   "codeRequired.builderAgentNotConnected":

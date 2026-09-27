@@ -51,7 +51,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return getMobileAgentChatHeaders();
 }
 
-async function readErrorMessage(response: {
+export async function readErrorMessage(response: {
   text(): Promise<string>;
   status: number;
 }): Promise<string> {

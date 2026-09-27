@@ -133,8 +133,8 @@ export function MeetingPill() {
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
   const [providerStatus, setProviderStatus] = useState<
-    "unknown" | "configured" | "missing" | "unavailable"
-  >(pillDemoMode ? "configured" : "unknown");
+    "unknown" | "eligible" | "missing" | "unavailable"
+  >(pillDemoMode ? "eligible" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
   // The flex column the transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
@@ -166,7 +166,7 @@ export function MeetingPill() {
 
   const checkProviderStatus = useCallback(async () => {
     if (pillDemoMode) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     providerStatusAbortRef.current?.abort();
@@ -179,12 +179,12 @@ export function MeetingPill() {
         { credentials: "include", signal: controller.signal },
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = (await response.json()) as { configured?: unknown };
-      if (typeof body.configured !== "boolean") {
+      const body = (await response.json()) as { chatEligible?: unknown };
+      if (typeof body.chatEligible !== "boolean") {
         throw new Error("Provider status response was incomplete");
       }
       if (!controller.signal.aborted) {
-        setProviderStatus(body.configured ? "configured" : "missing");
+        setProviderStatus(body.chatEligible ? "eligible" : "missing");
       }
     } catch {
       if (!controller.signal.aborted) setProviderStatus("unavailable");
@@ -193,7 +193,7 @@ export function MeetingPill() {
 
   useEffect(() => {
     if (ctx.mode !== "meeting" || !ctx.meetingId) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     void checkProviderStatus();
@@ -827,7 +827,7 @@ export function MeetingPill() {
       !question.trim() ||
       !mid ||
       !chat ||
-      (!pillDemoMode && providerStatus !== "configured")
+      (!pillDemoMode && providerStatus !== "eligible")
     ) {
       return;
     }
@@ -843,7 +843,7 @@ export function MeetingPill() {
    * transcript. A chip only stages a request; its action runs after the user
    * selects it in the visible meeting chat. */
   const refreshAskChips = () => {
-    if (pillDemoMode || providerStatus !== "configured") return;
+    if (pillDemoMode || providerStatus !== "eligible") return;
     const mid = activeMeetingIdRef.current;
     if (!mid) return;
     const now = Date.now();
@@ -910,6 +910,12 @@ export function MeetingPill() {
   ]);
 
   useEffect(() => {
+    if (!pillDemoMode && providerStatus !== "eligible") {
+      setPendingChipsPrompt(null);
+      expectedChipsPromptRef.current = null;
+      stopAgentKitChat(chipsChatContainerRef.current);
+      return;
+    }
     const request = pendingChipsPrompt;
     const chat = chipsChatRef.current;
     if (!request || !chat || chat.isRunning()) return;
@@ -922,7 +928,7 @@ export function MeetingPill() {
     setPendingChipsPrompt((current) =>
       current?.id === request.id ? null : current,
     );
-  }, [chipsChatRevision, chipsThreadId, pendingChipsPrompt]);
+  }, [chipsChatRevision, chipsThreadId, pendingChipsPrompt, providerStatus]);
 
   useEffect(() => {
     const expectedPrompt = expectedChipsPromptRef.current;
@@ -1306,7 +1312,7 @@ export function MeetingPill() {
                     className="pill-ask-sheet-grip"
                     role="button"
                     tabIndex={0}
-                    aria-label="Resize or dismiss answers"
+                    aria-label={t("meetingAsk.resizeOrDismissAnswers")}
                     data-no-drag
                     onPointerDown={handleSheetHandlePointerDown}
                     onPointerMove={handleSheetHandlePointerMove}
@@ -1343,13 +1349,13 @@ export function MeetingPill() {
                   composerAreaClassName="pill-agentkit-composer"
                   composerLayoutVariant="compact"
                   composerPlaceholder={
-                    !pillDemoMode && providerStatus !== "configured"
+                    !pillDemoMode && providerStatus !== "eligible"
                       ? t("agentChat.setup.connectToChat")
                       : t("agentNativeClips.meetingAsk.placeholder")
                   }
                   composerSlot={
                     <>
-                      {!pillDemoMode && providerStatus !== "configured" ? (
+                      {!pillDemoMode && providerStatus !== "eligible" ? (
                         <div
                           className="pill-ask-provider-status"
                           data-no-drag
@@ -1415,7 +1421,7 @@ export function MeetingPill() {
                               data-no-drag
                               className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
                               disabled={
-                                !pillDemoMode && providerStatus !== "configured"
+                                !pillDemoMode && providerStatus !== "eligible"
                               }
                               onClick={() => submitAsk(chip.ask)}
                             >
@@ -1431,7 +1437,7 @@ export function MeetingPill() {
                   isActiveComposer
                   composerDisabled={
                     !ctx.meetingId ||
-                    (!pillDemoMode && providerStatus !== "configured")
+                    (!pillDemoMode && providerStatus !== "eligible")
                   }
                   onMessageCountChange={handleAskMessageCountChange}
                   plusMenuMode="hidden"

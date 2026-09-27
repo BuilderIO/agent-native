@@ -12,7 +12,6 @@ import {
 } from "@agent-native/agentkit/react";
 import {
   ChatHistoryList,
-  buildRepositoryFromCodeAgentTranscript,
   closeChatFirstSessionWatch,
   emitChatFirstSessionWatch,
   isCodeAgentRunActive,

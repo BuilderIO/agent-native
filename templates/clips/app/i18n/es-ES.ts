@@ -1,4 +1,7 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
+  },
   agentChat: {
     setup: {
       checkingProvider: "Comprobando la conexión de IA…",

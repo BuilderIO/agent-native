@@ -659,6 +659,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "正在连接 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.deferredSubmissionFailed":
+    "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":
     "模型提供商拒绝了已保存的凭据。请更新 Builder.io 连接或提供商密钥，然后重试此消息。",
   "codeRequired.builderAgentNotConnected":

@@ -132,11 +132,13 @@ export interface ChatThreadSummary {
   baseUrl?: string;
 }
 
-/** Matches the server's AgentChatAttachment; `data` is a base64 data URL. */
+/** `data` and `text` are staged content; upload them before creating AgentKit parts. */
 export interface ChatAttachment {
   type: string;
   name: string;
+  /** Staged local preview only; never pass a data URL to AgentKit. */
   data?: string;
+  /** Stored URL or opaque reference returned by file storage. */
   url?: string;
   contentType?: string;
   text?: string;

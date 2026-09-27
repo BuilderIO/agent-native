@@ -1,16 +1,46 @@
 // @vitest-environment jsdom
-import { act, createElement, type ReactNode } from "react";
+import type { AssistantChatHandle } from "@agent-native/core/client/agent-chat";
+import {
+  act,
+  createElement,
+  forwardRef,
+  useImperativeHandle,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assistantChats: vi.fn(),
+  changeTranscript: null as null | ((lines: unknown[]) => void),
+  sendMessages: vi.fn(),
   listeners: new Map<string, (event: { payload?: unknown }) => void>(),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentKitAssistantChat: (props: Record<string, unknown>) => {
+  AgentKitAssistantChat: forwardRef<
+    AssistantChatHandle,
+    Record<string, unknown>
+  >((props, ref) => {
     mocks.assistantChats(props);
+    useImperativeHandle(
+      ref,
+      () =>
+        ({
+          sendMessage: (...args: unknown[]) => {
+            mocks.sendMessages(...args);
+            return Promise.resolve({ status: "submitted" as const });
+          },
+          isRunning: () => false,
+          exportThreadSnapshot: () => {
+            return {
+              threadData: JSON.stringify({ messages: [{ role: "user" }] }),
+            };
+          },
+          setComposerContextItem: () => undefined,
+          clearComposerContextItems: () => undefined,
+        }) as unknown as AssistantChatHandle,
+    );
     return createElement(
       "div",
       null,
@@ -18,8 +48,15 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
         ? (props.composerSlot as ReactNode)
         : null,
     );
-  },
+  }),
   generateTabId: () => "test-thread",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    key === "meetingAsk.resizeOrDismissAnswers"
+      ? "Resize or dismiss answers"
+      : key,
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => null }));
@@ -55,7 +92,16 @@ vi.mock("../components/live-waveform", () => ({ LiveWaveform: () => null }));
 vi.mock("../lib/url", () => ({
   loadStoredServerUrl: () => "https://example.test",
 }));
-vi.mock("./live-transcript", () => ({ LiveTranscript: () => null }));
+vi.mock("./live-transcript", () => ({
+  LiveTranscript: ({
+    onLinesChange,
+  }: {
+    onLinesChange: (lines: unknown[]) => void;
+  }) => {
+    mocks.changeTranscript = onLinesChange;
+    return null;
+  },
+}));
 vi.mock("./pill-logo", () => ({ PillLogo: () => null }));
 
 vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
@@ -69,6 +115,8 @@ describe("meeting pill chat eligibility", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.assistantChats.mockReset();
+    mocks.changeTranscript = null;
+    mocks.sendMessages.mockReset();
     mocks.listeners.clear();
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
@@ -82,7 +130,7 @@ describe("meeting pill chat eligibility", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({ configured: false }),
+        json: async () => ({ configured: true, chatEligible: false }),
       })),
     );
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
@@ -101,7 +149,7 @@ describe("meeting pill chat eligibility", () => {
     vi.unstubAllGlobals();
   });
 
-  it("routes setup through external settings instead of AgentKit's card", async () => {
+  it("blocks visible sends and hidden suggestions when interactive chat is ineligible", async () => {
     const { MeetingPill } = await import("./recording-pill");
     await act(async () => root.render(createElement(MeetingPill)));
 
@@ -116,6 +164,16 @@ describe("meeting pill chat eligibility", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await act(async () =>
+      mocks.changeTranscript?.([
+        {
+          source: "mic",
+          startMs: 0,
+          text: "We should send the deck.",
+          segments: [],
+        },
+      ]),
+    );
 
     const expandButton = host.querySelector<HTMLButtonElement>(
       '[aria-label="Expand"]',
@@ -142,5 +200,19 @@ describe("meeting pill chat eligibility", () => {
     expect(
       host.querySelectorAll(".pill-ask-provider-actions button"),
     ).toHaveLength(2);
+
+    const onMessageCountChange = activeComposerProps[
+      activeComposerProps.length - 1
+    ]?.onMessageCountChange as (count: number) => void;
+    vi.spyOn(Date, "now").mockReturnValue(60_001);
+    await act(async () => onMessageCountChange(1));
+    expect(
+      host.querySelector<HTMLButtonElement>(".pill-ask-suggestions button")
+        ?.disabled,
+    ).toBe(true);
+    expect(
+      host.querySelector('[aria-label="Resize or dismiss answers"]'),
+    ).not.toBeNull();
+    expect(mocks.sendMessages).not.toHaveBeenCalled();
   });
 });

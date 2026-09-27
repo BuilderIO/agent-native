@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import { i18nCatalog } from "../../app/i18n";
 import { App, installAuthFetchInterceptor } from "./app";
 import { installBrowserPreview } from "./dev/browser-preview";
 import { initDesktopSentry } from "./lib/sentry";
@@ -255,7 +256,7 @@ if (rootEl) {
   // are real OS resources — not an environment where double-mount is
   // harmless.
   ReactDOM.createRoot(rootEl).render(
-    <AgentNativeI18nProvider persistPreference={false}>
+    <AgentNativeI18nProvider catalog={i18nCatalog} persistPreference={false}>
       {pickRoute(route)}
     </AgentNativeI18nProvider>,
   );

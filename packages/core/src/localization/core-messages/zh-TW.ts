@@ -663,6 +663,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "正在連線至 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
+  "recovery.deferredSubmissionFailed":
+    "無法傳送這則訊息。請檢查連線或聊天設定，然後再試一次。",
   "recovery.credentialRejected":
     "模型供應商拒絕了已儲存的憑證。請更新 Builder.io 連線或供應商金鑰，然後重試這則訊息。",
   "codeRequired.builderAgentNotConnected":

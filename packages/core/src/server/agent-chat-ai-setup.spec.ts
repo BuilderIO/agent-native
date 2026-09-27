@@ -212,7 +212,7 @@ describe("Agent-Native chat AI setup gate", () => {
     ).toBe(true);
   });
 
-  it("wires the same strict gate before interactive dispatch and queue writes", () => {
+  it("wires the same strict gate before interactive dispatch and queue additions", () => {
     const plugin = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
       "utf8",
@@ -230,9 +230,10 @@ describe("Agent-Native chat AI setup gate", () => {
     const queueStart = plugin.indexOf("// POST /threads/:id/queued");
     const queueEnd = plugin.indexOf('isThreadSubroute("rename")', queueStart);
     const queueBlock = plugin.slice(queueStart, queueEnd);
-    expect(queueBlock).toContain("queuedMessagesNeedAgentChatAiSetup(");
+    expect(queueBlock).toContain('mutation.type === "append"');
+    expect(queueBlock).toContain('mutation.type === "moveToTop"');
     expect(queueBlock.indexOf("requireAgentChatAiSetup()")).toBeLessThan(
-      queueBlock.indexOf("setThreadQueuedMessages(threadId, queued)"),
+      queueBlock.indexOf("const result = await mutateThreadQueuedMessages("),
     );
   });
 

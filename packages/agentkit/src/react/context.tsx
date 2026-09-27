@@ -785,7 +785,7 @@ export function useAgentThread(requestedThreadId?: ThreadId) {
 }
 
 export function useAgentKitControl(requestedThreadId?: ThreadId) {
-  const { controller, threadId: contextThreadId } = useAgentKit();
+  const { controller, labels, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
   return useMemo(
     () => ({
@@ -849,7 +849,7 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       moveQueuedMessageToTop: (messageId: string) =>
         controller.moveQueuedMessageToTop
           ? controller.moveQueuedMessageToTop(threadId, messageId)
-          : Promise.reject(new Error("Queue reordering is unavailable.")),
+          : Promise.reject(new Error(labels.error)),
       steerQueued: (messageId: string) =>
         controller.steerQueuedMessage(threadId, messageId),
       submitFeedback: (
@@ -871,6 +871,6 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       uploadFiles: controller.uploadFiles.bind(controller, threadId),
       invokeAction: controller.invokeAction.bind(controller),
     }),
-    [controller, threadId],
+    [controller, labels.error, threadId],
   );
 }

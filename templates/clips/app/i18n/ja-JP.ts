@@ -1,4 +1,7 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
+  },
   agentChat: {
     setup: {
       checkingProvider: "AI 接続を確認しています…",

@@ -1035,6 +1035,8 @@ export async function setThreadArchived(
 export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
+  preserveCurrentMetadata?: boolean;
+  transformThreadData?: (currentThreadData: string) => string;
   maxAttempts?: number;
   ignoreConflicts?: boolean;
 }
@@ -1071,12 +1073,14 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return;
 
-      let nextThreadData = threadData;
+      const incomingThreadData =
+        options.transformThreadData?.(current.threadData) ?? threadData;
+      let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
       try {
         const merged = mergeThreadDataForClientSave(
           parseThreadData(current.threadData),
-          parseThreadData(threadData),
+          parseThreadData(incomingThreadData),
           {
             preserveExistingQueuedMessages:
               options.preserveExistingQueuedMessages ?? true,
@@ -1096,14 +1100,19 @@ export async function updateThreadData(
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
-      const nextTitle = title || current.title;
+      const nextTitle = options.preserveCurrentMetadata
+        ? current.title
+        : title || current.title;
+      const nextPreview = options.preserveCurrentMetadata
+        ? current.preview
+        : preview;
       const result = await client.execute({
-        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ?`,
         args: [
           nextThreadData,
           nextTitle,
-          preview,
-          nextMessageCount,
+          nextPreview,
+          options.preserveCurrentMetadata ? null : nextMessageCount,
           nextUpdatedAt,
           id,
           current.updatedAt,
@@ -1197,49 +1206,139 @@ export async function setThreadEngineMeta(
 export interface QueuedMessage {
   id: string;
   text: string;
-  images?: string[];
-  references?: unknown[];
+  threadId?: string;
+  createdAt?: string;
+  attachments?: unknown[];
+  metadata?: Record<string, unknown>;
 }
 
-/**
- * Persist the user's queued (not-yet-sent) messages onto the thread.
- * Stored in thread_data JSON so it survives reloads without a schema
- * change. Safe to call often — the frontend debounces writes.
- *
- * Returns false when the thread is missing or `ownerEmail` doesn't match.
- * Callers that already need an ownership check should pass `ownerEmail`
- * here instead of doing their own getThread first — this path fires on
- * debounced composer writes, so a redundant pre-read of the full
- * thread_data blob is a real per-keystroke cost.
- */
-export async function setThreadQueuedMessages(
+export type ThreadQueuedMessageMutation =
+  | { type: "append"; message: QueuedMessage }
+  | { type: "remove"; messageId: string }
+  | { type: "moveToTop"; messageId: string }
+  | { type: "claim"; messageId: string }
+  | { type: "restore"; message: QueuedMessage; index: number };
+
+export interface ThreadQueuedMessageMutationResult {
+  queuedMessages: QueuedMessage[];
+  message?: QueuedMessage;
+  removedMessage?: QueuedMessage;
+  index?: number;
+}
+
+/** Applies a queue operation to the latest durable thread state on every CAS retry. */
+export async function mutateThreadQueuedMessages(
   threadId: string,
-  queuedMessages: QueuedMessage[],
-  options: { ownerEmail?: string } = {},
-): Promise<boolean> {
+  mutation: ThreadQueuedMessageMutation,
+): Promise<ThreadQueuedMessageMutationResult | null> {
   return withThreadDataLock(threadId, async () => {
-    const thread = await getThread(threadId);
-    if (!thread) return false;
-    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
-      return false;
-    }
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(thread.threadData);
-    } catch {}
-    // Keep an explicit empty tombstone. Other mounted chat surfaces only
-    // reconcile queue state when this field is present; deleting it lets a
-    // stale local queue survive the clear and submit the same prompt again.
-    data.queuedMessages = queuedMessages;
-    await updateThreadData(
-      threadId,
-      JSON.stringify(data),
-      thread.title,
-      thread.preview,
-      thread.messageCount,
-      { preserveExistingQueuedMessages: false },
-    );
-    return true;
+    let result: ThreadQueuedMessageMutationResult | undefined;
+    await updateThreadData(threadId, "{}", "", "", 0, {
+      preserveExistingQueuedMessages: false,
+      preserveCurrentMetadata: true,
+      transformThreadData: (threadData) => {
+        let data: unknown;
+        try {
+          data = JSON.parse(threadData || "{}");
+        } catch {
+          throw new TypeError("Agent chat thread data is not valid JSON.");
+        }
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          throw new TypeError("Agent chat thread data must be an object.");
+        }
+
+        const repository = data as Record<string, unknown>;
+        const stored = repository.queuedMessages;
+        if (stored !== undefined && !Array.isArray(stored)) {
+          throw new TypeError("Agent chat queued messages must be an array.");
+        }
+        const current = (stored ?? []) as QueuedMessage[];
+        if (
+          !current.every(
+            (message) =>
+              message &&
+              typeof message.id === "string" &&
+              typeof message.text === "string",
+          )
+        ) {
+          throw new TypeError("Agent chat queued messages are malformed.");
+        }
+        let queuedMessages = current;
+        let response: Omit<
+          ThreadQueuedMessageMutationResult,
+          "queuedMessages"
+        > = {};
+
+        switch (mutation.type) {
+          case "append": {
+            const existing = current.find(
+              (message) => message.id === mutation.message.id,
+            );
+            if (
+              existing &&
+              JSON.stringify(existing) !== JSON.stringify(mutation.message)
+            ) {
+              throw new Error(
+                `Queued message id already exists: ${mutation.message.id}`,
+              );
+            }
+            if (!existing) queuedMessages = [...current, mutation.message];
+            response = { message: existing ?? mutation.message };
+            break;
+          }
+          case "remove":
+            queuedMessages = current.filter(
+              (message) => message.id !== mutation.messageId,
+            );
+            break;
+          case "moveToTop": {
+            const index = current.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            if (index > 0) {
+              const selected = current[index]!;
+              queuedMessages = [
+                selected,
+                ...current.filter(
+                  (message) => message.id !== mutation.messageId,
+                ),
+              ];
+            }
+            break;
+          }
+          case "claim": {
+            const index = current.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            if (index < 0) {
+              throw new Error(`Unknown queued message: ${mutation.messageId}`);
+            }
+            const removedMessage = current[index]!;
+            queuedMessages = current.filter(
+              (message) => message.id !== mutation.messageId,
+            );
+            response = { removedMessage, index };
+            break;
+          }
+          case "restore":
+            if (
+              !current.some((message) => message.id === mutation.message.id)
+            ) {
+              queuedMessages = [...current];
+              queuedMessages.splice(
+                Math.max(0, Math.min(mutation.index, queuedMessages.length)),
+                0,
+                mutation.message,
+              );
+            }
+            break;
+        }
+
+        result = { ...response, queuedMessages };
+        return JSON.stringify({ ...repository, queuedMessages });
+      },
+    });
+    return result ?? null;
   });
 }
 

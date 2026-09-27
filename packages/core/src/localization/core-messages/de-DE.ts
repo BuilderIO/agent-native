@@ -392,6 +392,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Verbindung zu Builder.io wird hergestellt",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.deferredSubmissionFailed":
+    "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":
     "Der Modellanbieter hat die gespeicherten Zugangsdaten abgelehnt. Aktualisiere deine Builder.io-Verbindung oder den Anbieterschlüssel und versuche diese Nachricht erneut.",
   "codeRequired.builderAgentNotConnected":

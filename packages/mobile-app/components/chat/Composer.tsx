@@ -51,7 +51,6 @@ import {
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
-import { MOBILE_LOCAL_AGENT_ENGINES } from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,

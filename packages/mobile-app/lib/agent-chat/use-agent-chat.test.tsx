@@ -30,6 +30,7 @@ vi.mock("./agentkit-mobile", async (importOriginal) => {
 import { createAgentThreadState } from "@agent-native/agentkit";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 
+import type { ChatAttachment } from "./types";
 import { useAgentChat, type AgentChatController } from "./use-agent-chat";
 
 type Root = {
@@ -80,6 +81,7 @@ describe("useAgentChat approval continuation", () => {
       const originalCompleted = new Promise<void>((resolve) => {
         finishOriginalRun = resolve;
       });
+      let failDenialOnce = decision === "deny";
       let sequence = 0;
       const getThread = (threadId: string) => {
         let thread = threads.get(threadId);
@@ -132,6 +134,10 @@ describe("useAgentChat approval continuation", () => {
             approvalId: string;
             response: { decision: "approve" | "deny" };
           }) => {
+            if (response.decision === "deny" && failDenialOnce) {
+              failDenialOnce = false;
+              throw new Error("Approval request failed");
+            }
             appendEvent({
               ...eventBase(
                 "approval.resolved",
@@ -144,13 +150,31 @@ describe("useAgentChat approval continuation", () => {
               approvalId,
               response,
             } as AgentEvent);
+            if (response.decision === "deny") {
+              appendEvent({
+                ...eventBase(
+                  "tool.updated",
+                  "event-denied",
+                  threadId,
+                  "run-2",
+                  2,
+                ),
+                type: "tool.updated",
+                toolCall: {
+                  id: "tool-1",
+                  name: "send-email",
+                  status: "failed",
+                  output: "Denied",
+                },
+              } as AgentEvent);
+            }
             appendEvent({
               ...eventBase(
                 "run.completed",
                 "event-complete",
                 threadId,
                 "run-2",
-                2,
+                response.decision === "deny" ? 3 : 2,
               ),
               type: "run.completed",
             } as AgentEvent);
@@ -186,17 +210,40 @@ describe("useAgentChat approval continuation", () => {
       await act(async () => {
         if (decision === "approve") chat?.approve("approval-1");
         else chat?.deny("approval-1");
-        finishOriginalRun();
+        await Promise.resolve();
+      });
+
+      if (decision === "deny") {
+        await vi.waitFor(() => expect(chat?.isStreaming).toBe(false));
+        expect(
+          chat?.messages
+            .flatMap((message) => message.parts)
+            .find(
+              (part) =>
+                part.type === "tool-call" && part.approvalKey === "approval-1",
+            ),
+        ).toMatchObject({ status: "awaiting-approval" });
+        await act(async () => {
+          chat?.deny("approval-1");
+          await Promise.resolve();
+        });
+      }
+
+      finishOriginalRun();
+      await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       expect(chat?.isStreaming).toBe(false);
-      expect(client.resolveApproval).toHaveBeenCalledWith({
+      expect(client.resolveApproval).toHaveBeenLastCalledWith({
         threadId,
         runId: "run-1",
         approvalId: "approval-1",
         response: { decision },
       });
+      expect(client.resolveApproval).toHaveBeenCalledTimes(
+        decision === "deny" ? 2 : 1,
+      );
       expect(client.sendMessage).toHaveBeenCalledOnce();
       if (decision === "deny") {
         expect(
@@ -210,4 +257,133 @@ describe("useAgentChat approval continuation", () => {
       }
     },
   );
+});
+
+describe("useAgentChat file uploads", () => {
+  let root: Root | undefined;
+  let container: HTMLDivElement | undefined;
+
+  afterEach(() => {
+    if (root) act(() => root?.unmount());
+    container?.remove();
+    root = undefined;
+    container = undefined;
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("uploads before sending and preserves staged files for retry", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const threads = new Map<
+      string,
+      ReturnType<typeof createAgentThreadState>
+    >();
+    const listeners = new Set<() => void>();
+    const getThread = (threadId: string) => {
+      let thread = threads.get(threadId);
+      if (!thread) {
+        thread = createAgentThreadState(threadId);
+        threads.set(threadId, thread);
+      }
+      return thread;
+    };
+    let uploadFailed = false;
+    type SentRequest = {
+      attachments: Array<{
+        type: string;
+        name: string;
+        mediaType: string;
+        url: string;
+      }>;
+    };
+    const sentRequests: SentRequest[] = [];
+    const client = {
+      subscribe: vi.fn((listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      }),
+      getThread: vi.fn(getThread),
+      loadThread: vi.fn(async (threadId: string) => getThread(threadId)),
+      uploadFiles: vi.fn(
+        async (
+          _threadId: string,
+          files: Array<{
+            name: string;
+            mediaType: string;
+            size: number;
+            body: Blob;
+          }>,
+        ) => {
+          if (!uploadFailed) {
+            uploadFailed = true;
+            throw new Error("Storage is unavailable.");
+          }
+          return files.map((file) => ({
+            id: `stored-${file.name}`,
+            name: file.name,
+            mediaType: file.mediaType,
+            size: file.size,
+            url: `https://files.example.test/${file.name}`,
+          }));
+        },
+      ),
+      sendMessage: vi.fn(async (request: SentRequest) => {
+        sentRequests.push(request);
+        return { runId: "run-1", completed: Promise.resolve() };
+      }),
+      cancelRun: vi.fn(async () => {}),
+    };
+    createSessionMock.mockReturnValue({
+      client,
+      dispose: vi.fn(async () => {}),
+    });
+
+    let chat: AgentChatController | undefined;
+    function Harness() {
+      chat = useAgentChat({});
+      return null;
+    }
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(createElement(Harness));
+    });
+    await vi.waitFor(() => expect(chat?.canChat).toBe(true));
+
+    const staged: ChatAttachment[] = [
+      {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        text: "private notes",
+      },
+    ];
+    await act(async () => {
+      chat?.send("Read this file", staged);
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(chat?.error).toBe("Storage is unavailable."));
+    expect(client.sendMessage).not.toHaveBeenCalled();
+    expect(staged[0]?.text).toBe("private notes");
+
+    await act(async () => {
+      chat?.retry();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledOnce());
+
+    const request = sentRequests[0]!;
+    expect(request.attachments).toEqual([
+      {
+        type: "file",
+        name: "notes.txt",
+        mediaType: "text/plain",
+        url: "https://files.example.test/notes.txt",
+      },
+    ]);
+    expect(JSON.stringify(request)).not.toContain("private notes");
+    expect(client.uploadFiles).toHaveBeenCalledTimes(2);
+    expect(staged[0]?.text).toBe("private notes");
+  });
 });

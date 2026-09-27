@@ -235,6 +235,15 @@ vi.mock("./agentkit-chat/parity-renderers.js", () => ({
 }));
 
 vi.mock("./application-state.js", () => ({
+  compareAndSetClientAppState: vi.fn(
+    async (key: string, expected: unknown, next: unknown) => {
+      const current = chatMocks.appState.get(key) ?? null;
+      if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+      if (next === null) chatMocks.appState.delete(key);
+      else chatMocks.appState.set(key, next);
+      return true;
+    },
+  ),
   deleteClientAppState: vi.fn(async (key: string) => {
     chatMocks.appState.delete(key);
   }),
@@ -853,6 +862,52 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(results).toHaveLength(1);
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+  });
+
+  it("keeps a failed deferred send visible until the user retries or dismisses it", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "deferred-failed-send",
+          threadId,
+          text: "Send this after reconnecting",
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {},
+        },
+      ],
+    });
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      Object.assign(new Error("Bad request"), { status: 400 }),
+    );
+
+    await mount(baseProps());
+    await flush();
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
+
+    chatMocks.control.sendMessage.mockResolvedValue(undefined);
+    const retryButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "agentChat.common.retry",
+    );
+    expect(retryButton).toBeDefined();
+    await act(async () => retryButton!.click());
+    await flush();
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("does not loop when the dev checkpoint sees an empty thread", async () => {

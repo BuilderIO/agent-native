@@ -146,10 +146,12 @@ import {
   updateThreadData,
   withThreadDataLock,
   deleteThread,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   setThreadSourceIfMissing,
   isAppOwnedChatScope,
   threadScopeMismatch,
+  type QueuedMessage,
+  type ThreadQueuedMessageMutation,
   type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
@@ -205,10 +207,7 @@ import {
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
-import {
-  queuedMessagesNeedAgentChatAiSetup,
-  requireAgentChatAiSetup,
-} from "./agent-chat-ai-setup.js";
+import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -3359,7 +3358,7 @@ export function createAgentChatPlugin(
         }
         const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
-        // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
+        // `thread_data` writers (mutateThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
         // queued-message save can clobber the assistant message we just
         // appended here, or vice versa.
@@ -6492,7 +6491,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (method === "PUT") {
               // Hold the thread_data lock for the full read-modify-write so
               // periodic saves from the frontend don't race with
-              // onRunComplete / setThreadQueuedMessages / setThreadEngineMeta.
+              // onRunComplete / mutateThreadQueuedMessages / setThreadEngineMeta.
               // Without the lock, a client save that lands during an agent
               // run could clobber the assistant message the server just
               // appended (and vice versa).
@@ -6600,10 +6599,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
             }
 
-            // POST /threads/:id/queued — debounced writes from the client
-            // when the user adds/removes/dequeues a queued message. Keeps
-            // queued messages durable across reloads without piggybacking
-            // on full-thread saves.
+            // POST /threads/:id/queued — apply a single queue mutation against
+            // the latest durable thread state, without piggybacking on saves.
             if (method === "POST" && isThreadSubroute("queued")) {
               const thread = await resolveThreadAccess(
                 owner,
@@ -6615,23 +6612,91 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              const body = await readBody(event);
-              const queued = Array.isArray(body?.queuedMessages)
-                ? body.queuedMessages
-                : [];
-              if (
-                queuedMessagesNeedAgentChatAiSetup(thread.threadData, queued)
+              const body = (await readBody(event)) as {
+                mutation?: unknown;
+              } | null;
+              const rawMutation = body?.mutation;
+              const record =
+                rawMutation &&
+                typeof rawMutation === "object" &&
+                !Array.isArray(rawMutation)
+                  ? (rawMutation as Record<string, unknown>)
+                  : null;
+              const message = (value: unknown): QueuedMessage | null => {
+                if (
+                  !value ||
+                  typeof value !== "object" ||
+                  Array.isArray(value)
+                ) {
+                  return null;
+                }
+                const queued = value as Record<string, unknown>;
+                if (
+                  typeof queued.id !== "string" ||
+                  !queued.id ||
+                  typeof queued.text !== "string" ||
+                  (queued.threadId !== undefined &&
+                    queued.threadId !== threadId) ||
+                  (queued.createdAt !== undefined &&
+                    typeof queued.createdAt !== "string") ||
+                  (queued.attachments !== undefined &&
+                    !Array.isArray(queued.attachments)) ||
+                  (queued.metadata !== undefined &&
+                    (!queued.metadata ||
+                      typeof queued.metadata !== "object" ||
+                      Array.isArray(queued.metadata)))
+                ) {
+                  return null;
+                }
+                return { ...queued, threadId } as QueuedMessage;
+              };
+              let mutation: ThreadQueuedMessageMutation | null = null;
+              if (record?.type === "append" || record?.type === "restore") {
+                const queued = message(record.message);
+                if (queued) {
+                  mutation =
+                    record.type === "append"
+                      ? { type: "append", message: queued }
+                      : typeof record.index === "number" &&
+                          Number.isInteger(record.index) &&
+                          (record.index as number) >= 0
+                        ? {
+                            type: "restore",
+                            message: queued,
+                            index: record.index as number,
+                          }
+                        : null;
+                }
+              } else if (
+                (record?.type === "remove" ||
+                  record?.type === "moveToTop" ||
+                  record?.type === "claim") &&
+                typeof record.messageId === "string" &&
+                record.messageId
               ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                };
+              }
+              if (!mutation) {
+                setResponseStatus(event, 400);
+                return { error: "Invalid queue mutation" };
+              }
+              if (mutation.type === "append" || mutation.type === "moveToTop") {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),
                 );
               }
-              const saved = await setThreadQueuedMessages(threadId, queued);
-              if (!saved) {
+              const result = await mutateThreadQueuedMessages(
+                threadId,
+                mutation,
+              );
+              if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return { ok: true };
+              return result;
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
