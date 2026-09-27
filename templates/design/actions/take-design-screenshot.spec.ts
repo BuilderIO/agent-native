@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+const playwrightMocks = vi.hoisted(() => ({
+  importPlaywright: vi.fn(),
+  launchChromium: vi.fn(),
+}));
+
 const { mockAccessFilter, mockGetDb } = vi.hoisted(() => {
   const chain: Record<string, ReturnType<typeof vi.fn>> = {};
   chain.select = vi.fn(() => chain);
@@ -54,11 +59,17 @@ vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    importPlaywright: vi
-      .fn()
-      .mockRejectedValue(new Error("no chromium binary")),
+    importPlaywright: playwrightMocks.importPlaywright.mockRejectedValue(
+      new Error("no chromium binary"),
+    ),
+    launchChromium: playwrightMocks.launchChromium,
   };
 });
+vi.mock("../server/source-workspace.js", () => ({
+  readLiveSourceFile: vi.fn(async () => ({ content: "<html></html>" })),
+}));
+
+import { uploadFile } from "@agent-native/core/file-upload";
 
 import action, {
   chromiumUnavailableReason,
@@ -67,6 +78,7 @@ import action, {
   parseRgbColor,
   relativeLuminance,
   requiredContrastRatio,
+  getScreenshotPngData,
   resolveViewports,
 } from "./take-design-screenshot.js";
 
@@ -85,6 +97,76 @@ describe("public design screenshot access", () => {
       undefined,
       "viewer",
       { includePublic: true },
+    );
+  });
+});
+
+describe("screenshot image handoff", () => {
+  it("retains PNG bytes only for MCP export calls", async () => {
+    const png = Buffer.from("test png bytes");
+    const diagnostics = {
+      documentWidthPx: 900,
+      documentHeightPx: 600,
+      horizontalOverflowPx: 0,
+      overflowingElements: [],
+      lowContrastText: [],
+      brokenImages: [],
+      zeroSizeOrOffscreen: [],
+    };
+    const page = {
+      on: vi.fn(),
+      setContent: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValue(diagnostics),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      screenshot: vi.fn().mockResolvedValue(png),
+    };
+    const context = {
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      route: vi.fn().mockResolvedValue(undefined),
+      routeWebSocket: vi.fn().mockResolvedValue(undefined),
+      newPage: vi.fn().mockResolvedValue(page),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const browser = {
+      newContext: vi.fn().mockResolvedValue(context),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    playwrightMocks.importPlaywright.mockResolvedValue({ chromium: {} });
+    playwrightMocks.launchChromium.mockResolvedValue(browser);
+    vi.mocked(uploadFile).mockResolvedValue({
+      url: "https://files.example.test/screen.png",
+    } as never);
+
+    const args = { fileId: "file_1", widths: [900] };
+    const screenshotResult = await action.run(args, {
+      caller: "tool",
+      actionName: "take-design-screenshot",
+    });
+    const httpExportResult = await action.run(args, {
+      caller: "http",
+      actionName: "export-png",
+    });
+    const mcpExportResult = await action.run(args, {
+      caller: "mcp",
+      actionName: "export-png",
+    });
+
+    expect(screenshotResult).not.toHaveProperty("_agentImages");
+    expect(JSON.stringify(screenshotResult)).not.toContain(
+      png.toString("base64"),
+    );
+    expect(
+      getScreenshotPngData(screenshotResult.screenshots[0]),
+    ).toBeUndefined();
+    expect(
+      getScreenshotPngData(httpExportResult.screenshots[0]),
+    ).toBeUndefined();
+    expect(getScreenshotPngData(mcpExportResult.screenshots[0])).toEqual(png);
+    expect(mcpExportResult.screenshots[0].url).toBe(
+      "https://files.example.test/screen.png",
     );
   });
 });
