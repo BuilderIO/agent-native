@@ -339,6 +339,32 @@ describe("createAutomationRule AI tags", () => {
     });
   });
 
+  it("migrates a provider Filtered pin to the canonical system view", async () => {
+    dbMock.calls.rootRows = [];
+    settingsMocks.values.set("mail-settings", { pinnedLabels: ["Label_123"] });
+    providerMocks.isConnected.mockResolvedValue(true);
+    providerMocks.readCachedLabels.mockResolvedValue({
+      labels: [
+        { id: "Label_123", name: "agent-native-filtered", type: "user" },
+      ],
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["agent-native-filtered"],
+    });
+  });
+
   it("does not repin a manually hidden Filtered view when another Filtered rule is added", async () => {
     settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
     dbMock.calls.rootRows.push({

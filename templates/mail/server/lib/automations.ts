@@ -148,10 +148,13 @@ async function reconcileAiTagPins(
     }
     const filteredAliases = aliasesFor(AI_FILTER_LABEL);
     if (autoPinFilteredView) {
-      if (
-        !pinned.some((id) => filteredAliases.has(normalizedAiFilterLabelId(id)))
-      ) {
+      const existingPinIndex = pinned.findIndex((id) =>
+        filteredAliases.has(normalizedAiFilterLabelId(id)),
+      );
+      if (existingPinIndex === -1) {
         pinned.push(AI_FILTER_LABEL);
+      } else {
+        pinned[existingPinIndex] = AI_FILTER_LABEL;
       }
     }
     return { ...settings, pinnedLabels: pinned } as unknown as Record<
