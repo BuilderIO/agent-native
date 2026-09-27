@@ -1,4 +1,4 @@
-import { createApp, type H3Event } from "h3";
+import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,6 +7,7 @@ import {
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   createBuilderConnectState,
@@ -40,7 +41,9 @@ import {
   createPublicRemoteAgentsHandler,
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 
 describe("mountApplicationStateRoutes", () => {
   it("registers the compose matcher before generic application state", () => {
@@ -79,6 +82,66 @@ describe("OAuth popup waiting route", () => {
       "unsafe-none",
     );
     expect(await response.text()).not.toContain("script");
+  });
+
+  it("stays reachable from the framework pages that open it", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/settings",
+      defineEventHandler(() => new Response("<!doctype html>")),
+    );
+
+    const opener = await app.fetch(new Request("http://example.test/settings"));
+    const popup = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    // A popup whose COOP differs from its opener's is moved to a new
+    // browsing-context group, unless the opener allows popups and the popup
+    // opts out with `unsafe-none`. A severed popup never reaches the provider
+    // and the opener reports it closed ("allow popups"). Changing either
+    // header alone reintroduces that; change them together.
+    const openerPolicy = opener.headers.get("cross-origin-opener-policy");
+    const popupPolicy = popup.headers.get("cross-origin-opener-policy");
+    expect(popupPolicy).toBe("unsafe-none");
+    expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
+      openerPolicy,
+    );
+  });
+
+  it("stays navigable when opened from an embedded app session", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "oauth-popup-embed-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/_agent-native/oauth/popup",
+        ttlSeconds: 60,
+      });
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+      app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+      const popup = await app.fetch(
+        new Request("http://example.test/_agent-native/oauth/popup", {
+          headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+        }),
+      );
+
+      // The embed session's strict COOP belongs to the framed document, not
+      // to the top-level popup it opens.
+      expect(popup.headers.get("cross-origin-opener-policy")).toBe(
+        "unsafe-none",
+      );
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
   });
 
   it("rejects writes", async () => {
