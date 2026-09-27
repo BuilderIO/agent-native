@@ -67,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SIDEBAR_FILES_ROW_ELEMENT_TIMING } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -330,6 +331,9 @@ function PagedContentFilesBranch({
               expanded={expanded}
               onToggleExpanded={(open) =>
                 props.onDocumentExpandedChange(navigationItem.documentId, open)
+              }
+              elementTiming={
+                props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
               }
             />
             {expanded && navigationItem.hasChildren ? (
@@ -1003,9 +1007,11 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  elementTiming,
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
+  elementTiming?: string;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
@@ -1182,6 +1188,7 @@ function DatabaseSidebarRow({
                 hasRowActions &&
                   sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
               )}
+              elementtiming={elementTiming}
             >
               {title}
             </span>
