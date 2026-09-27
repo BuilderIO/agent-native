@@ -1174,7 +1174,7 @@ export function DocumentToolbar({
                           codex: t("editor.toolbar.openInCodex"),
                         }}
                         icons={{
-                          claude: <ClaudeLogo className="size-4" />,
+                          claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
                           "claude-code": <ClaudeCodeLogo className="size-4" />, // i18n-ignore: destination identifier
                           codex: <CodexLogo className="size-4" />,
                         }}
