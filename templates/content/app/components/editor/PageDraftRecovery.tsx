@@ -114,7 +114,6 @@ export function PageDraftRecovery({
       documentBodyHydrationIsPending(document)
     )
       return;
-    // The draft action has already checked this session's editor access.
     const accountId = session?.email?.trim().toLowerCase();
     if (!accountId) return;
     const scope = {
@@ -159,7 +158,6 @@ export function PageDraftRecovery({
       return;
     }
     if (draft && !sameAsSqlDraft) {
-      // Settle an existing SQL draft first; the local entry stays intact.
       setJournalState("waiting_sql");
       return;
     }

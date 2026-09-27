@@ -913,7 +913,7 @@ describe("update-document compare-and-swap", () => {
           userEmail: OWNER,
         }),
       );
-    await deliver(args); // The committed response never reaches the original editor.
+    await deliver(args);
     await runWithRequestContext({ userEmail: OWNER }, () =>
       editDocumentAction.run(
         {
