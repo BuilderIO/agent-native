@@ -387,6 +387,7 @@ export function configureAwsLambdaRuntimeOutput(
   configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
+// Runtime checks use __env__ to identify real Cloudflare invocations.
 function cloudflareBindingsInitScript(): string {
   return `function initializeBindings(env) {
   if (!env) return;
@@ -399,17 +400,11 @@ function cloudflareBindingsInitScript(): string {
 }`;
 }
 
-/**
- * Global-scope key Module's timer shim (see `cloudflareModuleTimerShimPrefix`
- * in `buildWithNitro`'s post-build patch) uses to stash the real
- * `setInterval` before neutering it. Cloudflare Workers loads each server
- * chunk as its own ES module, so a chunk's own top-level `var` can't be read
- * back from `worker.mjs` — the original has to be captured on `globalThis`
- * instead, and only once, since `worker.mjs` always loads (and shims) first.
- */
+// Cloudflare loads each chunk separately, so all chunks need one shared capture.
 const CF_MODULE_ORIG_SET_INTERVAL_KEY = "__cfModuleOrigSetInterval";
 const CF_MODULE_TIMER_SHIM_MARKER = "__cf_module_timer_shim__";
 
+// Restore only after the shimmed module graph captured the original timer.
 function cloudflareModuleTimerRestoreScript(): string {
   return `function __cfRestoreModuleTimers() {
   if (typeof globalThis.${CF_MODULE_ORIG_SET_INTERVAL_KEY} !== "undefined") {
@@ -1168,7 +1163,7 @@ function normalizeConfiguredAppBasePath(): string {
 
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
-  "sentry",
+  "sentry", // @sentry/node relies on Node built-ins that workerd does not provide.
 ]);
 const EDGE_SERVER_ENTRYPOINT = "@agent-native/core/server/edge";
 
@@ -3278,6 +3273,7 @@ export function copyInstalledExternalSsrPackages(
   const packagesToCopy = new Set<string>();
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
+    // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
