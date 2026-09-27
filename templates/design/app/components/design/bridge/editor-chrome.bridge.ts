@@ -104,7 +104,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var userFocusedElement: Element | null = null;
   var trustedFocusIntent: {
     target: Element | null;
-    kind: "pointer" | "tab" | "activation";
+    kind: "pointer" | "tab" | "activation" | "navigation";
     expiresAt: number;
   } | null = null;
   var focusTargetSelector =
@@ -134,7 +134,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function armTrustedFocusIntent(
     target: Element | null,
-    kind: "pointer" | "tab" | "activation",
+    kind: "pointer" | "tab" | "activation" | "navigation",
   ): void {
     trustedFocusIntent = {
       target: target,
@@ -151,6 +151,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       Date.now() > intent.expiresAt ||
       !target ||
       (intent.kind !== "tab" &&
+        intent.kind !== "navigation" &&
         (intent.target === null ||
           (intent.target !== target &&
             !event.composedPath().includes(intent.target) &&
@@ -213,11 +214,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var active = document.activeElement;
       if (active instanceof Element && isCanvasFocusTarget(active)) {
         userFocusedElement = active;
-        if (
+        if (keyEvent.key.startsWith("Arrow")) {
+          armTrustedFocusIntent(active, "navigation");
+          var navigationIntent = trustedFocusIntent;
+          window.setTimeout(function () {
+            if (trustedFocusIntent === navigationIntent) {
+              trustedFocusIntent = null;
+            }
+          }, 0);
+        } else if (
           keyEvent.key === "Enter" ||
           keyEvent.key === " " ||
-          keyEvent.key === "Escape" ||
-          keyEvent.key.startsWith("Arrow")
+          keyEvent.key === "Escape"
         ) {
           armTrustedFocusIntent(active, "activation");
         }

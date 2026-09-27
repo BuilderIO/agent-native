@@ -170,7 +170,7 @@ function loadRememberUserFocusedElement() {
     focused: () => Element | null;
     setIntent: (intent: {
       target: Element | null;
-      kind: "pointer" | "tab" | "activation";
+      kind: "pointer" | "tab" | "activation" | "navigation";
       expiresAt: number;
     }) => void;
   };
@@ -268,6 +268,21 @@ describe("editor-chrome bridge — focus ownership", () => {
     });
 
     expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("keeps arrow-key focus moves to sibling controls", () => {
+    const current = { contains: () => false } as unknown as Element;
+    const sibling = { contains: () => false } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: current,
+      kind: "navigation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({ target: sibling, composedPath: () => [sibling] });
+
+    expect(focusTracker.focused()).toBe(sibling);
   });
 
   it("keeps focus on the control the user activated from the keyboard", () => {

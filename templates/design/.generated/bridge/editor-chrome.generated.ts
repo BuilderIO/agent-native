@@ -973,7 +973,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
       var target = getCanvasFocusTarget(event);
-      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind !== "tab" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
+      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind !== "tab" && intent.kind !== "navigation" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
         trustedFocusIntent = null;
         userFocusedElement = null;
         return;
@@ -1024,7 +1024,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         var active = document.activeElement;
         if (active instanceof Element && isCanvasFocusTarget(active)) {
           userFocusedElement = active;
-          if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape" || keyEvent.key.startsWith("Arrow")) {
+          if (keyEvent.key.startsWith("Arrow")) {
+            armTrustedFocusIntent(active, "navigation");
+            var navigationIntent = trustedFocusIntent;
+            window.setTimeout(function() {
+              if (trustedFocusIntent === navigationIntent) {
+                trustedFocusIntent = null;
+              }
+            }, 0);
+          } else if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape") {
             armTrustedFocusIntent(active, "activation");
           }
         }
