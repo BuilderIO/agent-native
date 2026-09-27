@@ -508,6 +508,42 @@ Respond to the event.`,
     expect(triggerQueueMocks.rows[1]?.status).toBe("pending");
   });
 
+  it("retries a queued event when its background automation run fails", async () => {
+    const eventName = "test.event.run-failure";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    runAgentLoopMock.mockRejectedValueOnce(new Error("agent run failed"));
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([subscribedEventName]) => subscribedEventName === eventName,
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "failed-agent-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("failed-agent-event", "pending");
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.rows[0]?.failureAttempts).toBe(1);
+  });
+
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -1022,10 +1058,11 @@ Read the calendar.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
-    await waitForEvent("event-mcp-missing");
+    await waitForEvent("event-mcp-missing", "pending");
 
     expect(startRunMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
     const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
     expect(persisted).toContain("lastStatus: error");
     expect(persisted).toContain("Configured MCP tools are unavailable");

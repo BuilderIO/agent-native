@@ -71,6 +71,8 @@ import {
 import { getOAuth2Credentials } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
+const MAX_PENDING_NOTIFICATION_ATTEMPTS = 8;
+const MAX_PENDING_NOTIFICATION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL = 32;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -103,6 +105,8 @@ interface PendingNotificationAction {
   subject: string;
   snippet: string;
   createdAt: number;
+  attempts: number;
+  nextAttemptAt: number;
   committed?: boolean;
 }
 
@@ -235,7 +239,12 @@ function isPendingNotificationAction(
     typeof action.subject === "string" &&
     typeof action.snippet === "string" &&
     typeof action.createdAt === "number" &&
-    Number.isFinite(action.createdAt)
+    Number.isFinite(action.createdAt) &&
+    typeof action.attempts === "number" &&
+    Number.isInteger(action.attempts) &&
+    action.attempts > 0 &&
+    typeof action.nextAttemptAt === "number" &&
+    Number.isFinite(action.nextAttemptAt)
   );
 }
 
@@ -267,10 +276,21 @@ async function retryPendingNotificationActions(
 }> {
   const ready: PendingNotificationAction[] = [];
   const deferred: PendingNotificationAction[] = [];
+  const now = Date.now();
+  let errors = 0;
   for (const action of pendingActions) {
     if (
+      action.attempts >= MAX_PENDING_NOTIFICATION_ATTEMPTS ||
+      now - action.createdAt >= MAX_PENDING_NOTIFICATION_AGE_MS
+    ) {
+      errors += 1;
+      console.error(
+        `[automation-engine] Dropping exhausted Notify retry for rule ${action.ruleId} and message ${action.messageId}.`,
+      );
+    } else if (
       ready.length < MAX_EMAILS_PER_RUN &&
-      (action.committed === true || processedIds.has(action.messageId))
+      (action.committed === true || processedIds.has(action.messageId)) &&
+      action.nextAttemptAt <= now
     ) {
       ready.push(action);
     } else {
@@ -279,7 +299,6 @@ async function retryPendingNotificationActions(
   }
 
   const failed: PendingNotificationAction[] = [];
-  let errors = 0;
   let successes = 0;
   for (const action of ready) {
     const result = await executeActions([{ type: "notify" }], {
@@ -294,14 +313,29 @@ async function retryPendingNotificationActions(
     });
     if (result.failures > 0) {
       errors += result.failures;
-      failed.push(action);
+      const attempts = action.attempts + 1;
+      if (
+        attempts >= MAX_PENDING_NOTIFICATION_ATTEMPTS ||
+        Date.now() - action.createdAt >= MAX_PENDING_NOTIFICATION_AGE_MS
+      ) {
+        console.error(
+          `[automation-engine] Notify retry limit reached for rule ${action.ruleId} and message ${action.messageId}.`,
+        );
+      } else {
+        failed.push({
+          ...action,
+          attempts,
+          nextAttemptAt:
+            Date.now() + Math.min(60_000, 1_000 * 2 ** (attempts - 1)),
+        });
+      }
     } else {
       successes += result.successes;
     }
   }
 
   const remaining = [...deferred, ...failed];
-  if (ready.length > 0) {
+  if (pendingActions.length !== remaining.length || ready.length > 0) {
     await putUserSetting(
       ownerEmail,
       pendingNotificationSettingKey(accountEmail),
@@ -1876,6 +1910,8 @@ async function runAutomationsForAccount(
                   subject: message.subject,
                   snippet: message.snippet,
                   createdAt: Date.now(),
+                  attempts: 1,
+                  nextAttemptAt: Date.now() + 1_000,
                   committed: false,
                 });
                 pendingNotificationKeys.add(key);
@@ -1941,6 +1977,8 @@ async function runAutomationsForAccount(
               subject: message.subject,
               snippet: message.snippet,
               createdAt: Date.now(),
+              attempts: 1,
+              nextAttemptAt: Date.now() + 1_000,
               committed: false,
             });
             pendingNotificationKeys.add(key);

@@ -1040,20 +1040,30 @@ describe("Mail Jev automation routing", () => {
     expect(
       mocks.userSettings.get("owner@example.com:automation-watermark"),
     ).toMatchObject({ lastHistoryId: "history-2" });
-    expect(
-      mocks.userSettings.get(
-        "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
-      ),
-    ).toMatchObject([
+    const pendingKey =
+      "owner@example.com:mail-automation-pending-notifications:mailbox@example.com";
+    const pending = mocks.userSettings.get(pendingKey) as Array<{
+      ruleId: string;
+      messageId: string;
+      committed: boolean;
+      attempts: number;
+      nextAttemptAt: number;
+    }>;
+    expect(pending).toMatchObject([
       {
         ruleId: "notify-rule",
         messageId: "failed-notification",
         committed: true,
+        attempts: 1,
       },
     ]);
+    expect(pending[0]!.nextAttemptAt).toBeGreaterThan(Date.now());
     expect(
       mocks.userSettings.get("owner@example.com:automation-processed-ids"),
     ).toMatchObject({ ids: ["failed-notification"] });
+    mocks.userSettings.set(pendingKey, [
+      { ...pending[0]!, nextAttemptAt: Date.now() - 1 },
+    ]);
 
     await processAutomationsForAccount(
       "owner@example.com",
@@ -1062,6 +1072,40 @@ describe("Mail Jev automation routing", () => {
     );
 
     expect(mocks.executeActions).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.userSettings.get(
+        "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops notification retries after the attempt limit", async () => {
+    mocks.activeRules = [];
+    mocks.userSettings.set(
+      "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
+      [
+        {
+          ruleId: "notify-rule",
+          messageId: "exhausted-notification",
+          from: "sender@example.test",
+          subject: "Update",
+          snippet: "Details",
+          createdAt: Date.now(),
+          attempts: 8,
+          nextAttemptAt: Date.now() + 60_000,
+          committed: true,
+        },
+      ],
+    );
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result.errors).toBe(1);
+    expect(mocks.executeActions).not.toHaveBeenCalled();
     expect(
       mocks.userSettings.get(
         "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",

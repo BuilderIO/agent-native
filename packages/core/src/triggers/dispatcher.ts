@@ -539,16 +539,21 @@ export async function dispatchAutomationWebhookTask(
   if (_dispatchingTriggers.has(dispatchKey)) return "retry";
   _dispatchingTriggers.add(dispatchKey);
   try {
-    const dispatched = await dispatchAgentic(
-      resource,
-      task.payload,
-      {
-        eventId: task.eventId,
-        emittedAt: new Date().toISOString(),
-        owner: identity.eventOwner,
-      },
-      identity,
-    );
+    let dispatched: boolean;
+    try {
+      dispatched = await dispatchAgentic(
+        resource,
+        task.payload,
+        {
+          eventId: task.eventId,
+          emittedAt: new Date().toISOString(),
+          owner: identity.eventOwner,
+        },
+        identity,
+      );
+    } catch {
+      return "retry";
+    }
     if (!dispatched) return "retry";
   } finally {
     _dispatchingTriggers.delete(dispatchKey);
@@ -686,6 +691,6 @@ async function dispatchAgentic(
       lastError,
     });
     console.error(`[triggers] "${triggerName}" failed:`, lastError);
-    return true;
+    throw err;
   }
 }
