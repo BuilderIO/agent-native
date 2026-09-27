@@ -8,6 +8,7 @@ import {
   mailLabelsIncludeAny,
 } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
@@ -357,8 +358,12 @@ export function InboxPage() {
       retry: 2,
     },
   );
+  const { refetch: refetchJevAvailability } = jevAvailability;
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const onJevAvailabilityChange = useCallback(() => {
+    void refetchJevAvailability();
+  }, [refetchJevAvailability]);
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const changeSortMode = useCallback((mode: MailSortMode) => {
@@ -887,10 +892,7 @@ export function InboxPage() {
         : "/draft-queue";
       void navigate(target);
     } else if (targetView === "settings") {
-      const target = navCommand.settingsSection
-        ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
-        : "/settings";
-      void navigate(target);
+      void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
     } else if (navCommand.tab) {
       void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {
@@ -1115,8 +1117,8 @@ export function InboxPage() {
               jevAvailability.isLoading || jevAvailability.isFetching
             }
             jevAvailabilityError={jevAvailability.isError}
-            onJevConnected={() => void jevAvailability.refetch()}
-            onJevRetry={() => void jevAvailability.refetch()}
+            onJevConnected={onJevAvailabilityChange}
+            onJevRetry={onJevAvailabilityChange}
             onSortModeChange={changeSortMode}
           />
         )}

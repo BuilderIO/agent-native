@@ -1,9 +1,9 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
-  availableEmbeddingFamilies,
   defaultEmbeddingFamily,
   type EmbeddingFamily,
   readEmbeddingFamilyAvailability,
+  resolveDefaultEmbeddingFamily,
 } from "@agent-native/core/embeddings";
 import {
   deletePgVectors,
@@ -267,6 +267,7 @@ export function burstRows(
 export function embeddingReadinessFromFamilies(
   families: readonly EmbeddingFamily[],
   unavailableProviders: readonly string[] = [],
+  preferredProvider: string | null = null,
 ): BrainEmbeddingReadiness {
   const configuredProviders = Array.from(
     new Set(families.map((candidate) => candidate.provider)),
@@ -286,14 +287,14 @@ export function embeddingReadinessFromFamilies(
         "Embedding credential status is temporarily unavailable. Retry before indexing.",
     };
   }
-  const family = defaultEmbeddingFamily(families);
+  const family = defaultEmbeddingFamily(families, preferredProvider);
   if (family) {
     return {
       status: "ready",
       ready: true,
-      configuredProviders: [family.provider],
+      configuredProviders,
       unavailableProviders: [],
-      configuredFamilies: 1,
+      configuredFamilies: families.length,
       provider: family.provider,
       model: family.model,
       embeddingSetId: family.id,
@@ -301,8 +302,12 @@ export function embeddingReadinessFromFamilies(
       warning: null,
     };
   }
+  // A chosen provider without credentials stays off rather than indexing with
+  // another one; only providers outside the known order can be ambiguous.
+  const status: BrainEmbeddingReadinessStatus =
+    families.length && !preferredProvider ? "ambiguous" : "not-configured";
   return {
-    status: families.length ? "ambiguous" : "not-configured",
+    status,
     ready: false,
     configuredProviders,
     unavailableProviders: [],
@@ -311,9 +316,11 @@ export function embeddingReadinessFromFamilies(
     model: null,
     embeddingSetId: null,
     dimensions: null,
-    warning: families.length
-      ? "Configure exactly one embedding provider."
-      : "Configure one embedding provider to enable semantic retrieval.",
+    warning: preferredProvider
+      ? `The organization's embeddings provider (${preferredProvider}) isn't set up. Add its key, or choose another provider in Settings > Infrastructure.`
+      : status === "ambiguous"
+        ? "Choose an embeddings provider in Settings > Infrastructure."
+        : "Configure one embedding provider to enable semantic retrieval.",
   };
 }
 
@@ -322,12 +329,12 @@ export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness>
   return embeddingReadinessFromFamilies(
     availability.families,
     availability.unavailableProviders,
+    availability.preferredProvider,
   );
 }
 
-async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
-  const families = await availableEmbeddingFamilies();
-  return defaultEmbeddingFamily(families);
+function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
+  return resolveDefaultEmbeddingFamily();
 }
 
 export interface CaptureEmbeddingCoverage {

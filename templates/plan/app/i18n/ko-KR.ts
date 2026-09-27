@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
+    editorGroupTitle: "편집기",
     editorTitle: "VS Code 확장 프로그램",
     editorDescription:
       "별도의 브라우저 탭 대신 VS Code 사이드 패널에서 계획을 열고 검토하세요.",

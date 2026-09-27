@@ -33,6 +33,7 @@ const messages = {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     openAgentSettings: "إدارة الوكيل",
+    editorGroupTitle: "المحرر",
     editorTitle: "إضافة VS Code",
     editorDescription:
       "افتح الخطط وراجعها في لوحة جانبية داخل VS Code بدلاً من علامة تبويب منفصلة في المتصفح.",

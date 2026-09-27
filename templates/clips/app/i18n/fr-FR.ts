@@ -1,4 +1,7 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
+  },
   agentChat: {
     setup: {
       checkingProvider: "Vérification de la connexion à l’IA…",
@@ -585,6 +588,9 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    redactionsPendingTitle: "Terminer les masquages avant le partage",
+    redactionsPendingBody:
+      "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",
     publicDescription:
       "Toute personne disposant du lien peut voir — connectez-vous pour commenter ou réagir",
     shareRecording: "Partager l'enregistrement",
@@ -640,9 +646,6 @@ const messages = {
     customizeEmbed: "Personnaliser l’intégration",
     more: "Plus",
     sharePlainTitle: "Partager {{title}}",
-    redactionsPendingBody:
-      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n'ont pas été appliqués à la vidéo : le fichier montre donc toujours tout ce qui se trouve dessous. Ouvrez l'éditeur, appliquez-les, et le partage redeviendra disponible.",
-    redactionsPendingTitle: "Terminez d'abord les masquages",
   },
   shareUi: {
     owner: "Propriétaire : {{email}}",
@@ -964,6 +967,53 @@ const messages = {
       "Clips supprimera le token bot stocké pour {{team}} et cessera d’envoyer des aperçus Slack lisibles.",
     thisWorkspace: "cet espace",
     slackConnected: "Slack connecté",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Le navigateur a bloqué la fenêtre contextuelle. Autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
+    recordingsTab: "Enregistrements",
+    meetingsTab: "Réunions",
+    yourDefaults: "Vos valeurs par défaut",
+    orgDefault: "Valeur par défaut de {{org}}",
+    playbackSpeed: "Vitesse de lecture",
+    playbackSpeedDescription: "S'applique quand vous ouvrez un enregistrement.",
+    visibility: "Visibilité",
+    visibilityDescription:
+      "S'applique aux enregistrements que vous créez. Vous pouvez la modifier sur chaque enregistrement.",
+    useOrgDefault: "Utiliser la valeur par défaut de {{org}} ({{visibility}})",
+    useDefault: "Utiliser la valeur par défaut ({{visibility}})",
+    transcriptExport: "Export des transcriptions",
+    logoDescription:
+      "Affiché dans les e-mails de partage et sur les pages publiques des clips.",
+    change: "Modifier",
+    adminsOnly:
+      "Seuls les propriétaires et les administrateurs peuvent modifier ce réglage.",
+    brandColorInvalid: "Saisissez un code couleur hexadécimal.",
+    loadFailed: "Impossible de charger ces réglages.",
+    emailGroup: "E-mail",
+    calendarGroup: "Calendrier",
+    googleCalendar: "Google Calendar",
+    connect: "Connecter",
+    reconnect: "Reconnecter",
+    connectedAs: "Connecté en tant que {{account}}",
+    needsReconnect: "{{account}} doit être reconnecté.",
+    disconnectFailed: "Impossible de déconnecter le calendrier.",
+    disconnectCalendarDescription:
+      "Clips ne synchronise plus les réunions à venir de {{account}}.",
+    calendarApp: "Application Google Calendar",
+    desktopGroup: "Bureau",
+    meetingCapture: "Capture des réunions",
+    meetingCaptureDescription:
+      "Les notes, le démarrage automatique et les notifications se règlent sur chaque appareil dans Clips Desktop.",
+    openClipsDesktop: "Ouvrir Clips Desktop",
+    keySaved: "Enregistrée",
+    keyNotSaved: "Non enregistrée",
+    manage: "Gérer",
+    add: "Ajouter",
+    linkPreviews: "Aperçus de liens",
+    addWorkspace: "Ajouter un espace de travail",
+    storageAskAdmin:
+      "Demandez à un propriétaire ou à un administrateur de configurer le stockage.",
   },
   insightsHub: {
     title: "Insights",

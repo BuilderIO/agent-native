@@ -7,10 +7,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Ask about a live meeting from the recording pill, with transcript context and AI-generated next-step suggestions.
+- Clips asks you to connect storage only when an upload needs it.
 - See the desktop app for your platform at a glance.
 - The comments signup headline now wraps more evenly.
 - The empty comments state now explains how screen recordings help AI agents.
 - The empty comments view has a clearer headline and a focused signup action.
+
+### Fixed
+
+- Clips asks you to connect storage only when you choose an upload
+- Clips can play recordings from public S3-compatible storage in more hosted environments.
+- Dismissing storage setup now cancels queued uploads.
+- Meeting chat waits for interactive AI access before sending, and its answer panel has a localized resize and dismiss label.
+- Stopping a recording with its keyboard shortcut now shows the completion card.
+- Video uploads only ask for storage when you choose Upload video, then offer a fresh upload action after storage connects.
 
 ### Changed
 
@@ -27,6 +38,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
 - Clips checks storage before upload and offers Builder.io or your own S3-compatible keys when storage is missing.
 - Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
 - Keep Builder login state after blocked popups and show feedback while retrying storage connection checks
@@ -42,6 +54,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Sharing recordings now uses a joined Share and quick-copy control with People and Agents tabs
 - Recording actions are easier to find and align clearly.
 - Share links appear after uploads finish, when clips are ready to view.
 

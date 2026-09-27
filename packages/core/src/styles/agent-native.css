@@ -27,6 +27,7 @@
 @import "./blocks.css";
 @import "./chat-history-list.css";
 @import "./tokens/agent-kit.css";
+@import "@agent-native/agentkit/react/styles.css";
 
 @import "@agent-native/toolkit/styles.css";
 
@@ -941,6 +942,22 @@
   container-name: settings-row;
 }
 
+/* The row a Settings search hit opened, briefly highlighted so the eye can
+   find it after the page scrolls. */
+[data-settings-flash] {
+  animation: settings-search-flash 1.6s ease-out;
+}
+
+@keyframes settings-search-flash {
+  0%,
+  35% {
+    background-color: hsl(var(--accent));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 .agent-native-integration-grid {
   container-type: inline-size;
   container-name: integration-grid;
@@ -1043,7 +1060,7 @@
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem;
+  margin-bottom: -1.875rem;
   padding-bottom: 0 !important;
 }
 
@@ -1074,7 +1091,7 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem !important;
+  margin-bottom: -1.875rem !important;
   padding-bottom: calc(0.625rem + 1.875rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
@@ -1170,6 +1187,10 @@
 
 .agent-composer-area--attached-above {
   padding-top: 0 !important;
+}
+
+.agentkit-host-composer {
+  pointer-events: auto;
 }
 
 .agent-composer-area--attached-above .agent-composer-root {

@@ -13,6 +13,7 @@ import {
   IconArrowsHorizontal,
   IconArrowsMaximize,
   IconExternalLink,
+  IconPlugConnected,
   IconShare3,
 } from "@tabler/icons-react";
 import React, {
@@ -49,12 +50,17 @@ const loadMultiTabAssistantChat = () =>
 const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 import { useLocation, useNavigate } from "react-router";
 
+import { buildSettingsRoute } from "../navigation/index.js";
+import {
+  isSettingsSectionId,
+  SETTINGS_SECTION_ALIASES,
+} from "../navigation/settings-redirects.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
 } from "./agent-sidebar-events.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
@@ -67,15 +73,18 @@ export {
 } from "./AgentSidebar.js";
 export type { AgentSidebarProps } from "./AgentSidebar.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
-import { URLSync } from "./agent-sidebar-url-sync.js";
+import {
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath } from "./api-path.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import { fetchBuilderStatus } from "./client-status-requests.js";
 import { getFramePostMessageTargetOrigin } from "./frame.js";
 import { useT } from "./i18n.js";
@@ -87,6 +96,7 @@ import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
+import { SETTINGS_SECTION_STATE_KEY } from "./settings/shell/routing.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { RouterSidebarLink } from "./ui/AppSidebar.js";
 import { useDevMode } from "./use-dev-mode.js";
@@ -100,12 +110,29 @@ const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+/**
+ * The section an `agent-panel:open-settings` request names. Callers that set
+ * the hash and dispatch no section (run recovery's `#agent-limits`, the
+ * composer's `#llm`) meant that hash.
+ */
+export function requestedSettingsSection(
+  section?: string | null,
+  currentHash?: string | null,
+): string {
+  const requested = section?.replace(/^#/, "").trim() ?? "";
+  if (requested) return requested;
+  const hash = currentHash?.replace(/^#/, "").trim() ?? "";
+  return isSettingsSectionId(hash) || /^secrets:./i.test(hash) ? hash : "";
+}
+
+/** Today's Settings hash for a section; the redesigned shell reads the section itself. */
 export function settingsRouteHashForSection(
   section?: string | null,
   currentHash?: string | null,
 ): string {
-  const raw = section?.replace(/^#/, "").trim() ?? "";
-  const normalized = raw.toLowerCase();
+  const raw = requestedSettingsSection(section, currentHash);
+  const lowered = raw.toLowerCase();
+  const normalized = SETTINGS_SECTION_ALIASES[lowered] ?? lowered;
   if (
     [
       "llm",
@@ -171,10 +198,18 @@ export function AgentPanelSettingsNavigation({
         onOpenSettings(section);
         return;
       }
-      const navigation = navigate({
-        pathname: appPath("/settings"),
-        hash: settingsRouteHashForSection(section, window.location.hash),
-      });
+      const requested = requestedSettingsSection(section, window.location.hash);
+      const navigation = navigate(
+        {
+          pathname: appPath("/settings"),
+          hash: settingsRouteHashForSection(section, window.location.hash),
+        },
+        // The hash can't tell API keys from Integrations; the redesigned
+        // Settings reads the section from history state instead.
+        {
+          state: requested ? { [SETTINGS_SECTION_STATE_KEY]: requested } : null,
+        },
+      );
       const notifyLocationChange = () => {
         window.dispatchEvent(new Event("popstate"));
         window.dispatchEvent(new Event("hashchange"));
@@ -535,6 +570,19 @@ export function resolveAgentPanelFullViewAction(
   return onFullViewRequest
     ? ({ kind: "callback" } as const)
     : ({ kind: "link", href: agentPageHref } as const);
+}
+
+// Hosts without a Settings route pass no agentPageHref, so it doubles as the
+// signal that an Integrations page exists to link to. Both paths are
+// router-local; RouterSidebarLink adds the app base path.
+export function resolveAgentPanelIntegrationsHref(
+  agentPageHref: string | undefined,
+  currentPath?: string,
+) {
+  if (!agentPageHref) return null;
+  const href = buildSettingsRoute("integrations");
+  if (currentPath === href || currentPath?.startsWith(`${href}/`)) return null;
+  return href;
 }
 
 export function getAgentPanelShortcutHints(isMac: boolean) {
@@ -1269,6 +1317,10 @@ function AgentPanelInner({
     chatOnly,
     location.pathname,
   );
+  const integrationsHref = resolveAgentPanelIntegrationsHref(
+    agentPageHref,
+    location.pathname,
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1468,8 +1520,17 @@ function AgentPanelInner({
                 </RouterSidebarLink>
               </DropdownMenuItem>
             ) : null}
+            {integrationsHref ? (
+              <DropdownMenuItem asChild>
+                <RouterSidebarLink to={integrationsHref}>
+                  <IconPlugConnected size={14} className="shrink-0" />
+                  {t("agentPanel.integrations")}
+                </RouterSidebarLink>
+              </DropdownMenuItem>
+            ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            fullViewAction ? (
+            fullViewAction ||
+            integrationsHref ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse &&
@@ -1699,6 +1760,7 @@ function AgentPanelInner({
       newUiTabLabel,
       agentPageHref,
       fullViewAction,
+      integrationsHref,
       onCollapse,
       onFullViewRequest,
       onExitWideDrawer,
@@ -2847,6 +2909,7 @@ export function AgentChatSurface({
     <>
       <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
+      <SettingsReturnPathRecorder />
     </>
   );
 }

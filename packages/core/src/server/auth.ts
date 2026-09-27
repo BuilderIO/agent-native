@@ -247,13 +247,6 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
-import {
-  forgetCachedSessionEmail,
-  getCachedSessionEmail,
-  getSessionEmailCacheGeneration,
-  invalidateSessionEmailCache,
-  setCachedSessionEmail,
-} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function stripAppBasePath(pathname: string): string {
@@ -1798,7 +1791,6 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 async function replaceSession(
@@ -1823,7 +1815,6 @@ async function replaceSession(
       });
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1849,7 +1840,6 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
-  invalidateSessionEmailCache();
 }
 
 /**
@@ -1907,7 +1897,6 @@ async function performLogout(
       candidates,
       Boolean(auth || revocationFailed),
     );
-    invalidateSessionEmailCache();
     await ensureSessionTable();
     await revokeEmbedSessionsForOwners([...identities], async (tx) => {
       const canRevokeBetterAuth = auth
@@ -1927,12 +1916,9 @@ async function performLogout(
       }
     });
   } catch (error) {
-    invalidateSessionEmailCache();
     captureAuthError(error, { route: "logout" });
     setResponseStatus(event, 503);
     return { error: "Unable to revoke session" };
-  } finally {
-    invalidateSessionEmailCache();
   }
 
   if (!revocationFailed) {
@@ -1976,9 +1962,6 @@ export async function logout(
 }
 
 export async function getSessionEmail(token: string): Promise<string | null> {
-  const cached = getCachedSessionEmail(token);
-  if (cached !== undefined) return cached;
-  const cacheGeneration = getSessionEmailCacheGeneration();
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1994,11 +1977,9 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
-    forgetCachedSessionEmail(token);
     return null;
   }
   const email = (rows[0].email as string) ?? null;
-  if (email) setCachedSessionEmail(token, email, cacheGeneration);
   return email;
 }
 
@@ -2720,7 +2701,6 @@ async function consumeDesktopExchangeFromDB(
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS, packed],
     });
     if (deleted.rows.length === 0) return { status: "missing" };
-    forgetCachedSessionEmail(`dex:${flowId}`);
     return { status: "entry", entry };
   } catch {
     // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
@@ -3935,9 +3915,16 @@ function createAuthGuardFn(
     const session = await getSession(event);
     if (session) {
       const workspaceAppId = resolveWorkspaceAccessAppId();
+      const method = getMethod(event);
       const sharedWorkspaceAccessPath =
         p === "/_agent-native/org/me" ||
-        p === "/_agent-native/actions/list-workspace-apps";
+        p === "/_agent-native/actions/list-workspace-apps" ||
+        (method === "GET" &&
+          p === "/_agent-native/actions/list-workspace-app-access") ||
+        (method === "POST" &&
+          p === "/_agent-native/actions/set-workspace-app-access");
+      // Keep org-owned repair controls reachable when this app is disabled;
+      // each action or handler still enforces its org membership and role.
       if (
         workspaceAppId &&
         !sharedWorkspaceAccessPath &&
@@ -6144,7 +6131,6 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
-              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -6470,36 +6456,31 @@ async function mountBetterAuthRoutes(
         );
         const sessionEmail = normalizeAuthEmail(session.email);
         if (sessionEmail) identities.add(sessionEmail);
-        invalidateSessionEmailCache();
         await ensureSessionTable();
-        try {
-          await revokeEmbedSessionsForOwners([...identities], async (tx) => {
-            const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
-            for (const email of identities) {
-              if (canRevokeBetterAuth) {
-                const { rows } = await tx.execute({
-                  sql: 'SELECT id FROM "user" WHERE email = ?',
-                  args: [email],
-                });
-                const userId = (rows[0]?.id ?? rows[0]?.[0]) as
-                  | string
-                  | undefined;
-                if (userId) {
-                  await tx.execute({
-                    sql: 'DELETE FROM "session" WHERE user_id = ?',
-                    args: [userId],
-                  });
-                }
-              }
-              await tx.execute({
-                sql: "DELETE FROM sessions WHERE email = ?",
+        await revokeEmbedSessionsForOwners([...identities], async (tx) => {
+          const canRevokeBetterAuth = await betterAuthTablesAvailable(tx);
+          for (const email of identities) {
+            if (canRevokeBetterAuth) {
+              const { rows } = await tx.execute({
+                sql: 'SELECT id FROM "user" WHERE email = ?',
                 args: [email],
               });
+              const userId = (rows[0]?.id ?? rows[0]?.[0]) as
+                | string
+                | undefined;
+              if (userId) {
+                await tx.execute({
+                  sql: 'DELETE FROM "session" WHERE user_id = ?',
+                  args: [userId],
+                });
+              }
             }
-          });
-        } finally {
-          invalidateSessionEmailCache();
-        }
+            await tx.execute({
+              sql: "DELETE FROM sessions WHERE email = ?",
+              args: [email],
+            });
+          }
+        });
         clearFrameworkSessionCookies(event);
         clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
@@ -6525,6 +6506,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6722,6 +6704,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
+      setResponseHeader(event, "Cache-Control", "no-store");
       if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -6834,6 +6817,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
+        setResponseHeader(event, "Cache-Control", "no-store");
         if (!isReadMethod(event)) {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };

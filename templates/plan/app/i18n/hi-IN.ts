@@ -33,6 +33,7 @@ const messages = {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
+    editorGroupTitle: "एडिटर",
     editorTitle: "VS Code एक्सटेंशन",
     editorDescription:
       "अलग ब्राउज़र टैब के बजाय VS Code के साइड पैनल में योजनाएँ खोलें और उनकी समीक्षा करें।",

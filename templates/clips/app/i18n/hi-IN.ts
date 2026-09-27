@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   agentChat: {
     setup: {
       checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
@@ -561,6 +562,9 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
+    redactionsPendingBody:
+      "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
     publicDescription:
       "लिंक वाला कोई भी व्यक्ति देख सकता है - टिप्पणी करने या प्रतिक्रिया देने के लिए साइन इन करें",
     shareRecording: "रिकॉर्डिंग साझा करें",
@@ -616,9 +620,6 @@ const messages = {
     customizeEmbed: "एम्बेड अनुकूलित करें",
     more: "अधिक",
     sharePlainTitle: "{{title}} साझा करें",
-    redactionsPendingBody:
-      "इस रिकॉर्डिंग पर {{count}} रिडैक्शन खींचे गए हैं पर वीडियो में लागू नहीं हुए हैं, इसलिए फ़ाइल में उनके नीचे का सब कुछ अब भी दिखता है। संपादक खोलें, उन्हें लागू करें, और साझा करना फिर से चालू हो जाएगा।",
-    redactionsPendingTitle: "पहले रिडैक्शन पूरे करें",
   },
   shareUi: {
     owner: "स्वामी: {{email}}",
@@ -928,6 +929,50 @@ const messages = {
       "Clips {{team}} के लिए संग्रहीत bot token हटा देगा और चलने योग्य Slack previews भेजना बंद कर देगा।",
     thisWorkspace: "यह वर्कस्पेस",
     slackConnected: "Slack कनेक्टेड",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ब्राउज़र ने पॉप-अप ब्लॉक कर दिया। इस साइट के लिए पॉप-अप की अनुमति दें और फिर से कोशिश करें।",
+    recordingsTab: "रिकॉर्डिंग",
+    meetingsTab: "मीटिंग",
+    yourDefaults: "आपके डिफ़ॉल्ट",
+    orgDefault: "{{org}} डिफ़ॉल्ट",
+    playbackSpeed: "प्लेबैक स्पीड",
+    playbackSpeedDescription: "रिकॉर्डिंग खोलने पर लागू होती है।",
+    visibility: "दृश्यता",
+    visibilityDescription:
+      "आपकी बनाई रिकॉर्डिंग पर लागू होती है। आप इसे किसी भी रिकॉर्डिंग पर बदल सकते हैं।",
+    useOrgDefault: "{{org}} का डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    useDefault: "डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    transcriptExport: "ट्रांसक्रिप्ट एक्सपोर्ट",
+    logoDescription: "शेयर ईमेल और सार्वजनिक क्लिप पेजों पर दिखता है।",
+    change: "बदलें",
+    adminsOnly: "केवल मालिक और एडमिन इसे बदल सकते हैं।",
+    brandColorInvalid: "हेक्स रंग कोड दर्ज करें।",
+    loadFailed: "ये सेटिंग्स लोड नहीं हो सकीं।",
+    emailGroup: "ईमेल",
+    calendarGroup: "कैलेंडर",
+    googleCalendar: "Google Calendar",
+    connect: "कनेक्ट करें",
+    reconnect: "फिर से कनेक्ट करें",
+    connectedAs: "{{account}} के रूप में कनेक्टेड",
+    needsReconnect: "{{account}} को फिर से कनेक्ट करना होगा।",
+    disconnectFailed: "कैलेंडर डिस्कनेक्ट नहीं हो सका।",
+    disconnectCalendarDescription:
+      "Clips {{account}} से आने वाली मीटिंग सिंक करना बंद कर देगा।",
+    calendarApp: "Google Calendar ऐप",
+    desktopGroup: "डेस्कटॉप",
+    meetingCapture: "मीटिंग कैप्चर",
+    meetingCaptureDescription:
+      "नोट्स, ऑटो-स्टार्ट और सूचनाएं हर डिवाइस पर Clips Desktop में सेट होती हैं।",
+    openClipsDesktop: "Clips Desktop खोलें",
+    keySaved: "सहेजा गया",
+    keyNotSaved: "सहेजा नहीं गया",
+    manage: "प्रबंधित करें",
+    add: "जोड़ें",
+    linkPreviews: "लिंक प्रीव्यू",
+    addWorkspace: "वर्कस्पेस जोड़ें",
+    storageAskAdmin: "स्टोरेज सेट अप करने के लिए किसी मालिक या एडमिन से कहें।",
   },
   insightsHub: {
     title: "इनसाइट्स",

@@ -14,6 +14,9 @@ export const decks = table("decks", {
   title: text("title").notNull(),
   data: text("data").notNull(), // Full deck JSON
   designSystemId: text("design_system_id"),
+  lastWriteClientId: text("last_write_client_id"),
+  lastWriteClientSequence: integer("last_write_client_sequence"),
+  lastWriteRevision: text("last_write_revision"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),

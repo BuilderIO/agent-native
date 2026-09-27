@@ -83,6 +83,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -1691,6 +1692,7 @@ export function PropertyManagementPopover({
                   />
                 </button>
                 <Input
+                  size="sm"
                   ref={propertyNameInputRef}
                   value={name}
                   aria-label={t("editor.properties.propertyName")}
@@ -1702,7 +1704,6 @@ export function PropertyManagementPopover({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="h-8"
                 />
               </div>
 
@@ -1838,11 +1839,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <Input
+                      size="sm"
                       value={newOption}
                       placeholder={t("editor.properties.addOption")}
                       onChange={(event) => setNewOption(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
-                      className="h-8"
                     />
                     <Button
                       type="submit"
@@ -2028,11 +2029,16 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
           <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
               {t("editor.properties.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
               onClick={() => void deleteProperty()}
             >
               {t("editor.properties.deleteProperty")}
@@ -2554,8 +2560,10 @@ function FilesMediaValueEditor({
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -2592,31 +2600,47 @@ function FilesMediaValueEditor({
     onDone();
   }
 
-  async function uploadFiles(files: FileList | null) {
-    const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0 || !fileStorageConfigured) return;
-    setUploading(true);
-    try {
-      const uploadedUrls: string[] = [];
-      for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+  const uploadFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const selectedFiles = Array.from(files ?? []);
+      if (selectedFiles.length === 0) return;
+      if (!fileStorageConfigured) {
+        pendingUploadFilesRef.current = selectedFiles;
+        setStorageSetupOpen(true);
+        return;
       }
-      setItems((current) => [...current, ...uploadedUrls]);
-      toast.success(
-        t(
-          uploadedUrls.length === 1
-            ? "editor.properties.imageUploaded_one"
-            : "editor.properties.imageUploaded_other",
-          { count: uploadedUrls.length },
-        ),
-      );
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      setUploading(true);
+      try {
+        const uploadedUrls: string[] = [];
+        for (const file of selectedFiles) {
+          uploadedUrls.push(await uploadImageFile(file));
+        }
+        setItems((current) => [...current, ...uploadedUrls]);
+        toast.success(
+          t(
+            uploadedUrls.length === 1
+              ? "editor.properties.imageUploaded_one"
+              : "editor.properties.imageUploaded_other",
+            { count: uploadedUrls.length },
+          ),
+        );
+      } catch (error) {
+        toast.error(imageUploadErrorMessage(error));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [fileStorageConfigured, t],
+  );
+
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingUploadFilesRef.current;
+    pendingUploadFilesRef.current = null;
+    if (pendingFiles) void uploadFiles(pendingFiles);
+  }, [fileStorageConfigured, uploadFiles]);
 
   return (
     <form
@@ -2707,22 +2731,33 @@ function FilesMediaValueEditor({
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
-      {!fileStorageConfigured ? (
-        <FileStorageStatusGate status={fileUploadStatus} />
-      ) : null}
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={storageSetupOpen}
+        onOpenChange={(open, reason) => {
+          if (!open && reason === "dismiss") {
+            pendingUploadFilesRef.current = null;
+          }
+          setStorageSetupOpen(open);
+        }}
+      />
       <div className="flex justify-end gap-2">
-        {fileStorageConfigured ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={mutation.isPending || uploading}
-          >
-            <IconUpload className="size-3.5" />
-            {t("editor.properties.upload")}
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            if (fileStorageConfigured) {
+              fileInputRef.current?.click();
+            } else {
+              setStorageSetupOpen(true);
+            }
+          }}
+          disabled={mutation.isPending || uploading}
+        >
+          <IconUpload className="size-3.5" />
+          {t("editor.properties.upload")}
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -2840,7 +2875,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -2858,7 +2893,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({

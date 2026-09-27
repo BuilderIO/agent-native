@@ -226,7 +226,9 @@ export async function ensureRunTables(): Promise<void> {
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
           result_summary TEXT NOT NULL,
+          result_is_string BOOLEAN,
           artifacts_json TEXT,
+          chat_ui_result_json TEXT,
           completed_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
         )
@@ -267,6 +269,16 @@ export async function ensureRunTables(): Promise<void> {
         "artifacts_json",
         `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
       );
+      await ensureColumnExists(
+        "agent_tool_ledger",
+        "chat_ui_result_json",
+        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
+      );
+      await ensureColumnExists(
+        "agent_tool_ledger",
+        "result_is_string",
+        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
+      );
       await ensureTableExists(
         "agent_run_outcome_daily",
         agentRunOutcomeDailyCreateSql,
@@ -291,6 +303,7 @@ export async function ensureRunTables(): Promise<void> {
 }
 
 const LEDGER_RESULT_MAX_CHARS = 8_000;
+const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
@@ -302,23 +315,54 @@ export async function writeLedgerEntry(
   toolKey: string,
   resultSummary: string,
   artifacts: ArtifactReceipt[] = [],
+  resultIsString?: boolean,
+  chatUIResultJson?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
     const client = getDbExec();
+    let boundedChatUIResultJson = chatUIResultJson ?? null;
+    const chatUIResultBytes = boundedChatUIResultJson
+      ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
+      : 0;
+    if (chatUIResultBytes > LEDGER_CHAT_UI_RESULT_MAX_BYTES) {
+      captureError(new Error("Oversized action widget result omitted"), {
+        tags: {
+          component: "agent-run-store",
+          operation: "write-tool-ledger-chat-ui-result",
+        },
+        extra: {
+          threadId,
+          toolKey,
+          bytes: chatUIResultBytes,
+          maxBytes: LEDGER_CHAT_UI_RESULT_MAX_BYTES,
+        },
+      });
+      boundedChatUIResultJson = null;
+    }
     const capped =
       resultSummary.length > LEDGER_RESULT_MAX_CHARS
         ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : resultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, completed_at)
-            VALUES (?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
+              result_is_string = excluded.result_is_string,
+              chat_ui_result_json = excluded.chat_ui_result_json,
               completed_at = excluded.completed_at`,
-      args: [threadId, toolKey, capped, JSON.stringify(artifacts), Date.now()],
+      args: [
+        threadId,
+        toolKey,
+        capped,
+        JSON.stringify(artifacts),
+        resultIsString ?? null,
+        boundedChatUIResultJson,
+        Date.now(),
+      ],
     });
   } catch {
     // Ledger is best-effort; never surface failures to the caller.
@@ -328,22 +372,49 @@ export async function writeLedgerEntry(
 export async function readLedgerEntry(
   threadId: string,
   toolKey: string,
-): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
+): Promise<{
+  result: string;
+  artifacts: ArtifactReceipt[];
+  resultIsString?: boolean;
+  chatUIResult?: unknown;
+} | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
     const row = rows[0] as {
       result_summary: string;
       artifacts_json?: string | null;
+      result_is_string?: boolean | null;
+      chat_ui_result_json?: string | null;
     };
+    let chatUIResult: unknown;
+    let hasChatUIResult = false;
+    if (row.chat_ui_result_json != null) {
+      try {
+        chatUIResult = JSON.parse(row.chat_ui_result_json);
+        hasChatUIResult = true;
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            component: "agent-run-store",
+            operation: "parse-tool-ledger-chat-ui-result",
+          },
+          extra: { threadId, toolKey },
+        });
+      }
+    }
     return {
       result: row.result_summary,
       artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
+      ...(typeof row.result_is_string === "boolean"
+        ? { resultIsString: row.result_is_string }
+        : {}),
+      ...(hasChatUIResult ? { chatUIResult } : {}),
     };
   } catch {
     return null;

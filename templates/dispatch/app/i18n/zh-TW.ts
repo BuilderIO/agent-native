@@ -24,6 +24,7 @@ const messages = {
     workspaceTitle: "工作區",
     workspaceDescription: "管理 Dispatch 的團隊存取權限和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
+    resourcesTitle: "資源",
     openResourceSettings: "開啟資源設定",
     connectApps: "連接應用程式",
     connectAppsDescription: "透過一次交接登入另一個 Agent-Native 應用程式。",

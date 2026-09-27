@@ -20,6 +20,23 @@ const SSE_STREAM_READERS = new Set(["readSSEStream", "readSSEStreamRaw"]);
 
 const AGENTKIT_STREAM_OWNING_MODULE =
   /^@agent-native\/agentkit(?!\/protocol$)(?:\/.*)?$/;
+const LEGACY_ASSISTANT_UI_BINDINGS = new Set([
+  "ActionBarPrimitive",
+  "AssistantRuntimeProvider",
+  "BranchPickerPrimitive",
+  "ChatModelAdapter",
+  "ChatModelRunResult",
+  "MessagePrimitive",
+  "ThreadPrimitive",
+  "useLocalRuntime",
+  "useMessageRuntime",
+  "useThreadRuntime",
+]);
+const SHARED_COMPOSER_ROOT = "packages/toolkit/src/composer/";
+const LEGACY_CHAT_COMPONENT_EXPORT =
+  /\bexport\s+(?:const|function)\s+AssistantChat\b/;
+const LEGACY_CHAT_ADAPTER =
+  /\b(?:createAgentChatAdapter|createCodeAgentChatAdapter|createAgentChatRuntimeAdapter|codeAgentTranscriptEventsToContent|codeAgentTranscriptHasPendingApproval)\b/;
 
 export function parseImports(source: string): ParsedImport[] {
   const imports: ParsedImport[] = [];
@@ -114,11 +131,59 @@ export function findStreamOwnershipViolations(
   ];
 }
 
+/** The old transcript controller cannot remain behind a compatibility shell. */
+export function findLegacyChatOwnerViolations(
+  file: string,
+  content: string,
+): StreamOwnershipViolation[] {
+  const imports = parseImports(content);
+  const lineAt = (index: number) => content.slice(0, index).split("\n").length;
+  const legacyImport = imports.find(
+    (entry) =>
+      entry.valueBindings.includes("AssistantChat") ||
+      (/(?:^|\/)AssistantChat(?:\.js)?$/.test(entry.specifier) &&
+        (entry.valueBindings.length > 0 || entry.sideEffectOnly)),
+  );
+  const legacyAssistantUi = imports.find(
+    (entry) =>
+      entry.specifier === "@assistant-ui/react" &&
+      entry.valueBindings.some((binding) =>
+        LEGACY_ASSISTANT_UI_BINDINGS.has(binding),
+      ) &&
+      !file.replaceAll("\\", "/").startsWith(SHARED_COMPOSER_ROOT),
+  );
+  const legacyAdapter = LEGACY_CHAT_ADAPTER.exec(content);
+  const legacyMount = /<AssistantChat(?:\s|\/?>)/.exec(content);
+  const legacyDefinition = LEGACY_CHAT_COMPONENT_EXPORT.exec(content);
+  const hit =
+    legacyImport ??
+    legacyAssistantUi ??
+    (legacyAdapter ? { index: legacyAdapter.index } : undefined) ??
+    (legacyMount
+      ? { index: legacyMount.index }
+      : legacyDefinition
+        ? { index: legacyDefinition.index }
+        : undefined);
+
+  if (!hit) return [];
+  return [
+    {
+      file,
+      line: lineAt(hit.index),
+      reason:
+        "still owns legacy AssistantChat/controller UI or an assistant-ui chat adapter; keep AgentPanel, AgentSidebar, and MultiTabAssistantChat as shells, and use AgentKit as the only conversation owner",
+    },
+  ];
+}
+
+const STREAM_SCAN_ROOTS = ["packages", "templates"];
+
 function walkSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const child = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist") return [];
+      if (["node_modules", "dist", ".cache", "build"].includes(entry.name))
+        return [];
       return walkSources(child);
     }
     if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) return [];
@@ -129,14 +194,15 @@ function walkSources(directory: string): string[] {
 
 function main(): void {
   const root = path.resolve(import.meta.dirname, "..");
-  const violations = ["packages/core/src", "templates/chat"].flatMap(
-    (directory) =>
-      walkSources(path.join(root, directory)).flatMap((file) =>
-        findStreamOwnershipViolations(
-          path.relative(root, file),
-          readFileSync(file, "utf8"),
-        ),
-      ),
+  const violations = STREAM_SCAN_ROOTS.flatMap((directory) =>
+    walkSources(path.join(root, directory)).flatMap((file) => {
+      const rel = path.relative(root, file);
+      const content = readFileSync(file, "utf8");
+      return [
+        ...findStreamOwnershipViolations(rel, content),
+        ...findLegacyChatOwnerViolations(rel, content),
+      ];
+    }),
   );
 
   if (violations.length > 0) {

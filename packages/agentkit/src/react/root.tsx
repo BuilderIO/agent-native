@@ -22,6 +22,8 @@ import type {
 import {
   AgentKitProvider,
   type AgentKitLabels,
+  type AgentKitBranchNavigation,
+  type AgentKitCopyMessageHandler,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
   type AgentKitSlots,
@@ -72,6 +74,8 @@ export interface AgentKitRootBaseProps {
   labels?: Partial<AgentKitLabels>;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
+  branchNavigation?: AgentKitBranchNavigation;
+  onCopyMessage?: AgentKitCopyMessageHandler;
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
@@ -99,6 +103,8 @@ export function AgentKitRoot({
   labels,
   onOpenObject,
   onThreadForked,
+  branchNavigation,
+  onCopyMessage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -208,6 +214,12 @@ export function AgentKitRoot({
         lease.thread = threadLease;
         if (lease.released || activeLoadLease.current !== lease) {
           threadLease.release();
+          return;
+        }
+        if (threadLease.threadFound === false) {
+          const error = new Error(`Thread not found: ${threadId}`);
+          Object.assign(error, { status: 404, code: "not_found" });
+          onLoadErrorRef.current?.(error);
         }
       })
       .catch((error) => {
@@ -263,6 +275,8 @@ export function AgentKitRoot({
       labels={labels}
       onOpenObject={onOpenObject}
       onThreadForked={onThreadForked}
+      branchNavigation={branchNavigation}
+      onCopyMessage={onCopyMessage}
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       onClientEffect={onClientEffect}

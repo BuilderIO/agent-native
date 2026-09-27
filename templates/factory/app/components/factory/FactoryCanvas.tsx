@@ -223,8 +223,7 @@ export function FactoryCanvas({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-8"
+                size="icon-sm"
                 aria-label={t("factoryCanvas.zoomOut")}
                 onClick={() => {
                   zoomWasAdjusted.current = true;
@@ -244,8 +243,7 @@ export function FactoryCanvas({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-8"
+                size="icon-sm"
                 aria-label={t("factoryCanvas.zoomIn")}
                 onClick={() => {
                   zoomWasAdjusted.current = true;
@@ -262,8 +260,7 @@ export function FactoryCanvas({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="size-8"
+                size="icon-sm"
                 aria-label={t("factoryCanvas.fitFactoryToView")}
                 onClick={() => {
                   zoomWasAdjusted.current = false;

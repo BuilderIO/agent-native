@@ -299,11 +299,21 @@ export default defineAction({
         },
         ctx,
       );
+      const deepLink = composeDeepLink(draft);
+      const subject = draft.subject.trim();
+      const recipient = draft.to.trim();
       return {
         id,
         draft,
-        deepLink: composeDeepLink(draft),
+        deepLink,
         message: `Created draft ${id}`,
+        change: {
+          verb: "created",
+          kind: "email-draft",
+          title: (subject || recipient || id).slice(0, 180),
+          ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+          url: deepLink,
+        },
       };
     }
 

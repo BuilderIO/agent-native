@@ -76,9 +76,11 @@ export type ComposerContextMenuItem =
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
   addAttachment?: (file: File) => Promise<unknown>;
+  onAttachmentRequest?: () => void;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
   onDisabledFocus?: () => void;
+  contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
 }
 interface ComposerContextPage {
@@ -205,13 +207,26 @@ function LegacyContextPage({ children }: { children: ReactNode }) {
 export function ComposerContextMenu({
   items,
   addAttachment,
+  onAttachmentRequest,
   attachmentAccept,
   onAttachmentError,
   onDisabledFocus,
+  contextButtonTooltipDisabled = false,
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
+  const onDisabledFocusRef = useRef(onDisabledFocus);
+  onDisabledFocusRef.current = onDisabledFocus;
+  const disabledFocusFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (disabledFocusFrame.current !== null)
+        window.cancelAnimationFrame(disabledFocusFrame.current);
+    },
+    [],
+  );
   const [open, setOpen] = useState(false);
+  const [triggerTooltipOpen, setTriggerTooltipOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [path, setPath] = useState<string[]>([]);
   const pathRef = useRef(path);
@@ -223,6 +238,7 @@ export function ComposerContextMenu({
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
+  const pendingAttachmentRequest = useRef(false);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
     null,
   );
@@ -239,6 +255,9 @@ export function ComposerContextMenu({
       setDialog(null);
     }
   }, [dialog, dialogAvailable]);
+  useEffect(() => {
+    if (contextButtonTooltipDisabled) setTriggerTooltipOpen(false);
+  }, [contextButtonTooltipDisabled]);
   const restoreFocusOnClose = useRef(true);
   const label = t("agentChat.composer.addContext", {
     defaultValue: "Add context",
@@ -288,6 +307,15 @@ export function ComposerContextMenu({
     [dismissPage, updatePath],
   );
   useEffect(() => {
+    if (open || !pendingAttachmentRequest.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!pendingAttachmentRequest.current) return;
+      pendingAttachmentRequest.current = false;
+      onAttachmentRequest?.();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onAttachmentRequest, open]);
+  useEffect(() => {
     if (!disabled) return;
     pendingDialog.current = null;
     if (open) {
@@ -303,9 +331,11 @@ export function ComposerContextMenu({
     } catch (cause) {
       reportError(cause);
     }
-    const focusFrame = window.requestAnimationFrame(() => onDisabledFocus?.());
-    return () => window.cancelAnimationFrame(focusFrame);
-  }, [disabled, open, changeOpen, onDisabledFocus, reportError]);
+    disabledFocusFrame.current = window.requestAnimationFrame(() => {
+      disabledFocusFrame.current = null;
+      onDisabledFocusRef.current?.();
+    });
+  }, [disabled, open, changeOpen, reportError]);
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {
@@ -467,7 +497,10 @@ export function ComposerContextMenu({
         />
       )}
       <DropdownMenu open={open} onOpenChange={changeOpen}>
-        <Tooltip>
+        <Tooltip
+          open={triggerTooltipOpen && !contextButtonTooltipDisabled}
+          onOpenChange={setTriggerTooltipOpen}
+        >
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button
@@ -478,6 +511,7 @@ export function ComposerContextMenu({
                 className="size-7 shrink-0"
                 disabled={disabled}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
               >
                 <IconPlus />
               </Button>
@@ -500,11 +534,16 @@ export function ComposerContextMenu({
           }}
         >
           <DropdownMenuGroup>
-            {addAttachment && (
+            {(addAttachment || onAttachmentRequest) && (
               <DropdownMenuItem
                 onSelect={() => {
-                  changeOpen(false);
-                  inputRef.current?.click();
+                  if (addAttachment) {
+                    changeOpen(false);
+                    inputRef.current?.click();
+                  } else {
+                    pendingAttachmentRequest.current = true;
+                    changeOpen(false);
+                  }
                 }}
               >
                 <IconFile size={16} />

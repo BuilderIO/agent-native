@@ -25,12 +25,15 @@ function parseJsonProjection(value: unknown, label: string): unknown {
 }
 
 const INVALID_TEXT_REPRESENTATION = "22P02";
+const UNSUPPORTED_UNICODE_ESCAPE = "22P05";
 
 function isInvalidJsonCastError(error: unknown): boolean {
   const err = error as { code?: unknown; cause?: { code?: unknown } };
   return (
     err?.code === INVALID_TEXT_REPRESENTATION ||
-    err?.cause?.code === INVALID_TEXT_REPRESENTATION
+    err?.cause?.code === INVALID_TEXT_REPRESENTATION ||
+    err?.code === UNSUPPORTED_UNICODE_ESCAPE ||
+    err?.cause?.code === UNSUPPORTED_UNICODE_ESCAPE
   );
 }
 

@@ -179,9 +179,6 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
           </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            {t("navigation.settings")}
-          </CommandMenu.Item>
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -223,6 +220,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >

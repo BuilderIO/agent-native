@@ -5,8 +5,12 @@ const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const readSettingMock = vi.hoisted(() => vi.fn());
 const listCalendarEventsMock = vi.hoisted(() => vi.fn());
+const buildDeepLinkMock = vi.hoisted(() =>
+  vi.fn(({ to }: { to: string }) => `calendar:${to}`),
+);
 
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: buildDeepLinkMock,
   getRequestTimezone: getRequestTimezoneMock,
   getRequestUserEmail: getRequestUserEmailMock,
 }));
@@ -77,5 +81,42 @@ describe("check-availability", () => {
     expect(
       result.slots as Array<{ start: string; end: string }>,
     ).not.toContainEqual(expect.objectContaining({ start: "10:00 AM" }));
+  });
+
+  it("projects only a valid best slot into the shared action card", () => {
+    const result = {
+      actionable: true,
+      date: "2026-04-23",
+      timezone: "America/Los_Angeles",
+      errors: [],
+      slots: [
+        {
+          start: "10:30 AM",
+          end: "11:15 AM",
+          startAt: "2026-04-23T17:30:00.000Z",
+          endAt: "2026-04-23T18:15:00.000Z",
+        },
+      ],
+    };
+    const chatUI = action.chatUI!;
+
+    expect(chatUI.when?.({}, result)).toBe(true);
+    expect(chatUI.projectResult?.({}, result)).toMatchObject({
+      change: {
+        verb: "created",
+        kind: "calendar-time-choice",
+        title: "Best shared time",
+        detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · PT",
+        url: "calendar:/home?createSlot=1&start=2026-04-23T17%3A30%3A00.000Z&end=2026-04-23T18%3A15%3A00.000Z&timezone=America%2FLos_Angeles",
+      },
+    });
+
+    const unavailable = {
+      ...result,
+      actionable: false,
+      errors: [{ source: "google" }],
+    };
+    expect(chatUI.when?.({}, unavailable)).toBe(false);
+    expect(chatUI.projectResult?.({}, unavailable)).toBeNull();
   });
 });

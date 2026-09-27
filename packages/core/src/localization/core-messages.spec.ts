@@ -7,6 +7,7 @@ import {
   loadAgentChatMessagesForLocale,
   loadCoreMessagesForLocale,
 } from "./core-messages.js";
+import defaultEnglishMessages from "./default-messages.js";
 import { ENVIRONMENT_BADGE_MESSAGES } from "./environment-badge-messages.js";
 import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
 import { PRIVACY_SETTINGS_MESSAGES } from "./privacy-settings-messages.js";
@@ -83,6 +84,38 @@ describe("built-in Core chat translations", () => {
     }
   });
 
+  it("exposes localized human-review summary copy to the shared UI", async () => {
+    const summaryKeys = [
+      "summarizeWithAgent",
+      "regenerateSummary",
+      "summarizeWithAgentHelp",
+      "regenerateSummaryHelp",
+      "summarySending",
+      "summaryQueued",
+      "summaryFailed",
+      "summaryExpired",
+    ];
+    const englishSummaryQueued =
+      defaultEnglishMessages.observability.summaryQueued;
+
+    for (const locale of SUPPORTED_LOCALES) {
+      const [messages, agentChat] = await Promise.all([
+        loadCoreMessagesForLocale(locale),
+        loadAgentChatMessagesForLocale(locale),
+      ]);
+      const observability = messages.observability as Record<string, string>;
+
+      for (const key of summaryKeys) {
+        expect(observability[key], `${locale}:${key}`).toBe(
+          agentChat[`observability.${key}`],
+        );
+      }
+      if (locale !== "en-US") {
+        expect(observability.summaryQueued).not.toBe(englishSummaryQueued);
+      }
+    }
+  });
+
   it("does not silently ship the English Core chat catalog for other locales", async () => {
     const englishEntries = Object.entries(englishAgentChatMessages).filter(
       ([key]) => !/_(zero|one|two|few|many|other)$/.test(key),
@@ -119,7 +152,25 @@ describe("built-in Core chat translations", () => {
       contextXray: {
         panelTitle: "Kontext-Röntgen",
       },
+      mcpIntegrations: {
+        customTitle: "Eigene Agent-Integration hinzufügen",
+        status: { verified: "Verifiziert" },
+      },
     });
+  });
+
+  it("keeps English mcpIntegrations chat keys identical to the default catalog", () => {
+    const drifted = Object.entries(englishAgentChatMessages).filter(
+      ([key, value]) => {
+        if (!key.startsWith("mcpIntegrations.")) return false;
+        let fallback: unknown = defaultEnglishMessages;
+        for (const part of key.split(".")) {
+          fallback = (fallback as Record<string, unknown> | undefined)?.[part];
+        }
+        return fallback !== value;
+      },
+    );
+    expect(drifted).toEqual([]);
   });
 
   it.each([

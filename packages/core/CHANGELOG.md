@@ -51,6 +51,88 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.195.0
+
+### Minor Changes
+
+- 5c48dff: Render action changes as grouped, persistent in-chat cards.
+- 01329c3: Add automatic personal memory recall and simple personalization settings.
+
+### Patch Changes
+
+- 55c9666: Expose provider logo identities for model selectors through the shared resource catalog.
+- 880740b: Match attached Connect AI card spacing and stacking across chat surfaces.
+- 8d96fa6: Include bounded action images in MCP tool results without exposing binary data in text or structured content.
+- 247c699: Refine the Human Review rollup into a compact, divided list.
+- 8f246ad: Allow budgeted action keepalive requests to use PUT as well as POST.
+- 55c9666: Expose configured chat model groups and an opt-in explicit recovery state for unavailable stored model selections.
+- 5c48dff: Queue approval edit prompts safely and keep saved Mail and Calendar action cards readable.
+- 29969ab: Clarify agent summary controls and queued feedback in Human Review.
+- 32ce77a: Improve Human Review search and clarify the summary regeneration action.
+- Release all public npm packages with a patch version bump.
+- aa8193d: Keep OAuth popups navigable from app pages and the MCP sign-in form. Framework pages now send `Cross-Origin-Opener-Policy: same-origin-allow-popups`, so a popup opened on the inert waiting page is no longer severed from its opener and left blank with an "allow popups" error. Validated embed-session responses keep `same-origin`.
+- 55c9666: Document the approved inline background-conversation pattern for object-owned AI surfaces, share stable receipt identity across clients and scoped servers, and authorize explicit loading of the exact protected background thread without adding it to ordinary scoped history.
+- 9fbf637: Include all grouped-run feedback in Human Review rollups.
+- f261320: Keep provider setup retries compact so connected chat surfaces preserve balanced spacing.
+- f47133b: Refine shared action cards for Calendar scheduling and Mail drafts.
+- d1db66e: Preserve approved action arguments and failed tool-result status when resuming an in-app agent call.
+- 9fbf637: Group recurring automation runs in Human Review by resource and search prompt and outcome text.
+- 5b7f665: Add breathing room between the file-storage prompt and its connection options.
+- 5c48dff: Keep completed action cards visible while related actions run and let users deny approvals without starting a revision prompt.
+- Updated dependencies [880740b]
+- Updated dependencies [55c9666]
+- Updated dependencies [55c9666]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.3
+  - @agent-native/agentkit@0.4.1
+  - @agent-native/recap-cli@0.5.47
+
+## 0.194.0
+
+### Minor Changes
+
+- d462819: Move framework chat surfaces to AgentKit while preserving chat history, recovery, context, attachments, model selection, runs, and message actions. This removes the old assistant-ui transcript and stream owners, the `AssistantChat.createAdapter` prop, the public `AssistantMessageActionBar` export, and the adapter APIs `createAgentChatAdapter`, `createCodeAgentChatAdapter`, `createAgentChatRuntimeAdapter`, `codeAgentTranscriptEventsToContent`, and `codeAgentTranscriptHasPendingApproval`, plus their adapter-only options and event types. Use AgentKit `runtime` or `createTransport` for custom chat implementations.
+- 21055c8: Add durable suggestion proposals with independently reviewable members and atomic decisions for an exact observed member set.
+
+### Patch Changes
+
+- 797b3e2: Commit one initial collaborative XmlFragment seed atomically and return the winning Yjs state to concurrent editors.
+- 7ecd4d7: Bound API key settings reads so stalled requests show an error with a retry option.
+- b863d1f: Use stable-ref router links in sidebar tooltips and menus.
+- a902062: Isolate first-party auth sessions and clear lingering embed identities on logout.
+- b0b63b4: Trace Undici in Node server builds so SSRF dispatchers load in deployed functions.
+- 214d5f3: Give human-review votes and summary actions immediate, accessible feedback.
+- fdb196d: Restore Chat's missing model provider recovery and attachment-preserving retry.
+- e76947b: Return safe, source-specific Figma errors and preserve composer feedback for failed context operations.
+- Release all public npm packages with a patch version bump.
+- adc7497: Anchor storage setup to upload controls and keep it hidden until an upload is requested.
+- 467eb06: Register a configured workspace app when its organization owner first opens it.
+- fce2dc1: Keep organization app-access recovery controls available when a workspace app is disabled.
+- b0760e2: Keep action widgets visible when transcript text is truncated, preserve full widget results through ledger recovery, add the missing release ledger columns, log framework request errors that escape Nitro's Vite middleware, and treat incoming read resets as client disconnects during development.
+- adc7497: Show storage setup only after a user requests a file upload.
+- b0760e2: Render action chat widgets in AgentKit history with their stored inputs and results. Let actions select successful calls and project the bounded result fields needed to restore each widget.
+- 57d1d39: Show Human Review thread owners' email addresses and open linked designs in the editor.
+- ed3801e: Remove nonessential source comments.
+- 9ec2f7e: Include the workspace app id in Google OAuth state so the root callback relay can return to the initiating app.
+- 8362ebb: Support app-shaped loading skeletons for built-in app layouts.
+- a17945a: Recover interrupted write tool results before retrying side effects.
+- a050521: Preserve queued resource uploads when checking storage availability fails.
+- 77acfd8: Keep organization-scoped observability previews from resolving user credentials.
+- e7b6fcc: Share a joined quick-copy control, People/Agents tabs, and agent destinations between Content and Clips.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/agentkit@0.4.0
+  - @agent-native/toolkit@0.22.2
+  - @agent-native/recap-cli@0.5.46
+
 ## 0.193.0
 
 ### Minor Changes
@@ -3232,17 +3314,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
-
-## 0.164.12
-
-### Patch Changes
-
-- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
-
-## 0.164.11
-
-### Patch Changes
-
-- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

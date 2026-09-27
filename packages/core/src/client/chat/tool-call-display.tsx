@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
@@ -36,7 +37,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useOptionalLocale, useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -55,6 +56,7 @@ import {
   resolveToolCallRowContext,
   toolLabel,
 } from "../tool-display.js";
+import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
@@ -90,6 +92,34 @@ export function ToolCallStackMotion({
 }) {
   return (
     <div className={cn("agent-tool-call-stack", className)}>{children}</div>
+  );
+}
+
+function FileStorageSetupToolCall() {
+  const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        {t("onboarding.fileStorage.title")}
+      </Button>
+      <FileStorageSetupPopover
+        open={open}
+        onOpenChange={setOpen}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
+    </>
   );
 }
 
@@ -832,7 +862,7 @@ function ToolCallDisplayGeneric({
     try {
       const parsed = JSON.parse(result);
       if (parsed?.kind === "connect-file-storage-card") {
-        return <FileStorageSetupCard />;
+        return <FileStorageSetupToolCall />;
       }
     } catch {
       // coercion-ok: malformed storage tool output should fall through to the default tool pill
@@ -887,6 +917,9 @@ function ToolCallDisplayGeneric({
     resultJson: parsedResult,
     isRunning,
     isActiveTail,
+    ...(typeof toolCallId === "string"
+      ? { widgetId: `${toolCallId}:chat-ui` }
+      : {}),
     chatUI,
   };
   const skipRegistryRenderer =

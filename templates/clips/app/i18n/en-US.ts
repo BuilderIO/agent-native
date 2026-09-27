@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   agentChat: {
     setup: {
       checkingProvider: "Checking AI connection…",
@@ -505,6 +506,9 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    redactionsPendingTitle: "Finish redactions before sharing",
+    redactionsPendingBody:
+      "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",
     publicDescription:
       "Anyone with the link can view — sign in to comment or react",
     shareRecording: "Share recording",
@@ -560,9 +564,6 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
-    redactionsPendingBody:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
-    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",
@@ -873,6 +874,50 @@ const messages = {
       "Clips will delete the stored bot token for {{team}} and stop sending playable Slack previews.",
     thisWorkspace: "this workspace",
     slackConnected: "Slack Connected",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "The browser blocked the popup. Allow popups for this site and try again.",
+    recordingsTab: "Recordings",
+    meetingsTab: "Meetings",
+    yourDefaults: "Your defaults",
+    orgDefault: "{{org}} default",
+    playbackSpeed: "Playback speed",
+    playbackSpeedDescription: "Applied when you open a recording.",
+    visibility: "Visibility",
+    visibilityDescription:
+      "Applied to recordings you create. You can change it on any recording.",
+    useOrgDefault: "Use the {{org}} default ({{visibility}})",
+    useDefault: "Use the default ({{visibility}})",
+    transcriptExport: "Transcript export",
+    logoDescription: "Shown in share emails and on public clip pages.",
+    change: "Change",
+    adminsOnly: "Only owners and admins can change this.",
+    brandColorInvalid: "Enter a hex color code.",
+    loadFailed: "Couldn't load these settings.",
+    emailGroup: "Email",
+    calendarGroup: "Calendar",
+    googleCalendar: "Google Calendar",
+    connect: "Connect",
+    reconnect: "Reconnect",
+    connectedAs: "Connected as {{account}}",
+    needsReconnect: "{{account}} needs to be reconnected.",
+    disconnectFailed: "Couldn't disconnect the calendar.",
+    disconnectCalendarDescription:
+      "Clips stops syncing upcoming meetings from {{account}}.",
+    calendarApp: "Google Calendar app",
+    desktopGroup: "Desktop",
+    meetingCapture: "Meeting capture",
+    meetingCaptureDescription:
+      "Notes, auto-start, and notifications are set on each device in Clips Desktop.",
+    openClipsDesktop: "Open Clips Desktop",
+    keySaved: "Saved",
+    keyNotSaved: "Not saved",
+    manage: "Manage",
+    add: "Add",
+    linkPreviews: "Link previews",
+    addWorkspace: "Add workspace",
+    storageAskAdmin: "Ask an owner or admin to set up storage.",
   },
   insightsHub: {
     title: "Insights",

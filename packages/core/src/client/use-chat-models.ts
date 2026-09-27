@@ -10,6 +10,7 @@ import {
 import { fetchOllamaModels } from "./agent-engine-key.js";
 import {
   buildChatModelGroups,
+  usesLiveOllamaModels,
   type ChatModelEngineEntry,
   type EngineModelGroup,
 } from "./chat-model-groups.js";
@@ -23,19 +24,27 @@ export type { EngineModelGroup } from "./chat-model-groups.js";
 
 export interface UseChatModelsResult {
   availableModels: EngineModelGroup[];
+  configuredModels: EngineModelGroup[];
   defaultModel: string;
   selectedModel: string;
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
   isLoading: boolean;
+  selectionReady: boolean;
+  unavailableSelection: PersistedModelSelection | null;
   onModelChange: (model: string, engine: string) => void;
   onEffortChange: (effort: ReasoningEffort) => void;
   refreshEngines: () => void;
 }
 
-interface Options {
+export interface UseChatModelsOptions {
   storageKey?: string | null;
   enabled?: boolean;
+  /**
+   * Keep an unavailable explicit choice visible for the host to resolve rather
+   * than silently replacing it with a model from another provider.
+   */
+  unavailableSelectionPolicy?: "fallback" | "require-explicit";
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
@@ -52,7 +61,7 @@ export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
   "agent-native:chat-model-selection-changed";
 const MODEL_DISCOVERY_RETRY_DELAYS_MS = [250, 1_000] as const;
 
-interface PersistedSelection {
+export interface PersistedModelSelection {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
@@ -87,17 +96,113 @@ async function fetchEngineCatalog(): Promise<EngineCatalogResult> {
   }
 }
 
-function readPersisted(key: string | null): PersistedSelection {
+export type ChatModelCatalogLoad =
+  | {
+      state: "available";
+      groups: EngineModelGroup[];
+      /** The server's current model, or `DEFAULT_MODEL` when it names none. */
+      defaultModel: string;
+      /**
+       * The catalog again with Ollama's installed models in place of its
+       * static suggestions, or null when there is nothing to swap in (Ollama
+       * isn't the current engine, its models are checked, or it is
+       * unreachable). A separate call so the picker's first paint never waits
+       * on a local network round trip.
+       */
+      loadLiveGroups: () => Promise<EngineModelGroup[] | null>;
+    }
+  | {
+      state: "unavailable";
+      /** The engine list itself failed, not just a readiness lookup. */
+      enginesUnavailable: boolean;
+    };
+
+/**
+ * Fetch the engine catalog and readiness, and build the model picker's groups.
+ * The one source for every surface with a model picker (`useChatModels`,
+ * `MultiTabAssistantChat`), so they can't disagree about what is offered.
+ */
+export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
+  const [engineResult, envResult, builderResult] = await Promise.all([
+    fetchEngineCatalog(),
+    fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+    fetchBuilderStatus<{ configured?: boolean }>(),
+  ]);
+  if (
+    engineResult.state !== "available" ||
+    envResult.state !== "available" ||
+    builderResult.state !== "available"
+  ) {
+    return {
+      state: "unavailable",
+      enginesUnavailable: engineResult.state !== "available",
+    };
+  }
+  const enginesData = engineResult.value;
+  const configuredKeys = new Set(
+    envResult.value.filter((k) => k.configured).map((k) => k.key),
+  );
+  const builderConnected = builderResult.value?.configured === true;
+  const currentEngineName = enginesData.current?.engine;
+  const currentModel = enginesData.current?.model;
+  const build = (engines: readonly ChatModelEngineEntry[]) =>
+    buildChatModelGroups({
+      engines,
+      configuredKeys,
+      builderConnected,
+      currentEngineName,
+      currentModel,
+    });
+
+  return {
+    state: "available",
+    groups: build(enginesData.engines),
+    defaultModel: currentModel ?? DEFAULT_MODEL,
+    loadLiveGroups: async () => {
+      // Gated on Ollama actually being the current engine (not merely present
+      // in the catalog, which it always is): every app registers it by
+      // default, so an unconditional probe would 502 on every chat load for
+      // the vast majority of setups that never touched Ollama.
+      const ollama = enginesData.engines.find(
+        (engine) => engine.name === "ai-sdk:ollama",
+      );
+      if (
+        currentEngineName !== "ai-sdk:ollama" ||
+        !ollama ||
+        !usesLiveOllamaModels(ollama)
+      ) {
+        return null;
+      }
+      let liveModels: string[];
+      try {
+        liveModels = await fetchOllamaModels();
+        // coercion-ok: an unreachable Ollama keeps the groups already rendered, which list its static suggestions.
+      } catch {
+        return null;
+      }
+      if (liveModels.length === 0) return null;
+      return build(
+        enginesData.engines.map((engine) =>
+          engine === ollama
+            ? { ...engine, supportedModels: liveModels }
+            : engine,
+        ),
+      );
+    },
+  };
+}
+
+function readPersisted(key: string | null): PersistedModelSelection {
   if (!key || typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as PersistedSelection) : {};
+    return raw ? (JSON.parse(raw) as PersistedModelSelection) : {};
   } catch {
     return {};
   }
 }
 
-function writePersisted(key: string | null, value: PersistedSelection) {
+function writePersisted(key: string | null, value: PersistedModelSelection) {
   if (!key || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
@@ -114,11 +219,19 @@ function writePersisted(key: string | null, value: PersistedSelection) {
 export function useChatModels({
   storageKey = DEFAULT_STORAGE_KEY,
   enabled = true,
-}: Options = {}): UseChatModelsResult {
+  unavailableSelectionPolicy = "fallback",
+}: UseChatModelsOptions = {}): UseChatModelsResult {
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
   const [isLoading, setIsLoading] = useState(enabled);
+  const [unavailableSelection, setUnavailableSelection] =
+    useState<PersistedModelSelection | null>(null);
+  const unavailableSelectionRef = useRef<{
+    selectedModel: string;
+    selectedEngine: string;
+    selectedEffort: ReasoningEffort;
+  } | null>(null);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
@@ -191,6 +304,8 @@ export function useChatModels({
   const onModelChange = useCallback(
     (model: string, engine: string) => {
       hasExplicitSelectionRef.current = true;
+      unavailableSelectionRef.current = null;
+      setUnavailableSelection(null);
       const effortOptions = getReasoningEffortOptionsForModel(model);
       setSelectedModel(model);
       setSelectedEngine(engine);
@@ -247,20 +362,12 @@ export function useChatModels({
 
     function load(attempt: number): void {
       if (!isCurrentRefresh()) return;
-      Promise.all([
-        fetchEngineCatalog(),
-        fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
-        fetchBuilderStatus<{ configured?: boolean }>(),
-      ])
-        .then(([engineResult, envResult, builderResult]) => {
+      loadChatModelCatalog()
+        .then((catalog) => {
           if (!isCurrentRefresh()) return;
-          if (
-            engineResult.state !== "available" ||
-            envResult.state !== "available" ||
-            builderResult.state !== "available"
-          ) {
+          if (catalog.state !== "available") {
             if (scheduleRetry(attempt)) return;
-            if (engineResult.state !== "available") {
+            if (catalog.enginesUnavailable) {
               console.warn(
                 "[agent-chat] engine list unavailable; model picker is showing an unvalidated default",
               );
@@ -268,54 +375,18 @@ export function useChatModels({
             finish();
             return;
           }
-          const enginesData = engineResult.value;
-          const envKeys = envResult.value;
-          const builderStatus = builderResult.value;
-          const configuredKeys = new Set(
-            envKeys.filter((k) => k.configured).map((k) => k.key),
-          );
-          const builderConnected = builderStatus?.configured === true;
-          const currentEngineName: string | undefined =
-            enginesData.current?.engine;
-          const currentModel: string | undefined = enginesData.current?.model;
-
-          const groups = buildChatModelGroups({
-            engines: enginesData.engines,
-            configuredKeys,
-            builderConnected,
-            currentEngineName,
-            currentModel,
-          });
-          const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
+          const { groups, defaultModel: nextDefaultModel } = catalog;
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
 
-          if (currentEngineName === "ai-sdk:ollama") {
-            void fetchOllamaModels()
-              .then((liveModels) => {
-                if (!isCurrentRefresh() || liveModels.length === 0) return;
-                const liveEngines = enginesData.engines.map((engine) =>
-                  engine.name === "ai-sdk:ollama"
-                    ? { ...engine, supportedModels: liveModels }
-                    : engine,
-                );
-                setAvailableModels(
-                  buildChatModelGroups({
-                    engines: liveEngines,
-                    configuredKeys,
-                    builderConnected,
-                    currentEngineName,
-                    currentModel,
-                  }),
-                );
-              })
-              .catch(() => {
-                // No local Ollama server reachable — keep the static
-                // suggestion list already rendered above.
-              });
-          }
+          void catalog.loadLiveGroups().then((liveGroups) => {
+            if (liveGroups && isCurrentRefresh()) {
+              setAvailableModels(liveGroups);
+            }
+          });
 
-          const selection = selectionRef.current;
+          const selection =
+            unavailableSelectionRef.current ?? selectionRef.current;
 
           const configuredGroups = groups.filter((g) => g.configured);
           const resolveRoutableSelection = () => {
@@ -349,21 +420,48 @@ export function useChatModels({
           };
 
           if (!hasExplicitSelectionRef.current) {
+            unavailableSelectionRef.current = null;
+            setUnavailableSelection(null);
             applyFallback(false);
             finish();
             return;
           }
 
-          const selectedGroup = groups.find(
+          const selectableGroups =
+            unavailableSelectionPolicy === "require-explicit"
+              ? configuredGroups
+              : groups;
+          const selectedGroup = selectableGroups.find(
             (group) =>
               group.models.includes(selection.selectedModel) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
           if (selectedGroup) {
+            unavailableSelectionRef.current = null;
+            setUnavailableSelection(null);
             if (selection.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
+            if (
+              selectionRef.current.selectedModel !== selection.selectedModel
+            ) {
+              setSelectedModel(selection.selectedModel);
+              setSelectedEffort(selection.selectedEffort);
+            }
+            finish();
+            return;
+          }
+          if (unavailableSelectionPolicy === "require-explicit") {
+            const unavailable = {
+              model: selection.selectedModel,
+              engine: selection.selectedEngine,
+              effort: selection.selectedEffort,
+            };
+            unavailableSelectionRef.current = selection;
+            setUnavailableSelection(unavailable);
+            setSelectedModel("");
+            setSelectedEngine("");
             finish();
             return;
           }
@@ -377,7 +475,7 @@ export function useChatModels({
     }
 
     load(0);
-  }, [enabled, storageKey]);
+  }, [enabled, storageKey, unavailableSelectionPolicy]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -412,11 +510,18 @@ export function useChatModels({
 
   return {
     availableModels,
+    configuredModels: availableModels.filter((group) => group.configured),
     defaultModel,
     selectedModel,
     selectedEngine,
     selectedEffort,
     isLoading,
+    selectionReady:
+      !isLoading &&
+      unavailableSelection === null &&
+      selectedModel.length > 0 &&
+      selectedEngine.length > 0,
+    unavailableSelection,
     onModelChange,
     onEffortChange,
     refreshEngines,

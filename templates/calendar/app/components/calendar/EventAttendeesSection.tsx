@@ -303,7 +303,7 @@ function RsvpControls({
           asChild
           variant="ghost"
           size="sm"
-          className="mt-1 h-8 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="mt-1 w-full justify-start gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <a
             href={googleCalendarLink}

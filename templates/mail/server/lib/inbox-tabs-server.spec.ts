@@ -8,6 +8,7 @@ import {
 } from "@shared/inbox-threads.js";
 import { describe, expect, it } from "vitest";
 
+import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import {
   partitionInboxItems,
   resolveActiveTabId,
@@ -84,6 +85,25 @@ describe("resolveInboxTabs", () => {
     expect(
       resolveInboxTabs({ ...config, showAllTab: false }, new Map())[0]?.id,
     ).toBe(IMPORTANT_TAB_ID);
+  });
+
+  it("keeps Filtered out of the inbox split tabs", () => {
+    const tabs = resolveInboxTabs(
+      {
+        pinnedLabels: [AI_FILTER_LABEL],
+        savedFilters: [],
+        labelAliases: {},
+        combineInbox: false,
+        showAllTab: true,
+      },
+      new Map(),
+    );
+
+    expect(tabs.map((tab) => tab.id)).toEqual([
+      ALL_TAB_ID,
+      "important",
+      "other",
+    ]);
   });
 });
 

@@ -51,11 +51,23 @@ export interface FrameworkToolsOption {
   browserSessions?: boolean;
   web?: boolean;
   workspaceApps?: boolean;
+  /** `chat-history`, `manage-agent-engine`, `manage-agent-loop-settings`,
+   *  `preview-secret-removal`, `list-api-keys`, `delete-api-key`,
+   *  `check-provider-key`,
+   *  `manage-provider-key-policy`, `manage-builder-connection`,
+   *  `get-provider-models`, `manage-provider-models`,
+   *  `list-model-providers`. */
   chat?: boolean;
   email?: boolean;
   emailCatalog?: boolean;
   workspaceUserGroups?: boolean;
   orgServiceTokens?: boolean;
+  /** Administer app roles, app permission mappings, file storage
+   *  (`get-file-storage`, `manage-file-storage`), service providers
+   *  (`manage-service-providers`), the infrastructure read
+   *  (`get-infrastructure-status`), and messaging channels
+   *  (`list-messaging-channels`, `manage-messaging-channel`) for the active
+   *  org. */
   orgAdministration?: boolean;
   preset?: "minimal";
 }
@@ -180,8 +192,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-app-permission-roles": "orgAdministration",
   "list-workspace-app-access": "orgAdministration",
   "set-workspace-app-access": "orgAdministration",
+  "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
+  "get-file-storage": "orgAdministration",
+  "manage-file-storage": "orgAdministration",
+  "manage-service-providers": "orgAdministration",
+  "get-infrastructure-status": "orgAdministration",
+  "list-messaging-channels": "orgAdministration",
+  "manage-messaging-channel": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
@@ -198,6 +217,15 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
+  "preview-secret-removal": "chat",
+  "list-api-keys": "chat",
+  "delete-api-key": "chat",
+  "check-provider-key": "chat",
+  "manage-provider-key-policy": "chat",
+  "manage-builder-connection": "chat",
+  "get-provider-models": "chat",
+  "manage-provider-models": "chat",
+  "list-model-providers": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 
@@ -275,6 +303,9 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-review-threads-unread": "review",
   "set-review-thread-muted": "review",
   "create-resource-suggestion": "review",
+  "create-resource-suggestion-proposal": "review",
+  "get-resource-suggestion-proposal-by-creation-key": "review",
+  "decide-resource-suggestion-proposal": "review",
   "update-resource-suggestion": "review",
   "list-resource-suggestions": "review",
   "get-resource-suggestion": "review",

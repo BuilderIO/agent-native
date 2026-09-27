@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connect",
@@ -250,6 +252,14 @@ export default {
     weekStartSunday: "Sunday - Saturday",
     weekStartMonday: "Monday - Sunday",
     eventRules: "Invitation rules",
+    eventRulesConnectJev: "Connect Jev to run invitation rules",
+    eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
+    eventRulesConnectBuilder: "Connect Builder.io",
+    eventRulesAddJevApiKey: "Add API key",
+    eventRulesTabRules: "Rules",
+    eventRulesHelpLabel: "About invitation rule prompts",
+    eventRulesHelp:
+      "Write prompts that tell Jev which invitations to accept, decline, or hide.",
     eventRuleAccept: "Auto accept",
     eventRuleDecline: "Auto decline",
     eventRuleHide: "Auto hide",
@@ -258,6 +268,7 @@ export default {
       "Example: Decline vendor demos and after-hours events",
     eventRulePlaceholderHide: "Example: Hide focus blocks and reminders",
     eventRulesSave: "Save rules",
+    eventRulesClearSaved: "Clear saved rules",
     eventRulesRecentActivity: "Recent activity",
     eventRulesNoActivity: "No activity yet",
     eventRuleActivityAccepted: "Accepted",
@@ -276,6 +287,37 @@ export default {
       "An invitation was skipped because accept and decline both matched.",
     eventRulesUnregistered:
       "Calendar automation is not registered in this server.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendars",
+    bookingTab: "Booking",
+    eventsGroup: "Events",
+    appearanceGroup: "Appearance",
+    colorTheme: "Color theme",
+    timezone: "Calendar timezone",
+    timezoneDescription: "Used to show events and create new ones.",
+    defaultDuration: "Default event duration",
+    defaultDurationDescription: "In minutes. Booking links can set their own.",
+    durationInvalid: "Enter a duration from 5 to 480 minutes.",
+    zoom: "Zoom",
+    connectedAs: "Connected as {{accounts}}",
+    setUp: "Set up",
+    disconnectGoogleTitle: "Disconnect Google Calendar?",
+    disconnectGoogleDescription:
+      "Calendar stops showing and syncing events from your Google accounts.",
+    disconnectZoomTitle: "Disconnect Zoom?",
+    disconnectZoomDescription:
+      "New events and bookings can't get Zoom meeting links until you connect again.",
+    manage: "Manage",
+    edit: "Edit",
+    cancel: "Cancel",
+    save: "Save",
+    fallbackBookingPage: "Fallback booking page",
+    fallbackBookingPageDescription:
+      "Used when a booking link has no title or description of its own.",
+    fallbackTitle: "Title",
+    fallbackDescription: "Description",
+    bookingLinksDescription: "Create booking links and copy their public URLs.",
   },
   eventDialog: {
     eventUpdated: "Event updated",
@@ -999,7 +1041,7 @@ export default {
     year: "year",
     zoom: "Zoom",
     zoomAdded: "Zoom added",
-    zoomAddFailed: "Failed to add Zoom",
+    zoomAddFailed: zoomAddFailedMessages["en-US"],
     zoomConnectFailed: "Could not connect Zoom",
     zoomConnectionOpened: "Zoom connection opened",
     zoomNotConfigured: "Zoom OAuth is not configured.",

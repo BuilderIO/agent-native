@@ -27,6 +27,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
+import {
+  AddReactionButton,
+  CommentReactionChips,
+  QUICK_REACTIONS,
+} from "./CommentReactions";
+
 type DiscussionProps = {
   documentId: string;
   suggestionId: string;
@@ -35,7 +41,7 @@ type DiscussionProps = {
   discussion: ReviewDiscussionState;
 };
 
-const quickReactions = ["👍", "❤️", "🎉", "👀"];
+const quickReactions = QUICK_REACTIONS;
 
 export function ReviewCommentMenu({
   documentId,
@@ -170,54 +176,77 @@ export function ReviewReactionList({
 }) {
   const t = useT();
   const react = useReactToReviewComment();
-  if (!reactions.length) return null;
+  const pending = react.isPending ? react.variables : null;
+  const shown = reactions
+    .map((entry) =>
+      pending?.reaction === entry.reaction
+        ? {
+            ...entry,
+            reactedByMe: pending.active,
+            count:
+              entry.count + Number(pending.active) - Number(entry.reactedByMe),
+          }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
   return (
-    <div
-      className="mt-1 flex flex-wrap gap-1"
-      onClick={(event) => event.stopPropagation()}
-    >
-      {reactions.map((entry) => {
-        const pending =
-          react.isPending && react.variables?.reaction === entry.reaction
-            ? react.variables
-            : null;
-        const active = pending ? pending.active : entry.reactedByMe;
-        const count =
-          entry.count +
-          (pending ? Number(pending.active) - Number(entry.reactedByMe) : 0);
-        return (
-          <button
-            key={entry.reaction}
-            type="button"
-            aria-pressed={active}
-            aria-label={t("comments.reactionCount", {
-              reaction: entry.reaction,
-              count,
-            })}
-            disabled={!canReact || react.isPending}
-            className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent aria-pressed:bg-accent aria-pressed:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            onClick={() =>
-              react.mutate(
-                {
-                  resourceType: "document",
-                  resourceId: documentId,
-                  commentId,
-                  reaction: entry.reaction,
-                  active: !active,
-                },
-                {
-                  onError: (error) =>
-                    toast.error(
-                      actionErrorMessage(error) ?? t("comments.toolFailed"),
-                    ),
-                },
-              )
-            }
-          >
-            {entry.reaction} {count}
-          </button>
-        );
-      })}
-    </div>
+    <CommentReactionChips
+      reactions={shown}
+      canReact={canReact && !react.isPending}
+      onToggle={(reaction, active) =>
+        react.mutate(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            commentId,
+            reaction,
+            active,
+          },
+          {
+            onError: (error) =>
+              toast.error(
+                actionErrorMessage(error) ?? t("comments.toolFailed"),
+              ),
+          },
+        )
+      }
+    />
+  );
+}
+
+/** The shared 🙂 button for a suggestion discussion comment. */
+export function ReviewAddReactionButton({
+  documentId,
+  commentId,
+  reactions,
+}: {
+  documentId: string;
+  commentId: string;
+  reactions: ReviewCommentReaction[];
+}) {
+  const t = useT();
+  const react = useReactToReviewComment();
+  return (
+    <AddReactionButton
+      className="opacity-0 group-hover/comment:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100"
+      onSelect={(reaction) =>
+        react.mutate(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            commentId,
+            reaction,
+            active: !reactions.find((entry) => entry.reaction === reaction)
+              ?.reactedByMe,
+          },
+          {
+            onError: (error) =>
+              toast.error(
+                actionErrorMessage(error) ?? t("comments.toolFailed"),
+              ),
+          },
+        )
+      }
+    />
   );
 }

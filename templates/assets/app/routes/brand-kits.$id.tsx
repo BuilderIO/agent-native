@@ -383,6 +383,7 @@ export function BrandKitDetailRoute({
   const queryClient = useQueryClient();
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
@@ -413,6 +414,7 @@ export function BrandKitDetailRoute({
   );
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingStorageUploadRef = useRef<File[] | null>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
@@ -829,7 +831,10 @@ export function BrandKitDetailRoute({
       );
   }
 
-  async function upload(files: FileList | null, category = "style-only") {
+  async function upload(
+    files: FileList | File[] | null,
+    category = "style-only",
+  ) {
     if (!canUploadFiles || !files?.length || uploading) return;
     const selectedFiles = Array.from(files);
     const oversizedFile = selectedFiles.find(
@@ -982,6 +987,28 @@ export function BrandKitDetailRoute({
     }
   }
 
+  function requestUpload(files: FileList | null = null) {
+    if (uploading) return;
+    if (canUploadFiles) {
+      if (files?.length) void upload(files);
+      else fileInputRef.current?.click();
+      return;
+    }
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length > 0) {
+      pendingStorageUploadRef.current = selectedFiles;
+    }
+    setStorageSetupOpen(true);
+  }
+
+  useEffect(() => {
+    if (!canUploadFiles) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingStorageUploadRef.current;
+    pendingStorageUploadRef.current = null;
+    if (pendingFiles) void upload(pendingFiles);
+  }, [canUploadFiles, upload]);
+
   async function archiveCurrentLibrary() {
     if (!library || archiveLibrary.isPending) return;
     try {
@@ -1114,7 +1141,7 @@ export function BrandKitDetailRoute({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("library.searchAssets")}
-              className="h-9 w-full pl-8 pr-8 sm:w-64"
+              className="w-full pl-8 pr-8 sm:w-64"
             />
             {search && (
               <button
@@ -1133,7 +1160,7 @@ export function BrandKitDetailRoute({
               setMediaFilter(value as "all" | "image" | "video")
             }
           >
-            <SelectTrigger className="h-9 w-full sm:w-32">
+            <SelectTrigger className="w-full sm:w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1165,10 +1192,8 @@ export function BrandKitDetailRoute({
       pendingUploads={uploads}
       folders={folders}
       promotingReferenceKeys={promotingReferenceKeys}
-      onUploadClick={
-        canUploadFiles ? () => fileInputRef.current?.click() : undefined
-      }
-      onDrop={canUploadFiles ? (files) => void upload(files) : undefined}
+      onUploadClick={() => requestUpload()}
+      onDrop={(files) => requestUpload(files)}
       onMoveToReferences={(asset, slot) => {
         void handleMoveToReferences(asset, slot);
       }}
@@ -1185,8 +1210,8 @@ export function BrandKitDetailRoute({
     <Button
       variant="outline"
       className="gap-2"
-      onClick={() => fileInputRef.current?.click()}
-      disabled={!canUploadFiles || uploading}
+      onClick={() => requestUpload()}
+      disabled={uploading}
     >
       {uploading ? (
         <Spinner className="h-4 w-4" />
@@ -1299,8 +1324,8 @@ export function BrandKitDetailRoute({
                 <Badge variant="outline">{library.visibility}</Badge>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
                   asChild
                   aria-label={t("library.editBrandKit")}
                 >
@@ -1325,7 +1350,10 @@ export function BrandKitDetailRoute({
         multiple
         className="hidden"
         disabled={!canUploadFiles}
-        onChange={(event) => upload(event.target.files)}
+        onChange={(event) => {
+          requestUpload(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
       />
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
@@ -1376,7 +1404,6 @@ export function BrandKitDetailRoute({
         onDragEnter={(e: DragEvent<HTMLDivElement>) => {
           if (!e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
-          if (!canUploadFiles) return;
           dragCounterRef.current += 1;
           if (dragCounterRef.current === 1) setIsDragOver(true);
         }}
@@ -1392,13 +1419,17 @@ export function BrandKitDetailRoute({
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
-          if (canUploadFiles) void upload(e.dataTransfer.files);
+          requestUpload(e.dataTransfer.files);
         }}
       >
         <FileUploadStorageGate
           state={fileStorageState}
+          open={storageSetupOpen}
+          onOpenChange={setStorageSetupOpen}
+          onDismiss={() => {
+            pendingStorageUploadRef.current = null;
+          }}
           onRetry={() => void fileUploadStatus.refetch()}
-          className="mb-4"
         />
         {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
@@ -2467,7 +2498,7 @@ function AssetSwimlaneBoard({
             {onSave ? (
               <Button
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={onSave}
                 disabled={busy}
               >
@@ -3054,9 +3085,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          size="icon"
+                          size="icon-sm"
                           variant="secondary"
-                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          className="border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -3435,8 +3466,8 @@ function AssetActionsMenu({
           <Button
             type="button"
             variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
+            size="icon-sm"
+            className="shadow-sm"
             aria-label={t("library.assetActions")}
             disabled={busy}
           >
@@ -3675,9 +3706,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full justify-center px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3690,7 +3721,7 @@ export function LiveCandidatesStage({
         {onUseCandidate ? (
           <Button
             size="sm"
-            className="h-8 min-w-0 justify-center px-2 text-xs"
+            className="min-w-0 justify-center px-2 text-xs"
             onClick={onUseCandidate}
             disabled={busy}
           >
@@ -3712,7 +3743,7 @@ export function LiveCandidatesStage({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 min-w-0 px-2 text-xs"
+              className="min-w-0 px-2 text-xs"
               onClick={onAddToReferences}
               disabled={busy}
             >
@@ -3727,7 +3758,7 @@ export function LiveCandidatesStage({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3764,9 +3795,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-7 px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -4253,7 +4284,7 @@ function CandidateSaveMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
+            className="min-w-0 px-2 text-xs"
             disabled={disabled}
           >
             {pending ? (
@@ -4491,8 +4522,7 @@ function LiveCandidatesActions({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             aria-label={t("library.candidateActions")}
             title={t("library.candidateActions")}
             disabled={isClearing}

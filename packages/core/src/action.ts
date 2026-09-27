@@ -44,6 +44,8 @@ export interface ActionRunContext {
    */
   requestHeaders?: Headers;
   orgId?: string | null;
+  /** Restrict nested action credential reads to the explicit organization. */
+  credentialScope?: "org";
   appId?: string;
   appRoles?: string[];
   appPermissions?: string[];

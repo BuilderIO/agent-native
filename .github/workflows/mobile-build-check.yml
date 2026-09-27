@@ -51,6 +51,18 @@ jobs:
           node-version: "22"
           cache: pnpm
 
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
+
       - run: pnpm install --frozen-lockfile
 
       - name: Generate Android project
@@ -96,6 +108,18 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+
+      - name: Install native canvas build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libcairo2-dev \
+            libpixman-1-dev \
+            libpango1.0-dev \
+            libjpeg-dev \
+            libgif-dev \
+            librsvg2-dev
 
       - run: pnpm install --frozen-lockfile
 

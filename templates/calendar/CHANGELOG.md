@@ -3,11 +3,44 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-27
+
+### Improved
+
+- Events created by the agent now show their date and time with a direct link to Calendar.
+- Calendar shows cards for event changes and lets you start an event draft from a suggested time.
+
+### Fixed
+
+- Calendar cards keep your booking link title when it matches the default label
+- Calendar event cards retain Meet and Zoom links, show conferencing warnings, and format event times in your selected locale.
+- Calendar event cards show times in the supplied offset or Calendar timezone and keep long working-location labels readable.
+- Calendar time links keep separate drafts per timezone and preserve edits when reopened
+
+### Security
+
+- Meeting links from invitations now open in a new tab that cannot redirect your Calendar tab
+
 ## 2026-09-26
+
+### Improved
+
+- Calendar confirms created events in chat with the time and links to open or join them
+- Loading screens now reflect the app's home layout.
+- Manage AI invitation rules and recent activity in separate tabs, with Jev connection options
+
+### Fixed
+
+- Calendar users can clear saved invitation rules after Jev is disconnected
+- Cancellation emails now send guests back to the correct Calendar booking page.
 
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Security
+
+- Signing out clears lingering sign-in sessions so another account cannot reappear.
 
 ## 2026-09-25
 

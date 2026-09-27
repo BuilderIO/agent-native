@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "@agent-native/core/db";
+import { getOrgSetting } from "@agent-native/core/settings";
 
 import {
   getBigQueryProjectId,
@@ -34,6 +35,7 @@ export interface FirstPartyAnalyticsBackfillCursor {
 export interface FirstPartyAnalyticsScope {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 }
 
 /**
@@ -131,7 +133,7 @@ const backendConfigCache = new Map<
 >();
 
 function backendScopeKey(scope: FirstPartyAnalyticsScope): string {
-  return `${scope.orgId ? `o:${scope.orgId}` : "u:"}${scope.userEmail}`;
+  return `${scope.orgId ? `o:${scope.orgId}` : "u:"}${scope.userEmail}:${scope.credentialScope ?? "default"}`;
 }
 
 function parseTableRef(
@@ -176,10 +178,14 @@ export async function getFirstPartyAnalyticsBackend(
   const cached = backendConfigCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.config;
 
-  const setting = (await getScopedSettingRecord(
-    { email: scope.userEmail, orgId: scope.orgId },
-    FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
-  )) as FirstPartyAnalyticsBackendSetting | null;
+  const setting = (await (scope.credentialScope === "org"
+    ? scope.orgId
+      ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
+      : null
+    : getScopedSettingRecord(
+        { email: scope.userEmail, orgId: scope.orgId },
+        FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+      ))) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
     table: typeof setting?.table === "string" ? setting.table : null,

@@ -20,6 +20,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 
 import { isCreditsLimitErrorCode } from "../../agent/engine/error-detail.js";
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { agentNativePath } from "../api-path.js";
@@ -29,6 +30,7 @@ import {
   isProviderAuthenticationError,
   localizeKnownChatErrorText,
 } from "../error-format.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useFormatters, useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
@@ -196,7 +198,7 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
-function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+export function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const text = [info.message, info.details].filter(Boolean).join("\n");
   const hasCredentialSetupText =
@@ -336,13 +338,19 @@ export type BuilderSetupCardLayout = "default" | "sidebar";
 
 export function BuilderSetupContent({
   onConnected,
+  onRetry,
+  retryDisabled = false,
   layout = "default",
 }: {
   onConnected?: () => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
   const t = useT();
   const sidebarLayout = layout === "sidebar";
+  // Model providers moved to Agent › Model in the redesigned Settings.
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
 
   return (
     <div
@@ -358,9 +366,23 @@ export function BuilderSetupContent({
         )}
       >
         <div className="agent-builder-setup-card__copy min-w-0">
-          <h3 className="text-[13px] font-medium text-foreground">
-            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
-          </h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-[13px] font-medium text-foreground">
+              {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
+            </h3>
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retryDisabled}
+                aria-label={t("agentChat.common.retry")}
+                title={t("agentChat.common.retry")}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+              >
+                <IconRefresh size={13} strokeWidth={1.8} />
+              </button>
+            ) : null}
+          </div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
             {t("agentPanel.builderOrOwnKeys", {
               defaultValue: "Choose Builder.io or custom keys.",
@@ -377,7 +399,7 @@ export function BuilderSetupContent({
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           <Link
-            to={buildSettingsRoute("keys")}
+            to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
             className={cn(
               "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
               sidebarLayout
@@ -457,7 +479,12 @@ export function BuilderSetupCard({
         {onDismiss ? (
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <BuilderSetupContent onConnected={onConnected} layout={layout} />
+              <BuilderSetupContent
+                onConnected={onConnected}
+                onRetry={onRetry ? handleRetry : undefined}
+                retryDisabled={retryRequested}
+                layout={layout}
+              />
             </div>
             <button
               type="button"
@@ -469,22 +496,14 @@ export function BuilderSetupCard({
             </button>
           </div>
         ) : (
-          <BuilderSetupContent onConnected={onConnected} layout={layout} />
+          <BuilderSetupContent
+            onConnected={onConnected}
+            onRetry={onRetry ? handleRetry : undefined}
+            retryDisabled={retryRequested}
+            layout={layout}
+          />
         )}
       </div>
-      {onRetry ? (
-        <div className="flex justify-center px-3 pt-1">
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={retryRequested}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          >
-            <IconRefresh size={13} />
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -512,7 +531,6 @@ export function RunErrorRecoveryCard({
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const retryRequestedRef = useRef(false);
-  const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
@@ -587,7 +605,6 @@ export function RunErrorRecoveryCard({
   const handleMissingProviderRetry = useCallback(() => {
     if (retryRequestedRef.current) return;
     retryRequestedRef.current = true;
-    setRetryRequested(true);
     onRetry();
   }, [onRetry]);
 
@@ -624,6 +641,7 @@ export function RunErrorRecoveryCard({
               ? handleProviderConnected
               : handleMissingProviderConnected
           }
+          onRetry={handleMissingProviderRetry}
         />
         {/*
           Deliberately not gated on `providerConnected`. That gate assumed
@@ -638,46 +656,37 @@ export function RunErrorRecoveryCard({
           stop producing, one step later. `handleMissingProviderRetry` fires at
           most once per card, so offering it cannot loop.
         */}
-        <div className="flex justify-center px-3 pt-1">
-          <button
-            type="button"
-            onClick={handleMissingProviderRetry}
-            disabled={retryRequested}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          >
-            <IconRefresh size={13} />
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
       </div>
     );
   }
 
   if (isBuilderCreditsLimit) {
     return (
-      <div className="min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <p className="min-w-0 flex-1 font-medium text-foreground">
+      <div className="@container min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
+          <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
             {t("agentChat.errorMessages.creditsLimitReached", {
               defaultValue: "You've reached your AI credits limit.",
             })}
           </p>
-          <Button asChild size="sm">
-            <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
-              {t("agentChat.errorMessages.addCreditsInBuilder", {
-                defaultValue: "Add credits in Builder",
-              })}
-              <IconArrowUpRight />
-            </a>
-          </Button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label={t("agentChat.common.dismiss")}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <IconX size={14} />
-          </button>
+          <div className="flex w-full items-center gap-3 @md:w-auto">
+            <Button asChild size="sm">
+              <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
+                {t("agentChat.errorMessages.addCreditsInBuilder", {
+                  defaultValue: "Add credits in Builder",
+                })}
+                <IconArrowUpRight />
+              </a>
+            </Button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label={t("agentChat.common.dismiss")}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
         </div>
         <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>
@@ -970,10 +979,11 @@ export function LoopLimitContinueCard({
   }, [hasPendingChange, onContinue, saveLimit]);
 
   const openSettings = useCallback(() => {
-    try {
-      window.location.hash = "agent-limits";
-    } catch {}
-    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: { section: "limits" },
+      }),
+    );
   }, []);
 
   return (

@@ -68,6 +68,14 @@ export interface ScreenshotResult {
   diagnostics: ScreenshotDiagnostics;
 }
 
+const screenshotPngs = new WeakMap<ScreenshotResult, Buffer>();
+
+export function getScreenshotPngData(
+  screenshot: ScreenshotResult,
+): Buffer | undefined {
+  return screenshotPngs.get(screenshot);
+}
+
 const DEFAULT_VIEWPORTS: ScreenshotViewport[] = [
   { label: "desktop", widthPx: 1280, heightPx: 800 },
   { label: "mobile", widthPx: 375, heightPx: 812 },
@@ -369,9 +377,8 @@ export default defineAction({
     "contrast ratios, horizontal/container overflow, broken images, zero-size " +
     "or off-screen text, console errors) for each requested viewport (default: " +
     "1280px desktop + 375px mobile). Use this for the Phase 5 visual pass — " +
-    "the diagnostics are actionable immediately; the screenshot URL is for " +
-    "human review in chat today and becomes agent-visible once tool-result " +
-    "images ship. Requires a headless Chromium binary; in hosted/serverless " +
+    "the diagnostics are actionable immediately, and screenshots are saved " +
+    "at durable URLs for review. Requires a headless Chromium binary; in hosted/serverless " +
     "deploys where one isn't available, returns `{ ok: false, reason }` " +
     "instead of throwing — fall back to run-design-audit in that case.",
   schema: z.object({
@@ -595,7 +602,7 @@ export default defineAction({
             };
           }
 
-          screenshots.push({
+          const screenshot = {
             viewport,
             url: uploaded?.url ?? "",
             persisted: !!uploaded,
@@ -607,7 +614,15 @@ export default defineAction({
               fontLoadFailures,
               consoleErrors,
             },
-          });
+          } satisfies ScreenshotResult;
+          screenshots.push(screenshot);
+          if (
+            screenshots.length === 1 &&
+            ctx?.caller === "mcp" &&
+            ctx.actionName === "export-png"
+          ) {
+            screenshotPngs.set(screenshot, png);
+          }
         } finally {
           await context.close().catch(() => {});
         }

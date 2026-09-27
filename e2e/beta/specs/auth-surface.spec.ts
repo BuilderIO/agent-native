@@ -8,6 +8,7 @@ import {
   selectedSites,
 } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
+import { SETTINGS_NESTED_ROUTE } from "../lib/settings";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 const sites = selectedSites();
@@ -25,7 +26,11 @@ for (const site of sites) {
     test("carries a continuation for the route the visitor asked for", async ({
       page,
     }) => {
-      const target = "/settings/general";
+      // Landing on the app root after signing in — instead of the page you
+      // asked for — is the return-path regression this catches. A nested
+      // Settings route (`/settings/:page/:sub`) is the deepest shape the
+      // redesign links to, so both segments have to survive the round trip.
+      const target = SETTINGS_NESTED_ROUTE;
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",
       });
@@ -142,6 +147,82 @@ for (const site of sites) {
       await expect(page.locator("#login-form")).toBeVisible();
       await expect(page.locator("#l-email")).toBeVisible();
       await expect(page.locator("#signup-form")).toBeHidden();
+    });
+
+    test("keeps OAuth popups navigable from every document that opens them", async ({
+      page,
+    }) => {
+      // Sign-in, in-app connect buttons, and the MCP sign-in form all open
+      // their popup on the inert waiting page, then send it to the provider.
+      // If the opener document's COOP is incompatible with the waiting page's,
+      // the browser severs the popup: it stays blank and the opener reports it
+      // closed ("allow popups"). The documents below carry different header
+      // sets, which is how fixing one of them has twice broken the others.
+      // Scripts are blocked so the anonymous shell cannot redirect to sign-in;
+      // every visitor, signed in or not, receives these same cached headers.
+      await page.route(
+        (url) => /\.m?js$/.test(url.pathname),
+        (route) => route.abort(),
+      );
+      for (const path of ["/", "/settings/general", "/mcp/connect"]) {
+        const response = await page.goto(`${origin}${path}`, {
+          waitUntil: "domcontentloaded",
+        });
+        // Only an app that does not mount MCP may lack /mcp/connect; any other
+        // failure would silently drop that opener from coverage.
+        if (path === "/mcp/connect" && response?.status() === 404) continue;
+        expect(
+          response?.ok(),
+          `${site.host}${path} returned ${response?.status()}, so its popup behaviour went untested`,
+        ).toBe(true);
+        if (!response) continue;
+        const [popup, opened] = await Promise.all([
+          page.context().waitForEvent("page"),
+          page.evaluate(() => {
+            const handle = window.open(
+              new URL("/_agent-native/oauth/popup", location.origin).href,
+              "_blank",
+              "width=640,height=760",
+            );
+            (window as { __oauthPopup?: Window | null }).__oauthPopup = handle;
+            return handle !== null;
+          }),
+        ]);
+        expect(opened, `${site.host}${path} could not open a popup`).toBe(true);
+        // The waiting page's COOP only applies once it has committed, so the
+        // opener must not navigate it before then or the check proves nothing.
+        await popup.waitForURL("**/_agent-native/oauth/popup");
+        await popup.waitForLoadState("domcontentloaded");
+        const target = `${origin}/_agent-native/ping`;
+        await page.evaluate((url) => {
+          const handle = (window as { __oauthPopup?: Window | null })
+            .__oauthPopup;
+          if (handle && !handle.closed) handle.location.href = url;
+        }, target);
+        const navigated = await popup
+          .waitForURL(target, { timeout: 15_000 })
+          .then(() => true)
+          .catch(() => false);
+        const closed = await page.evaluate(
+          () =>
+            (window as { __oauthPopup?: Window | null }).__oauthPopup?.closed ??
+            true,
+        );
+        const coop = response.headers()["cross-origin-opener-policy"] ?? "none";
+        expect
+          .soft(
+            closed,
+            `${site.host}${path} (COOP ${coop}) lost its handle to the OAuth popup`,
+          )
+          .toBe(false);
+        expect
+          .soft(
+            navigated,
+            `${site.host}${path} (COOP ${coop}) could not send the OAuth popup on from the waiting page`,
+          )
+          .toBe(true);
+        await popup.close();
+      }
     });
 
     test("serves an impersonal, cacheable shell", async () => {

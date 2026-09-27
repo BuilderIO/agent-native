@@ -56,6 +56,54 @@ describe("controlled composer context", () => {
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
   });
+  it("requests storage setup only after choosing Upload File", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      plusMenuMode: "full",
+      onAttachmentRequest,
+    });
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[data-agent-composer-slot="plus-button"]',
+        )!
+        .click();
+    });
+    const uploadFile = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Upload File"));
+    expect(uploadFile).toBeDefined();
+    await act(async () => uploadFile!.click());
+
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+  });
+
+  it("requests storage setup from the upload-only button", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      onAttachmentRequest,
+      plusMenuMode: "upload-only",
+    });
+
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () =>
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    const uploadFile = document.querySelector<HTMLElement>('[role="menuitem"]');
+    expect(uploadFile).toBeDefined();
+    expect(uploadFile?.textContent).toContain("Upload File");
+    await act(async () => uploadFile!.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+  });
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
@@ -123,6 +171,7 @@ describe("controlled composer context", () => {
       const onRemove = vi.fn();
       const onRetry = vi.fn();
       const onDisabledClick = vi.fn();
+      const onAttachmentRequest = vi.fn();
       let blocked = true;
       let files: PromptComposerFile[] = [];
       const render = async () => {
@@ -148,6 +197,8 @@ describe("controlled composer context", () => {
                 placeholder="Prepare your prompt"
                 showModelSelector={false}
                 modelStatusChecksEnabled={gate === "provider"}
+                attachmentsEnabled={!(gate === "provider" && blocked)}
+                onAttachmentRequest={onAttachmentRequest}
                 includeDefaultSlashSkills={false}
                 voiceEnabled={false}
                 onAttachmentsChange={(next) => {
@@ -178,9 +229,22 @@ describe("controlled composer context", () => {
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
         expect(container.querySelector('[contenteditable="true"]')).toBeNull();
-        expect(
-          container.querySelector('button[aria-label="Add context"]'),
-        ).toBeNull();
+        const uploadTrigger = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Add context"]',
+        )!;
+        expect(uploadTrigger).not.toBeNull();
+        expect(uploadTrigger.disabled).toBe(false);
+        await act(async () =>
+          uploadTrigger.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          ),
+        );
+        const uploadItem = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((element) => element.textContent === "Upload File")!;
+        expect(uploadItem).toBeDefined();
+        await act(async () => uploadItem.click());
+        expect(onAttachmentRequest).toHaveBeenCalledOnce();
         expect(
           container.querySelector<HTMLButtonElement>(
             'button[aria-label="Send message"]',

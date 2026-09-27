@@ -1,3 +1,4 @@
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import {
   isInboxScopedAppLabel,
@@ -16,6 +17,7 @@ export const COLLAPSIBLE_VIEW_IDS = [
   "drafts",
   "archive",
   "trash",
+  AI_FILTER_LABEL,
 ] as const;
 
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
@@ -58,6 +60,7 @@ export function resolveDefaultMailHref(opts: {
   if (resolved.length > 0) {
     const firstId = resolved[0];
     if ((COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(firstId)) {
+      if (firstId === AI_FILTER_LABEL) return labelTabHref(firstId);
       return `/${firstId}`;
     }
     return labelTabHref(firstId);

@@ -58,6 +58,18 @@ vi.mock("../server/embed-session.js", async (importOriginal) => {
   };
 });
 
+function nitroStartupRecoveryMiddlewares(): unknown[] {
+  const middlewares: unknown[] = [];
+  const afterNitro = _nitroStartupRecovery().configureServer?.({
+    config: { base: "/" },
+    middlewares: {
+      use: vi.fn((middleware: unknown) => middlewares.push(middleware)),
+    },
+  } as never);
+  if (typeof afterNitro === "function") afterNitro();
+  return middlewares;
+}
+
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
     let time = 0;
@@ -223,22 +235,12 @@ describe("Nitro dev startup recovery", () => {
   });
 
   it("turns a transient document error into a quiet retry page", () => {
-    let middleware:
-      | ((
-          error: unknown,
-          req: unknown,
-          res: unknown,
-          next: (error?: unknown) => void,
-        ) => void)
-      | undefined;
-    const plugin = _nitroStartupRecovery();
-    plugin.configureServer?.({
-      middlewares: {
-        use: vi.fn((handler) => {
-          middleware = handler;
-        }),
-      },
-    } as never);
+    const middleware = nitroStartupRecoveryMiddlewares()[2] as (
+      error: unknown,
+      req: unknown,
+      res: unknown,
+      next: (error?: unknown) => void,
+    ) => void;
 
     const error = Object.assign(
       new Error('Vite environment "nitro" is unavailable'),
@@ -251,7 +253,7 @@ describe("Nitro dev startup recovery", () => {
       statusCode: 200,
     };
     const next = vi.fn();
-    middleware?.(
+    middleware(
       error,
       { headers: { accept: "text/html" }, method: "GET" },
       res,
@@ -272,28 +274,19 @@ describe("Nitro dev startup recovery", () => {
   });
 
   it("preserves genuine Nitro errors and non-document requests", () => {
-    let middleware:
-      | ((
-          error: unknown,
-          req: unknown,
-          res: unknown,
-          next: (error?: unknown) => void,
-        ) => void)
-      | undefined;
-    _nitroStartupRecovery().configureServer?.({
-      middlewares: {
-        use: vi.fn((handler) => {
-          middleware = handler;
-        }),
-      },
-    } as never);
+    const middleware = nitroStartupRecoveryMiddlewares()[2] as (
+      error: unknown,
+      req: unknown,
+      res: unknown,
+      next: (error?: unknown) => void,
+    ) => void;
 
     const error = Object.assign(
       new Error('Vite environment "nitro" is unavailable'),
       { name: "NitroViteError", status: 503 },
     );
     const next = vi.fn();
-    middleware?.(
+    middleware(
       error,
       { headers: { accept: "application/json" }, method: "GET" },
       { headersSent: false },
@@ -302,13 +295,123 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenCalledWith(error);
 
     const importError = new Error("broken import");
-    middleware?.(
+    middleware(
       importError,
       { headers: { accept: "text/html" }, method: "GET" },
       { headersSent: false },
       next,
     );
     expect(next).toHaveBeenLastCalledWith(importError);
+  });
+
+  it("logs framework errors and handles resets before disconnect flags update", () => {
+    const [requestIdHandler, errorHandler] = nitroStartupRecoveryMiddlewares();
+    const assignRequestId = requestIdHandler as (
+      req: { url: string; method: string; agentNativeRequestId?: string },
+      res: unknown,
+      next: () => void,
+    ) => void;
+    const logError = errorHandler as (
+      error: unknown,
+      req: {
+        url: string;
+        method: string;
+        agentNativeRequestId?: string;
+        aborted?: boolean;
+        destroyed?: boolean;
+        socket?: { destroyed?: boolean };
+      },
+      res: { destroyed?: boolean; writableEnded?: boolean },
+      next: (error?: unknown) => void,
+    ) => void;
+    const request = {
+      url: "/_agent-native/application-state?keys=ignored",
+      method: "GET",
+      aborted: false,
+      destroyed: false,
+      socket: { destroyed: false },
+    };
+    const nextRequest = vi.fn();
+    assignRequestId(request, {}, nextRequest);
+    expect(request.agentNativeRequestId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(nextRequest).toHaveBeenCalledOnce();
+
+    const error = new Error("escaped route failure");
+    const nextError = vi.fn();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      logError(error, request, {}, nextError);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining(`request_id=${request.agentNativeRequestId}`),
+        error,
+      );
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "method=GET path=/_agent-native/application-state",
+        ),
+        error,
+      );
+      expect(nextError).toHaveBeenCalledWith(error);
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const activeReset = Object.assign(new Error("write ECONNRESET"), {
+        code: "ECONNRESET",
+        syscall: "write",
+      });
+      logError(activeReset, request, {}, nextError);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining("request_destroyed=false"),
+        activeReset,
+      );
+      expect(nextError).toHaveBeenCalledWith(activeReset);
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const upstreamReadReset = Object.assign(new Error("read ECONNRESET"), {
+        code: "ECONNRESET",
+        syscall: "read",
+      });
+      const waitingResponse = { destroyed: false, destroy: vi.fn() };
+      logError(upstreamReadReset, request, waitingResponse, nextError);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining("socket_destroyed=false"),
+        upstreamReadReset,
+      );
+      expect(nextError).toHaveBeenCalledWith(upstreamReadReset);
+      expect(waitingResponse.destroy).not.toHaveBeenCalled();
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const resetClientRequest = { ...request, socket: { destroyed: true } };
+      const orphanedResponse = { destroyed: false, destroy: vi.fn() };
+      logError(
+        upstreamReadReset,
+        resetClientRequest,
+        orphanedResponse,
+        nextError,
+      );
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(nextError).not.toHaveBeenCalled();
+      expect(orphanedResponse.destroy).toHaveBeenCalledOnce();
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const abortedRequest = {
+        ...request,
+        aborted: true,
+        destroyed: true,
+        socket: { destroyed: true },
+      };
+      const reset = Object.assign(new Error("read ECONNRESET"), {
+        code: "ECONNRESET",
+      });
+      logError(reset, abortedRequest, { destroyed: true }, nextError);
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(nextError).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it("registers the startup gate before Nitro and recovery after it", () => {

@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
+      aiSetupSkipSetup: "Pular configuração da caixa de entrada",
       aiSetupImportantHeadline: "O que é importante",
       aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
       aiSetupTagsHeadline: "Escolha suas abas",
@@ -60,7 +61,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Mensagens que precisam de resposta ou têm prazo, incluindo comentários de pessoas no GitHub. Ignore comentários de bots.",
       aiSetupArchiveSpamPrompt:
-        "Arquivar automaticamente: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
+        "Pular caixa de entrada: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Concluir",
       aiSetupRunAgain: "Executar configuração novamente",
@@ -76,6 +77,7 @@ const messages = {
       aiSetupFilteredExample:
         "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
       aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupFindingRecentMail: "Buscando e-mails recentes…",
       aiSetupSortingProgress:
         "Organizando e-mails recentes: {{processed}} de {{total}}",
       aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
@@ -170,6 +172,7 @@ const messages = {
       deleteDraft: "Excluir rascunho",
       deleteDrafts: "Excluir rascunhos",
       reopenDraft: "Reabrir",
+      openInMail: "Abrir no Mail",
       discardDraft: "Descartar rascunho",
       enterLinkUrl: "Digite a URL do link.",
       forward: "Forward",
@@ -449,6 +452,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecte sua conta Google",
+      connectionNotConfigured:
+        "A conexão do Gmail não está configurada para este app. Peça ao administrador para ativá-la ou pule esta etapa por enquanto.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -583,17 +588,29 @@ const messages = {
       automationRulesLoadFailed:
         "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      autoArchiveMode: "Arquivar automaticamente",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "Tags de IA",
+      ruleHelpLabel: "Explicar regras de {{mode}}",
+      aiTagRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona esta tag aos e-mails correspondentes.",
+      importantRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev marca como importantes os e-mails correspondentes.",
+      skipInboxRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
+      spamRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona a etiqueta agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
       filteredMode: "Filtrado",
-      autoArchiveMode: "Arquivar automaticamente",
       manageSettings: "Gerenciar",
       askJev: "Perguntar ao Jev",
       askJevPrompt:
         "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
       composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      chatSuggestionFilter: "Filtrar mensagens como esta",
+      chatSuggestionPriority: "Priorizar e-mails de…",
+      chatSuggestionArchive: "Arquivar notificações de bots automaticamente",
       ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
       ruleBackfillProgress:
         "Aplicando aos e-mails recentes: {{processed}} de {{total}}",
@@ -648,7 +665,7 @@ const messages = {
       promptRulesCleared: "Regras de triagem removidas.",
       tagTabsHelp: "Cada tag se torna uma aba da caixa de entrada",
       addTag: "Adicionar tag",
-      triageTitle: "Triagem",
+      triageTitle: "Triagem com IA",
       connectJev: "Conectar Jev",
       connectJevToRunTriage: "Conecte o Jev para executar a triagem",
       freeBuilderOrApiKey:
@@ -716,6 +733,9 @@ const messages = {
     suggestionReplies: "O que precisa da minha resposta hoje?",
     suggestionWidget:
       "Crie um widget personalizado para minha caixa de entrada",
+    ruleSuggestionFilter: "Filtrar mensagens como esta",
+    ruleSuggestionImportant: "Priorizar e-mails do meu chefe",
+    ruleSuggestionArchive: "Arquivar notificações de bots automaticamente",
   },
   settings: {
     openAgentSettings: "Gerenciar agente",
@@ -820,8 +840,6 @@ const messages = {
     slackPostEndpoint: "Endpoint POST do Slack",
     slackPostEndpointHelp:
       "Use em Slack Event Subscriptions. Um GET do navegador pode mostrar Not Found.",
-    teamDescription:
-      "Configure uma equipe para compartilhar automações e configurações de email com colegas.",
     title: "Configuracoes",
     general: "Geral",
     generalDescription: "Idioma e preferencias de nivel de conta para Mail.",
@@ -847,12 +865,19 @@ const messages = {
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
-    aiFilter: "Triagem",
+    rules: "Regras",
+    rulesModel: "Modelo das regras",
+    rulesModelDescription: "Compara os e-mails recebidos com suas regras.",
+    slackDraftRequests: "Pedidos de rascunho",
+    slackDraftQueue: "Enfileirar rascunhos do Slack",
+    slackDraftQueueDescription:
+      "Colegas mencionam o agente no Slack para pedir um rascunho de e-mail. Os rascunhos aguardam revisão na sua fila de rascunhos.",
+    openDraftQueue: "Abrir fila de rascunhos",
+    aiFilter: "Triagem com IA",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
     slack: "Slack",
-    team: "Equipe",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },

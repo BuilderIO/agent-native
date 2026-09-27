@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/core/client/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -20,6 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
 import {
   JevAvailabilityError,
@@ -34,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   useAiFilterBackfillStatus,
@@ -46,6 +49,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { labelTabHref } from "@/lib/inbox-tabs";
 import { getLabelStyle } from "@/lib/label-colors";
 import { cn } from "@/lib/utils";
@@ -131,6 +135,31 @@ function SetupRuleRow({
   );
 }
 
+function SetupSurface({
+  embedded,
+  visible,
+  onClose,
+  children,
+}: {
+  embedded: boolean;
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+  if (embedded) return children;
+  return (
+    <Dialog
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-3xl">{children}</DialogContent>
+    </Dialog>
+  );
+}
+
 function SetupResults({
   status,
   loading,
@@ -140,7 +169,6 @@ function SetupResults({
   onUndo,
   onReview,
   onTeach,
-  onDone,
 }: {
   status: AiFilterBackfillStatus | undefined;
   loading: boolean;
@@ -150,7 +178,6 @@ function SetupResults({
   onUndo: (undoToken: string) => Promise<void>;
   onReview: () => void;
   onTeach: () => void;
-  onDone: () => void;
 }) {
   const t = useT();
   const previews = useMemo(() => {
@@ -185,16 +212,18 @@ function SetupResults({
     }
     return [...byHref.values()];
   }, [status?.perRule, reviewDestinationsByRuleId]);
-  const percent =
-    status && status.totalThreads > 0
-      ? Math.min(100, (status.processedThreads / status.totalThreads) * 100)
-      : 0;
+  const total = status?.totalThreads ?? 0;
+  const processed = status?.processedThreads ?? 0;
+  const totalKnown = total > 0;
+  const percent = totalKnown ? Math.min(100, (processed / total) * 100) : null;
   const running =
     loading ||
     status?.status === "queued" ||
     status?.status === "running" ||
     status?.status === "undoing";
   const undone = status?.status === "undone";
+  const hasFailed =
+    status?.status === "failed" || (!loading && hasRun && failed);
 
   return (
     <div className="space-y-5">
@@ -205,10 +234,12 @@ function SetupResults({
             <p className="text-sm font-medium">
               {status?.status === "undoing"
                 ? t("mail.sort.aiSetupUndoing")
-                : t("mail.sort.aiSetupSortingProgress", {
-                    processed: status?.processedThreads ?? 0,
-                    total: status?.totalThreads ?? 0,
-                  })}
+                : totalKnown
+                  ? t("mail.sort.aiSetupSortingProgress", {
+                      processed,
+                      total,
+                    })
+                  : t("mail.sort.aiSetupFindingRecentMail")}
             </p>
           </div>
           <Progress
@@ -219,7 +250,7 @@ function SetupResults({
           />
         </div>
       ) : null}
-      {status?.status === "failed" || failed ? (
+      {hasFailed ? (
         <p role="alert" className="text-sm text-destructive">
           {t("mail.sort.aiSetupSortingFailed")}
         </p>
@@ -310,11 +341,6 @@ function SetupResults({
           ))}
         </div>
       ) : null}
-      {!status && !loading && hasRun && failed ? (
-        <p role="alert" className="text-sm text-destructive">
-          {t("mail.sort.aiSetupSortingFailed")}
-        </p>
-      ) : null}
       {!status && !loading && !hasRun ? (
         <div className="rounded-xl border border-border/70 bg-muted/30 p-4 text-sm">
           <p className="font-medium">{t("mail.sort.aiSetupNoRules")}</p>
@@ -324,7 +350,13 @@ function SetupResults({
         <p className="text-xs text-muted-foreground">
           {t("mail.sort.aiSetupChatTip")}
         </p>
-        <Button type="button" variant="link" size="sm" onClick={onTeach}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full"
+          onClick={onTeach}
+        >
           {t("mail.sort.aiSetupChatPrompt")}
         </Button>
       </div>
@@ -338,7 +370,7 @@ function SetupResults({
                   : mode === "important"
                     ? t("mail.aiFilter.importantMode")
                     : mode === "archive"
-                      ? t("mail.aiFilter.autoArchiveMode")
+                      ? t("mail.aiFilter.skipInboxMode")
                       : labelName}
               </a>
             </Button>
@@ -353,25 +385,33 @@ function SetupResults({
           ) : null}
         </div>
       ) : null}
-      <div className="flex justify-end">
-        <Button onClick={onDone}>{t("mail.sort.aiSetupDone")}</Button>
-      </div>
     </div>
   );
 }
 
 export function AiInboxSetup({
   forceOpen = false,
+  embedded = false,
   onOpenChange,
+  onComplete,
+  onSkipSetup,
 }: {
   forceOpen?: boolean;
+  embedded?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onComplete?: () => void;
+  onSkipSetup?: () => void;
 }) {
   const t = useT();
+  const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
   const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const jevAvailability = useActionQuery(
     "get-jev-availability",
     {},
@@ -403,11 +443,13 @@ export function AiInboxSetup({
   const [archivePrompt, setArchivePrompt] = useState(() =>
     t("mail.sort.aiSetupArchiveExample"),
   );
-  const [archiveEnabled, setArchiveEnabled] = useState(true);
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
+  const [archiveUserOptedOut, setArchiveUserOptedOut] = useState(false);
   const [spamPrompt, setSpamPrompt] = useState(() =>
     t("mail.sort.aiSetupFilteredExample"),
   );
-  const [spamEnabled, setSpamEnabled] = useState(true);
+  const [spamEnabled, setSpamEnabled] = useState(false);
+  const [spamUserOptedOut, setSpamUserOptedOut] = useState(false);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
   const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
   const [customCleanupMode, setCustomCleanupMode] = useState<
@@ -427,6 +469,7 @@ export function AiInboxSetup({
     [rules],
   );
   const visible =
+    !firstRunOnboardingOwnsSurface &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&
@@ -444,6 +487,8 @@ export function AiInboxSetup({
       setStep(0);
       setBackfillRunId(null);
       setBackfillReviewDestinations({});
+      setArchiveUserOptedOut(false);
+      setSpamUserOptedOut(false);
     }
   }, [forceOpen, visible]);
 
@@ -451,6 +496,17 @@ export function AiInboxSetup({
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
       onOpenChange?.(false);
+      onComplete?.();
+    } catch {
+      toast.error(t("mail.aiFilter.settingsFailed"));
+    }
+  };
+
+  const skipSetup = async () => {
+    if (saving || updateSettings.isPending) return;
+    try {
+      await updateSettings.mutateAsync({ aiSetupCompleted: true });
+      onSkipSetup?.();
     } catch {
       toast.error(t("mail.aiFilter.settingsFailed"));
     }
@@ -597,21 +653,81 @@ export function AiInboxSetup({
     customTagSelected &&
     (!customTagName.trim() || !customTagPrompt.trim());
 
+  if (
+    embedded &&
+    forceOpen &&
+    (googleStatus.isLoading || (connected && jevAvailability.isLoading))
+  ) {
+    return (
+      <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-10 w-28" />
+      </div>
+    );
+  }
+
+  if (embedded && forceOpen && !connected) {
+    return (
+      <div className="mx-auto w-full max-w-2xl">
+        {googleStatus.data?.configured === true ||
+        canOfferGoogleOAuthSetup ||
+        googleStatus.isError ? (
+          <GoogleConnectBanner variant="hero" />
+        ) : (
+          <div className="py-6">
+            <h1 className="text-lg font-semibold">
+              {t("mail.googleConnect.connectTitle")}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("mail.googleConnect.connectionNotConfigured")}
+            </p>
+          </div>
+        )}
+        <div className="mt-6 flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void skipSetup()}
+            disabled={saving || updateSettings.isPending}
+          >
+            {t("mail.sort.aiSetupSkipSetup")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Dialog
-      open={visible}
-      onOpenChange={(open) => {
-        if (!open) {
-          onOpenChange?.(false);
-          void complete();
-        }
+    <SetupSurface
+      embedded={embedded}
+      visible={visible}
+      onClose={() => {
+        onOpenChange?.(false);
+        void complete();
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <>
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center overflow-y-auto">
-          <DialogHeader className="mb-6">
-            <DialogTitle>{headline}</DialogTitle>
-          </DialogHeader>
+          <div className="mb-6 flex items-center justify-between gap-3">
+            {embedded ? (
+              <h1 className="text-lg font-semibold">{headline}</h1>
+            ) : (
+              <DialogHeader>
+                <DialogTitle>{headline}</DialogTitle>
+              </DialogHeader>
+            )}
+            {embedded && step < 3 && onSkipSetup ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void skipSetup()}
+                disabled={saving || updateSettings.isPending}
+              >
+                {t("mail.sort.aiSetupSkipSetup")}
+              </Button>
+            ) : null}
+          </div>
           <div
             className="mb-8 flex items-center gap-2"
             role="progressbar"
@@ -703,19 +819,31 @@ export function AiInboxSetup({
             <div className="space-y-3">
               <SetupRuleRow
                 icon={<IconArchive className="size-4" />}
-                title={t("mail.aiFilter.autoArchiveMode")}
+                title={t("mail.aiFilter.skipInboxMode")}
                 condition={archivePrompt}
                 enabled={archiveEnabled}
-                onConditionChange={setArchivePrompt}
-                onEnabledChange={setArchiveEnabled}
+                onConditionChange={(value) => {
+                  setArchivePrompt(value);
+                  if (!archiveUserOptedOut) setArchiveEnabled(!!value.trim());
+                }}
+                onEnabledChange={(enabled) => {
+                  setArchiveEnabled(enabled);
+                  setArchiveUserOptedOut(!enabled);
+                }}
               />
               <SetupRuleRow
                 icon={<IconFilter className="size-4" />}
                 title={t("mail.aiFilter.filteredMode")}
                 condition={spamPrompt}
                 enabled={spamEnabled}
-                onConditionChange={setSpamPrompt}
-                onEnabledChange={setSpamEnabled}
+                onConditionChange={(value) => {
+                  setSpamPrompt(value);
+                  if (!spamUserOptedOut) setSpamEnabled(!!value.trim());
+                }}
+                onEnabledChange={(enabled) => {
+                  setSpamEnabled(enabled);
+                  setSpamUserOptedOut(!enabled);
+                }}
               />
               {customCleanupOpen ? (
                 <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 sm:flex-nowrap">
@@ -730,7 +858,7 @@ export function AiInboxSetup({
                       >
                         {t(
                           mode === "archive"
-                            ? "mail.aiFilter.autoArchiveMode"
+                            ? "mail.aiFilter.skipInboxMode"
                             : "mail.aiFilter.filteredMode",
                         )}
                       </button>
@@ -797,12 +925,16 @@ export function AiInboxSetup({
                 });
                 void complete();
               }}
-              onDone={() => void complete()}
             />
           )}
-          <div className="mt-8 flex items-center justify-between">
+          <div
+            className={cn(
+              "mt-8 flex items-center",
+              step === 3 ? "justify-end" : "justify-between",
+            )}
+          >
             <div className="flex items-center gap-1">
-              {step > 0 && (
+              {step > 0 && step < 3 && (
                 <Button
                   variant="ghost"
                   onClick={() =>
@@ -825,27 +957,29 @@ export function AiInboxSetup({
                 </Button>
               ) : null}
             </div>
-            {step < 3 ? (
-              <Button
-                onClick={() => void saveStep()}
-                disabled={
-                  saving ||
+            <Button
+              onClick={() => (step === 3 ? void complete() : void saveStep())}
+              disabled={
+                step < 3 &&
+                (saving ||
                   customTagIncomplete ||
-                  (step === 2 && (!jevConfigured || rulesLoading))
-                }
-                aria-busy={saving || (step === 2 && rulesLoading)}
-              >
-                {saving || (step === 2 && rulesLoading) ? (
-                  <IconLoader2 className="size-4 animate-spin" />
-                ) : null}
-                {step === 2
+                  (step === 1 && !importantPrompt.trim()) ||
+                  (step === 2 && (!jevConfigured || rulesLoading)))
+              }
+              aria-busy={saving || (step === 2 && rulesLoading)}
+            >
+              {saving || (step === 2 && rulesLoading) ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : null}
+              {step === 3
+                ? t("mail.sort.aiSetupDone")
+                : step === 2
                   ? t("mail.sort.aiSetupSortInbox")
                   : t("mail.sort.aiSetupContinue")}
-              </Button>
-            ) : null}
+            </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </>
+    </SetupSurface>
   );
 }

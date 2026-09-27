@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
+      aiSetupSkipSetup: "Postfacheinrichtung überspringen",
       aiSetupImportantHeadline: "Was ist wichtig?",
       aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
       aiSetupTagsHeadline: "Tabs auswählen",
@@ -59,7 +60,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
       aiSetupArchiveSpamPrompt:
-        "Automatisch archivieren: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+        "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
       aiSetupCustomTag: "Benutzerdefiniert",
       aiSetupDone: "Fertig",
       aiSetupRunAgain: "Einrichtung erneut starten",
@@ -76,6 +77,7 @@ const messages = {
       aiSetupFilteredExample:
         "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
       aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
@@ -173,6 +175,7 @@ const messages = {
       deleteDraft: "Entwurf löschen",
       deleteDrafts: "Entwürfe löschen",
       reopenDraft: "Wieder öffnen",
+      openInMail: "In Mail öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -454,6 +457,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
+      connectionNotConfigured:
+        "Die Gmail-Verbindung ist für diese App nicht konfiguriert. Bitte wende dich an die Administration, um sie zu aktivieren, oder überspringe diesen Schritt vorerst.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -590,17 +595,29 @@ const messages = {
       automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      autoArchiveMode: "Automatisch archivieren",
       skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
       aiTagsTitle: "KI-Tags",
+      ruleHelpLabel: "{{mode}}-Regeln erklären",
+      aiTagRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+      importantRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+      skipInboxRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+      spamRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
       filteredMode: "Gefiltert",
-      autoArchiveMode: "Automatisch archivieren",
       manageSettings: "Verwalten",
       askJev: "Jev fragen",
       askJevPrompt:
         "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
       composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
+      chatSuggestionPriority: "E-Mails von … priorisieren",
+      chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
       ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
       ruleBackfillProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
@@ -656,7 +673,7 @@ const messages = {
       promptRulesCleared: "Triage-Regeln entfernt.",
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
-      triageTitle: "Triage",
+      triageTitle: "KI-Triage",
       connectJev: "Jev verbinden",
       connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
       freeBuilderOrApiKey:
@@ -723,6 +740,9 @@ const messages = {
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+    ruleSuggestionFilter: "Nachrichten wie diese herausfiltern",
+    ruleSuggestionImportant: "E-Mails von meiner Führungskraft priorisieren",
+    ruleSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
   },
   settings: {
     openAgentSettings: "Agent verwalten",
@@ -827,8 +847,6 @@ const messages = {
     slackPostEndpoint: "Slack-POST-Endpunkt",
     slackPostEndpointHelp:
       "In Slack Event Subscriptions verwenden. Browser-GET kann Not Found anzeigen.",
-    teamDescription:
-      "Richte ein Team ein, um E-Mail-Automatisierungen und Einstellungen mit Kollegen zu teilen.",
     title: "Einstellungen",
     general: "Allgemein",
     generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
@@ -855,12 +873,19 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
-    aiFilter: "Triage",
+    rules: "Regeln",
+    rulesModel: "Modell für Regeln",
+    rulesModelDescription: "Gleicht eingehende E-Mails mit deinen Regeln ab.",
+    slackDraftRequests: "Entwurfsanfragen",
+    slackDraftQueue: "Entwürfe aus Slack einreihen",
+    slackDraftQueueDescription:
+      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
+    openDraftQueue: "Entwurfswarteschlange öffnen",
+    aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

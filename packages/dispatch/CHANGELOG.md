@@ -1,5 +1,34 @@
 # @agent-native/dispatch
 
+## 0.38.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [880740b]
+- Updated dependencies [55c9666]
+- Updated dependencies [55c9666]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.3
+
+## 0.38.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/toolkit@0.22.2
+
 ## 0.38.13
 
 ### Patch Changes
@@ -993,41 +1022,5 @@
 ### Patch Changes
 
 - 3eb5bdb: Surface app-creation settings authorization failures as HTTP 403 with the real message instead of a generic internal server error.
-
-## 0.24.1
-
-### Patch Changes
-
-- b3b4580: Align Dispatch app-row actions with shared open-in-new-tab and add-app menus.
-- b3b4580: Add workspace group management and Dispatch-scoped administrator access controls.
-- b3b4580: Hide untracked and confusing creation metadata from app settings popovers.
-- b3b4580: Make pending workspace apps full-width, hide branch IDs, and link directly to Builder.
-- b3b4580: Collapse the Dispatch sidebar when a workspace app opens in its embedded app surface.
-- b3b4580: Show workspace app error documents in the Dispatch iframe when embed-session setup fails.
-- b3b4580: Make spreadsheet-backed app creation preserve bounded source provenance and require confirmation when workbook formatting or candidate inputs and outputs are ambiguous.
-- b3b4580: Clarify personal MCP connections, workspace provider access, and legacy credential key scope.
-- Updated dependencies [b3b4580]
-- Updated dependencies [b3b4580]
-  - @agent-native/toolkit@0.14.1
-
-## 0.24.0
-
-### Minor Changes
-
-- aa17e22: Add a personal-first LLM usage investigation view with daily trends, prompt attribution, and agent review handoff.
-
-### Patch Changes
-
-- aa17e22: Use Plan's blue accent for generated app icons instead of a disabled-looking gray.
-- aa17e22: Open workspace apps at their registered app URL instead of treating the workspace mount path as an in-app document route.
-- aa17e22: Keep metadata-only workspace app edits from starting new Builder branches, and use canonical home URLs when launching built-in connected apps.
-- aa17e22: Make the Dispatch logo return to the Overview page when clicked.
-- aa17e22: Add an Admin link to Dispatch settings navigation.
-- aa17e22: Hide the current Dispatch app from the shared app switcher while keeping other workspace apps available.
-- aa17e22: Accept human-friendly names when creating workspace apps and normalize them into URL-safe ids.
-- aa17e22: Keep completed Dispatch app handoffs in the chat-first app pane instead of rendering a nested app shell inside the conversation.
-- aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

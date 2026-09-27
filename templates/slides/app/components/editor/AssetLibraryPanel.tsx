@@ -37,6 +37,8 @@ export default function AssetLibraryPanel({
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -111,10 +113,14 @@ export default function AssetLibraryPanel({
       }
       await fetchAssets();
       if (storageSetupRequired) {
-        void storageQuery.refetch();
-        toast.error(t("raw.assetUploadFailed"), {
-          description: t("home.fileStorageSetupRequired"),
-        });
+        const status = await storageQuery.refetch();
+        if (status.isSuccess && status.data.configured === true) {
+          toast.error(t("raw.assetUploadFailed"), {
+            description: t("home.fileStorageSetupRequired"),
+          });
+        } else {
+          setStoragePromptOpen(true);
+        }
         return;
       }
       if (failures.length > 0) {
@@ -126,6 +132,12 @@ export default function AssetLibraryPanel({
       setUploading(false);
       e.target.value = "";
     }
+  };
+
+  const requestUpload = () => {
+    if (uploading) return;
+    if (fileStorageConfigured) uploadInputRef.current?.click();
+    else setStoragePromptOpen(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -203,7 +215,12 @@ export default function AssetLibraryPanel({
 
       <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
         {/* Upload */}
-        <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-border hover:border-[#609FF8]/40 hover:bg-accent cursor-pointer transition-all">
+        <button
+          type="button"
+          onClick={requestUpload}
+          disabled={uploading}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 transition-colors hover:border-primary/40 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+        >
           {uploading ? (
             <IconLoader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
           ) : (
@@ -212,22 +229,23 @@ export default function AssetLibraryPanel({
           <span className="text-xs text-muted-foreground">
             {uploading ? "Uploading..." : "Upload images"}
           </span>
-          <input
-            type="file"
-            accept="image/*,.svg"
-            multiple
-            onChange={handleUpload}
-            className="hidden"
-            disabled={uploading || !fileStorageConfigured}
-          />
-        </label>
-        {!storageQuery.isLoading ? (
-          <UploadStorageGate
-            configured={fileStorageConfigured}
-            unavailable={storageQuery.isError}
-            onRetry={() => void storageQuery.refetch()}
-          />
-        ) : null}
+        </button>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="image/*,.svg"
+          multiple
+          onChange={handleUpload}
+          className="hidden"
+          disabled={uploading || !fileStorageConfigured}
+        />
+        <UploadStorageGate
+          configured={fileStorageConfigured}
+          unavailable={!storageQuery.isSuccess}
+          open={storagePromptOpen}
+          onOpenChange={setStoragePromptOpen}
+          onRetry={() => void storageQuery.refetch()}
+        />
 
         {/* Grid */}
         {loading ? (

@@ -11,6 +11,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Connect Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -60,7 +61,7 @@ const messages = {
       description:
         "Connect Builder.io (free) or configure your own S3-compatible object storage.",
       reconnectBuilder: "Reconnect Builder.io",
-      custom: "Add your own object storage keys",
+      custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -213,6 +214,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",
@@ -639,6 +645,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -663,6 +672,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -707,6 +717,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
     chatgptSubscriptionPopupBlocked:
       "Allow pop-ups for this site, then try again.",
     chatgptSubscriptionTitle: "ChatGPT subscription",
@@ -943,6 +955,8 @@ const messages = {
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
+    deleting: "Deleting…",
+    running: "Running…",
     updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
@@ -1014,6 +1028,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -1446,7 +1462,12 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect",
+    connecting: "Connecting…",
     useApiToken: "Use API token",
+    customOAuthDefault: "Sign in with OAuth",
+    customHeadersMode: "Use an API key",
+    useApiKeyInstead: "Use an API key instead",
+    useOAuthInstead: "Use OAuth instead",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
       "Connect {{name}} with an API token to use it in chat",
@@ -1503,6 +1524,7 @@ const messages = {
     openSetupDocs: "Open setup docs",
     viewSetup: "Open setup guide",
     test: "Test",
+    testing: "Testing…",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
@@ -1833,11 +1855,18 @@ const messages = {
     noReviews: "No agent outputs to review yet",
     summarizeWithAgent: "Summarize with agent",
     regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
     searchReviews: "Search prompts, outcomes, people, or artifacts",
     allArtifactTypes: "All types",
-    summarySending: "Sending summary request…",
-    summarySent: "Summary request sent to agent",
-    summaryFailed: "Could not send the summary request",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
     readOnlyTenant: "Cross-organization review is read-only.",
     showReviewDetails: "Show review details",
     hideReviewDetails: "Hide review details",

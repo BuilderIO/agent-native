@@ -2,7 +2,7 @@ import { useIconPickerLabels, useT } from "@agent-native/core/client/i18n";
 import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import { IconMoodSmile } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -636,6 +636,81 @@ interface EmojiPickerProps {
   onOpenChange?: (open: boolean) => void;
   anchored?: boolean;
   anchorElement?: HTMLElement | null;
+}
+
+export function EmojiPickerPanel({
+  onSelect,
+  autoFocus = true,
+}: {
+  onSelect: (emoji: string) => void;
+  autoFocus?: boolean;
+}) {
+  const t = useT();
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    setSearch("");
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, [autoFocus]);
+
+  const filteredCategories = useMemo(
+    () => filterEmojiCategories(search),
+    [search],
+  );
+
+  return (
+    <>
+      <div className="p-2 border-b">
+        <input
+          ref={searchRef}
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("editor.emojiFilter")}
+          className="w-full px-2.5 py-1.5 text-sm bg-accent/50 rounded-md outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
+      <div className="max-h-64 overflow-auto p-2">
+        {filteredCategories.length === 0 ? (
+          <div className="text-sm text-muted-foreground text-center py-4">
+            {t("editor.emojiNoEmojisFound")}
+          </div>
+        ) : (
+          filteredCategories.map((category) => (
+            <div key={category.name} className="mb-2 last:mb-0">
+              <div className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider px-0.5 mb-1">
+                {t(
+                  `editor.emojiCategory${category.name}` as
+                    | "editor.emojiCategorySmileys"
+                    | "editor.emojiCategoryPeople"
+                    | "editor.emojiCategoryNature"
+                    | "editor.emojiCategoryFood"
+                    | "editor.emojiCategoryActivities"
+                    | "editor.emojiCategoryTravel"
+                    | "editor.emojiCategoryObjects"
+                    | "editor.emojiCategorySymbols",
+                )}
+              </div>
+              <div className="grid grid-cols-7 gap-0 sm:grid-cols-8">
+                {category.emojis.map((emoji) => (
+                  <button
+                    type="button"
+                    key={emoji}
+                    onClick={() => onSelect(emoji)}
+                    className="w-9 h-9 flex items-center justify-center text-lg rounded hover:bg-accent cursor-pointer"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
 }
 
 export function EmojiPicker({

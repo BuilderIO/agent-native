@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Verbinden",
@@ -260,6 +262,15 @@ export default {
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
     eventRules: "Einladungsregeln",
+    eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
+    eventRulesFreeBuilderOrApiKey:
+      "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+    eventRulesConnectBuilder: "Builder.io verbinden",
+    eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
+    eventRulesTabRules: "Regeln",
+    eventRulesHelpLabel: "Hinweise zu Einladungsregeln",
+    eventRulesHelp:
+      "Schreibe Anweisungen, damit Jev Einladungen automatisch annimmt, ablehnt oder ausblendet.",
     eventRuleAccept: "Automatisch annehmen",
     eventRuleDecline: "Automatisch ablehnen",
     eventRuleHide: "Automatisch ausblenden",
@@ -270,6 +281,7 @@ export default {
     eventRulePlaceholderHide:
       "Beispiel: Fokuszeiten und Erinnerungen ausblenden",
     eventRulesSave: "Regeln speichern",
+    eventRulesClearSaved: "Gespeicherte Regeln löschen",
     eventRulesRecentActivity: "Letzte Aktivitäten",
     eventRulesNoActivity: "Noch keine Aktivitäten",
     eventRuleActivityAccepted: "Angenommen",
@@ -288,6 +300,40 @@ export default {
       "Eine Einladung wurde übersprungen, weil Annahme- und Ablehnungsregel übereinstimmten.",
     eventRulesUnregistered:
       "Die Calendar-Automatisierung ist auf diesem Server nicht registriert.",
+  },
+  calendarSettings: {
+    calendarsTab: "Kalender",
+    bookingTab: "Buchung",
+    eventsGroup: "Termine",
+    appearanceGroup: "Darstellung",
+    colorTheme: "Farbschema",
+    timezone: "Kalender-Zeitzone",
+    timezoneDescription:
+      "Wird zum Anzeigen und Erstellen von Terminen verwendet.",
+    defaultDuration: "Standarddauer für Termine",
+    defaultDurationDescription:
+      "In Minuten. Buchungslinks können eine eigene festlegen.",
+    durationInvalid: "Gib eine Dauer von 5 bis 480 Minuten ein.",
+    zoom: "Zoom",
+    connectedAs: "Verbunden als {{accounts}}",
+    setUp: "Einrichten",
+    disconnectGoogleTitle: "Google Kalender trennen?",
+    disconnectGoogleDescription:
+      "Calendar zeigt Termine aus deinen Google-Konten nicht mehr an und synchronisiert sie nicht mehr.",
+    disconnectZoomTitle: "Zoom trennen?",
+    disconnectZoomDescription:
+      "Neue Termine und Buchungen erhalten keine Zoom-Meeting-Links, bis du Zoom wieder verbindest.",
+    manage: "Verwalten",
+    edit: "Bearbeiten",
+    cancel: "Abbrechen",
+    save: "Speichern",
+    fallbackBookingPage: "Standard-Buchungsseite",
+    fallbackBookingPageDescription:
+      "Wird verwendet, wenn ein Buchungslink keinen eigenen Titel und keine eigene Beschreibung hat.",
+    fallbackTitle: "Titel",
+    fallbackDescription: "Beschreibung",
+    bookingLinksDescription:
+      "Erstelle Buchungslinks und kopiere ihre öffentlichen URLs.",
   },
   eventDialog: {
     eventUpdated: "Ereignis aktualisiert",
@@ -1042,7 +1088,7 @@ export default {
     year: "Jahr",
     zoom: "Zoom",
     zoomAdded: "Zoom hinzugefügt",
-    zoomAddFailed: "Zoom konnte nicht hinzugefügt werden",
+    zoomAddFailed: zoomAddFailedMessages["de-DE"],
     zoomConnectFailed: "Zoom konnte nicht verbunden werden",
     zoomConnectionOpened: "Zoom-Verbindung geöffnet",
     zoomNotConfigured: "Zoom OAuth ist nicht konfiguriert.",

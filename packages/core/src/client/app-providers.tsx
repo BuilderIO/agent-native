@@ -12,7 +12,10 @@ import {
 import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
 import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
-import { AppShellSkeleton } from "./AppShellSkeleton.js";
+import {
+  AppShellSkeleton,
+  type AppShellSkeletonLayout,
+} from "./AppShellSkeleton.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
@@ -31,6 +34,7 @@ import {
 } from "./theme.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 import { useSession } from "./use-session.js";
+import { SettingsShortcut } from "./use-settings-shortcut.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -56,6 +60,8 @@ export interface AppProvidersProps {
   isPublicPath?: boolean;
 
   clientOnlyFallback?: React.ReactNode;
+
+  skeletonLayout?: AppShellSkeletonLayout;
 
   sessionBypass?: boolean;
 
@@ -100,7 +106,11 @@ function EarlySessionBootstrapScript() {
   );
 }
 
-function RoutedAppEnhancements() {
+function RoutedAppEnhancements({
+  settingsShortcut,
+}: {
+  settingsShortcut: boolean;
+}) {
   const isInRouter = useInRouterContext();
   if (!isInRouter) return null;
 
@@ -108,6 +118,7 @@ function RoutedAppEnhancements() {
     <>
       <AgentNativeRouteWarmup />
       <RouteTransitionIndicator />
+      {settingsShortcut ? <SettingsShortcut /> : null}
     </>
   );
 }
@@ -351,6 +362,7 @@ function ProvidersInner({
   documentTitleFallback,
   showProductionEnvironmentBadge,
   showEnvironmentBadge,
+  settingsShortcut,
   children,
 }: {
   queryClient: QueryClient;
@@ -366,6 +378,7 @@ function ProvidersInner({
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
   showEnvironmentBadge: boolean;
+  settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -396,7 +409,7 @@ function ProvidersInner({
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
-          <RoutedAppEnhancements />
+          <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
           {showEnvironmentBadge ? (
             <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
           ) : null}
@@ -418,6 +431,7 @@ export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
+  skeletonLayout,
   sessionBypass = false,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -431,7 +445,9 @@ export function AppProviders({
   documentTitleFallback,
   children,
 }: AppProvidersProps) {
-  const fallback = clientOnlyFallback ?? <AppShellSkeleton />;
+  const fallback = clientOnlyFallback ?? (
+    <AppShellSkeleton layout={skeletonLayout} />
+  );
 
   if (isPublicPath) {
     return (
@@ -449,6 +465,7 @@ export function AppProviders({
         documentTitleFallback={documentTitleFallback}
         showProductionEnvironmentBadge={false}
         showEnvironmentBadge={showEnvironmentBadge}
+        settingsShortcut={false}
       >
         {children}
       </ProvidersInner>
@@ -478,12 +495,13 @@ export function AppProviders({
           documentTitleFallback={documentTitleFallback}
           showProductionEnvironmentBadge={!sessionBypass}
           showEnvironmentBadge={showEnvironmentBadge}
+          settingsShortcut={!sessionBypass}
         >
           <RequireSession bypass={sessionBypass} fallback={fallback}>
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate>
+              <FirstRunOnboardingStartupGate fallback={fallback}>
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

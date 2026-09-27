@@ -155,6 +155,31 @@ describe("dashboard-panel-query: program source", () => {
       );
     });
 
+    it("keeps org-only credential scope when previewing a data-program panel", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ id: 1 }],
+        schema: [{ name: "id", type: "number" }],
+        truncated: false,
+      });
+
+      await runDashboardPanelQuery({
+        source: "program",
+        query: JSON.stringify({ programId: "dp_customer" }),
+        ctx: { ...ctx, credentialScope: "org" },
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ctx: {
+            userEmail: ctx.userEmail,
+            orgId: ctx.orgId,
+            credentialScope: "org",
+          },
+        }),
+      );
+    });
+
     it("stale-serves lastGoodRun when ok:false but a prior good run exists", async () => {
       const asOfMs = Date.now() - 60_000;
       mocks.runDataProgram.mockResolvedValue({

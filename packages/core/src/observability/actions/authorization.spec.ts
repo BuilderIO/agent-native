@@ -267,6 +267,37 @@ describe("observability admin action authorization", () => {
     expect(mockUpsertHumanReviewSummary).not.toHaveBeenCalled();
   });
 
+  it("keeps customer feedback and instruction drafts read-only for super-org admins", async () => {
+    mockIsOrgAdmin.mockResolvedValue(true);
+    mockGetAppConfig.mockReturnValue({
+      observability: { superOrgId: "org-a" },
+    });
+    mockGetTraceSummary.mockResolvedValue(null);
+
+    await expect(
+      saveObservabilityReviewFeedback.run(
+        { runId: "run-b", feedbackType: "thumbs_up" },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(
+      saveObservabilityInstructionUpdate.run(
+        {
+          runId: "run-b",
+          target: "agent",
+          instruction: "Change this",
+        },
+        adminContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("run-b", {
+      orgId: "org-a",
+    });
+    expect(mockInsertFeedback).not.toHaveBeenCalled();
+    expect(mockInsertInstructionUpdate).not.toHaveBeenCalled();
+  });
+
   it("keeps an ordinary org admin's summary save in the active org", async () => {
     mockIsOrgAdmin.mockResolvedValue(true);
 

@@ -292,6 +292,26 @@ describe("backfill-search-embeddings", () => {
     expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
   });
 
+  it("asks for an embeddings provider when readiness has no warning", async () => {
+    mocks.readEmbeddingReadiness.mockResolvedValue({
+      ...readiness,
+      status: "not-configured",
+      ready: false,
+      embeddingSetId: null,
+      warning: null,
+    });
+
+    await expect(
+      action.run({
+        sourceId: "source-1",
+        dryRun: false,
+        force: false,
+        limit: 25,
+      }),
+    ).rejects.toThrow("Set up an embeddings provider before backfilling.");
+    expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
+  });
+
   it("returns failed capture IDs when durable queueing fails", async () => {
     mocks.enqueueBrainOperation.mockRejectedValueOnce(
       new Error("queue unavailable"),

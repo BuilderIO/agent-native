@@ -180,8 +180,44 @@ export function applyWireEvent(
           error:
             event.error ??
             (event.isError ? stringifyResult(event.result) : undefined),
+          ...(event.completedSideEffect ? { completedSideEffect: true } : {}),
+          ...(event.mcpApp === undefined ? {} : { mcpApp: event.mcpApp }),
+          ...(event.chatUI === undefined ? {} : { chatUI: event.chatUI }),
         })),
       );
+    case "connection_required": {
+      const part: ChatContentPart = {
+        type: "connection-request",
+        id: event.id ?? nextLocalId("connection"),
+        provider: event.provider ?? "integration",
+        ...(event.status ? { status: event.status } : {}),
+        ...(event.reason ? { reason: event.reason } : {}),
+        ...(event.detail ? { detail: event.detail } : {}),
+        ...(event.appId ? { appId: event.appId } : {}),
+      };
+      const next = withUpdatedAssistant(state, assistantId, (parts) => [
+        ...parts.filter(
+          (existing) =>
+            existing.type !== "connection-request" || existing.id !== part.id,
+        ),
+        part,
+      ]);
+      return { ...next, isStreaming: false, activity: null };
+    }
+    case "widget": {
+      if (!event.widget) return state;
+      const part: ChatContentPart = { type: "widget", widget: event.widget };
+      return withUpdatedAssistant(state, assistantId, (parts) => {
+        const index = parts.findIndex(
+          (existing) =>
+            existing.type === "widget" && existing.widget.id === part.widget.id,
+        );
+        if (index < 0) return [...parts, part];
+        const next = [...parts];
+        next[index] = part;
+        return next;
+      });
+    }
     case "approval_required": {
       const approvalKey = event.approvalKey ?? event.id ?? "";
       const targetId = event.toolCallId ?? event.id;

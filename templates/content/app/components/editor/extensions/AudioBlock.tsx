@@ -158,6 +158,7 @@ export function AudioBlock({
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<AudioSourceTab>("upload");
   const [audioUrl, setAudioUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -423,6 +424,15 @@ export function AudioBlock({
     }
   }
 
+  function requestAudioFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canMutateMediaNow()) return;
@@ -474,18 +484,19 @@ export function AudioBlock({
 
         {sourceTab === "upload" ? (
           <div className="media-source-panel__body">
-            {fileStorageConfigured ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {t("editor.media.uploadFile")}
-              </Button>
-            ) : (
-              <FileStorageStatusGate status={fileUploadStatus} />
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={requestAudioFilePicker}
+            >
+              {t("editor.media.uploadFile")}
+            </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>

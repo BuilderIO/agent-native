@@ -39,6 +39,7 @@ import {
   formatVoiceTranscriptForComposer,
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
+  mentionItemMatchesQuery,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
@@ -1604,6 +1605,59 @@ describe("createTiptapComposerExtensions", () => {
   });
 });
 
+describe("TiptapComposer storage gate", () => {
+  it("opens storage setup from Upload File without exposing a file picker", async () => {
+    const onAttachmentRequest = vi.fn();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            onAttachmentRequest,
+            plusMenuMode: "upload-only",
+            includeDefaultSlashSkills: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    const plusButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(plusButton).not.toBeNull();
+    await act(async () => {
+      plusButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      plusButton?.dispatchEvent(
+        new MouseEvent("pointerup", { bubbles: true, button: 0 }),
+      );
+      plusButton?.click();
+    });
+
+    const uploadItem = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ).at(0);
+    expect(uploadItem).toBeDefined();
+    await act(async () => uploadItem?.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+});
+
 describe("TiptapComposer paste handling", () => {
   it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
     const pastedText = "Keep this text";
@@ -1967,6 +2021,29 @@ describe("TiptapComposer slash commands", () => {
         duration: 1800,
       }),
     );
+  });
+});
+
+describe("mentionItemMatchesQuery", () => {
+  const sonnet = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("matches every host item while the query is empty", () => {
+    expect(mentionItemMatchesQuery(sonnet, "")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "  ")).toBe(true);
+  });
+
+  it("matches label, alias, and description text case-insensitively", () => {
+    expect(mentionItemMatchesQuery(sonnet, "sonn")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "Claude S")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "anthropic")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "opus")).toBe(false);
   });
 });
 
