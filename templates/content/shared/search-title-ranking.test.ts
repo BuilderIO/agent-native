@@ -103,16 +103,29 @@ describe("rankTitlesByQuery operators", () => {
 });
 
 describe("rankTitlesByQuery fuzzy tier", () => {
-  it("forgives small typos and gaps for queries of 3+ characters", () => {
+  it("forgives a small typo in one word for queries of 4+ characters", () => {
     const items = [candidate("target", "Priorities")];
     const ranked = rankTitlesByQuery(buildTitleSearchIndex(items), "prorities");
     expect(ranked).toHaveLength(1);
     expect(ranked[0]!.tier).toBe(TITLE_MATCH_TIER.fuzzy);
   });
 
-  it("does not fuzzy match below the 3-character floor", () => {
+  it("forgives a typo while the word is still being typed", () => {
+    expect(rankIds([candidate("target", "Roadmap review")], "raodm")).toEqual([
+      "target",
+    ]);
+  });
+
+  it("does not fuzzy match below the 4-character floor", () => {
     const items = [candidate("target", "Roadmap")];
     expect(rankIds(items, "od")).toEqual([]);
+    expect(rankIds(items, "rdm")).toEqual([]);
+  });
+
+  it("does not treat scattered letters across a title as a typo", () => {
+    const items = [candidate("noise", "tango delta notes 175")];
+    expect(rankIds(items, "task")).toEqual([]);
+    expect(rankIds(items, "tas")).toEqual([]);
   });
 
   it("does not fuzzy match a phrase, OR-group, or multi-term query", () => {
@@ -122,14 +135,14 @@ describe("rankTitlesByQuery fuzzy tier", () => {
     expect(rankIds(items, "sttus hb")).toEqual([]);
   });
 
-  it("prefers a tighter fuzzy match over a looser one", () => {
+  it("prefers a closer typo match over a looser one", () => {
     const items = [
-      candidate("tight", "Task Priorities"),
-      candidate("loose", "This Also Requires Investigation Eventually Somehow"),
+      candidate("looser", "Task Priorities"),
+      candidate("closer", "Priority list"),
     ];
-    const ranked = rankTitlesByQuery(buildTitleSearchIndex(items), "tais");
+    const ranked = rankTitlesByQuery(buildTitleSearchIndex(items), "prioirty");
     expect(ranked.every((r) => r.tier === TITLE_MATCH_TIER.fuzzy)).toBe(true);
-    expect(ranked[0]!.candidate.id).toBe("tight");
+    expect(ranked[0]!.candidate.id).toBe("closer");
   });
 
   it("prefers any exact/prefix/word/substring match over a fuzzy one", () => {

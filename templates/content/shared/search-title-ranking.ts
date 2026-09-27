@@ -42,7 +42,7 @@ export interface TitleRankResult<T extends TitleSearchCandidate> {
   fuzzyScore: number;
 }
 
-const FUZZY_MIN_QUERY_LENGTH = 3;
+const FUZZY_MIN_QUERY_LENGTH = 4;
 
 /** Mirrors `regexp_replace(lower(trim(coalesce(title, ''))), '\s+', ' ', 'g')`. */
 export function normalizeSearchTitle(title: string): string {
@@ -96,22 +96,64 @@ function computeSimpleQueries(groups: readonly SearchQueryGroup[]): string[] {
   return [];
 }
 
-function fuzzySubsequenceScore(
+/** Optimal string alignment distance, stopping early once it exceeds `max`. */
+function editDistanceWithin(a: string[], b: string[], max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let previousPrevious: number[] = [];
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let value = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + cost,
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        value = Math.min(value, previousPrevious[j - 2]! + 1);
+      }
+      current.push(value);
+      rowMin = Math.min(rowMin, value);
+    }
+    if (rowMin > max) return max + 1;
+    previousPrevious = previous;
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
+/**
+ * Typo tolerance for a single mistyped word: a title word, or the start of a
+ * longer title word while the person is still typing, within one edit of the
+ * needle (two for needles of eight or more characters). Higher is better;
+ * null means no match.
+ */
+function typoTolerantWordScore(
   normalizedTitle: string,
   needle: string,
 ): number | null {
   if (!needle) return null;
-  let cursor = 0;
-  let score = 0;
-  let streak = 0;
-  for (const char of needle) {
-    const foundAt = normalizedTitle.indexOf(char, cursor);
-    if (foundAt === -1) return null;
-    streak = foundAt === cursor ? streak + 1 : 0;
-    score += 1 + streak;
-    cursor = foundAt + 1;
+  const needleChars = Array.from(needle);
+  const maxDistance = needleChars.length >= 8 ? 2 : 1;
+  let best: number | null = null;
+  for (const word of normalizedTitle.split(/[^\p{L}\p{N}]+/u)) {
+    if (!word) continue;
+    const wordChars = Array.from(word);
+    const forms =
+      wordChars.length > needleChars.length
+        ? [wordChars, wordChars.slice(0, needleChars.length)]
+        : [wordChars];
+    forms.forEach((form, formIndex) => {
+      const distance = editDistanceWithin(needleChars, form, maxDistance);
+      if (distance > maxDistance) return;
+      const score =
+        (maxDistance - distance + 1) * 10 + (formIndex === 0 ? 1 : 0);
+      if (best === null || score > best) best = score;
+    });
   }
-  return score;
+  return best;
 }
 
 interface SingleTitleOutcome {
@@ -143,7 +185,7 @@ function rankSingleTitle(
 
   if (!allSubstrings) {
     if (fuzzy.allowed && fuzzy.needle) {
-      const score = fuzzySubsequenceScore(normalizedTitle, fuzzy.needle);
+      const score = typoTolerantWordScore(normalizedTitle, fuzzy.needle);
       if (score !== null)
         return { tier: TITLE_MATCH_TIER.fuzzy, fuzzyScore: score };
     }
