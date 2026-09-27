@@ -101,27 +101,121 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var editorChromeDocumentObserver: MutationObserver | null = null;
   var editorChromeRootObserver: MutationObserver | null = null;
   var repairingEditorChromeHost = false;
-  var userInteractedSinceHostFocus = false;
+  var userFocusedElement: Element | null = null;
+  var trustedFocusIntent: {
+    target: Element | null;
+    expiresAt: number;
+  } | null = null;
+  var focusTargetSelector =
+    'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+
+  function isCanvasFocusTarget(target: Element | null): boolean {
+    return !!(
+      target &&
+      (isEditorTypingTarget(target) || target.matches(focusTargetSelector))
+    );
+  }
+
+  function getCanvasFocusTarget(event: Event): Element | null {
+    var path = event.composedPath();
+    for (var i = 0; i < path.length; i += 1) {
+      var node = path[i];
+      if (!(node instanceof Element)) continue;
+      if (node instanceof HTMLLabelElement && node.control) {
+        return node.control;
+      }
+      if (isCanvasFocusTarget(node)) return node;
+      var closest = node.closest(focusTargetSelector);
+      if (closest) return closest;
+    }
+    return null;
+  }
+
+  function armTrustedFocusIntent(target: Element | null): void {
+    trustedFocusIntent = { target: target, expiresAt: Date.now() + 1000 };
+  }
+
+  function rememberUserFocusedElement(event: FocusEvent): void {
+    var intent = trustedFocusIntent;
+    if (!intent) return;
+    if (Date.now() > intent.expiresAt) {
+      trustedFocusIntent = null;
+      if (intent.target === userFocusedElement) userFocusedElement = null;
+      return;
+    }
+    var target = event.target instanceof Element ? event.target : null;
+    if (
+      intent.target &&
+      target &&
+      target !== intent.target &&
+      !intent.target.contains(target) &&
+      !target.contains(intent.target)
+    ) {
+      trustedFocusIntent = null;
+      if (intent.target === userFocusedElement) userFocusedElement = null;
+      return;
+    }
+    userFocusedElement = intent.target || target;
+    trustedFocusIntent = null;
+  }
 
   function rememberTrustedCanvasInput(event: Event): void {
     if (readOnly || interactionMode || !event.isTrusted) return;
     var target = event.target;
     if (target instanceof Node && editorChromeHost?.contains(target)) return;
-    userInteractedSinceHostFocus = true;
+    if (event.type === "pointerdown") {
+      var pointerFocusTarget = getCanvasFocusTarget(event);
+      userFocusedElement = null;
+      if (pointerFocusTarget) {
+        var active = document.activeElement;
+        var visited = new Set();
+        while (active && !visited.has(active)) {
+          visited.add(active);
+          if (
+            active === pointerFocusTarget ||
+            pointerFocusTarget.contains(active)
+          ) {
+            userFocusedElement = pointerFocusTarget;
+            break;
+          }
+          active = active.shadowRoot?.activeElement || null;
+        }
+      }
+      armTrustedFocusIntent(pointerFocusTarget);
+      return;
+    }
+    if (event.type === "keydown") {
+      var keyEvent = event as KeyboardEvent;
+      if (keyEvent.key === "Tab") {
+        armTrustedFocusIntent(null);
+        (window.parent as Window).postMessage(
+          { type: "agent-native:canvas-tab-navigation" },
+          "*",
+        );
+        return;
+      }
+      var active = document.activeElement;
+      if (active instanceof Element && isCanvasFocusTarget(active)) {
+        userFocusedElement = active;
+      }
+    }
   }
 
   function isCanvasFocusTransferSafe() {
+    if (trustedFocusIntent && Date.now() > trustedFocusIntent.expiresAt) {
+      if (trustedFocusIntent.target === userFocusedElement) {
+        userFocusedElement = null;
+      }
+      trustedFocusIntent = null;
+    }
     if (activeTextEditEl) return false;
-    if (!userInteractedSinceHostFocus) return true;
     var active = document.activeElement;
     var visited = new Set();
-    var focusTargetSelector =
-      'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
     while (active && !visited.has(active)) {
       visited.add(active);
       if (
-        isEditorTypingTarget(active) ||
-        active.closest?.(focusTargetSelector)
+        userFocusedElement?.isConnected &&
+        (active === userFocusedElement || userFocusedElement.contains(active))
       ) {
         return false;
       }
@@ -130,24 +224,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         active = shadowActive;
         continue;
       }
-      if (
-        active !== document.body &&
-        active !== document.documentElement &&
-        active.matches?.(":focus-within")
-      ) {
-        return false;
-      }
       return true;
     }
     return true;
   }
 
-  function reportCanvasFocusState(): void {
+  function reportCanvasFocusState(reason?: string): void {
     if (readOnly || interactionMode) return;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:canvas-focus-state",
         focusSafe: isCanvasFocusTransferSafe(),
+        ...(reason ? { reason } : {}),
       },
       "*",
     );
@@ -22402,20 +22490,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ].forEach(function (type) {
     document.addEventListener(type, stopBlockedLayerInteraction, true);
   });
-  document.addEventListener("focusin", reportCanvasFocusState, true);
-  document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
-  document.addEventListener("keydown", rememberTrustedCanvasInput, true);
-  window.addEventListener(
-    "blur",
-    function () {
-      userInteractedSinceHostFocus = false;
+  document.addEventListener(
+    "focusin",
+    function (event) {
+      rememberUserFocusedElement(event as FocusEvent);
+      reportCanvasFocusState();
     },
     true,
   );
+  document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
+  document.addEventListener("keydown", rememberTrustedCanvasInput, true);
   document.addEventListener(
     "focusout",
-    function () {
-      window.setTimeout(reportCanvasFocusState, 0);
+    function (event) {
+      var blurred = event.target instanceof Element ? event.target : null;
+      window.setTimeout(function () {
+        if (
+          blurred &&
+          userFocusedElement &&
+          (blurred === userFocusedElement ||
+            userFocusedElement.contains(blurred))
+        ) {
+          var active = document.activeElement;
+          var visited = new Set();
+          while (active && !visited.has(active)) {
+            visited.add(active);
+            if (
+              active === userFocusedElement ||
+              userFocusedElement.contains(active)
+            ) {
+              break;
+            }
+            active = active.shadowRoot?.activeElement || null;
+          }
+          if (!active || !visited.has(active)) userFocusedElement = null;
+        }
+        reportCanvasFocusState();
+      }, 0);
     },
     true,
   );
@@ -23782,7 +23893,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (e.data.type === "agent-native:canvas-focus-state-probe") {
-      reportCanvasFocusState();
+      reportCanvasFocusState(
+        e.data.reason === "route-change" ? "route-change" : undefined,
+      );
+      return;
+    }
+    if (e.data.type === "agent-native:canvas-focus-claimed") {
+      userFocusedElement = null;
+      trustedFocusIntent = null;
       return;
     }
     if (e.data.type === "resume-text-edit") {
@@ -23865,6 +23983,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (e.data.type === "set-read-only") {
       var nextReadOnly = !!e.data.readOnly;
+      if (nextReadOnly !== readOnly) {
+        userFocusedElement = null;
+        trustedFocusIntent = null;
+      }
       readOnly = nextReadOnly;
       textEditingEnabled =
         !readOnly && !interactionMode && textEditingEnabledFlag;
@@ -23888,7 +24010,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.data.type === "set-interaction-mode") {
       var nextInteractionMode = e.data.interact === true;
       if (nextInteractionMode !== interactionMode) {
-        userInteractedSinceHostFocus = false;
+        userFocusedElement = null;
+        trustedFocusIntent = null;
       }
       interactionMode = nextInteractionMode;
       if (interactionMode) {

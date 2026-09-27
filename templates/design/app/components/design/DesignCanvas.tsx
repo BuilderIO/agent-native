@@ -334,6 +334,31 @@ function isAllowedFusionOrigin(
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
 
+const tabFocusedLiveFrames = new WeakSet<HTMLIFrameElement>();
+const tabFocusNavigationPendingDocuments = new WeakSet<Document>();
+
+function markTabFocusedLiveFrame(document: Document) {
+  const focusedFrame = document.activeElement;
+  if (
+    !(focusedFrame instanceof HTMLIFrameElement) ||
+    !focusedFrame.matches("iframe[data-design-preview-iframe]")
+  ) {
+    return;
+  }
+  document
+    .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+    .forEach((frame) => {
+      if (frame !== focusedFrame) tabFocusedLiveFrames.delete(frame);
+    });
+  tabFocusedLiveFrames.add(focusedFrame);
+}
+
+function clearTabFocusedLiveFrames(document: Document) {
+  document
+    .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+    .forEach((frame) => tabFocusedLiveFrames.delete(frame));
+}
+
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-motion-preview-bridge>
 ${motionPreviewBridgeScript}
@@ -505,6 +530,7 @@ interface DesignCanvasProps {
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
   previewUrlOverride?: string;
+  previewUrlSourceKey?: string;
   connectionId?: string;
   nativePreviewActive?: boolean;
   sharedSnapshotPollActive?: boolean;
@@ -1221,6 +1247,7 @@ export function DesignCanvas({
   sourceType,
   bridgeUrl,
   previewUrlOverride,
+  previewUrlSourceKey,
   connectionId,
   nativePreviewActive = true,
   sharedSnapshotPollActive = true,
@@ -1379,8 +1406,6 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const tabFocusNavigationPendingRef = useRef(false);
-  const tabFocusedLiveFrameRef = useRef(false);
   const focusScrollSurfaceRef = useRef<
     | ((fromIframeLoad?: boolean, iframeReportedFocusSafe?: boolean) => void)
     | null
@@ -2182,13 +2207,38 @@ export function DesignCanvas({
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
     bridgeRegistrationFailedForCurrentKey;
-  const externalPreviewUrl =
+  const resolvedExternalPreviewUrl =
     liveEditExternalPreviewUrl ??
     (usesLiveEditInjectedBridge
       ? bridgeRegistrationFailedForCurrentKey
         ? rawExternalPreviewUrl
         : null
       : rawExternalPreviewUrl);
+  const iframePreviewUrlSourceKey = JSON.stringify([
+    previewUrlSourceKey ??
+      previewUrlOverride ??
+      contentKey ??
+      screenId ??
+      "preview",
+    sourceType,
+    bridgeUrl,
+    effectivePreviewToken,
+    usesLiveEditInjectedBridge ? liveEditBridgeKey : null,
+    bridgeRegistrationFailedForCurrentKey,
+  ]);
+  const iframePreviewUrlRef = useRef({
+    sourceKey: iframePreviewUrlSourceKey,
+    url: resolvedExternalPreviewUrl,
+  });
+  if (iframePreviewUrlRef.current.sourceKey !== iframePreviewUrlSourceKey) {
+    iframePreviewUrlRef.current = {
+      sourceKey: iframePreviewUrlSourceKey,
+      url: resolvedExternalPreviewUrl,
+    };
+  } else if (!iframePreviewUrlRef.current.url && resolvedExternalPreviewUrl) {
+    iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
+  }
+  const externalPreviewUrl = iframePreviewUrlRef.current.url;
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -3195,8 +3245,8 @@ export function DesignCanvas({
       : `srcdoc:${contentKey ?? ""}:${srcdocHash}`;
   const iframeDocumentIdentityRef = useRef(iframeDocumentIdentity);
   iframeDocumentIdentityRef.current = iframeDocumentIdentity;
-  const externalPreviewUrlRef = useRef(externalPreviewUrl);
-  externalPreviewUrlRef.current = externalPreviewUrl;
+  const externalPreviewUrlRef = useRef(resolvedExternalPreviewUrl);
+  externalPreviewUrlRef.current = resolvedExternalPreviewUrl;
   const iframeElementIdentity = externalPreviewUrl
     ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
@@ -3341,6 +3391,27 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "agent-native:canvas-tab-navigation" &&
+        sourceType === "localhost" &&
+        !readOnly &&
+        editMode &&
+        !interactMode
+      ) {
+        tabFocusNavigationPendingDocuments.add(document);
+        requestAnimationFrame(() => {
+          const focusedElement = document.activeElement;
+          if (
+            focusedElement instanceof HTMLIFrameElement &&
+            focusedElement.matches("iframe[data-design-preview-iframe]")
+          ) {
+            markTabFocusedLiveFrame(document);
+          }
+          tabFocusNavigationPendingDocuments.delete(document);
+        });
+        return;
+      }
       let readyDocumentIdentity = iframeDocumentIdentityRef.current;
       if (
         trustedCurrentFrame &&
@@ -3381,8 +3452,9 @@ export function DesignCanvas({
             readyDocumentIdentity = routeIdentity.identity;
           }
           if (liveEditDocumentIdRef.current !== null) {
-            tabFocusNavigationPendingRef.current = false;
-            tabFocusedLiveFrameRef.current = false;
+            if (iframeRef.current) {
+              tabFocusedLiveFrames.delete(iframeRef.current);
+            }
             bridgeReadyRef.current = false;
             editorChromeReadyRef.current = false;
             bootReadyRef.current = false;
@@ -3417,7 +3489,7 @@ export function DesignCanvas({
         !readOnly &&
         editMode &&
         !interactMode &&
-        !tabFocusedLiveFrameRef.current &&
+        !tabFocusNavigationPendingDocuments.has(document) &&
         ((e.data.type === "agent-native:editor-chrome-ready" &&
           e.data.focusSafe === true) ||
           (e.data.type === "agent-native:canvas-focus-state" &&
@@ -3536,10 +3608,24 @@ export function DesignCanvas({
             liveRoutePathRef.current !== null &&
             liveRoutePathRef.current !== e.data.routePath;
           liveRoutePathRef.current = e.data.routePath;
-          if (routeChanged && document.activeElement === iframeRef.current) {
-            tabFocusNavigationPendingRef.current = false;
-            tabFocusedLiveFrameRef.current = false;
-            focusScrollSurfaceRef.current?.(false, true);
+          if (
+            routeChanged &&
+            iframeRef.current &&
+            document.activeElement === iframeRef.current
+          ) {
+            tabFocusedLiveFrames.delete(iframeRef.current);
+            window.requestAnimationFrame(() => {
+              const currentIframe = iframeRef.current;
+              if (currentIframe?.contentWindow === iframeWindow) {
+                iframeWindow?.postMessage(
+                  {
+                    type: "agent-native:canvas-focus-state-probe",
+                    reason: "route-change",
+                  },
+                  "*",
+                );
+              }
+            });
           }
           onRoutePathChange?.(screenId, e.data.routePath);
           requestSharedSnapshotAfterEdit();
@@ -6487,18 +6573,29 @@ export function DesignCanvas({
         interactMode
       )
         return;
+      const focusedElement = document.activeElement;
+      const focusedLiveFrame =
+        focusedElement instanceof HTMLIFrameElement &&
+        focusedElement.matches("iframe[data-design-preview-iframe]");
       if (
-        tabFocusedLiveFrameRef.current &&
-        document.activeElement === iframeRef.current
+        iframeRef.current &&
+        focusedElement === iframeRef.current &&
+        tabFocusedLiveFrames.has(iframeRef.current)
       )
         return;
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        focusedLiveFrame &&
+        focusedElement.closest('[data-screen-interact-mode="true"]')
+      ) {
+        return;
+      }
       if (
         textEditingStateRef.current.active ||
         document.activeElement?.closest("[data-radix-popper-content-wrapper]")
       ) {
         return;
       }
-      const focusedElement = document.activeElement;
       if (
         (iframeReportedFocusSafe || fromIframeLoad) &&
         focusedElement !== document.body &&
@@ -6530,7 +6627,22 @@ export function DesignCanvas({
         }
       }
       if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        focusedElement === iframeRef.current &&
+        (iframeReportedFocusSafe || fromIframeLoad)
+      ) {
+        focusedElement.blur();
+      }
       surface.focus({ preventScroll: true });
+      const focusedFrame =
+        focusedElement instanceof HTMLIFrameElement
+          ? focusedElement
+          : iframeRef.current;
+      focusedFrame?.contentWindow?.postMessage(
+        { type: "agent-native:canvas-focus-claimed" },
+        "*",
+      );
     },
     [editMode, interactMode],
   );
@@ -6539,7 +6651,7 @@ export function DesignCanvas({
       return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isTrusted && event.key === "Tab") {
-        tabFocusNavigationPendingRef.current = true;
+        tabFocusNavigationPendingDocuments.add(document);
         requestAnimationFrame(finishTabNavigation);
       }
     };
@@ -6547,19 +6659,27 @@ export function DesignCanvas({
       if (event.key === "Tab") finishTabNavigation();
     };
     const finishTabNavigation = () => {
-      if (!tabFocusNavigationPendingRef.current) return;
-      if (document.activeElement === iframeRef.current) {
-        tabFocusedLiveFrameRef.current = true;
+      if (!tabFocusNavigationPendingDocuments.has(document)) return;
+      const focusedElement = document.activeElement;
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        focusedElement.matches("iframe[data-design-preview-iframe]")
+      ) {
+        markTabFocusedLiveFrame(document);
       }
-      tabFocusNavigationPendingRef.current = false;
+      tabFocusNavigationPendingDocuments.delete(document);
     };
     const handleFocusIn = () => {
-      if (document.activeElement === iframeRef.current) {
-        if (tabFocusNavigationPendingRef.current) {
-          tabFocusedLiveFrameRef.current = true;
+      const focusedElement = document.activeElement;
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        focusedElement.matches("iframe[data-design-preview-iframe]")
+      ) {
+        if (tabFocusNavigationPendingDocuments.has(document)) {
+          markTabFocusedLiveFrame(document);
         }
       } else {
-        tabFocusedLiveFrameRef.current = false;
+        clearTabFocusedLiveFrames(document);
       }
     };
     document.addEventListener("keydown", handleKeyDown, true);
@@ -6569,14 +6689,20 @@ export function DesignCanvas({
       document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keyup", handleKeyUp, true);
       document.removeEventListener("focusin", handleFocusIn, true);
-      tabFocusNavigationPendingRef.current = false;
-      tabFocusedLiveFrameRef.current = false;
     };
   }, [editMode, interactMode, readOnly, sourceType]);
   focusScrollSurfaceRef.current = focusScrollSurface;
   const handleCanvasPointerEnter = useCallback(
-    () => focusScrollSurface(),
-    [focusScrollSurface],
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.nativeEvent.isTrusted && editMode && !interactMode) {
+        tabFocusNavigationPendingDocuments.delete(document);
+        clearTabFocusedLiveFrames(document);
+        focusScrollSurface(false, true);
+        return;
+      }
+      focusScrollSurface();
+    },
+    [editMode, focusScrollSurface, interactMode],
   );
   useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
@@ -6818,8 +6944,7 @@ export function DesignCanvas({
             );
           }}
           onLoad={(event) => {
-            tabFocusNavigationPendingRef.current = false;
-            tabFocusedLiveFrameRef.current = false;
+            tabFocusedLiveFrames.delete(event.currentTarget);
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
             focusScrollSurface(true);
@@ -6899,6 +7024,7 @@ export function DesignCanvas({
           })}
           allow={getDesignCanvasIframeAllow(runtimeVerificationUrl)}
           data-runtime-verification-iframe
+          data-scaled-iframe-paint-ignore
           aria-hidden="true"
           tabIndex={-1}
           className="pointer-events-none fixed border-0 opacity-0"

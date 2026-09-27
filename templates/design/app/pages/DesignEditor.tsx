@@ -11053,7 +11053,13 @@ function DesignEditor() {
   }, []);
   const spaceForwardArmedRef = useRef(false);
   useEffect(() => {
-    if (embedded || (pendingQuestions && pendingQuestions.length > 0)) return;
+    if (
+      shellMode ||
+      (embedded && !embedChromeRequested) ||
+      (pendingQuestions && pendingQuestions.length > 0)
+    ) {
+      return;
+    }
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key !== " " || event.code !== "Space") return;
@@ -11135,7 +11141,13 @@ function DesignEditor() {
       });
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [embedded, pendingQuestions, broadcastSpaceHeldToIframes]);
+  }, [
+    broadcastSpaceHeldToIframes,
+    embedChromeRequested,
+    embedded,
+    pendingQuestions,
+    shellMode,
+  ]);
 
   const shiftKeyHeldRef = useRef(false);
   useEffect(() => {
@@ -24140,6 +24152,7 @@ function DesignEditor() {
               ? previewUrlAtLiveRoute(screenPreviewUrl, currentLiveRoutePath)
               : undefined
           }
+          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? screenContent}`}
           previewFrameId={
             breakpointWidthPx === undefined
               ? undefined
@@ -27570,6 +27583,7 @@ function DesignEditor() {
                               )
                             : undefined
                         }
+                        previewUrlSourceKey={`${activeFile.id}:${activeScreenPreviewUrl ?? ""}`}
                         bridgeUrl={activeScreenBridgeUrl}
                         connectionId={
                           activeScreenSnapshotOnly
