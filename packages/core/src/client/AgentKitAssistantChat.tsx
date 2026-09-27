@@ -1128,6 +1128,7 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   const hasRenderedMessages =
     thread.messages.length > 0 ||
+    props.threadContentSlot != null ||
     getAgentKitThreadHandoffMessages(
       thread,
       props.threadRestore.status === "error" ? null : props.handoffSnapshot,

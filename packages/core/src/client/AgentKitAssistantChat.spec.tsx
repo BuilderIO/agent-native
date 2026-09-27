@@ -647,6 +647,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(false);
   });
 
+  it("uses custom conversation content in the empty-state layout", async () => {
+    await mount(
+      baseProps({
+        centerComposerWhenEmpty: true,
+        homeIntroSlot: <h1>What should we do?</h1>,
+        threadContentSlot: <div>Existing conversation content</div>,
+      }),
+    );
+
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
+    expect(container.textContent).toContain("Existing conversation content");
+    expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+  });
+
   it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {
     await mount(baseProps({ thinkingDisplay: "hidden" }));
 
