@@ -1302,8 +1302,12 @@ function ReviewTab({
       review.summary?.outcome,
       review.threadTitle,
       review.authorName,
+      review.authorEmail,
       review.model,
       ...review.artifacts.map((artifact) => artifact.title),
+      ...review.feedback
+        .filter((entry) => entry.feedbackType === "text")
+        .map((entry) => entry.value),
     ]
       .filter(Boolean)
       .join(" ")
@@ -2439,7 +2443,6 @@ function ReviewTab({
                                   status,
                                 )
                               }
-                              compact
                               refresh={Boolean(selectedSummary)}
                             />
                             <div

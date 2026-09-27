@@ -156,6 +156,21 @@ describe("ObservabilityReviewSummaryButton", () => {
     await act(async () => resolveSubmit({ delivered: true }));
   });
 
+  it("labels the detail regenerate action and explains it in a tooltip", async () => {
+    await act(async () => {
+      root.render(
+        <SummaryButtonHarness runId="run-42" orgId="org-a" refresh />,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button?.textContent).toContain("observability.regenerateSummary");
+    act(() => button?.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      "observability.regenerateSummaryHelp",
+    );
+  });
+
   it("keeps request feedback scoped when the selected run changes", async () => {
     const resolveByRun = new Map<
       string,

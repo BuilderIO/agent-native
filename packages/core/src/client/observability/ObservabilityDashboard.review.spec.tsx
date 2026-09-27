@@ -1003,6 +1003,32 @@ describe("ObservabilityDashboard human review", () => {
         window.HTMLInputElement.prototype,
         "value",
       )?.set;
+      setter?.call(search, "alice@example.test");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-1"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Keep the chart inline");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-1"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
       setter?.call(search, "");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -1078,7 +1104,16 @@ describe("ObservabilityDashboard human review", () => {
       "[data-review-chevron]",
     )!;
     await act(async () => chevron.click());
-    expect(reviewDetail("run-no-preview")).not.toBeNull();
+    const detail = reviewDetail("run-no-preview");
+    expect(detail).not.toBeNull();
+    expect(
+      [...detail!.querySelectorAll<HTMLButtonElement>("button")].every(
+        (button) =>
+          button.title.trim().length > 0 ||
+          Boolean(button.getAttribute("aria-label")?.trim()) ||
+          Boolean(button.textContent?.trim()),
+      ),
+    ).toBe(true);
     await act(async () =>
       secondRow
         .querySelector<HTMLButtonElement>("[data-review-chevron]")
@@ -2151,6 +2186,7 @@ describe("ObservabilityDashboard human review", () => {
       '[aria-label="Summarize with agent"]',
     );
     expect(summarizeButton).toBeTruthy();
+    expect(summarizeButton?.textContent).toContain("Summarize with agent");
     await act(async () => summarizeButton?.click());
     expect(mockSendToAgentChat).toHaveBeenCalledWith(
       expect.objectContaining({
