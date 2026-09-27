@@ -231,6 +231,24 @@ describe("AiFilterSection", () => {
     expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
   });
 
+  it("keeps AI tags and Important settings anchors available when empty", () => {
+    renderSection();
+
+    expect(document.getElementById("tags")).not.toBeNull();
+    expect(document.getElementById("importance-rules")).not.toBeNull();
+  });
+
+  it("disables every add-rule entry point until Jev is connected", () => {
+    mocks.jevConfigured = false;
+    renderSection();
+
+    expect(
+      screen
+        .getAllByRole("button", { name: "mail.aiFilter.newRule" })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
+  });
+
   it("groups important, tag, filtered, and auto-archive rules in one editor", () => {
     mocks.rules = [
       importantRule(),

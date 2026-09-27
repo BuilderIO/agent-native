@@ -56,7 +56,7 @@ let location = "";
 
 function LocationProbe() {
   const current = useLocation();
-  location = `${current.pathname}${current.search}`;
+  location = `${current.pathname}${current.search}${current.hash}`;
   return null;
 }
 
@@ -158,6 +158,13 @@ describe("Mail Settings with the redesign off", () => {
 
     expect(location).toBe("/settings");
     expect(tabsProps.current?.value).toBe("automations");
+  });
+
+  it("preserves an AI triage group anchor when redirecting to today's tabs", async () => {
+    await renderAt("/settings/app/ai-filter#tags");
+
+    expect(location).toBe("/settings#tags");
+    expect(tabsProps.current?.value).toBe("ai-filter");
   });
 
   it("opens the Organization tab for an old team link", async () => {

@@ -976,9 +976,26 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
           <div className="space-y-5">
             {RULE_MODES.map((mode) => {
               const modeRules = rulesByMode[mode];
-              if (mode !== "filtered" && modeRules.length === 0) return null;
+              if (
+                mode !== "filtered" &&
+                mode !== "important" &&
+                mode !== "tag" &&
+                modeRules.length === 0
+              ) {
+                return null;
+              }
+              const anchorId =
+                mode === "tag"
+                  ? "tags"
+                  : mode === "important"
+                    ? "importance-rules"
+                    : undefined;
               return (
-                <section key={mode} className="space-y-2">
+                <section
+                  key={mode}
+                  id={anchorId}
+                  className="scroll-mt-6 space-y-2"
+                >
                   <div className="flex items-center gap-1">
                     <h4 className="text-sm font-semibold text-foreground">
                       {modeLabel(mode)}
@@ -991,6 +1008,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                         variant="ghost"
                         size="sm"
                         className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                        disabled={!jevConfigured}
                         onClick={() => {
                           setNewRuleMode("filtered");
                           setNewRuleOpen(true);
@@ -1000,6 +1018,22 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                         {t("mail.aiFilter.newRule")}
                       </Button>
                     )}
+                    {(mode === "important" || mode === "tag") &&
+                      modeRules.length === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                          disabled={!jevConfigured}
+                          onClick={() => {
+                            setNewRuleMode(mode);
+                            setNewRuleOpen(true);
+                          }}
+                        >
+                          <IconPlus className="size-4" />
+                          {t("mail.aiFilter.newRule")}
+                        </Button>
+                      )}
                     {modeRules.map((rule) => {
                       const status = recentBackfills.data?.find((run) =>
                         run.perRule.some(
