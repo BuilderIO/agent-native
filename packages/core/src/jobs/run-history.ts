@@ -416,66 +416,84 @@ export async function finishAutomationRun(
         appId === null
           ? "AND app_id IS NULL"
           : "AND (app_id = ? OR app_id IS NULL)";
-      const priorRuns = await getDbExec().execute({
-        sql: `SELECT status, notification_email, failure_alerted FROM ${TABLE}
-              WHERE owner = ? AND automation = ? AND path = ?
-                ${appFilter}
-                AND id <> ? AND status IN ('success', 'error', 'interrupted')
-              ORDER BY started_at DESC LIMIT 1`,
-        args: [
-          stringifyValue(row.owner),
-          stringifyValue(row.automation),
-          stringifyValue(row.path),
-          ...(appId === null ? [] : [appId]),
-          id,
-        ],
-      });
-      const priorRun = priorRuns.rows?.[0] as
-        | Record<string, unknown>
-        | undefined;
-      const priorStatus = priorRun?.status;
-      const priorNotificationEmail = stringifyValue(
-        priorRun?.notification_email,
-      )
-        .trim()
-        .toLowerCase();
-      const recipient = stringifyValue(row.notification_email)
-        .trim()
-        .toLowerCase();
-      if (
-        (priorStatus !== "error" && priorStatus !== "interrupted") ||
-        priorNotificationEmail !== recipient ||
-        Number(priorRun?.failure_alerted ?? 0) === 0
-      ) {
-        const claim = await getDbExec().execute({
-          sql: `UPDATE ${TABLE} SET failure_alerted = 1 WHERE id = ? AND failure_alerted = 0`,
-          args: [id],
+      const db = getDbExec();
+      const shouldSend = async (tx = db) => {
+        await tx.execute({
+          sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+          args: [
+            `agent-native:automation-failure-alert:${JSON.stringify([
+              stringifyValue(row.owner),
+              stringifyValue(row.automation),
+              stringifyValue(row.path),
+            ])}`,
+          ],
         });
-        if (Number(claim.rowsAffected ?? 0) > 0) {
-          try {
-            const delivered = await sendAutomationFailureNotification({
-              email: stringifyValue(row.notification_email),
-              appId: row.app_id == null ? null : stringifyValue(row.app_id),
-              automation: stringifyValue(row.automation),
-              path: stringifyValue(row.path),
-              orgId: row.org_id == null ? null : stringifyValue(row.org_id),
-              status,
-              error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-              errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
-            });
-            if (!delivered) {
-              await getDbExec().execute({
-                sql: `UPDATE ${TABLE} SET failure_alerted = 0 WHERE id = ? AND failure_alerted = 1`,
-                args: [id],
-              });
-            }
-          } catch (sendError) {
+        const priorRuns = await tx.execute({
+          sql: `SELECT status, notification_email, failure_alerted FROM ${TABLE}
+                WHERE owner = ? AND automation = ? AND path = ?
+                  ${appFilter}
+                  AND id <> ? AND status IN ('success', 'error', 'interrupted')
+                ORDER BY started_at DESC LIMIT 1`,
+          args: [
+            stringifyValue(row.owner),
+            stringifyValue(row.automation),
+            stringifyValue(row.path),
+            ...(appId === null ? [] : [appId]),
+            id,
+          ],
+        });
+        const priorRun = priorRuns.rows?.[0] as
+          | Record<string, unknown>
+          | undefined;
+        const priorStatus = priorRun?.status;
+        const priorNotificationEmail = stringifyValue(
+          priorRun?.notification_email,
+        )
+          .trim()
+          .toLowerCase();
+        const recipient = stringifyValue(row.notification_email)
+          .trim()
+          .toLowerCase();
+        if (
+          (priorStatus !== "error" && priorStatus !== "interrupted") ||
+          priorNotificationEmail !== recipient ||
+          Number(priorRun?.failure_alerted ?? 0) === 0
+        ) {
+          const claim = await tx.execute({
+            sql: `UPDATE ${TABLE} SET failure_alerted = 1 WHERE id = ? AND failure_alerted = 0`,
+            args: [id],
+          });
+          return Number(claim.rowsAffected ?? 0) > 0;
+        }
+        return false;
+      };
+      const claimed = db.transaction
+        ? await db.transaction(shouldSend)
+        : await shouldSend();
+      if (claimed) {
+        try {
+          const delivered = await sendAutomationFailureNotification({
+            email: stringifyValue(row.notification_email),
+            appId: row.app_id == null ? null : stringifyValue(row.app_id),
+            automation: stringifyValue(row.automation),
+            path: stringifyValue(row.path),
+            orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+            status,
+            error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+            errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+          });
+          if (!delivered) {
             await getDbExec().execute({
               sql: `UPDATE ${TABLE} SET failure_alerted = 0 WHERE id = ? AND failure_alerted = 1`,
               args: [id],
             });
-            throw sendError;
           }
+        } catch (sendError) {
+          await getDbExec().execute({
+            sql: `UPDATE ${TABLE} SET failure_alerted = 0 WHERE id = ? AND failure_alerted = 1`,
+            args: [id],
+          });
+          throw sendError;
         }
       }
     } catch (notificationError) {

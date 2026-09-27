@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DbExec, DbExecStatement } from "../db/client.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
+const transactionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock }),
+  getDbExec: () => ({ execute: executeMock, transaction: transactionMock }),
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -55,6 +58,9 @@ describe("automation run history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    transactionMock.mockImplementation(
+      (run: (tx: DbExec) => Promise<unknown>) => run({ execute: executeMock }),
+    );
     sendAutomationFailureNotificationMock.mockResolvedValue(true);
   });
 
@@ -220,6 +226,7 @@ describe("automation run history", () => {
       })
       .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun(
@@ -238,7 +245,16 @@ describe("automation run history", () => {
         errorCode: "mcp_missing",
       }),
     );
-    const priorRunsQuery = executeMock.mock.calls[2]?.[0] as {
+    const lockQuery = executeMock.mock.calls[2]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(lockQuery.sql).toContain("pg_advisory_xact_lock");
+    expect(lockQuery.args[0]).toContain(
+      "agent-native:automation-failure-alert",
+    );
+
+    const priorRunsQuery = executeMock.mock.calls[3]?.[0] as {
       args: unknown[];
       sql: string;
     };
@@ -259,11 +275,12 @@ describe("automation run history", () => {
       })
       .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun("run-1", "error", "MCP tool unavailable");
 
-    const priorRunsQuery = executeMock.mock.calls[2]?.[0] as {
+    const priorRunsQuery = executeMock.mock.calls[3]?.[0] as {
       args: unknown[];
       sql: string;
     };
@@ -289,6 +306,7 @@ describe("automation run history", () => {
         ],
       })
       .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -302,6 +320,102 @@ describe("automation run history", () => {
     await finishAutomationRun("run-1", "error", "Still unavailable");
 
     expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("serializes failure alerts for overlapping runs", async () => {
+    const alerted = new Set<string>();
+    const lockTails = new Map<string, Promise<void>>();
+    const lockKeys: string[] = [];
+    executeMock.mockImplementation(
+      async (
+        statement: DbExecStatement,
+      ): Promise<{ rows: unknown[]; rowsAffected: number }> => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        if (sql.startsWith("SELECT owner")) {
+          const runId = String(args[0]);
+          return {
+            rows: [
+              row({
+                id: runId,
+                app_id: "calendar",
+                notification_email: "alice@example.com",
+                started_at: runId === "run-1" ? 1 : 2,
+              }),
+            ],
+            rowsAffected: 1,
+          };
+        }
+        if (sql.includes("SET status =")) {
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.startsWith("SELECT status, notification_email")) {
+          const runId = String(args.at(-1));
+          const otherRunId = runId === "run-1" ? "run-2" : "run-1";
+          return {
+            rows: [
+              {
+                status: "error",
+                notification_email: "alice@example.com",
+                failure_alerted: alerted.has(otherRunId) ? 1 : 0,
+              },
+            ],
+            rowsAffected: 1,
+          };
+        }
+        if (sql.includes("SET failure_alerted = 1")) {
+          const runId = String(args[0]);
+          if (alerted.has(runId)) return { rows: [], rowsAffected: 0 };
+          alerted.add(runId);
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+    transactionMock.mockImplementation(
+      async (run: (tx: DbExec) => Promise<unknown>) => {
+        const releases: Array<() => void> = [];
+        const tx: DbExec = {
+          execute: async (statement) => {
+            const sql =
+              typeof statement === "string" ? statement : statement.sql;
+            if (sql.includes("pg_advisory_xact_lock")) {
+              const args =
+                typeof statement === "string" ? [] : (statement.args ?? []);
+              const key = String(args[0]);
+              lockKeys.push(key);
+              const previous = lockTails.get(key) ?? Promise.resolve();
+              let release = () => {};
+              const held = new Promise<void>((resolve) => {
+                release = resolve;
+              });
+              lockTails.set(
+                key,
+                previous.then(() => held),
+              );
+              await previous;
+              releases.push(release);
+            }
+            return executeMock(statement);
+          },
+        };
+        try {
+          return await run(tx);
+        } finally {
+          for (const release of releases.reverse()) release();
+        }
+      },
+    );
+
+    await Promise.all([
+      finishAutomationRun("run-1", "error", "MCP tool unavailable"),
+      finishAutomationRun("run-2", "error", "MCP tool unavailable"),
+    ]);
+
+    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledOnce();
+    expect(lockKeys).toHaveLength(2);
+    expect(lockKeys[0]).toBe(lockKeys[1]);
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {
