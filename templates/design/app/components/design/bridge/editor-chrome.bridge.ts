@@ -158,10 +158,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function rememberUserFocusedElement(event: FocusEvent): void {
     var intent = trustedFocusIntent;
     var target = getCanvasFocusTarget(event);
+    var navigationTargetMatches =
+      intent?.kind !== "navigation" ||
+      target === intent.target ||
+      (!!intent.target?.parentElement &&
+        intent.target.parentElement === target?.parentElement);
     if (
       !intent ||
       Date.now() > intent.expiresAt ||
       !target ||
+      !navigationTargetMatches ||
       (intent.kind !== "tab" &&
         intent.kind !== "navigation" &&
         (intent.target === null ||

@@ -292,8 +292,15 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps arrow-key focus moves to sibling controls", () => {
-    const current = { contains: () => false } as unknown as Element;
-    const sibling = { contains: () => false } as unknown as Element;
+    const group = {} as Element;
+    const current = {
+      contains: () => false,
+      parentElement: group,
+    } as unknown as Element;
+    const sibling = {
+      contains: () => false,
+      parentElement: group,
+    } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
       target: current,
@@ -307,8 +314,15 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps navigation intent until app-scheduled roving focus runs", () => {
-    const current = { contains: () => false } as unknown as Element;
-    const sibling = { contains: () => false } as unknown as Element;
+    const group = {} as Element;
+    const current = {
+      contains: () => false,
+      parentElement: group,
+    } as unknown as Element;
+    const sibling = {
+      contains: () => false,
+      parentElement: group,
+    } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
       target: current,
@@ -330,6 +344,41 @@ describe("editor-chrome bridge — focus ownership", () => {
 
     expect(focusTracker.pendingTimers()).toBe(0);
     expect(focusTracker.intent()).toBeNull();
+  });
+
+  it("does not trust unrelated focus while deferred navigation is pending", () => {
+    const group = {} as Element;
+    const current = {
+      contains: () => false,
+      parentElement: group,
+    } as unknown as Element;
+    const unrelated = {
+      contains: () => false,
+      parentElement: {} as Element,
+    } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: current,
+      kind: "navigation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.clearAfterNavigation();
+    focusTracker.queueTimer(() =>
+      focusTracker.remember({
+        target: unrelated,
+        composedPath: () => [unrelated],
+      }),
+    );
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBeNull();
+    expect(focusTracker.intent()).toBeNull();
+
+    focusTracker.runTimer();
+
+    expect(focusTracker.pendingTimers()).toBe(0);
   });
 
   it("keeps focus on the control the user activated from the keyboard", () => {
