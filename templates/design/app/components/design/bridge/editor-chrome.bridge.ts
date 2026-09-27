@@ -15938,7 +15938,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       receivingContainer &&
       isContainerDropTarget(exitedContainer) &&
       !isAutoLayoutElement(receivingContainer) &&
-      target.anchor?.parentElement !== document.body &&
+      !unnestPromotedBoardRootTarget &&
       (targetContainer === receivingContainer ||
         target?.anchor === receivingContainer) &&
       (pointHit === receivingContainer ||
