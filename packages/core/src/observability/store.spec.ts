@@ -1083,6 +1083,22 @@ describe("observability store: per-user isolation", () => {
       ]);
     });
 
+    it("retains the full bounded set of grouped feedback thread scopes", async () => {
+      await getFeedback({
+        threadScopes: Array.from({ length: 600 }, (_, index) => ({
+          orgId: "org-a",
+          threadId: `thread-${index}`,
+        })),
+      });
+
+      const call = lastSelect();
+      expect(
+        call.sql.match(/\(org_id = \? AND thread_id = \?\)/g),
+      ).toHaveLength(600);
+      expect(call.args).toHaveLength(1201);
+      expect(call.args).toContain("thread-599");
+    });
+
     it("defaults review rollups to six feedback rows per thread and caps overrides", async () => {
       await getFeedback({
         threadIds: ["thread-a", "thread-b"],

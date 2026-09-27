@@ -121,6 +121,7 @@ const USER_SCOPED_TABLES = [
 ] as const;
 
 const MAX_REVIEW_THREAD_BYTES = 1_000_000;
+const MAX_REVIEW_FEEDBACK_THREAD_SCOPES = 600;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
 
@@ -1169,7 +1170,7 @@ export async function getFeedback(opts: {
               scope,
             ]),
         ).values(),
-      ].slice(0, 100)
+      ].slice(0, MAX_REVIEW_FEEDBACK_THREAD_SCOPES)
     : undefined;
   const runScopes = opts.runScopes
     ? [
