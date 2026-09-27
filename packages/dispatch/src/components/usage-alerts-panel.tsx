@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconBell, IconMail, IconPencil, IconX } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -110,6 +111,8 @@ function AlertEditor({
   onCancel: () => void;
   isPending: boolean;
 }) {
+  const t = useT();
+
   return (
     <div className="grid gap-3 rounded-md border bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-5">
       <label className="space-y-1.5 text-xs text-muted-foreground">
@@ -151,7 +154,7 @@ function AlertEditor({
         </Select>
       </label>
       <label className="space-y-1.5 text-xs text-muted-foreground">
-        <span>Limit</span>
+        <span>{t("dispatch.pages.usageAlertThreshold")}</span>
         <Input
           type="number"
           min="0.01"
@@ -220,6 +223,7 @@ export function UsageAlertsPanel({
   scope,
   appOptions = [],
 }: UsageAlertsPanelProps) {
+  const t = useT();
   const query = useActionQuery("get-usage-alerts", { scope });
   const mutation = useActionMutation("manage-usage-alert", {
     onSuccess: () => {
@@ -270,8 +274,7 @@ export function UsageAlertsPanel({
             Usage alerts
           </h2>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-            Get a quiet in-app and email notice when usage crosses a daily or
-            monthly limit.
+            {t("dispatch.pages.usageAlertDescription")}
           </p>
         </div>
         <Button
@@ -304,8 +307,7 @@ export function UsageAlertsPanel({
         ) : null}
         {!query.isLoading && !query.isError && rules.length === 0 ? (
           <div className="px-4 py-6 text-sm text-muted-foreground">
-            No alerts yet. The recommended default is $100 per day across all
-            apps.
+            {t("dispatch.pages.usageAlertEmpty")}
           </div>
         ) : null}
         {rules.map((rule) => {
@@ -330,15 +332,22 @@ export function UsageAlertsPanel({
                       }
                     >
                       {rule.status === "triggered"
-                        ? "Over limit"
+                        ? t("dispatch.pages.usageAlertReached")
                         : rule.status === "dismissed"
                           ? "Dismissed"
                           : "On track"}
                     </Badge>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {formatAlertValue(rule, rule.current)} of{" "}
-                    {formatAlertValue(rule, rule.limit)} · per {rule.period}
+                    {t("dispatch.pages.usageAlertCurrentAndThreshold", {
+                      current: formatAlertValue(rule, rule.current),
+                      threshold: formatAlertValue(rule, rule.limit),
+                      period: t(
+                        rule.period === "day"
+                          ? "dispatch.pages.usageAlertDay"
+                          : "dispatch.pages.usageAlertMonth",
+                      ),
+                    })}
                     {rule.percent > 0 ? " · " + rule.percent + "%" : ""}
                   </div>
                 </div>

@@ -107,16 +107,10 @@ describe("user profile store", () => {
       name: "derived@example.com",
       onboardingRole: null,
     });
-    // No auth user for either email, so the per-email fallback (getUserProfile,
-    // which re-queries auth) must not run — the batch already answered both.
     expect(getUserSettingMock).not.toHaveBeenCalled();
   });
 
   it("retries stored names individually for matched users when the settings batch fails", async () => {
-    // A failed batch must not drop every roster user's stored override —
-    // that silently discarded a real saved name for the whole call. Each
-    // matched user gets the same per-user getUserSetting retry the
-    // pre-batching code gave every caller.
     getUserSettingsMock.mockRejectedValue(new Error("settings down"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -137,11 +131,6 @@ describe("user profile store", () => {
   });
 
   it("still resolves emails with no auth user through the per-email fallback when the settings batch fails", async () => {
-    // adapter.listUsers succeeds but only knows about alice — the roster
-    // batch itself never fails, so "missing@example.com" is a genuine
-    // stored-only email. If the settings batch that would have answered it
-    // fails too, it must still fall back per-email instead of dropping out
-    // of the result the way a batch-only degrade used to assume was safe.
     getUserSettingsMock.mockRejectedValue(new Error("settings down"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

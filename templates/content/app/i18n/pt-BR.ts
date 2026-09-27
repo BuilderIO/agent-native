@@ -829,6 +829,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionCreateFailed: "Não foi possível criar a sugestão",
     suggestionsCount: "{{count}} sugestões",
     acceptSuggestion: "Aceitar",
@@ -872,6 +879,35 @@ const rawLiterals = {
     contentSpace: "Espaço do Content",
     addChild: "Adicionar filho",
     addChildTo: "Adicionar filho a {{title}}",
+    collapseItem: "Recolher {{title}}",
+    removeFromRecent: "Remover de Recentes",
+    copyLink: "Copiar link",
+    openInNewTab: "Abrir em nova aba",
+    rename: "Renomear",
+    duplicate: "Duplicar",
+    moveTo: "Mover para",
+    moveToTrash: "Mover para a lixeira",
+    lastEditedBy: "Última edição por {{name}}",
+    lastEdited: "Última edição",
+    pageName: "Nome da página",
+    movePageTo: "Mover “{{title}}” para",
+    topLevel: "Nível superior",
+    noMatchingPages: "Nenhuma página correspondente",
+    failedRenamePage: "Não foi possível renomear a página",
+    failedDuplicatePage: "Não foi possível duplicar a página",
+    duplicatedFromLastSave:
+      "A última versão salva foi copiada; edições recentes não salvas não foram incluídas.",
+    chooseSpace: "Escolha um espaço de trabalho",
+    moveToSpaceTitle: "Mover para {{space}}?",
+    moveToSpaceWarningShared:
+      "Todos em {{space}} poderão ver “{{title}}” e suas subpáginas. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” e suas subpáginas ficarão privadas para você em {{space}}. O compartilhamento atual e o link público são removidos, e você passa a ser o proprietário.",
+    back: "Voltar",
+    movePage: "Mover",
+    movedToSpace: "“{{title}}” movida para {{space}}",
+    failedRemoveFromRecent: "Não foi possível remover de Recentes",
+    expandItem: "Expandir {{title}}",
     database: "Coleção",
     collection: "Coleção",
     databasePermanentlyDeleted: "Coleção excluída permanentemente",
@@ -937,6 +973,11 @@ const comments = {
   suggestionWith: "por",
   suggestionReplace: "Substituir",
   suggestionDetails: "Detalhes da sugestão",
+  proposalEditCount_one: "{{count}} edição",
+  proposalEditCount_many: "{{count}} edições",
+  proposalEditCount_other: "{{count}} edições",
+  acceptRemaining: "Aceitar restantes",
+  rejectRemaining: "Rejeitar restantes",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
@@ -1013,6 +1054,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
@@ -1038,6 +1086,26 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informações",
+      copyLink: "Copiar link",
+      copyForPeople: "Copiar para pessoas",
+      copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quem tem acesso",
+      sharePeople: "Pessoas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instruções para o agente",
+      openInClaude: "Abrir no Claude",
+      openInClaudeCode: "Abrir no Claude Code",
+      openInCodex: "Abrir no Codex",
+      agentCopyAccessNote:
+        "Os agentes podem usar o Content MCP com suas permissões atuais",
+      temporaryAgentLink: "Link temporário para agentes",
+      privateLinkCanView: "Somente pessoas com acesso podem visualizar",
+      publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
+      copiedAgentPrompt: "Instruções para o agente copiadas",
+      couldNotCopyAgentPrompt:
+        "Não foi possível copiar as instruções para o agente",
+      agentPrompt:
+        'Leia este documento do Content: {{documentUrl}}\n\nUse uma conexão disponível do Content MCP para {{mcpUrl}} e chame get-document com o ID "{{documentId}}". Uma página de acesso público também pode ser lida diretamente.\n\nSe for necessário acesso autenticado e o Content MCP estiver indisponível ou desconectado, peça que eu o conecte e faça a autenticação. Configuração da conexão: {{connectUrl}}. Guia oficial: {{docsUrl}}\n\nDepois que eu confirmar que a conexão está pronta, tente ler novamente usando as permissões existentes da minha conta. Se a leitura autenticada for negada, informe esse resultado.',
       closeUtilityPanel: "Fechar painel",
       exportCsv: "Exportar CSV",
       exportDatabase: "Exportar coleção",
@@ -1061,6 +1129,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Link da página copiado",
       copyPageLink: "Copiar link da página",
+      createShareableCopy: "Criar cópia compartilhável",
       couldNotCopyLink: "Não foi possível copiar o link",
       clipboardAccessUnavailable:
         "O acesso à área de transferência não está disponível neste navegador.",
@@ -1120,6 +1189,15 @@ const history = {
 };
 
 const overrides = {
+  close: "Fechar",
+  setup: { checkingProvider: "Verificando a conexão com a IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Conecte o armazenamento para enviar arquivos",
+      statusUnavailable:
+        "O status do armazenamento de arquivos está indisponível.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1277,6 +1355,13 @@ const overrides = {
     genericError: "Algo deu errado",
   },
   editor: {
+    iconPickerIcons: "Ícones",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recentes",
+    iconPickerColors: "Cores",
+    iconPickerDefault: "Padrão",
+    iconPickerUpload: "Enviar",
+    iconPickerUploading: "Enviando…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origem",

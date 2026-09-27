@@ -837,6 +837,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
     suggestionsCount: "{{count}} Vorschläge",
     acceptSuggestion: "Annehmen",
@@ -881,6 +888,35 @@ const rawLiterals = {
     contentSpace: "Content-Bereich",
     addChild: "Unterelement hinzufügen",
     addChildTo: "Unterelement zu {{title}} hinzufügen",
+    collapseItem: "{{title}} einklappen",
+    removeFromRecent: "Aus „Zuletzt besucht“ entfernen",
+    copyLink: "Link kopieren",
+    openInNewTab: "In neuem Tab öffnen",
+    rename: "Umbenennen",
+    duplicate: "Duplizieren",
+    moveTo: "Verschieben nach",
+    moveToTrash: "In den Papierkorb verschieben",
+    lastEditedBy: "Zuletzt bearbeitet von {{name}}",
+    lastEdited: "Zuletzt bearbeitet",
+    pageName: "Seitenname",
+    movePageTo: "„{{title}}“ verschieben nach",
+    topLevel: "Oberste Ebene",
+    noMatchingPages: "Keine passenden Seiten",
+    failedRenamePage: "Seite konnte nicht umbenannt werden",
+    failedDuplicatePage: "Seite konnte nicht dupliziert werden",
+    duplicatedFromLastSave:
+      "Die zuletzt gespeicherte Version wurde kopiert; neuere ungespeicherte Änderungen fehlen.",
+    chooseSpace: "Arbeitsbereich wählen",
+    moveToSpaceTitle: "Nach {{space}} verschieben?",
+    moveToSpaceWarningShared:
+      "Alle in {{space}} können „{{title}}“ und die Unterseiten sehen. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    moveToSpaceWarningPrivate:
+      "„{{title}}“ und die Unterseiten sind in {{space}} nur für dich sichtbar. Bisherige Freigaben und der öffentliche Link werden entfernt, und du wirst Eigentümer.",
+    back: "Zurück",
+    movePage: "Verschieben",
+    movedToSpace: "„{{title}}“ nach {{space}} verschoben",
+    failedRemoveFromRecent: "Entfernen aus „Zuletzt besucht“ fehlgeschlagen",
+    expandItem: "{{title}} erweitern",
     database: "Sammlung",
     collection: "Sammlung",
     databasePermanentlyDeleted: "Sammlung endgültig gelöscht",
@@ -947,6 +983,10 @@ const comments = {
   suggestionWith: "durch",
   suggestionReplace: "Ersetzen",
   suggestionDetails: "Vorschlagsdetails",
+  proposalEditCount_one: "{{count}} Änderung",
+  proposalEditCount_other: "{{count}} Änderungen",
+  acceptRemaining: "Übrige annehmen",
+  rejectRemaining: "Übrige ablehnen",
   typeFilter: "Typ",
   statusFilter: "Status",
   authorFilter: "Person",
@@ -1024,6 +1064,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
@@ -1051,6 +1098,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informationen",
+      copyLink: "Link kopieren",
+      copyForPeople: "Für Personen kopieren",
+      copyForAgents: "Für Agenten kopieren",
+      whoHasAccess: "Wer Zugriff hat",
+      sharePeople: "Personen",
+      shareAgents: "Agenten",
+      copyAgentPrompt: "Agenten-Anweisung kopieren",
+      openInClaude: "In Claude öffnen",
+      openInClaudeCode: "In Claude Code öffnen",
+      openInCodex: "In Codex öffnen",
+      agentCopyAccessNote:
+        "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
+      temporaryAgentLink: "Temporärer Agentenlink",
+      privateLinkCanView: "Nur Personen mit Zugriff können ihn ansehen",
+      publicLinkCanView: "Jede Person mit dem Link kann ihn ansehen",
+      copiedAgentPrompt: "Agenten-Anweisung kopiert",
+      couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
+      agentPrompt:
+        'Lies dieses Content-Dokument: {{documentUrl}}\n\nNutze eine verfügbare Content-MCP-Verbindung für {{mcpUrl}}, um get-document mit der ID "{{documentId}}" aufzurufen. Eine öffentlich lesbare Seite kann auch direkt gelesen werden.\n\nFalls authentifizierter Zugriff nötig ist und Content MCP nicht verfügbar oder abgemeldet ist, bitte mich, die Verbindung herzustellen und mich anzumelden. Verbindung einrichten: {{connectUrl}}. Offizielle Anleitung: {{docsUrl}}\n\nNachdem ich bestätigt habe, dass die Verbindung bereit ist, versuche erneut, das Dokument mit den bestehenden Berechtigungen meines Kontos zu lesen. Wenn der authentifizierte Lesezugriff verweigert wird, teile mir dieses Ergebnis mit.',
       closeUtilityPanel: "Bereich schließen",
       exportCsv: "Als CSV exportieren",
       exportDatabase: "Sammlung exportieren",
@@ -1074,6 +1140,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportiert",
       copiedPageLink: "Seitenlink kopiert",
       copyPageLink: "Seitenlink kopieren",
+      createShareableCopy: "Teilbare Kopie erstellen",
       couldNotCopyLink: "Link konnte nicht kopiert werden",
       clipboardAccessUnavailable:
         "Der Zugriff auf die Zwischenablage ist in diesem Browser nicht verfügbar.",
@@ -1132,6 +1199,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Schließen",
+  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+      statusUnavailable: "Der Status des Dateispeichers ist nicht verfügbar.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1289,6 +1364,13 @@ const overrides = {
     genericError: "Etwas ist schiefgelaufen",
   },
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Quellkomponente",

@@ -10,8 +10,6 @@ import {
   stableComponentNodeId,
 } from "./component-model";
 
-// The decoys from the real "Design system demo" screen. Each is an ordinary
-// styled element; none carries data-agent-native-component.
 const DECOYS = `<body>
   <button data-agent-native-component="Button" data-agent-native-prop-variant="primary">Real</button>
   <div class="card p-5">a card class</div>
@@ -39,8 +37,6 @@ describe("component identity is the annotation, not a guess at the class name", 
   it("marks the annotated element and the form control, nothing styled like them", () => {
     const marked = componentNames(DECOYS);
 
-    // The annotated <button> plus the plain <button>: form controls are
-    // components by a deliberate, consistent rule. No div is.
     expect(marked.every((name) => name.startsWith("button."))).toBe(true);
     expect(marked).toHaveLength(2);
   });

@@ -25,14 +25,18 @@ export type ReasoningEffort =
   | "xhigh"
   | "max";
 
+export type ComposerAgentEngineState =
+  | "unknown"
+  | "unavailable"
+  | "missing"
+  | "configured";
+
 export interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
   configured: boolean;
-  /** Provider-owned connection state shown at the far edge of the row. */
   statusLabel?: string;
-  /** Marks a configured local subscription so setup CTAs can stay hidden. */
   isSubscription?: boolean;
 }
 
@@ -57,11 +61,6 @@ export interface ComposerBuilderConnectFlow {
   agentNativeProvisioningEnabled?: boolean;
   accountExists?: boolean;
   start: (options?: { provisionAccount?: boolean }) => void;
-  /**
-   * Re-read status. Returns true when a read actually started, which is what
-   * lets a Connect click arriving before the first read resolves be held
-   * rather than dropped. A runtime that omits it keeps the old behavior.
-   */
   retry?: () => boolean | void;
 }
 
@@ -78,11 +77,16 @@ export interface AgentChatContextItem {
   key: string;
   title: string;
   context: string;
+  status?: "ready" | "pending" | "error";
+  statusMessage?: string;
+  removable?: boolean;
+  blocksSubmission?: boolean;
 }
 
 export interface ComposerAgentChatMessage {
   message: string;
   context?: string;
+  contextItems?: readonly Readonly<AgentChatContextItem>[];
   mode?: "plan" | "act";
   submit?: boolean;
 }
@@ -139,12 +143,12 @@ export interface ComposerRuntimeAdapters {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
       missing: boolean;
-      state: string;
+      state: ComposerAgentEngineState;
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
       options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | (string & {})>;
+    ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -231,8 +235,11 @@ const fallbackModels = {
     onModelChange: () => {},
     onEffortChange: () => {},
   }),
-  useAgentEngineConfigured: () => ({ missing: false, state: "configured" }),
-  fetchAgentEngineConfiguredState: async () => "configured",
+  useAgentEngineConfigured: () => ({
+    missing: false,
+    state: "configured" as const,
+  }),
+  fetchAgentEngineConfiguredState: async () => "configured" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,
@@ -303,8 +310,6 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
-  // Consumers key effects off this value; a fresh identity per render re-runs
-  // every one of them (app-state reads, event subscriptions) on each render.
   const value = useMemo(
     () => ({
       ...fallbackAdapters,
@@ -352,7 +357,7 @@ export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
   "agent-native:insert-composer-reference";
 
 export function formatPromptContextItems(
-  items: AgentChatContextItem[] | undefined,
+  items: readonly AgentChatContextItem[] | undefined,
 ): string {
   return (
     items

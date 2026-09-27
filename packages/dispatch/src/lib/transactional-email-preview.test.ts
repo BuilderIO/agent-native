@@ -36,9 +36,6 @@ describe("resolveEmailPreviewAssets", () => {
   });
 
   it("stays first even when a resource tag appears before a stray <head>", () => {
-    // The reported bypass: a regex that looks for the first `<head>` would
-    // insert after this `<img>`, letting it tokenize (and start loading)
-    // first. Prepending unconditionally means our meta is always first.
     const html = '<img src="https://tracker.example/pixel"><head></head>';
     const resolved = resolveEmailPreviewAssets(html);
 

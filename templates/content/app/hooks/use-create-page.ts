@@ -114,8 +114,6 @@ export function useCreatePage(opts?: {
           ["action", "get-document", { id: created.id }],
           created,
         );
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

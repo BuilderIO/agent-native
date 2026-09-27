@@ -47,6 +47,11 @@ export default {
     noEventId: "Aucun ID d'événement fourni. Ajoutez ?id=<eventId> à l'URL.",
     openCalendar: "Ouvrir le calendrier",
   },
+  eventCreation: {
+    created: "Événement créé",
+    zoomNotAdded: "L’événement a été créé, mais Zoom n’a pas pu être ajouté.",
+    openInCalendar: "Ouvrir l’événement dans Calendar",
+  },
   agentSidebar: {
     emptyState: "Demandez-moi n’importe quoi sur votre calendrier",
     suggestions: {
@@ -263,6 +268,46 @@ export default {
     weekStartLabel: "La semaine commence le",
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
+    eventRules: "Règles d’invitation",
+    eventRulesConnectJev:
+      "Connectez Jev pour appliquer les règles d’invitation",
+    eventRulesFreeBuilderOrApiKey:
+      "Gratuit avec Builder.io, ou ajoutez une clé API.",
+    eventRulesConnectBuilder: "Connecter Builder.io",
+    eventRulesAddJevApiKey: "Ajouter une clé API",
+    eventRulesTabRules: "Règles",
+    eventRulesHelpLabel: "À propos des consignes d’invitation",
+    eventRulesHelp:
+      "Écrivez des consignes pour indiquer à Jev quelles invitations accepter, refuser ou masquer.",
+    eventRuleAccept: "Accepter automatiquement",
+    eventRuleDecline: "Refuser automatiquement",
+    eventRuleHide: "Masquer automatiquement",
+    eventRulePlaceholderAccept:
+      "Exemple : accepter les échanges individuels avec mon équipe",
+    eventRulePlaceholderDecline:
+      "Exemple : refuser les démonstrations commerciales et les événements après le travail",
+    eventRulePlaceholderHide:
+      "Exemple : masquer les plages de concentration et les rappels",
+    eventRulesSave: "Enregistrer les règles",
+    eventRulesClearSaved: "Effacer les règles enregistrées",
+    eventRulesRecentActivity: "Activité récente",
+    eventRulesNoActivity: "Aucune activité pour le moment",
+    eventRuleActivityAccepted: "Accepté",
+    eventRuleActivityDeclined: "Refusé",
+    eventRuleActivityHidden: "Masqué",
+    eventRuleUndoDone: "Action annulée",
+    eventRuleUndoFailed: "Impossible d’annuler cette action",
+    eventRulesActive:
+      "Les règles s’exécutent toutes les 5 minutes sur les calendriers principaux des comptes connectés.",
+    eventRulesDisabled:
+      "Activez RUN_BACKGROUND_JOBS=1 sur un processus Calendar persistant.",
+    eventRulesDeploymentDisabled:
+      "L’automatisation planifiée est désactivée pour ce déploiement.",
+    eventRulesChecking: "Vérification de l’état de l’automatisation…",
+    eventRulesConflict:
+      "Une invitation a été ignorée car les règles d’acceptation et de refus correspondaient.",
+    eventRulesUnregistered:
+      "L’automatisation Calendar n’est pas enregistrée sur ce serveur.",
   },
   eventDialog: {
     eventUpdated: "Événement mis à jour",
@@ -506,8 +551,18 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
+    meetingDetailsPending:
+      "Votre créneau est réservé. L’hôte vous communiquera les détails de la réunion.",
     confirmed: "Confirmée",
     confirmedCount: "Confirmées ({{count}})",
+    zoomNeedsReview: "Vérifiez Zoom avant de réessayer",
+    zoomCancellationNeedsReview: "Vérifiez Zoom avant d’annuler",
+    zoomCancellationRequiresHostReview:
+      "L’organisateur doit vérifier la réunion Zoom avant de pouvoir annuler cette réservation.",
+    zoomCancelTitle: "Vérifiez Zoom avant d’annuler",
+    zoomCancelDescription:
+      "Zoom a peut-être créé une réunion pour cette réservation. Vérifiez votre compte Zoom et annulez-y la réunion si elle existe. Continuez uniquement après son annulation ou après avoir confirmé qu’elle n’existe pas.",
+    zoomCancelConfirm: "J’ai vérifié Zoom",
     confirming: "Confirmation",
     conferencing: "Conférence",
     connectZoom: "Connectez Zoom",

@@ -14,6 +14,7 @@ import {
 import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
 import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -99,6 +100,7 @@ export interface SSEEvent {
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  chatUIResult?: unknown;
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
@@ -1397,9 +1399,19 @@ function truncateToolError(error: string): string {
     : singleLine;
 }
 
-function hasCompletedCustomUi(content: ContentPart[]): boolean {
+function isConnectRequiredToolResult(result: string | undefined): boolean {
+  if (!result) return false;
+  try {
+    return normalizeConnectRequiredResult(JSON.parse(result)) !== null;
+    // coercion-ok: Non-JSON tool output cannot describe a structured connection card.
+  } catch {
+    return false;
+  }
+}
+
+function hasCompletedUserFacingToolOutput(content: ContentPart[]): boolean {
   const lastTextIndex = lastAssistantTextIndex(content);
-  let lastCompletedToolIsCustomUi = false;
+  let lastCompletedToolIsUserFacing = false;
   let hasCompletedTool = false;
   for (let index = lastTextIndex + 1; index < content.length; index++) {
     const part = content[index];
@@ -1413,10 +1425,12 @@ function hasCompletedCustomUi(content: ContentPart[]): boolean {
       continue;
     }
     hasCompletedTool = true;
-    lastCompletedToolIsCustomUi =
-      part.chatUI !== undefined || part.mcpApp !== undefined;
+    lastCompletedToolIsUserFacing =
+      part.chatUI !== undefined ||
+      part.mcpApp !== undefined ||
+      isConnectRequiredToolResult(part.result);
   }
-  return hasCompletedTool && lastCompletedToolIsCustomUi;
+  return hasCompletedTool && lastCompletedToolIsUserFacing;
 }
 
 export function appendMissingFinalResponseWarning(
@@ -1450,11 +1464,11 @@ export function appendMissingFinalResponseWarning(
       materializedToolNames.add(part.toolName);
     }
   }
-  // A rendered custom UI is a legitimate final answer only when nothing failed
-  // after it. `hasCompletedCustomUi` skips errored results, so without this a
-  // widget followed by a failing tool would silently claim the turn finished —
-  // the same verdict the run manager makes from the last tool_done.
-  if (!lastToolResultFailed && hasCompletedCustomUi(content)) return null;
+  // A rendered custom UI or connection card is a final response only when
+  // nothing failed after it.
+  if (!lastToolResultFailed && hasCompletedUserFacingToolOutput(content)) {
+    return null;
+  }
   if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
     return null;
   }

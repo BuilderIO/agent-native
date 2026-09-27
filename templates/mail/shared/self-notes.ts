@@ -20,11 +20,6 @@ function isConnectedAddress(
   return !!email && connectedEmails.has(email);
 }
 
-/**
- * A note-to-self thread starts as a message from the user to one of their own
- * connected accounts, and every known participant in the thread is one of the
- * user's connected accounts.
- */
 export function isSelfAddressedThread(
   messages: readonly EmailMessage[],
   connectedEmails: ReadonlySet<string>,

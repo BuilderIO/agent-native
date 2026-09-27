@@ -89,7 +89,7 @@ No raw message, prompt, or response text is persisted or tracked.
 
 ### 2. Feedback
 
-**Explicit** — `ThumbsFeedback` component renders inline thumbs up/down on every agent message in the chat UI. Thumbs down opens a category popover (Inaccurate, Not helpful, Wrong tool, Too slow). Already wired into `AssistantChat.tsx` via `React.lazy`.
+**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action.
 
 **Implicit** — `computeSatisfactionScore(threadId)` computes a Frustration Index (0-100) from conversation signals:
 - Rephrasing detection (weight 30): consecutive similar user messages

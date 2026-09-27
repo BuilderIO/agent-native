@@ -150,6 +150,8 @@ export default {
     untitledAnalysis: "제목 없는 분석",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
+    reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -1293,6 +1295,7 @@ export default {
     app: "앱",
     unknownApp: "알 수 없는 앱",
     lastSeen: "마지막 활동",
+    includeZeroMinuteSessions: "0분 세션 포함",
     duration: "지속 시간",
     events: "이벤트",
     chunks: "청크",

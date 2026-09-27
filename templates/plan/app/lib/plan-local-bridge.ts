@@ -108,8 +108,6 @@ export async function localNetworkAccessPermissionState(): Promise<
     return "unsupported";
   }
   try {
-    // Chrome 145 split this permission into local-network and
-    // loopback-network, but keeps the Chrome 142 alias working for queries.
     const status = await navigator.permissions.query({
       name: "local-network-access",
     } as unknown as PermissionDescriptor);
@@ -211,19 +209,6 @@ export function shouldShowLocalPlanLoadError(input: {
   return Boolean(input.error) || (!input.loading && !input.fetching);
 }
 
-/**
- * Decide whether the hosted-plan render should surface the retryable load
- * error card instead of the initial skeleton.
- *
- * A React Query read can be *paused* (browser offline, or the tab blurred
- * during a retry backoff): in that state it never errors and never resolves,
- * so `isError`/`isLoading`/`isFetching` are all false and `data` stays
- * undefined. Without treating that as an error-like state the page sits on the
- * initial skeleton forever until a manual refresh — exactly the "wasn't
- * loading the content until I do another refresh" report. Surfacing the
- * retry card lets the user recover; React Query also auto-resumes the paused
- * fetch when the network/tab returns, which clears the card on its own.
- */
 export function shouldShowPlanLoadError(input: {
   hasSelectedId: boolean;
   localPlanMode: boolean;
@@ -240,12 +225,9 @@ export function shouldShowPlanLoadError(input: {
   }
   if (input.planQueryError) return true;
   if (!input.accessStatusInitialPending && input.accessDenied) return true;
-  // While the first read is actively in flight, keep showing the skeleton.
-  // Background refetches must not hide a settled access/error card.
   if (input.planQueryInitialPending || input.accessStatusInitialPending) {
     return false;
   }
-  // Paused/stalled read that will never settle on its own input.
   if (input.planQueryPaused || input.accessStatusPaused) return true;
   return false;
 }
@@ -351,8 +333,6 @@ export function localPlanBridgeQueryKey(slug: string, bridgeUrl: string) {
   return ["local-plan-bridge", slug, bridgeUrl] as const;
 }
 
-// Merge folder comments.json onto a read-only bridge bundle (which serves none);
-// the bundle's own comments win so optimistic/just-written ones aren't clobbered.
 export function mergeLocalBridgeComments(
   bundle: LocalPlanBundle | undefined,
   folderComments: LocalPlanBundle["comments"] | undefined,
@@ -389,9 +369,6 @@ async function localPlanBridgePayloadToBundle(
   }
 
   const rawContent = await parsePlanMdxFolder(payload.mdx, {
-    // The bridge is a read-only preview surface. Keep valid blocks visible when
-    // locally authored MDX contains a malformed block; verify/import remain
-    // strict and still reject the same source.
     salvageInvalidBlocks: true,
   });
   const content = inlineLocalPlanAssets(rawContent, payload.mdx["assets/"]);

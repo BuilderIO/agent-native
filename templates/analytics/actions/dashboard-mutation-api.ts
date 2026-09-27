@@ -136,7 +136,6 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.insertPanel({"id":"personal-widget-slot","title":"Personal Widget Slot","chartType":"extension","width":3,"config":{"extensionSlotId":"analytics.dashboard.<dashboard-id>.panel.personal-widget-slot"}}).atBottom();',
 ] as const;
 
-/** Keep the legacy script surface bounded before it reaches the parser. */
 export const MAX_DASHBOARD_MUTATION_CODE_LENGTH = 12_000;
 export const MAX_DASHBOARD_MUTATION_OPERATIONS = 100;
 

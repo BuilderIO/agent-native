@@ -21,10 +21,11 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
-  hasCurrentSlideSelection,
   buildSlidesAgentContext,
+  getSlidesAgentScopeLabel,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -51,6 +52,46 @@ interface EditorSidebarOverride {
   collapsed: boolean;
 }
 
+interface MobileDeckSaveFlushRequest {
+  requestId: string;
+  deckId: string;
+}
+
+function readMobileDeckSaveFlushRequest(
+  value: unknown,
+): MobileDeckSaveFlushRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (
+    typeof request.requestId !== "string" ||
+    !request.requestId ||
+    typeof request.deckId !== "string" ||
+    !request.deckId
+  ) {
+    return null;
+  }
+  return { requestId: request.requestId, deckId: request.deckId };
+}
+
+function postMobileDeckSaveFlushAck(message: {
+  requestId: string;
+  requestedDeckId: string;
+  activeDeckId: string | null;
+  status: "flushed" | "not-target" | "failed";
+}) {
+  const nativeBridge = (
+    window as Window & {
+      ReactNativeWebView?: { postMessage: (value: string) => void };
+    }
+  ).ReactNativeWebView;
+  nativeBridge?.postMessage(
+    JSON.stringify({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      ...message,
+    }),
+  );
+}
+
 /** Routes whose pages render their own toolbar — Layout still renders chrome
  * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
@@ -67,6 +108,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
@@ -115,6 +157,50 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener("agentNative.chatRunning", onChatRunning);
   }, []);
   useEffect(() => {
+    const onMobileDeckSaveFlush = (event: Event) => {
+      const request = readMobileDeckSaveFlushRequest(
+        (event as CustomEvent<unknown>).detail,
+      );
+      if (!request) return;
+      const activeDeckId =
+        location.pathname.match(/^\/deck\/([^/]+)/)?.[1] ?? null;
+      if (activeDeckId !== request.deckId) {
+        postMobileDeckSaveFlushAck({
+          requestId: request.requestId,
+          requestedDeckId: request.deckId,
+          activeDeckId,
+          status: "not-target",
+        });
+        return;
+      }
+      void flushDeckSave(request.deckId).then(
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "flushed",
+          }),
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "failed",
+          }),
+      );
+    };
+    window.addEventListener(
+      "agentNative.mobileDeckSaveFlush",
+      onMobileDeckSaveFlush,
+    );
+    return () =>
+      window.removeEventListener(
+        "agentNative.mobileDeckSaveFlush",
+        onMobileDeckSaveFlush,
+      );
+  }, [flushDeckSave, location.pathname]);
+  useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
         (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
@@ -136,12 +222,15 @@ export function Layout({ children }: LayoutProps) {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
-    const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
     const agentContext = buildSlidesAgentContext(slidesSelection, deckId);
+    const scopeLabel = getSlidesAgentScopeLabel(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
+      label:
+        scopeLabel.key === "agent.slideNumber"
+          ? t(scopeLabel.key, { number: scopeLabel.number })
+          : t(scopeLabel.key),
       contextKey: "slides-current-context",
       ...agentContext,
     };
@@ -152,9 +241,14 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
+      beforeStart: () => flushDeckSave(deckId),
       list: {
         action: "list-deck-versions",
-        args: { deckId, limit: 100 },
+        args: (threadId) => ({
+          deckId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -171,9 +265,10 @@ export function Layout({ children }: LayoutProps) {
           deckId,
           versionId: version.id,
         }),
+        beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope]);
+  }, [deckScope, flushDeckSave]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -302,6 +397,7 @@ export function Layout({ children }: LayoutProps) {
             t("agent.suggestionBrand"),
             t("agent.suggestionHero"),
           ]}
+          dynamicSuggestions={false}
           scope={deckScope}
           chatHistory={deckChatHistory}
           browserTabId={TAB_ID}

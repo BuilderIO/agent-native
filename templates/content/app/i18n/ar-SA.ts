@@ -799,6 +799,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionCreateFailed: "تعذر إنشاء الاقتراح",
     suggestionsCount: "{{count}} اقتراحات",
     acceptSuggestion: "قبول",
@@ -841,6 +848,35 @@ const rawLiterals = {
     contentSpace: "مساحة Content",
     addChild: "إضافة عنصر فرعي",
     addChildTo: "إضافة عنصر فرعي إلى {{title}}",
+    removeFromRecent: "إزالة من الأخيرة",
+    copyLink: "نسخ الرابط",
+    openInNewTab: "فتح في علامة تبويب جديدة",
+    rename: "إعادة التسمية",
+    duplicate: "تكرار",
+    moveTo: "نقل إلى",
+    moveToTrash: "نقل إلى سلة المهملات",
+    lastEditedBy: "آخر تعديل بواسطة {{name}}",
+    lastEdited: "آخر تعديل",
+    pageName: "اسم الصفحة",
+    movePageTo: "نقل «{{title}}» إلى",
+    topLevel: "المستوى الأعلى",
+    noMatchingPages: "لا توجد صفحات مطابقة",
+    failedRenamePage: "تعذّرت إعادة تسمية الصفحة",
+    failedDuplicatePage: "تعذّر تكرار الصفحة",
+    duplicatedFromLastSave:
+      "تم نسخ آخر إصدار محفوظ؛ لم تُضمَّن التعديلات الأخيرة غير المحفوظة.",
+    chooseSpace: "اختر مساحة عمل",
+    moveToSpaceTitle: "النقل إلى {{space}}؟",
+    moveToSpaceWarningShared:
+      "سيتمكن الجميع في {{space}} من رؤية «{{title}}» وصفحاتها الفرعية. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    moveToSpaceWarningPrivate:
+      "ستصبح «{{title}}» وصفحاتها الفرعية خاصة بك في {{space}}. ستُزال المشاركة الحالية والرابط العام، وستصبح أنت المالك.",
+    back: "رجوع",
+    movePage: "نقل",
+    movedToSpace: "تم نقل «{{title}}» إلى {{space}}",
+    failedRemoveFromRecent: "تعذّرت الإزالة من الأخيرة",
+    collapseItem: "طي {{title}}",
+    expandItem: "توسيع {{title}}",
     database: "المجموعة",
     collection: "مجموعة",
     databasePermanentlyDeleted: "تم حذف المجموعة نهائيًا",
@@ -910,6 +946,14 @@ const comments = {
   suggestionWith: "بـ",
   suggestionReplace: "استبدال",
   suggestionDetails: "تفاصيل الاقتراح",
+  proposalEditCount_zero: "{{count}} تعديلات",
+  proposalEditCount_one: "{{count}} تعديل",
+  proposalEditCount_two: "{{count}} تعديلان",
+  proposalEditCount_few: "{{count}} تعديلات",
+  proposalEditCount_many: "{{count}} تعديلاً",
+  proposalEditCount_other: "{{count}} تعديل",
+  acceptRemaining: "قبول المتبقي",
+  rejectRemaining: "رفض المتبقي",
   typeFilter: "النوع",
   statusFilter: "الحالة",
   authorFilter: "الشخص",
@@ -986,6 +1030,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
@@ -1011,6 +1062,24 @@ const exactEnglish = {
     },
     toolbar: {
       info: "معلومات",
+      copyLink: "نسخ الرابط",
+      copyForPeople: "نسخ للأشخاص",
+      copyForAgents: "نسخ للوكلاء",
+      whoHasAccess: "من لديه حق الوصول",
+      sharePeople: "الأشخاص",
+      shareAgents: "الوكلاء",
+      copyAgentPrompt: "نسخ تعليمات الوكيل",
+      openInClaude: "فتح في Claude",
+      openInClaudeCode: "فتح في Claude Code",
+      openInCodex: "فتح في Codex",
+      agentCopyAccessNote: "يمكن للوكلاء استخدام Content MCP بأذوناتك الحالية",
+      temporaryAgentLink: "رابط مؤقت للوكيل",
+      privateLinkCanView: "يمكن للأشخاص المصرح لهم فقط عرض هذا الرابط",
+      publicLinkCanView: "يمكن لأي شخص لديه الرابط عرضه",
+      copiedAgentPrompt: "تم نسخ تعليمات الوكيل",
+      couldNotCopyAgentPrompt: "تعذر نسخ تعليمات الوكيل",
+      agentPrompt:
+        'اقرأ مستند Content هذا: {{documentUrl}}\n\nاستخدم اتصال Content MCP متاحًا لـ {{mcpUrl}} لاستدعاء get-document بالمعرّف "{{documentId}}". يمكن أيضًا قراءة الصفحة المتاحة للعامة مباشرةً.\n\nإذا لزم الوصول بالمصادقة وكان Content MCP غير متاح أو تم تسجيل الخروج منه، فاطلب مني توصيله والمصادقة. إعداد الاتصال: {{connectUrl}}. الدليل الرسمي: {{docsUrl}}\n\nبعد أن أؤكد جاهزية الاتصال، أعد محاولة القراءة باستخدام الأذونات الحالية لحسابي. إذا رُفضت القراءة بالمصادقة، فأخبرني بهذه النتيجة.',
       closeUtilityPanel: "إغلاق اللوحة",
       exportCsv: "تصدير CSV",
       exportDatabase: "تصدير المجموعة",
@@ -1034,6 +1103,7 @@ const exactEnglish = {
       exportedCsv: "تم تصدير CSV",
       copiedPageLink: "تم نسخ رابط الصفحة",
       copyPageLink: "نسخ رابط الصفحة",
+      createShareableCopy: "إنشاء نسخة قابلة للمشاركة",
       couldNotCopyLink: "تعذر نسخ الرابط",
       clipboardAccessUnavailable: "الوصول إلى الحافظة غير متاح في هذا المتصفح.",
       pageBreadcrumb: "مسار الصفحة",
@@ -1087,6 +1157,14 @@ const history = {
 };
 
 const overrides = {
+  close: "إغلاق",
+  setup: { checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…" },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+      statusUnavailable: "حالة تخزين الملفات غير متاحة.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1235,6 +1313,13 @@ const overrides = {
     genericError: "حدث خطأ ما",
   },
   editor: {
+    iconPickerIcons: "الأيقونات",
+    iconPickerEmoji: "الرموز التعبيرية",
+    iconPickerRecent: "الأخيرة",
+    iconPickerColors: "الألوان",
+    iconPickerDefault: "افتراضي",
+    iconPickerUpload: "رفع",
+    iconPickerUploading: "جارٍ الرفع…",
     ...editor,
     sourceComponent: {
       defaultTitle: "مكوّن المصدر",

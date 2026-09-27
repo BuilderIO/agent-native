@@ -12,13 +12,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // multi-file lookup in insert-asset.ts) AND as a chain that supports a
-  // trailing `.limit(1)` (writeInlineSourceFile's internal re-select in
-  // server/source-workspace.ts, now used by the action's write path).
-  // Returning a real Promise with an extra `.limit()` method attached covers
-  // both call shapes with the same mocked resolved rows, narrowed by id when
-  // the predicate looks like `eq(designFiles.id, someId)`.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -57,9 +50,6 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: the prepared source
-  // lease persists its authoritative content back to SQL. Cleared per-test in
-  // beforeEach because the vi.mock factory only runs once per file.
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -158,8 +148,6 @@ vi.mock("../server/db/index.js", () => ({
 
 import action from "./insert-asset.js";
 
-// A URL containing a single quote — invalid to break out of `url('...')`,
-// but syntactically a valid http(s) URL (quote in a path segment).
 const MALICIOUS_URL =
   "https://evil.example.com/a'));</style><script>alert(1)</script><style x='.png";
 
@@ -198,7 +186,6 @@ describe("insert-asset", () => {
 
     const content = mocks.updateChain.set.mock.calls[0]?.[0]?.content as string;
     expect(content).toBeDefined();
-    // The raw single quote must never appear un-escaped inside the style value.
     expect(content).not.toContain("'));</style>");
     expect(content).not.toContain("<script>alert(1)</script>");
     expect(content).toContain("%27");

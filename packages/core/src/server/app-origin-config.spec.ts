@@ -56,8 +56,6 @@ describe("app origin client config", () => {
   });
 
   it("carries the VITE spelling through the same field", () => {
-    // The whole point of 8b: the prefix is a delivery detail, so a deployment
-    // that only set the mirror still resolves one declared value.
     process.env.VITE_APP_URL = "https://vite.example.com";
     process.env.VITE_WORKSPACE_GATEWAY_URL = "https://vite-gw.example.com";
 

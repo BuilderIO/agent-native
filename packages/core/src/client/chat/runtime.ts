@@ -1,17 +1,11 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
-import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
-import { agentNativePath } from "../api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import {
-  emitChatFirstOpenApp,
-  emitChatFirstOpenBrowser,
-} from "../chat-first.js";
-import { formatChatErrorText, normalizeChatError } from "../error-format.js";
-import {
-  settleInterruptedToolCalls,
+  appendMissingFinalResponseWarning,
   type ContentPart,
   type SSEEvent,
 } from "../sse-event-processor.js";
@@ -223,6 +217,8 @@ export interface AgentChatRuntimeRichCapabilities {
 
 export interface AgentChatRuntimeCapabilities {
   readonly messages: AgentChatRuntimeMessageCapabilities;
+  /** The runtime can resume a durable run stream after its reader disconnects. */
+  readonly resumableRuns?: boolean;
   readonly tools?: AgentChatRuntimeToolCapabilities;
   readonly sessions?: AgentChatRuntimeSessionCapabilities;
   readonly cancellation?: AgentChatRuntimeCancellationCapabilities;
@@ -392,6 +388,7 @@ export interface AgentChatRuntimeToolDoneEvent extends AgentChatRuntimeEventBase
   readonly result?: unknown;
   readonly resultText?: string;
   readonly error?: string;
+  readonly completedSideEffect?: boolean;
   readonly mcpApp?: AgentMcpAppPayload;
   readonly chatUI?: ActionChatUIConfig;
 }
@@ -650,6 +647,8 @@ export interface AgentChatRuntimeErrorEvent extends AgentChatRuntimeEventBase<"e
   readonly error: string;
   readonly code?: string;
   readonly recoverable?: boolean;
+  readonly retryable?: boolean;
+  readonly details?: unknown;
   readonly cause?: unknown;
 }
 
@@ -860,24 +859,17 @@ export interface CreateAgentNativeChatRuntimeOptions {
   readonly label?: string;
   readonly description?: string;
   readonly apiUrl?: string;
+  readonly streamingUrl?: string;
   readonly headers?: HeadersFactory;
   readonly fetch?: FetchLike;
   readonly threadId?: string;
   readonly browserTabId?: string;
-  readonly surface?: "app" | "dev-frame";
+  readonly surface?: "app" | "dev-frame" | "desktop";
   readonly mode?: "act" | "plan";
   readonly model?: string;
   readonly engine?: string;
   readonly effort?: ReasoningEffort;
   readonly scope?: unknown;
-}
-
-export interface CreateAgentChatRuntimeAdapterOptions {
-  readonly sessionId?: AgentChatRuntimeSessionId;
-  readonly threadId?: string;
-  readonly modelRef?: { current: string | undefined };
-  readonly effortRef?: { current: ReasoningEffort | undefined };
-  readonly metadata?: AgentChatRuntimeMetadata;
 }
 
 const DEFAULT_RUNTIME_CAPABILITIES: AgentChatRuntimeCapabilities = {
@@ -1207,17 +1199,80 @@ function defaultHttpRuntimeRequest(input: {
   };
 }
 
-async function readErrorText(response: Response): Promise<string> {
-  const text = await response.text().catch(() => "");
-  if (!text) return `HTTP ${response.status}`;
+function runtimeErrorMessage(text: string, status: number): string {
+  if (!text) return `HTTP ${status}`;
   try {
-    const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-    if (typeof parsed.error === "string") return parsed.error;
-    if (typeof parsed.message === "string") return parsed.message;
+    const parsed = asRecord(JSON.parse(text));
+    const nestedError = asRecord(parsed?.error);
+    if (typeof parsed?.error === "string") return parsed.error;
+    if (typeof parsed?.message === "string") return parsed.message;
+    if (typeof parsed?.statusMessage === "string") return parsed.statusMessage;
+    if (typeof nestedError?.message === "string") return nestedError.message;
   } catch {
     // Keep raw text.
   }
   return text.slice(0, 500);
+}
+
+async function readErrorText(response: Response): Promise<string> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    // coercion-ok: callers preserve response.status, so unreadable detail stays an HTTP failure.
+    text = "";
+  }
+  return runtimeErrorMessage(text, response.status);
+}
+
+async function readHttpRuntimeError(response: Response): Promise<Error> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    // coercion-ok: callers preserve response.status, so unreadable detail stays an HTTP failure.
+    text = "";
+  }
+  const error = new Error(runtimeErrorMessage(text, response.status));
+  let payload: Record<string, unknown> | undefined;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    payload = undefined;
+  }
+  const data = asRecord(payload?.data);
+  const nestedError = asRecord(payload?.error);
+  const code =
+    data?.code ?? payload?.code ?? payload?.errorCode ?? nestedError?.code;
+  const status = response.status;
+  const fallbackCode =
+    status === 401
+      ? "unauthorized"
+      : status === 403
+        ? "forbidden"
+        : status === 404
+          ? "not_found"
+          : status === 429
+            ? "rate_limited"
+            : `http_${status}`;
+  const explicitRetryable =
+    data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  Object.assign(error, {
+    code: typeof code === "string" ? code : fallbackCode,
+    ...(data?.details === undefined &&
+    payload?.details === undefined &&
+    nestedError?.details === undefined
+      ? {}
+      : {
+          details: data?.details ?? payload?.details ?? nestedError?.details,
+        }),
+    retryable:
+      typeof explicitRetryable === "boolean"
+        ? explicitRetryable
+        : status === 408 || status === 429 || status >= 500,
+    status,
+  });
+  return error;
 }
 
 export function createHttpAgentChatRuntime<
@@ -1226,7 +1281,10 @@ export function createHttpAgentChatRuntime<
   options: CreateHttpAgentChatRuntimeOptions<TEvent>,
 ): AgentChatRuntime<TEvent> {
   const fetchImpl = options.fetch ?? fetch;
-  const capabilities = mergeCapabilities(options.capabilities);
+  const capabilities = mergeCapabilities({
+    ...options.capabilities,
+    resumableRuns: Boolean(options.resumeEndpoint),
+  });
   const runtimeId = options.id ?? "external:http";
   const mapEvent =
     options.mapEvent ??
@@ -1285,7 +1343,7 @@ export function createHttpAgentChatRuntime<
       });
       if (!response.ok) {
         cleanup();
-        throw new Error(await readErrorText(response));
+        throw await readHttpRuntimeError(response);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
@@ -1416,7 +1474,7 @@ export function createHttpAgentChatRuntime<
         credentials: options.credentials,
         signal: input.abortSignal,
       });
-      if (!response.ok) throw new Error(await readErrorText(response));
+      if (!response.ok) throw await readHttpRuntimeError(response);
       return streamResponseEvents(response, {
         sessionId: input.sessionId ?? "session",
         turnId: input.turnId,
@@ -1492,13 +1550,12 @@ function nativeHistoryFromMessages(
 }
 
 type AgentNativeMessageContentState =
-  | { type: "text"; text: string; id?: string }
-  | {
-      type: "reasoning";
-      text: string;
+  | (Extract<ContentPart, { type: "text" }> & { id?: string })
+  | (Extract<ContentPart, { type: "reasoning" }> & {
       id?: string;
       signature?: string;
-    };
+    })
+  | Extract<ContentPart, { type: "tool-call" }>;
 
 interface AgentNativeMessageProjectionState {
   messageId: string;
@@ -1573,6 +1630,30 @@ function agentNativeTaskOperation(
     return "complete";
   }
   return status === "running" ? "create" : "update";
+}
+
+function agentNativeStructuredMeta(
+  event: SSEEvent,
+): AgentChatRuntimeMetadata | undefined {
+  const raw = event as SSEEvent & {
+    metadata?: unknown;
+    structuredMeta?: unknown;
+  };
+  return (
+    asRecord(raw.structuredMeta) ??
+    asRecord(asRecord(raw.metadata)?.structuredMeta) ??
+    undefined
+  );
+}
+
+function agentNativeToolResultText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
 }
 
 function agentNativeActivityStatus(
@@ -1652,7 +1733,9 @@ function mapAgentNativeEvent(
       input.message.content.push(nextPart);
       part = nextPart;
     }
-    part.text += text;
+    if (part.type === "text" || part.type === "reasoning") {
+      part.text += text;
+    }
     if (part.type === "reasoning" && extended.signature) {
       part.signature = extended.signature;
     }
@@ -1715,36 +1798,87 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "tool_start") {
+    const toolCallId = ev.id ?? createRuntimeId("tool");
+    const toolName = ev.tool ?? "unknown";
+    const structuredMeta = agentNativeStructuredMeta(ev);
+    const toolCall = input.message.content.find(
+      (part) =>
+        part.type === "tool-call" &&
+        (ev.id
+          ? part.toolCallId === ev.id
+          : part.result === undefined && part.toolName === toolName),
+    );
+    if (toolCall?.type === "tool-call") {
+      toolCall.args = ev.input ?? {};
+      toolCall.argsText = JSON.stringify(toolCall.args);
+      if (structuredMeta) toolCall.structuredMeta = structuredMeta;
+    } else {
+      input.message.content.push({
+        type: "tool-call",
+        toolCallId,
+        toolName,
+        argsText: JSON.stringify(ev.input ?? {}),
+        args: ev.input ?? {},
+        ...(structuredMeta ? { structuredMeta } : {}),
+      });
+    }
+    const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     return [
       {
         type: "tool-start",
         ...base,
         toolCall: {
-          id: ev.id ?? createRuntimeId("tool"),
-          name: ev.tool ?? "unknown",
+          id: toolCallId,
+          name: toolName,
           input: ev.input,
           inputText: ev.input ? JSON.stringify(ev.input) : undefined,
+          ...(metadata ? { metadata } : {}),
         },
       },
     ];
   }
   if (ev.type === "tool_done") {
-    const toolCallId = ev.id ?? "";
+    const toolName = ev.tool ?? "unknown";
+    let storedToolCall:
+      | Extract<AgentNativeMessageContentState, { type: "tool-call" }>
+      | undefined;
+    for (let index = input.message.content.length - 1; index >= 0; index -= 1) {
+      const part = input.message.content[index];
+      if (
+        part?.type === "tool-call" &&
+        (ev.id
+          ? part.toolCallId === ev.id
+          : part.result === undefined && part.toolName === toolName)
+      ) {
+        storedToolCall = part;
+        break;
+      }
+    }
+    const toolCallId =
+      ev.id ??
+      (storedToolCall?.type === "tool-call" ? storedToolCall.toolCallId : "");
+    const structuredMeta = agentNativeStructuredMeta(ev);
+    if (storedToolCall?.type === "tool-call") {
+      storedToolCall.result = agentNativeToolResultText(ev.result);
+      storedToolCall.isError = ev.isError === true || Boolean(ev.error);
+      storedToolCall.completedSideEffect = ev.completedSideEffect === true;
+      if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
+      if (ev.chatUI) storedToolCall.chatUI = ev.chatUI;
+      if (structuredMeta) storedToolCall.structuredMeta = structuredMeta;
+    }
+    const metadata = definedMetadata({ ...base.metadata, ...structuredMeta });
     const events: AgentChatRuntimeKnownEvent[] = [
       {
         type: "tool-done",
         ...base,
+        ...(metadata ? { metadata } : {}),
         toolCallId,
-        toolName: ev.tool ?? "unknown",
+        toolName,
         status: ev.isError || ev.error ? "failed" : "completed",
-        result: ev.result,
-        resultText:
-          typeof ev.result === "string"
-            ? ev.result
-            : ev.result !== undefined
-              ? JSON.stringify(ev.result)
-              : undefined,
+        result: ev.chatUIResult !== undefined ? ev.chatUIResult : ev.result,
+        resultText: ev.result,
         error: ev.error,
+        completedSideEffect: ev.completedSideEffect === true,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
       },
@@ -2066,37 +2200,198 @@ function mapAgentNativeEvent(
       },
     ];
   }
+  if (ev.type === "loop_limit") {
+    const maxIterations =
+      typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: {
+          id: input.messageId,
+          role: "assistant",
+          content: input.message.content
+            .filter(
+              (
+                part,
+              ): part is Exclude<
+                AgentNativeMessageContentState,
+                { type: "tool-call" }
+              > => part.type === "text" || part.type === "reasoning",
+            )
+            .map((part) => ({ ...part })),
+        },
+      });
+    }
+    events.push(
+      {
+        type: "error",
+        ...base,
+        error: `Agent stopped after ${maxIterations ?? "the configured"} iterations.`,
+        code: "loop_limit",
+        recoverable: true,
+        retryable: false,
+        ...(maxIterations === undefined ? {} : { details: { maxIterations } }),
+      },
+      { type: "done", ...base, reason: "error" },
+    );
+    return events;
+  }
   if (ev.type === "error" || ev.type === "missing_api_key") {
-    return [
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: {
+          id: input.messageId,
+          role: "assistant",
+          content: input.message.content
+            .filter(
+              (
+                part,
+              ): part is Exclude<
+                AgentNativeMessageContentState,
+                { type: "tool-call" }
+              > => part.type === "text" || part.type === "reasoning",
+            )
+            .map((part) => ({ ...part })),
+        },
+      });
+    }
+    events.push(
       {
         type: "error",
         ...base,
         error: ev.error ?? "Agent chat failed.",
         code: ev.errorCode,
         recoverable: ev.recoverable,
+        details: ev.details,
       },
       { type: "done", ...base, reason: "error" },
-    ];
+    );
+    return events;
   }
   if (ev.type === "done") {
+    const userStoppedRun = ev.reason === "user";
+    const pendingTools = input.message.content.filter(
+      (part) => part.type === "tool-call" && part.result === undefined,
+    );
+    const messageContent = input.message.content.filter(
+      (
+        part,
+      ): part is Exclude<
+        AgentNativeMessageContentState,
+        { type: "tool-call" }
+      > => part.type === "text" || part.type === "reasoning",
+    );
     const message: AgentChatRuntimeMessage = {
       id: input.messageId,
       role: "assistant",
-      content: input.message.content.map((part) => ({ ...part })),
+      content: messageContent.map((part) => ({ ...part })),
     };
-    return [
-      ...(input.message.started
-        ? [{ type: "message-done" as const, ...base, message }]
-        : []),
-      {
-        type: "done",
+    if (
+      !userStoppedRun &&
+      !input.message.approvalPending &&
+      !input.message.connectionPending &&
+      pendingTools.length > 0
+    ) {
+      const names = pendingTools
+        .map((part) => (part.type === "tool-call" ? part.toolName : ""))
+        .filter(Boolean);
+      const interrupted = [...new Set(names)];
+      const messageText = interrupted.length
+        ? `The agent stopped before ${interrupted.join(", ")} finished. Retry before assuming those actions completed.`
+        : "The agent stopped before its actions finished. Retry before assuming they completed.";
+      const interruptedMessage: AgentChatRuntimeMessage = {
+        ...message,
+        content: [...message.content, { type: "text", text: messageText }],
+      };
+      const events: AgentChatRuntimeKnownEvent[] = [];
+      if (!input.message.started) {
+        input.message.started = true;
+        events.push({
+          type: "message-start",
+          ...base,
+          message: { id: input.messageId, role: "assistant", content: [] },
+        });
+      }
+      events.push(
+        {
+          type: "message-done",
+          ...base,
+          message: interruptedMessage,
+        },
+        {
+          type: "error",
+          ...base,
+          error: messageText,
+          code: "action_not_started",
+          recoverable: true,
+          retryable: true,
+          details: { tools: interrupted },
+        },
+        { type: "done", ...base, reason: "error" },
+      );
+      return events;
+    }
+    const warning =
+      userStoppedRun ||
+      input.message.approvalPending ||
+      input.message.connectionPending
+        ? null
+        : appendMissingFinalResponseWarning(input.message.content);
+    const completedMessage: AgentChatRuntimeMessage = {
+      ...message,
+      content: input.message.content
+        .filter(
+          (
+            part,
+          ): part is Exclude<
+            AgentNativeMessageContentState,
+            { type: "tool-call" }
+          > => part.type === "text" || part.type === "reasoning",
+        )
+        .map((part) => ({ ...part })),
+      ...(warning
+        ? {
+            metadata: {
+              ...message.metadata,
+              custom: {
+                ...asRecord(message.metadata?.custom),
+                runWarning: warning,
+              },
+            },
+          }
+        : {}),
+    };
+    const events: AgentChatRuntimeKnownEvent[] = [];
+    if (warning && !input.message.started) {
+      input.message.started = true;
+      events.push({
+        type: "message-start",
         ...base,
-        reason:
-          input.message.approvalPending || input.message.connectionPending
-            ? "tool-use"
-            : "complete",
-      },
-    ];
+        message: { id: input.messageId, role: "assistant", content: [] },
+      });
+    }
+    if (input.message.started) {
+      events.push({
+        type: "message-done",
+        ...base,
+        message: completedMessage,
+      });
+    }
+    events.push({
+      type: "done",
+      ...base,
+      reason: userStoppedRun
+        ? "cancelled"
+        : input.message.approvalPending || input.message.connectionPending
+          ? "tool-use"
+          : "complete",
+    });
+    return events;
   }
   return [];
 }
@@ -2148,6 +2443,67 @@ export function createAgentNativeChatRuntime(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
+  const streamingUrl = options.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamFallbackWarningShown = false;
+  const runtimeFetch: FetchLike = streamingUrl
+    ? async (input, init) => {
+        if (
+          String(input) !== apiUrl ||
+          String(init?.method ?? "POST").toUpperCase() !== "POST"
+        ) {
+          return fetchImpl(input, init);
+        }
+
+        const warnAndUsePrimary = (error: unknown) => {
+          if (streamFallbackWarningShown || init?.signal?.aborted) return;
+          streamFallbackWarningShown = true;
+          console.warn(
+            "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+            error instanceof Error ? error.message : error,
+          );
+        };
+        let token: string | undefined;
+        try {
+          const tokenResponse = await fetchImpl(
+            `${apiUrl.replace(/\/+$/, "")}/stream-token`,
+            {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              credentials: "same-origin",
+              cache: "no-store",
+              signal: init?.signal,
+            },
+          );
+          if (!tokenResponse.ok) {
+            throw new Error(`HTTP ${tokenResponse.status}`);
+          }
+          const payload: unknown = await tokenResponse.json();
+          const candidate = asRecord(payload)?.token;
+          if (typeof candidate !== "string" || !candidate.trim()) {
+            throw new Error("missing token");
+          }
+          token = candidate;
+        } catch (error) {
+          if (init?.signal?.aborted) throw error;
+          warnAndUsePrimary(error);
+          return fetchImpl(input, init);
+        }
+
+        const headers = new Headers(init?.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+        try {
+          return await fetchImpl(streamingUrl, {
+            ...init,
+            headers,
+            credentials: "omit",
+          });
+        } catch (error) {
+          if (init?.signal?.aborted) throw error;
+          warnAndUsePrimary(error);
+          return fetchImpl(input, init);
+        }
+      }
+    : fetchImpl;
   const messageStates = new Map<string, AgentNativeMessageProjectionState>();
   const deleteMessageState = (state: AgentNativeMessageProjectionState) => {
     for (const [key, candidate] of messageStates) {
@@ -2162,7 +2518,7 @@ export function createAgentNativeChatRuntime(
     description:
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
-    fetch: fetchImpl,
+    fetch: runtimeFetch,
     headers: async (input) => {
       const headers = await resolveHeaders(options.headers, input);
       headers.set("x-agent-native-surface", options.surface ?? "app");
@@ -2365,428 +2721,8 @@ export function createAgentNativeChatRuntime(
   });
 }
 
-function toContentPartInput(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const out: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = typeof item === "string" ? item : (JSON.stringify(item) ?? "");
-  }
-  return out;
-}
-
-function toolResultText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    if (
-      value === null ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      typeof value === "bigint" ||
-      typeof value === "symbol" ||
-      typeof value === "function"
-    ) {
-      return String(value);
-    }
-    return "[unserializable]";
-  }
-}
-
-interface RuntimeContentProjection {
-  content: ContentPart[];
-  partsById: Map<string, Extract<ContentPart, { type: "text" | "reasoning" }>>;
-}
-
-function appendRuntimeContentPart(
-  projection: RuntimeContentProjection,
-  input: {
-    type: "text" | "reasoning";
-    text: string;
-    partId?: string;
-  },
-): void {
-  const key = input.partId ? `${input.type}:${input.partId}` : undefined;
-  const last = projection.content.at(-1);
-  let part = key ? projection.partsById.get(key) : undefined;
-  if (
-    !part &&
-    !key &&
-    last &&
-    (last.type === "text" || last.type === "reasoning") &&
-    last.type === input.type
-  ) {
-    part = last;
-  }
-  if (!part) {
-    const nextPart: Extract<ContentPart, { type: "text" | "reasoning" }> =
-      input.type === "reasoning"
-        ? { type: "reasoning", text: "" }
-        : { type: "text", text: "" };
-    projection.content.push(nextPart);
-    if (key) projection.partsById.set(key, nextPart);
-    part = nextPart;
-  }
-  part.text += input.text;
-}
-
-function applyRuntimeEventToContent(
-  event: AgentChatRuntimeEventBase,
-  projection: RuntimeContentProjection,
-): ChatModelRunResult | null {
-  const { content } = projection;
-  const typed = event as AgentChatRuntimeKnownEvent;
-  if (typed.type === "message-start") {
-    for (const part of typed.message.content) {
-      if ((part.type === "text" || part.type === "reasoning") && part.text) {
-        appendRuntimeContentPart(projection, {
-          type: part.type,
-          text: part.text,
-          partId: part.id,
-        });
-      }
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "message-delta") {
-    if (typed.delta.type === "text" || typed.delta.type === "reasoning") {
-      appendRuntimeContentPart(projection, {
-        type: typed.delta.type,
-        text: typed.delta.text,
-        partId: typed.delta.partId,
-      });
-      return { content: [...content] } as ChatModelRunResult;
-    }
-    return null;
-  }
-  if (typed.type === "message-done") {
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-start") {
-    content.push({
-      type: "tool-call",
-      toolCallId: typed.toolCall.id,
-      toolName: typed.toolCall.name,
-      argsText:
-        typed.toolCall.inputText ?? JSON.stringify(typed.toolCall.input ?? {}),
-      args: toContentPartInput(typed.toolCall.input),
-    });
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-delta") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          candidate.toolCallId === typed.toolCallId,
-      );
-    if (!part) return null;
-    if (typed.inputTextDelta) {
-      part.argsText += typed.inputTextDelta;
-    }
-    if (typed.resultTextDelta) {
-      part.result = `${part.result ?? ""}${typed.resultTextDelta}`;
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "tool-done") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          candidate.toolCallId === typed.toolCallId,
-      );
-    if (part) {
-      part.result =
-        typed.error ?? typed.resultText ?? toolResultText(typed.result);
-      if (typed.mcpApp) part.mcpApp = typed.mcpApp;
-      if (typed.chatUI) part.chatUI = typed.chatUI;
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "approval-request") {
-    const reversed = [...content].reverse();
-    const isToolCall = (
-      candidate: ContentPart,
-    ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-      candidate.type === "tool-call";
-    // Match on the exact call id whenever the server supplied one. Falling back
-    // to "newest call with this name" would hand this call's approvalKey to a
-    // different parallel call of the same action, so name matching is reserved
-    // for events that carry no id at all.
-    const part = typed.toolCallId
-      ? reversed.find(
-          (candidate) =>
-            isToolCall(candidate) && candidate.toolCallId === typed.toolCallId,
-        )
-      : reversed.find(
-          (candidate) =>
-            isToolCall(candidate) && candidate.toolName === typed.toolName,
-        );
-    if (part && part.type === "tool-call") {
-      part.approval = {
-        approvalKey: typed.approvalId,
-        ...(typed.allowPersistentApproval === false
-          ? { allowPersistentApproval: false }
-          : {}),
-      };
-    } else if (!typed.toolCallId) {
-      // Only runtimes that never announced the call (no id) get a synthesized
-      // card. An id that matches nothing means the call was never observed or
-      // is already resolved, and inventing an Approve/Deny card for it would
-      // gate something the user cannot see.
-      content.push({
-        type: "tool-call",
-        toolCallId: typed.approvalId,
-        toolName: typed.toolName ?? "approval",
-        argsText: typed.input ? JSON.stringify(typed.input) : "",
-        args: toContentPartInput(typed.input),
-        approval: {
-          approvalKey: typed.approvalId,
-          ...(typed.allowPersistentApproval === false
-            ? { allowPersistentApproval: false }
-            : {}),
-        },
-      });
-    }
-    return { content: [...content] } as ChatModelRunResult;
-  }
-  if (typed.type === "error") {
-    const normalized = normalizeChatError(typed.error, typed.code);
-    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    content.push({
-      type: "text",
-      text: formatChatErrorText(typed.error, undefined, typed.code),
-    });
-    return {
-      content: [...content],
-      status: { type: "incomplete", reason: "error" },
-      metadata: {
-        custom: {
-          runError: {
-            message: normalized.message,
-            ...(normalized.details ? { details: normalized.details } : {}),
-            ...(typed.code ? { errorCode: typed.code } : {}),
-            ...(typed.recoverable ? { recoverable: typed.recoverable } : {}),
-          },
-        },
-      },
-    } as ChatModelRunResult;
-  }
-  if (typed.type === "done") {
-    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    return {
-      content: [...content],
-      status:
-        typed.reason === "error"
-          ? { type: "incomplete", reason: "error" }
-          : { type: "complete", reason: "stop" },
-    } as ChatModelRunResult;
-  }
-  return null;
-}
-
-function assistantMessageText(message: {
-  content?: readonly { type: string; text?: string }[];
-}): string {
-  return (message.content ?? [])
-    .filter(
-      (part): part is { type: string; text: string } => part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("\n");
-}
-
-function assistantMessagesToRuntimeMessages(
-  messages: readonly {
-    role: string;
-    content?: readonly { type: string; text?: string; image?: string }[];
-  }[],
-): AgentChatRuntimeMessage[] {
-  return messages
-    .filter(
-      (message) => message.role === "user" || message.role === "assistant",
-    )
-    .map((message, index) => {
-      const content: AgentChatRuntimeKnownContentPart[] = [];
-      for (const part of message.content ?? []) {
-        if (part.type === "text" && typeof part.text === "string") {
-          content.push({ type: "text", text: part.text });
-        } else if (part.type === "image" && typeof part.image === "string") {
-          content.push({ type: "image", data: part.image });
-        }
-      }
-      return {
-        id: `assistant-ui-${index}`,
-        role: message.role as "user" | "assistant",
-        content,
-      };
-    });
-}
-
-function latestUserPrompt(
-  messages: readonly {
-    role: string;
-    content?: readonly { type: string; text?: string }[];
-  }[],
-): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== "user") continue;
-    return assistantMessageText(message);
-  }
-  return "";
-}
-
-export function createAgentChatRuntimeAdapter(
-  runtime: AgentChatRuntime,
-  options: CreateAgentChatRuntimeAdapterOptions = {},
-): ChatModelAdapter {
-  let sessionPromise: Promise<AgentChatRuntimeSession> | null = null;
-  const getSession = () => {
-    sessionPromise ??= Promise.resolve(
-      runtime.createSession({
-        id: options.sessionId ?? options.threadId,
-        threadId: options.threadId,
-        metadata: options.metadata,
-      }),
-    );
-    return sessionPromise;
-  };
-
-  return {
-    async *run({ messages, abortSignal }) {
-      const adapterMessages = messages as readonly {
-        role: string;
-        content?: readonly { type: string; text?: string; image?: string }[];
-      }[];
-      const session = await getSession();
-      const prompt = latestUserPrompt(adapterMessages);
-      const turn = await session.startTurn({
-        prompt,
-        messages: assistantMessagesToRuntimeMessages(adapterMessages),
-        model: options.modelRef?.current,
-        reasoningEffort: options.effortRef?.current,
-        abortSignal,
-        metadata: options.metadata,
-      });
-      const projection: RuntimeContentProjection = {
-        content: [],
-        partsById: new Map(),
-      };
-      try {
-        for await (const event of turn.events) {
-          emitChatFirstOpenAppFromRuntimeEvent(event);
-          const result = applyRuntimeEventToContent(event, projection);
-          if (result) {
-            const metadata = (result.metadata ?? {}) as Record<string, unknown>;
-            const custom =
-              metadata.custom && typeof metadata.custom === "object"
-                ? (metadata.custom as Record<string, unknown>)
-                : {};
-            yield {
-              ...result,
-              metadata: {
-                ...metadata,
-                custom: {
-                  ...custom,
-                  runtimeId: runtime.id,
-                  ...(turn.runId ? { runId: turn.runId } : {}),
-                },
-              },
-            } as ChatModelRunResult;
-          }
-        }
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          await turn.cancel?.({ reason: "abort" });
-          return;
-        }
-        throw error;
-      }
-    },
-  };
-}
-
-function emitChatFirstOpenAppFromRuntimeEvent(
-  event: AgentChatRuntimeEventBase,
-): void {
-  if (event.type !== "tool-done") return;
-  const toolEvent = event as AgentChatRuntimeToolDoneEvent;
-  if (
-    toolEvent.status !== "completed" ||
-    (!isOpenAppTool(toolEvent.toolName) &&
-      !isOpenBrowserTool(toolEvent.toolName))
-  ) {
-    return;
-  }
-
-  const result =
-    asRecord(toolEvent.result) ?? parseResultRecord(toolEvent.resultText);
-  if (!result) {
-    console.warn(
-      `[chat-first] ${toolEvent.toolName} completed without a readable result`,
-    );
-    return;
-  }
-  if (isOpenBrowserTool(toolEvent.toolName)) {
-    const delivery = emitChatFirstOpenBrowser({
-      url: readString(result.url ?? result.href),
-      title: readString(result.title ?? result.name),
-    });
-    warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
-    return;
-  }
-
-  const detail = {
-    app: readString(result.app ?? result.appId ?? result.application),
-    path: readString(result.path ?? result.targetPath),
-    url: readString(result.url ?? result.href),
-    view: readString(result.view),
-  };
-  const delivery = emitChatFirstOpenApp(detail);
-  warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
-}
-
-function warnWhenChatFirstDeliveryIsNotObserved(
-  toolName: string,
-  delivery: { delivered: boolean; reason?: string },
-): void {
-  if (delivery.delivered) return;
-  console.warn(
-    `[chat-first] ${toolName} was completed but not delivered (${delivery.reason ?? "unknown"})`,
-  );
-}
-
-function isOpenAppTool(toolName: string): boolean {
-  return toolName === "open_app";
-}
-
-function isOpenBrowserTool(toolName: string): boolean {
-  return toolName === "open_browser";
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function parseResultRecord(
-  value: string | undefined,
-): Record<string, unknown> | null {
-  if (!value?.trim()) return null;
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    // coercion-ok: malformed tool output is an unreadable absence; the caller logs it.
-    return null;
-  }
 }

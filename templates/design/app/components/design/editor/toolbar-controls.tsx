@@ -60,11 +60,6 @@ export function DesignToolbarTool({
   onPrimary: () => void;
 }) {
   const hasOptionsMenu = options.length > 1;
-  // Item 5 (Figma parity): the hover tooltip should show the shortcut for
-  // whichever sub-tool is CURRENTLY active (mirroring how the button's own
-  // icon/label already track the active sub-tool above), falling back to the
-  // first option's shortcut when none of the options is active — e.g. a
-  // freshly-mounted toolbar before any tool has been explicitly selected.
   const primaryShortcut =
     options.find((option) => option.active)?.shortcut ?? options[0]?.shortcut;
   return (

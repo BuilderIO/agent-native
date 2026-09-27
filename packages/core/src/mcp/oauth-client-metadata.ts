@@ -224,12 +224,6 @@ function validateClientMetadataDocument(
       "Client metadata document token_endpoint_auth_method is invalid",
     );
   }
-  // A stronger auth method than "none" is not a reason to reject the
-  // document — this server's token endpoint only ever operates as a public
-  // PKCE client regardless of what the document declares, and clients such
-  // as ChatGPT advertise a primary confidential method (e.g.
-  // "private_key_jwt") for use with other authorization servers while still
-  // listing "none" as supported here via token_endpoint_auth_methods_supported.
   const supportedTokenEndpointAuthMethods = parseStringArray(
     document.token_endpoint_auth_methods_supported,
   );
@@ -246,10 +240,6 @@ function validateClientMetadataDocument(
   // support). The token endpoint independently honors only
   // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
-  // Metadata documents may advertise extension grants that this server does
-  // not implement. The authorization request still selects the supported
-  // authorization-code flow, so rejecting an extra grant here only prevents
-  // otherwise compatible clients such as Claude from connecting.
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||

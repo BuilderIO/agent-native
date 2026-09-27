@@ -1,4 +1,3 @@
-// Shared types and constants for the database module.
 import type {
   ContentDatabaseColumnCalculation,
   ContentDatabaseFilter,
@@ -15,7 +14,6 @@ import type {
   DocumentPropertyValue,
 } from "@shared/api";
 
-// Re-exported type aliases used across modules and by consumers.
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
 export type FilterOperator = ContentDatabaseFilterOperator;
@@ -25,7 +23,6 @@ export type DatabaseColumnCalculation = ContentDatabaseColumnCalculation;
 export type DatabaseRowDensity = ContentDatabaseRowDensity;
 export type ColumnKey = "name" | (string & {});
 
-// Column dimension constants (used by views, grid, and table modules).
 export const DEFAULT_NAME_COLUMN_WIDTH = 240;
 export const DEFAULT_PROPERTY_COLUMN_WIDTH = 180;
 export const MIN_COLUMN_WIDTH = 96;
@@ -52,12 +49,10 @@ export const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
 
 export const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 
-// Handler type used by all "new row/card" components.
 export type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
 
-// Drag preview overlay state.
 export type DatabaseDragPreviewState =
   | {
       kind: "view";
@@ -76,46 +71,37 @@ export type DatabaseDragPreviewState =
       width: number;
     };
 
-// Drop target helpers.
 export type DatabaseDropSide = "before" | "after";
 export type DatabaseDropTargetState = {
   id: string;
   side: DatabaseDropSide;
 };
 
-// Settings panel navigation.
 export type DatabaseSettingsPanel =
   | "main"
   | "layout"
   | "property_visibility"
   | "group";
 
-// Property picker option used by sort/filter/group pickers.
 export type DatabasePropertyPickerOption = {
   key: string;
   label: string;
   type: DocumentPropertyType | "name";
 };
 
-// Preview neighbor direction.
 export type DatabasePreviewNeighborDirection = "prev" | "next";
 
-// View move direction.
 export type DatabaseViewMoveDirection = "left" | "right";
 
-// Property move direction.
 export type DatabasePropertyMoveDirection = "left" | "right";
 
-// Condition (sort/filter) move direction.
 export type DatabaseConditionMoveDirection = "up" | "down";
 
-// Quick-filter operators (subset of FilterOperator).
 export type DatabaseQuickFilterOperator = Extract<
   FilterOperator,
   "is_empty" | "is_not_empty" | "is_checked" | "is_unchecked"
 >;
 
-// Board group structure (exported to consumers via DocumentDatabase.tsx).
 export const BOARD_UNGROUPED_VALUE = "__ungrouped__";
 
 export interface DatabaseBoardGroup {

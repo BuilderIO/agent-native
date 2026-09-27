@@ -798,6 +798,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionCreateFailed: "सुझाव नहीं बनाया जा सका",
     suggestionsCount: "{{count}} सुझाव",
     acceptSuggestion: "स्वीकार करें",
@@ -840,6 +847,35 @@ const rawLiterals = {
     contentSpace: "Content स्पेस",
     addChild: "चाइल्ड जोड़ें",
     addChildTo: "{{title}} में चाइल्ड जोड़ें",
+    removeFromRecent: "हाल ही में देखे गए से हटाएँ",
+    copyLink: "लिंक कॉपी करें",
+    openInNewTab: "नए टैब में खोलें",
+    rename: "नाम बदलें",
+    duplicate: "डुप्लिकेट करें",
+    moveTo: "यहाँ ले जाएँ",
+    moveToTrash: "ट्रैश में ले जाएँ",
+    lastEditedBy: "अंतिम बार {{name}} ने संपादित किया",
+    lastEdited: "अंतिम संपादन",
+    pageName: "पेज का नाम",
+    movePageTo: "“{{title}}” को यहाँ ले जाएँ",
+    topLevel: "शीर्ष स्तर",
+    noMatchingPages: "कोई मेल खाते पेज नहीं",
+    failedRenamePage: "पेज का नाम नहीं बदला जा सका",
+    failedDuplicatePage: "पेज डुप्लिकेट नहीं किया जा सका",
+    duplicatedFromLastSave:
+      "आख़िरी सहेजा गया संस्करण कॉपी किया गया; हाल के बिना सहेजे बदलाव शामिल नहीं हैं।",
+    chooseSpace: "वर्कस्पेस चुनें",
+    moveToSpaceTitle: "{{space}} में ले जाएँ?",
+    moveToSpaceWarningShared:
+      "{{space}} में सभी लोग “{{title}}” और इसके सब-पेज देख सकेंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    moveToSpaceWarningPrivate:
+      "{{space}} में “{{title}}” और इसके सब-पेज केवल आपके लिए निजी होंगे। मौजूदा शेयरिंग और सार्वजनिक लिंक हटा दिए जाएँगे, और आप इसके मालिक बन जाएँगे।",
+    back: "वापस",
+    movePage: "ले जाएँ",
+    movedToSpace: "“{{title}}” को {{space}} में ले जाया गया",
+    failedRemoveFromRecent: "हाल ही में देखे गए से हटाया नहीं जा सका",
+    collapseItem: "{{title}} संक्षिप्त करें",
+    expandItem: "{{title}} का विस्तार करें",
     database: "संग्रह",
     collection: "संग्रह",
     databasePermanentlyDeleted: "संग्रह स्थायी रूप से हटाया गया",
@@ -904,6 +940,10 @@ const comments = {
   suggestionWith: "से",
   suggestionReplace: "बदलें",
   suggestionDetails: "सुझाव का विवरण",
+  proposalEditCount_one: "{{count}} संपादन",
+  proposalEditCount_other: "{{count}} संपादन",
+  acceptRemaining: "शेष स्वीकार करें",
+  rejectRemaining: "शेष अस्वीकार करें",
   typeFilter: "प्रकार",
   statusFilter: "स्थिति",
   authorFilter: "व्यक्ति",
@@ -980,6 +1020,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
@@ -1005,6 +1052,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "जानकारी",
+      copyLink: "लिंक कॉपी करें",
+      copyForPeople: "लोगों के लिए कॉपी करें",
+      copyForAgents: "एजेंटों के लिए कॉपी करें",
+      whoHasAccess: "किसके पास पहुँच है",
+      sharePeople: "लोग",
+      shareAgents: "एजेंट",
+      copyAgentPrompt: "एजेंट निर्देश कॉपी करें",
+      openInClaude: "Claude में खोलें",
+      openInClaudeCode: "Claude Code में खोलें",
+      openInCodex: "Codex में खोलें",
+      agentCopyAccessNote:
+        "एजेंट आपकी मौजूदा अनुमतियों के साथ Content MCP का उपयोग कर सकते हैं",
+      temporaryAgentLink: "अस्थायी एजेंट लिंक",
+      privateLinkCanView: "केवल पहुँच वाले लोग इसे देख सकते हैं",
+      publicLinkCanView: "लिंक वाला कोई भी व्यक्ति इसे देख सकता है",
+      copiedAgentPrompt: "एजेंट निर्देश कॉपी किए गए",
+      couldNotCopyAgentPrompt: "एजेंट निर्देश कॉपी नहीं किए जा सके",
+      agentPrompt:
+        'यह Content दस्तावेज़ पढ़ें: {{documentUrl}}\n\n{{mcpUrl}} के लिए उपलब्ध Content MCP कनेक्शन का उपयोग करके "{{documentId}}" आईडी के साथ get-document कॉल करें। सार्वजनिक रूप से पढ़े जा सकने वाले पेज को सीधे भी पढ़ा जा सकता है।\n\nयदि प्रमाणित पहुँच आवश्यक हो और Content MCP उपलब्ध न हो या साइन आउट हो, तो मुझसे उसे कनेक्ट करने और प्रमाणित करने के लिए कहें। कनेक्शन सेटअप: {{connectUrl}}। आधिकारिक गाइड: {{docsUrl}}\n\nमेरे कनेक्शन तैयार होने की पुष्टि करने के बाद, मेरे खाते की मौजूदा अनुमतियों से फिर पढ़ने का प्रयास करें। यदि प्रमाणित पढ़ने की अनुमति अस्वीकार हो, तो मुझे यह परिणाम बताएँ।',
       closeUtilityPanel: "पैनल बंद करें",
       exportCsv: "CSV निर्यात करें",
       exportDatabase: "संग्रह निर्यात करें",
@@ -1028,6 +1094,7 @@ const exactEnglish = {
       exportedCsv: "CSV निर्यात किया गया",
       copiedPageLink: "पेज लिंक कॉपी किया गया",
       copyPageLink: "पेज लिंक कॉपी करें",
+      createShareableCopy: "साझा करने योग्य प्रति बनाएँ",
       couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
       clipboardAccessUnavailable: "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
       pageBreadcrumb: "पेज ब्रेडक्रंब",
@@ -1083,6 +1150,14 @@ const history = {
 };
 
 const overrides = {
+  close: "बंद करें",
+  setup: { checkingProvider: "AI कनेक्शन की जाँच हो रही है…" },
+  onboarding: {
+    fileStorage: {
+      title: "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
+      statusUnavailable: "फ़ाइल स्टोरेज की स्थिति उपलब्ध नहीं है।",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1225,6 +1300,13 @@ const overrides = {
     genericError: "कुछ गलत हुआ",
   },
   editor: {
+    iconPickerIcons: "आइकन",
+    iconPickerEmoji: "इमोजी",
+    iconPickerRecent: "हाल के",
+    iconPickerColors: "रंग",
+    iconPickerDefault: "डिफ़ॉल्ट",
+    iconPickerUpload: "अपलोड करें",
+    iconPickerUploading: "अपलोड हो रहा है…",
     ...editor,
     sourceComponent: {
       defaultTitle: "स्रोत कंपोनेंट",

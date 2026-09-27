@@ -11,6 +11,8 @@ import {
   documentEditorBreadcrumbNavigationItems,
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
+  materializedSuggestionForDraft,
+  documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
   documentEditorLoadState,
   documentTitleWidthChanged,
@@ -27,6 +29,9 @@ import {
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
   suggestionPresentation,
+  suggestionPresentations,
+  suggestionDecisionPreviewContent,
+  sameSuggestionAnchorIds,
   suggestionAmendmentTargetIsResolved,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
@@ -44,7 +49,10 @@ import {
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
-import { markdownSuggestionOperations } from "./suggestions/markdown-operation";
+import {
+  markdownSuggestionOperation,
+  markdownSuggestionOperations,
+} from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
   it("attests an identified revert even when its snapshot matches the saved page", () => {
@@ -174,12 +182,130 @@ describe("document editor layout", () => {
     expect(source).toContain('className="absolute right-0 top-0 w-80"');
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
-    expect(source).toContain(
-      'showInlineComments && !isDatabasePage && "pr-80"',
-    );
+    expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
     expect(source).toContain(
       "observeCommentLane(container, lane, setCommentLaneOffset)",
     );
+  });
+
+  it("projects decisions immediately without changing canonical rejection content", () => {
+    const suggestion = {
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          schemaVersion: 1,
+          before: { markdown: "Before" },
+          after: { markdown: "After" },
+        },
+      ],
+    };
+
+    expect(
+      suggestionDecisionPreviewContent(suggestion, "accepted", "Canonical"),
+    ).toBe("After");
+    expect(
+      suggestionDecisionPreviewContent(suggestion, "rejected", "Canonical"),
+    ).toBe("Canonical");
+    expect(
+      suggestionDecisionPreviewContent(
+        suggestion,
+        "accepted",
+        "Canonical",
+        false,
+      ),
+    ).toBe("Canonical");
+  });
+
+  it("keeps a one-operation decision flowing when persistence normalizes its key", () => {
+    const suggestion = {
+      id: "saved-suggestion",
+      operations: [{ ordinal: 0 }],
+    } as never;
+    const otherSuggestion = {
+      id: "other",
+      operations: [{ ordinal: 2 }],
+    } as never;
+    const draft = { operations: [{ ordinal: 1 }] } as never;
+
+    expect(
+      materializedSuggestionForDraft(
+        new Map([["normalized-operation", suggestion]]),
+        draft,
+      ),
+    ).toBe(suggestion);
+    expect(
+      materializedSuggestionForDraft(
+        new Map([
+          ["first", suggestion],
+          ["second", otherSuggestion],
+        ]),
+        draft,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps review geometry stable after the final inline decision", () => {
+    expect(
+      documentEditorReservesInlineReviewSpace({
+        showInlineComments: false,
+        preserveInlineReviewSpace: true,
+        hasInlineCommentSpace: true,
+        isDatabasePage: false,
+      }),
+    ).toBe(true);
+    expect(
+      documentEditorReservesInlineReviewSpace({
+        showInlineComments: false,
+        preserveInlineReviewSpace: true,
+        hasInlineCommentSpace: false,
+        isDatabasePage: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReservesInlineReviewSpace({
+        showInlineComments: true,
+        preserveInlineReviewSpace: true,
+        hasInlineCommentSpace: true,
+        isDatabasePage: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reschedule identical suggestion anchor state", () => {
+    expect(sameSuggestionAnchorIds(["one", "two"], ["one", "two"])).toBe(true);
+    expect(sameSuggestionAnchorIds(["two", "one"], ["one", "two"])).toBe(true);
+    expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
+    expect(sameSuggestionAnchorIds(null, [])).toBe(false);
+  });
+
+  it("does not feed suggestion anchor decoration transactions back into the parent", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const handleSuggestionAnchorsChange"),
+      source.indexOf("const [selectedSuggestionId"),
+    );
+
+    expect(handler).toContain("if (isSuggesting) return");
+    expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
+  });
+
+  it("keeps suggestion history notifications out of the parent render loop", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const editorHistoryStateRef"),
+      source.indexOf("const handleHistoryControllerChange"),
+    );
+
+    expect(handler).toContain("editorHistoryStateRef.current = next");
+    expect(handler).toContain("if (isSuggesting) return");
+    expect(handler).toContain("setEditorHistoryState(next)");
   });
   it("blocks a changed pending selection without dropping its recovery position", () => {
     expect(
@@ -206,10 +332,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    );
-    // One effect, keyed on the selection. Keying it on the whole pending
-    // comment resets the target to invalid for a frame on every keystroke,
-    // which flashes the "select text" alert inside the open composer.
+    ).replace(/\r\n/g, "\n");
     expect(
       source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
     ).toHaveLength(1);
@@ -253,8 +376,9 @@ describe("document editor layout", () => {
       "const visibleSpecs = showCommentIndicators ? specs : []",
     );
     expect(effect).toContain("specs: visibleSpecs");
-    expect(effect).toContain("suggestionsSignature,");
-    expect(effect).toContain("showCommentIndicators,");
+    expect(effect).toMatch(
+      /suggestionsSignature,\r?\n\s+showCommentIndicators,/,
+    );
   });
   it("blocks every document metadata mutation while suggesting", () => {
     expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
@@ -313,7 +437,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
     const flush = source.slice(
       source.indexOf("const flushSuggestionDraft"),
       source.indexOf("const startSuggestionDraft"),
@@ -324,7 +448,7 @@ describe("document editor layout", () => {
       flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
     );
     expect(source).toContain(
-      "isSuggesting &&\n          amendmentDraftIsDirty &&\n          suggestionAmendmentConflict",
+      "amendmentDraftIsDirty && suggestionAmendmentConflict",
     );
   });
 
@@ -354,6 +478,20 @@ describe("document editor layout", () => {
       from: insertion.anchor.from,
       to: insertion.anchor.from + insertion.after.changedText.length,
     });
+  });
+  it("shows precise regions for an existing broad suggestion without splitting its decision", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const saved = markdownSuggestionOperation(before, after)!;
+    const precise = suggestionPresentations(
+      { id: "existing", status: "pending", operations: [saved] },
+      before,
+    );
+
+    expect(precise).toHaveLength(2);
+    expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
+    expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
+    expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -421,9 +559,9 @@ describe("document editor layout", () => {
       "app/components/editor/DocumentEditor.tsx",
       "utf8",
     );
-    expect(source).toContain('result.suggestion.status !== "stale"');
+    expect(source).toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /result\.suggestion\.status !== "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+      /result\.suggestion\.status === "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -602,8 +740,9 @@ describe("document editor layout", () => {
     expect(toolbar).toContain(
       "disabled={!canEdit || revealLocalSource.isPending}",
     );
-    expect(toolbar).toContain("disabled={!canEdit}");
-    expect(toolbar).toContain("handleCopyLocalAbsolutePath()");
+    expect(toolbar).toMatch(
+      /disabled={!canEdit}\r?\n\s+onSelect=\{\(\) => void handleCopyLocalAbsolutePath\(\)\}/,
+    );
   });
 
   it("publishes unsaved local content to the synchronous conflict guard", () => {
@@ -645,8 +784,8 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("contentBase: reconcileBase");
-    expect(source).toContain("if (!result.contentPersisted)");
+    expect(source).toContain("const contentBase = reconcileBase");
+    expect(source).toContain("return result.contentPersisted;");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
@@ -1273,7 +1412,7 @@ describe("document editor layout", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
-    );
+    ).replace(/\r\n/g, "\n");
 
     expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
       documentId: "new-page",
@@ -1469,14 +1608,18 @@ describe("document editor layout", () => {
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.copyPageLink");
+    expect(source).toContain("editor.toolbar.createShareableCopy");
+    expect(source).toContain("editor.toolbar.sharePeople");
+    expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
     expect(source).toContain("showCommentsControl ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
-    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain("quickCopy={{");
+    expect(source).toContain("agentTabContent={");
+    expect(source).not.toContain("shareLinkContent=");
     expect(source).toContain('utilityPanel === "info" ? null : "info"');
     expect(source).toContain('commentsHistoryOpen ? null : "comments"');
     expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
@@ -1579,10 +1722,8 @@ describe("document editor layout", () => {
       {
         encoding: "utf8",
       },
-    );
+    ).replace(/\r\n/g, "\n");
 
-    // Every SQL-backed reader keeps the scoped collaboration subscription for
-    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -1616,8 +1757,6 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Viewers can read comments; only comment-capable roles get composer
-    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
       "!isLocalFileDocument ? documentId : null",
     );
@@ -1799,9 +1938,8 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const baseUpdatedAt");
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
-    expect(teardown).toContain("lastSavedContentRef.current.content");
-    expect(teardown).toContain("documentRevisionRef.current !==");
-    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("pending.contentBase.content");
+    expect(teardown).toContain("pending.contentBase.revision");
     expect(teardown).not.toContain("const optimisticAt");
     expect(teardown).not.toContain("lastSavedContentRef.current =");
     expect(teardown).not.toContain(
@@ -1884,13 +2022,38 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("createSuggestionDraftSession({");
-    expect(source).toContain("baseContent: document.content");
+    expect(source).toContain("baseContent: nextDocument.content");
+    expect(source).toContain(
+      "const readyDocument = await prepareSuggestionDraftDocument()",
+    );
     expect(source).toContain(
       "suggestionDraftOperations(base, suggestionDraft)",
     );
-    expect(source).toContain("persistSuggestionDraftOperations(");
+    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
+    expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
     expect(source).toContain("baseRevision: base.baseRevision");
+  });
+
+  it("confirms pending canonical edits before starting either suggestion entry path", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const preparation = source.slice(
+      source.indexOf("const prepareSuggestionDraftDocument"),
+      source.indexOf("const continueSuggestionModeFrom"),
+    );
+
+    expect(preparation).toContain("await queueDocumentSave(title, content");
+    expect(preparation).toContain('"get-document"');
+    expect(preparation).toContain("refreshedDocument.content !== content");
+    expect(preparation).toContain("title === lastSavedTitleRef.current.title");
+    expect(preparation).toContain("lastSavedTitleRef.current.title !== title");
+    expect(preparation).toContain("refreshedDocument.title !== title");
+    expect(source.match(/startSuggestionDraft\(readyDocument/g)).toHaveLength(
+      4,
+    );
   });
 
   it("does not steal reply focus when activating a suggestion", () => {
@@ -1915,10 +2078,71 @@ describe("document editor layout", () => {
 
     expect(source).toContain("if (isSubmittingSuggestions) return");
     expect(source).toContain("setIsSubmittingSuggestions(true)");
-    expect(source).toContain(
-      "suggestionEditorIsolation.editable &&\n                              !isSubmittingSuggestions",
+    expect(source).toMatch(
+      /suggestionEditorIsolation\.editable &&\s+!isStartingSuggestion &&\s+!isSubmittingSuggestions/,
     );
     expect(source).toContain("setIsSubmittingSuggestions(false)");
+  });
+
+  it("keeps Suggesting enabled while accept and reject reconcile", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const decision = source.slice(
+      source.indexOf("onDecideSuggestion={async"),
+      source.indexOf("canSuggest={canSuggest}"),
+    );
+
+    expect(decision).toContain("flushSuggestionDraft({ keepMode: true })");
+    expect(decision).toMatch(
+      /if \(continueSuggesting\) \{\s+const persisted = await flushSuggestionDraft\(\{ keepMode: true \}\)/,
+    );
+    expect(decision).toContain("suggestionDecisionInFlightRef.current = true");
+    expect(decision).toContain("suggestionDecisionInFlightRef.current = false");
+    expect(decision).toContain("if (result.suggestion.status !== decision)");
+    expect(decision).toContain("optimistic: false");
+    expect(source).toContain("!!pendingSuggestionDecision");
+    expect(decision).toContain("setPendingSuggestionDecision({");
+    expect(decision).toContain("continueSuggesting,");
+    expect(decision).toContain(
+      "await refreshSuggestionDecisionDocument(continueSuggesting)",
+    );
+    expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
+    expect(source).toContain("setDecisionRefreshFailed(true)");
+    expect(source).toContain("if (decisionRefreshInFlightRef.current) return");
+    expect(source).toContain("decisionRefreshInFlightRef.current = true");
+    expect(source).toContain("decisionRefreshInFlightRef.current = false");
+    expect(source).toMatch(
+      /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
+    );
+    expect(source).toContain(
+      "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
+    );
+    expect(decision).not.toContain("setIsSuggesting(false)");
+  });
+
+  it("resets the live editor to canonical content before painting a rejected draft", () => {
+    const sessionSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const editorSource = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(sessionSource).toContain("contentResetKey={");
+    expect(sessionSource).toContain(
+      'pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"',
+    );
+    expect(editorSource).toContain("useLayoutEffect(() => {");
+    expect(editorSource).toContain(
+      "appliedContentResetKeyRef.current === contentResetKey",
+    );
+    expect(editorSource).toContain(
+      ".setContent(nfmToDoc(content), { emitUpdate: false })",
+    );
   });
 
   it("composes saved and draft suggestion anchors in the active editor", () => {

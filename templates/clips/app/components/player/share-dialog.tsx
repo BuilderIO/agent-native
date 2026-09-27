@@ -8,15 +8,18 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  AgentDestinationActions,
+  JoinedShareControl,
+  ShareModeTabs,
+} from "@agent-native/toolkit/sharing";
+import {
   IconArrowLeft,
   IconBrandFacebook,
   IconBrandLinkedin,
   IconBrandX,
-  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
-  IconLink,
   IconMail,
   IconPhoto,
   IconShare3,
@@ -36,10 +39,6 @@ import {
   ClaudeLogo,
   CodexLogo,
 } from "@/components/agent-destination-logos";
-import {
-  PageHeaderActionGroup,
-  PageHeaderPrimaryAction,
-} from "@/components/library/page-header";
 import {
   CopyButton,
   GeneralAccessSelect,
@@ -67,12 +66,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 import { buildAgentApiUrls } from "../../../shared/agent-context";
@@ -110,21 +104,8 @@ export interface ShareRecordingPopoverProps {
   isLoomRecording?: boolean;
   hasPassword?: boolean;
   expiresAt?: string | null;
-  /**
-   * Restricts the dialog to a bare copy-link control for viewers who can
-   * reshare a public/org clip's link but have no edit access: it skips
-   * `list-resource-shares` (which returns every individually-shared
-   * principal's email to any reader) and hides access management entirely.
-   */
   viewerReshareOnly?: boolean;
-  /**
-   * Redaction boxes placed on this recording but not yet burned into the file.
-   * While there are any, sharing is held back: the stored video still shows
-   * everything under them, so a link handed out now hands out the unredacted
-   * clip. The editor is where they get burned in.
-   */
   pendingRedactions?: number;
-  /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -138,11 +119,6 @@ type ShareRecordingDialogProps = Omit<
   onOpenChange: (open: boolean) => void;
 };
 
-/**
- * Clips share popover — anchored to a trigger button. The default view keeps
- * copy, invite, and access together; secondary destinations replace the body
- * so advanced controls never compete with the primary sharing path.
- */
 export function ShareRecordingPopover({
   recordingId,
   recordingTitle,
@@ -162,8 +138,6 @@ export function ShareRecordingPopover({
 }: ShareRecordingPopoverProps) {
   const t = useT();
   const { session } = useSession();
-  const [copied, setCopied] = useState(false);
-  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ownerViaId =
     initialRole === "owner" ? (session?.userId ?? undefined) : undefined;
   const shareUrl =
@@ -174,28 +148,17 @@ export function ShareRecordingPopover({
           ownerViaId,
         );
 
-  useEffect(
-    () => () => {
-      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    },
-    [],
-  );
-
   const copyShareLink = async () => {
-    // The copy button is the other half of the same control, and it hands the
-    // link straight to the clipboard without opening anything — so it has to
-    // refuse for the same reason, and say so, rather than quietly copying a
-    // link to a video whose redactions are still only drawn on.
     if (pendingRedactions > 0) {
       toast.warning(t("shareDialog.redactionsPendingTitle"), {
         description: t("shareDialog.redactionsPendingBody", {
           count: pendingRedactions,
         }),
       });
-      return;
+      return false;
     }
     const didCopy = await writeClipboardText(shareUrl);
-    if (!didCopy) return;
+    if (!didCopy) return false;
     trackEvent("share_link_copied", {
       app_name: "clips",
       template_name: "clips",
@@ -205,47 +168,20 @@ export function ShareRecordingPopover({
       link_type: "share",
       ...(initialVisibility ? { link_scope: initialVisibility } : {}),
     });
-    setCopied(true);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopied(false), 1_400);
+    return true;
   };
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <PageHeaderActionGroup>
-          <PopoverTrigger asChild>{children}</PopoverTrigger>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PageHeaderPrimaryAction
-                type="button"
-                aria-label={
-                  copied
-                    ? t("recordRoute.linkCopied")
-                    : t("recordRoute.copyLinkAction")
-                }
-                disabled={!shareUrl}
-                data-blocked={pendingRedactions > 0 ? "" : undefined}
-                className={cn(
-                  "w-8 px-0 shadow-none",
-                  pendingRedactions > 0 && "opacity-50",
-                )}
-                onClick={() => void copyShareLink()}
-              >
-                {copied ? (
-                  <IconCheck className="size-4" />
-                ) : (
-                  <IconLink className="size-4" />
-                )}
-              </PageHeaderPrimaryAction>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {copied
-                ? t("recordRoute.linkCopied")
-                : t("recordRoute.copyLinkAction")}
-            </TooltipContent>
-          </Tooltip>
-        </PageHeaderActionGroup>
+        <JoinedShareControl
+          trigger={<PopoverTrigger asChild>{children}</PopoverTrigger>}
+          copyLabel={t("recordRoute.copyLinkAction")}
+          copiedLabel={t("recordRoute.linkCopied")}
+          disabled={!shareUrl}
+          blocked={pendingRedactions > 0}
+          onCopy={copyShareLink}
+        />
       </PopoverAnchor>
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
@@ -254,9 +190,6 @@ export function ShareRecordingPopover({
         className="z-[260] w-[360px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         {pendingRedactions > 0 ? (
-          // Deliberately not the sharing controls at all: an explanation and
-          // nothing to click. Coming back to finish an edit is normal; handing
-          // the link out with the redactions still only drawn on is not.
           <div className="space-y-2 p-4">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
               {t("shareDialog.redactionsPendingTitle")}
@@ -287,11 +220,6 @@ export function ShareRecordingPopover({
   );
 }
 
-/**
- * Dialog shell for menu-driven Share actions. Radix popovers need a real
- * anchor; opening one from a dropdown item with an invisible trigger can
- * be dismissed by the same click/focus cycle that closes the menu.
- */
 export function ShareRecordingDialog({
   recordingId,
   recordingTitle,
@@ -318,9 +246,6 @@ export function ShareRecordingDialog({
             : t("shareDialog.shareRecording")}
         </DialogTitle>
         {pendingRedactions > 0 ? (
-          // Deliberately not the sharing controls at all: an explanation and
-          // nothing to click. Coming back to finish an edit is normal; handing
-          // the link out with the redactions still only drawn on is not.
           <div className="space-y-2 p-4">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
               {t("shareDialog.redactionsPendingTitle")}
@@ -409,27 +334,14 @@ function ShareRecordingContent({
   const data = viewerReshareOnly ? undefined : sharesQuery.data;
   const role = data?.role ?? initialRole;
   const canManage = role === "owner" || role === "admin";
-  // Editors could always see (read-only) who a clip is shared with; only
-  // gate invite mutations behind canManage. Commenters are
-  // grouped with plain viewers here -- neither can manage shares.
   const canViewShares =
     role === "owner" || role === "admin" || role === "editor";
   const visibility =
     (data?.visibility as Visibility | null | undefined) ??
     initialVisibility ??
     null;
-  // A plain viewer/commenter can't produce a working embed for a non-public
-  // clip (they have no way to make it public), so don't dangle the tab in
-  // front of them only to show an "ask the owner" dead end. Owner/admin/
-  // editor keep it regardless of visibility since they can flip to public
-  // from inside it.
   const canEmbed = canViewShares || visibility === "public";
 
-  // Attribution `via` must be a stable non-PII id, never an email. The only
-  // owner id available client-side is the *current* session's userId, which is
-  // the clip owner only when the viewer is the owner. Anyone else (e.g. a
-  // share-admin) gets an untagged `via` so we never attribute the link to the
-  // wrong person or leak the owner's email.
   const { session } = useSession();
   const ownerViaId =
     data?.role === "owner" ? (session?.userId ?? undefined) : undefined;
@@ -518,42 +430,23 @@ function ShareRecordingContent({
           viewerReshareOnly ? (
             peopleTab
           ) : (
-            <Tabs
+            <ShareModeTabs
               value={shareMode}
               onValueChange={(value) =>
                 setShareMode(value as "people" | "agents")
               }
-              className="gap-3"
-            >
-              <TabsList
-                variant="line"
-                className="h-8 w-full justify-start gap-1 rounded-none px-0 py-0"
-              >
-                <TabsTrigger
-                  value="people"
-                  className="h-8 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2"
-                >
-                  {t("shareDialog.people")}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="agents"
-                  className="h-8 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2"
-                >
-                  {t("shareDialog.agents")}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="people" className="m-0">
-                {peopleTab}
-              </TabsContent>
-              <TabsContent value="agents" className="m-0">
+              peopleLabel={t("shareDialog.people")}
+              agentsLabel={t("shareDialog.agents")}
+              people={peopleTab}
+              agents={
                 <AgentTab
                   recordingId={recordingId}
                   visibility={visibility}
                   hasPassword={passwordProtected}
                   active={shareMode === "agents"}
                 />
-              </TabsContent>
-            </Tabs>
+              }
+            />
           )
         ) : view === "social" ? (
           <SocialTab
@@ -601,10 +494,6 @@ function ShareOptionRow({
     </Button>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Primary view — invite, access, and progressively disclosed destinations
-// ---------------------------------------------------------------------------
 
 function PeopleTab({
   recordingId,
@@ -890,49 +779,22 @@ function AgentTab({
   }
 
   return (
-    <div className="-mx-1.5 flex flex-col gap-0.5">
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => void copyAgentPrompt()}
-      >
-        <IconLink className="size-4 text-muted-foreground" />
-        {t("shareDialog.copyAgentPrompt")}
-      </Button>
-      <div className="my-1 border-t border-border" />
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("claude")}
-      >
-        <ClaudeLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInClaude")}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("claude-code")}
-      >
-        <ClaudeCodeLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInClaudeCode")}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="h-9 w-full justify-start gap-2 px-1.5 text-sm font-normal"
-        disabled={agentShareDisabled}
-        onClick={() => openAgentDestination("codex")}
-      >
-        <CodexLogo className="size-4 text-muted-foreground" />
-        {t("shareDialog.openInCodex")}
-      </Button>
-    </div>
+    <AgentDestinationActions
+      labels={{
+        copy: t("shareDialog.copyAgentPrompt"),
+        claude: t("shareDialog.openInClaude"),
+        claudeCode: t("shareDialog.openInClaudeCode"),
+        codex: t("shareDialog.openInCodex"),
+      }}
+      icons={{
+        claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
+        "claude-code": <ClaudeCodeLogo className="size-4" />, // i18n-ignore: destination identifier
+        codex: <CodexLogo className="size-4" />,
+      }}
+      disabled={agentShareDisabled}
+      onCopy={copyAgentPrompt}
+      onOpen={openAgentDestination}
+    />
   );
 }
 
@@ -1125,10 +987,6 @@ function formatExpiry(iso: string | null): string {
   }).format(date);
 }
 
-// ---------------------------------------------------------------------------
-// Social tab — destination-first share intents, no provider account required
-// ---------------------------------------------------------------------------
-
 function SocialTab({
   shareUrl,
   recordingId,
@@ -1267,10 +1125,6 @@ function SocialTab({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Embed tab — Clips-specific configurator
-// ---------------------------------------------------------------------------
-
 function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
@@ -1308,7 +1162,6 @@ function ClipsEmbedConfigurator({
     if (autoplay) params.push("autoplay=1");
     if (startMs > 0) params.push(`t=${Math.round(startMs / 1000)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
-    // Keep autoplay/t intact and also self-attribute the embed.
     return withShareAttribution(
       absoluteAppUrl(`/embed/${recordingId}${qs}`),
       ownerViaId,

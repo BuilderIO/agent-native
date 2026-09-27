@@ -5,7 +5,6 @@ import {
   recordingSharePath,
 } from "@shared/recording-link";
 
-/** Absolute, ready-to-paste public share URL for a recording. */
 export function recordingShareUrl(
   recordingId: string,
   ownerId?: string | null,
@@ -19,14 +18,23 @@ export function recordingShareUrl(
   });
 }
 
-/**
- * Copy a recording's public share link. Returns whether the write actually
- * landed so callers can tell the user the truth instead of assuming a silent
- * `navigator.clipboard` rejection was a success.
- */
 export async function copyRecordingShareLink(
   recordingId: string,
   ownerId?: string | null,
 ): Promise<boolean> {
   return writeClipboardText(recordingShareUrl(recordingId, ownerId));
+}
+
+export function freshRecordingShareUrl(
+  recordingId: string,
+  session: { userId?: string | null } | null | undefined,
+): string {
+  return recordingShareUrl(recordingId, session?.userId ?? undefined);
+}
+
+export async function copyFreshRecordingShareLink(
+  recordingId: string,
+  session: { userId?: string | null } | null | undefined,
+): Promise<boolean> {
+  return writeClipboardText(freshRecordingShareUrl(recordingId, session));
 }

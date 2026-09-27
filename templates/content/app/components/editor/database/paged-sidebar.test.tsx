@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type {
   ContentDatabaseItem,
   ContentDatabaseNavigationItem,
@@ -73,32 +74,46 @@ function Harness({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   return (
-    <MemoryRouter>
-      <TooltipProvider>
-        <PagedContentFilesSidebarView
-          databaseId="files"
-          sort="custom"
-          viewId="default"
-          activeDocumentId={activeDocumentId}
-          expandedDocumentIds={expanded}
-          onDocumentExpandedChange={(id, open) =>
-            setExpanded((current) => {
-              const next = new Set(current);
-              if (open) next.add(id);
-              else next.delete(id);
-              return next;
-            })
-          }
-          documentMetadata={new Map()}
-          activePathDocuments={activePathDocuments}
-          onCreateChildPage={() => {}}
-          onDeleteItem={onDeleteItem}
-          onToggleFavorite={onToggleFavorite}
-          navigationLabel="Files"
-          untitledLabel="Untitled"
-        />
-      </TooltipProvider>
-    </MemoryRouter>
+    <AgentNativeI18nProvider
+      initialLocale="en-US"
+      persistPreference={false}
+      catalog={{
+        sourceLocale: "en-US",
+        messages: {
+          sidebar: {
+            expandItem: "Expand {{title}}",
+            collapseItem: "Collapse {{title}}",
+          },
+        },
+      }}
+    >
+      <MemoryRouter>
+        <TooltipProvider>
+          <PagedContentFilesSidebarView
+            databaseId="files"
+            sort="custom"
+            viewId="default"
+            activeDocumentId={activeDocumentId}
+            expandedDocumentIds={expanded}
+            onDocumentExpandedChange={(id, open) =>
+              setExpanded((current) => {
+                const next = new Set(current);
+                if (open) next.add(id);
+                else next.delete(id);
+                return next;
+              })
+            }
+            documentMetadata={new Map()}
+            activePathDocuments={activePathDocuments}
+            onCreateChildPage={() => {}}
+            onDeleteItem={onDeleteItem}
+            onToggleFavorite={onToggleFavorite}
+            navigationLabel="Files"
+            untitledLabel="Untitled"
+          />
+        </TooltipProvider>
+      </MemoryRouter>
+    </AgentNativeI18nProvider>
   );
 }
 
@@ -136,8 +151,11 @@ describe("PagedContentFilesSidebarView", () => {
     const showMore = Array.from(
       container.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent === "Show more");
-    expect(showMore?.style.gridTemplateColumns).toBe("28px minmax(0, 1fr)");
-    expect(showMore?.className).toContain("min-h-[38px]");
+    expect(showMore?.style.gridTemplateColumns).toBe(
+      "0px 1.75rem minmax(0, 1fr)",
+    );
+    expect(showMore?.className).toContain("h-7");
+    expect(showMore?.className).not.toContain("min-h-[38px]");
     expect(showMore?.className).toContain("hover:bg-transparent");
     expect(showMore?.className).toContain("font-medium");
     await act(async () =>
@@ -220,7 +238,11 @@ describe("PagedContentFilesSidebarView", () => {
     });
     const { container, root } = await renderHarness();
 
-    expect(useActionQuery).toHaveBeenCalledTimes(1);
+    expect(
+      useActionQuery.mock.calls.every(
+        ([, args]) => args.navigation.parentId === null,
+      ),
+    ).toBe(true);
     const expand = container.querySelector<HTMLButtonElement>(
       '[aria-label="Expand Page root"]',
     );
@@ -240,7 +262,7 @@ describe("PagedContentFilesSidebarView", () => {
       Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent === "Show more",
       )?.style.gridTemplateColumns,
-    ).toBe("46px minmax(0, 1fr)");
+    ).toBe("18px 1.75rem minmax(0, 1fr)");
     await act(async () =>
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent === "Show more")

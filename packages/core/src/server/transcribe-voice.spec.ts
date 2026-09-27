@@ -32,10 +32,9 @@ vi.mock("../agent/engine/builder-engine.js", () => ({
 vi.mock("./request-context.js", () => ({
   runWithRequestContext: async (_ctx: unknown, fn: () => Promise<unknown>) =>
     fn(),
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
-// Real `gatewayLaneUnavailableMessage`: which audience each rejection is
-// written for is the behavior under test, so that decision is not stubbed. It
-// reads `BUILDER_GATEWAY_TOKEN` from the environment.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: async () => null,
@@ -61,9 +60,6 @@ describe("transcribe-voice Builder provider gate", () => {
     state.status = 0;
     state.provider = "builder";
     delete process.env.BUILDER_GATEWAY_TOKEN;
-    // Pinned rather than inherited: the deploy-lane predicate reads these, and a
-    // runner with a preview/hosted value set takes the owner path, so the visitor
-    // assertions below would silently test the wrong branch.
     delete process.env.FUSION_ENVIRONMENT;
     delete process.env.FUSION_ENV_ORIGIN;
     delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -76,9 +72,6 @@ describe("transcribe-voice Builder provider gate", () => {
     });
   });
 
-  // The gate used to ask the identity-only question, which is false on a
-  // Builder-credits site: the gateway transcription path was unreachable and the
-  // visitor was told to connect an account they do not have.
   it("transcribes through the gateway lane on a credits-only deployment", async () => {
     state.hasGatewayCredential = true;
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -119,9 +112,6 @@ describe("transcribe-voice Builder provider gate", () => {
     expect(state.status).toBe(502);
   });
 
-  // "auto" is what the sidebar composer and every web client send, so this is
-  // the route a visitor actually takes — the explicit "builder" preference above
-  // is the desktop client's per-press choice.
   describe("auto provider chain", () => {
     beforeEach(() => {
       state.provider = "auto";

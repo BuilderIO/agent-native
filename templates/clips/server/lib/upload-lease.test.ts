@@ -6,9 +6,6 @@ const { PGlite } = createRequire(
 )("@electric-sql/pglite");
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real PostgreSQL test database behind getDbExec: the bug class this replaces was
-// "the sweep selected the wrong population", so the reaper's population has to
-// be exercised against a real table rather than an asserted SQL string.
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 let client: PGliteClient;
 type SqlStatement = string | { sql: string; args?: unknown[] };
@@ -101,11 +98,15 @@ async function chunkKeys(): Promise<string[]> {
 
 async function statusOf(id: string) {
   const { rows } = await execute(client, {
-    sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
+    sql: `SELECT status, failure_reason, failure_code FROM recordings WHERE id = ?`,
     args: [id],
   });
   const row = rows[0] as any;
-  return { status: row?.status, failure_reason: row?.failure_reason };
+  return {
+    status: row?.status,
+    failure_reason: row?.failure_reason,
+    failure_code: row?.failure_code,
+  };
 }
 
 describe("upload lease", () => {
@@ -118,6 +119,9 @@ describe("upload lease", () => {
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
+      upload_attempt_id TEXT,
+      recording_platform TEXT,
+      failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
       upload_generation_id TEXT,
@@ -147,7 +151,6 @@ describe("upload lease", () => {
     expect(result.expired).toEqual([]);
     expect(result.failed).toBe(0);
     expect((await statusOf("live")).status).toBe("uploading");
-    // A live upload's scratch is claimed by its in-progress row and survives.
     expect(await chunkKeys()).toEqual([
       "recording-chunks-live-000000",
       "recording-chunks-live-000001",
@@ -169,6 +172,7 @@ describe("upload lease", () => {
     expect(await statusOf("dead")).toEqual({
       status: "failed",
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
+      failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
   });
@@ -247,7 +251,6 @@ describe("upload lease", () => {
       args: ["resumable-session-renewing", "{}"],
     });
 
-    // The writer renews between the reaper's probe and its compare-and-set.
     const realQuery = client.query.bind(client);
     let renewed = false;
     vi.spyOn(client, "query").mockImplementation(
@@ -274,8 +277,6 @@ describe("upload lease", () => {
     expect(result.failed).toBe(0);
     expect(result.expired).toEqual([]);
     expect((await statusOf("renewing")).status).toBe("uploading");
-    // Its streaming session must survive too — losing it strands the upload
-    // just as thoroughly as failing the row would.
     const { rows } = await execute(
       client,
       `SELECT key FROM application_state WHERE key = 'resumable-session-renewing'`,
@@ -287,7 +288,7 @@ describe("upload lease", () => {
   it("reclaims scratch left by finalized and hard-deleted recordings", async () => {
     await insertRecording({ id: "done", status: "ready", lease: iso(30_000) });
     await insertChunk("done", 0);
-    await insertChunk("gone", 0); // recording row was hard-deleted
+    await insertChunk("gone", 0);
 
     const result = await reapExpiredUploads({ now: NOW });
 

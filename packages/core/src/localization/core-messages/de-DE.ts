@@ -1,7 +1,37 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL-Adresse",
+  "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+  "composer.contextAttach": "Anhängen",
+  "composer.menu.search": "Suchen…",
+  "composer.contextPrevious": "Zurück",
+  "composer.contextNext": "Weiter",
+  "composer.contextLoadFailed": "Kontext konnte nicht geladen werden.",
+  "composer.contextLinkRequired": "Gib einen Link ein.",
+  "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.addContext": "Kontext hinzufügen",
+  "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
+  "composer.contextBack": "Zurück",
+  "composer.searchContext": "Kontext suchen…",
+  "composer.noContextResults": "Kein passender Kontext.",
+  "composer.contextPending": "Kontext wird geladen",
+  "composer.contextError": "Kontext fehlgeschlagen",
+  "composer.retryContext": "Kontext {{name}} erneut laden",
+  "composer.contextLimitExceeded":
+    "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
+  "activity.groupLabel": "Agentenaktivität",
+  "activity.agents": "Zusammenarbeit der Agenten",
+  "activity.tasks": "Agentenaufgaben",
+  "agent.started": "hat die Arbeit begonnen",
+  "agent.resumed": "hat die Arbeit wieder aufgenommen",
+  "agent.messaged": "hat eine Nachricht gesendet",
+  "agent.delegated": "hat Arbeit delegiert",
+  "agent.paused": "hat die Arbeit pausiert",
+  "agent.completed": "hat die Arbeit abgeschlossen",
+  "agent.failed": "braucht Aufmerksamkeit",
+  "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
     "Diesen exakten Befehl genehmigen und immer erlauben",
@@ -14,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "Ablehnen",
   "approval.moreOptions": "Weitere Genehmigungsoptionen",
   "approval.question": "Ausführung von {{tool}} genehmigen?",
+  "approval.submit": "Absenden",
+  "approval.other": "Sonstiges",
+  "approval.otherPlaceholder": "Antwort eingeben",
   "auth.expiredDescription":
     "Deine Sitzung ist möglicherweise abgelaufen. Melde dich ab und wieder an, um die Verbindung wiederherzustellen.",
   "auth.expiredTitle": "Sitzung abgelaufen",
@@ -35,6 +68,28 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.viewDetails": "Details anzeigen",
+  "observability.hideDetails": "Details ausblenden",
+  "observability.input": "Eingabe",
+  "observability.output": "Ausgabe",
+  "observability.error": "Fehler",
+  "observability.metadata": "Metadaten",
+  "observability.notCaptured": "Nicht erfasst",
+  "observability.openFullConversation": "Vollständige Unterhaltung öffnen",
+  "observability.learnAboutTab": "Mehr über diesen Tab erfahren",
+  "observability.summarizeWithAgent": "Mit Agent zusammenfassen",
+  "observability.regenerateSummary": "Zusammenfassung neu erstellen",
+  "observability.summarizeWithAgentHelp":
+    "Den Agenten bitten, diesen Thread zu lesen, Anfrage und Ergebnis zusammenzufassen und nur verifizierte Artefakte zu verknüpfen.",
+  "observability.regenerateSummaryHelp":
+    "Den Agenten bitten, diese Zusammenfassung anhand des neuesten Threads und verifizierter Artefakte zu aktualisieren.",
+  "observability.summarySending": "Anfrage wird an den Agenten gesendet…",
+  "observability.summaryQueued":
+    "Anfrage in Warteschlange. Die Zusammenfassung erscheint hier, sobald der Agent sie gespeichert hat.",
+  "observability.summaryFailed":
+    "Anfrage konnte nicht gesendet werden. Bitte erneut versuchen.",
+  "observability.summaryExpired":
+    "Noch keine Zusammenfassung angezeigt. Du kannst es erneut versuchen, aber der Agent arbeitet möglicherweise noch.",
   "onboarding.back": "Zurück",
   "onboarding.chooseRole": "Wähle deine Rolle",
   "onboarding.customizeRole": "Wir passen das für dich an.",
@@ -53,8 +108,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
-  "onboarding.builderActivateCredits": "Builder.io-Gratiscredits aktivieren",
-  "onboarding.builderConnectCredits": "Builder.io-Gratiscredits verbinden",
+  "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
+  "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -88,10 +143,13 @@ const messages: AgentChatTranslation = {
     "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
-  "onboarding.fileStorage.title": "Wähle den Dateispeicher",
+  "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
+  "onboarding.fileStorage.statusUnavailable":
+    "Speicherstatus konnte nicht geprüft werden",
   "onboarding.fileStorage.description":
-    "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
-  "onboarding.fileStorage.custom": "Eigene Speicherschlüssel verwenden",
+    "Verbinde Builder.io (kostenlos) oder konfiguriere deinen eigenen S3-kompatiblen Objektspeicher.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io erneut verbinden",
+  "onboarding.fileStorage.custom": "Eigene Schlüssel verwenden",
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
@@ -129,6 +187,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Diagnosedaten kopieren",
   "aboutAgentNative.unknown": "Unbekannt",
   "common.agent": "Agent",
+  "common.you": "Du",
   "agentPanel.mode": "Modus",
   "agentPanel.uiMode": "Benutzeroberfläche",
   "agentPanel.keyScope": "Schlüsselbereich",
@@ -254,6 +313,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "Wie kann ich dir helfen?",
   "error.afterDuration": "{{headline}} nach {{duration}}",
   "error.failed": "Beim Agenten ist ein Fehler aufgetreten",
+  "error.render": "Dieser Inhalt konnte nicht angezeigt werden.",
   "error.stopped": "Der Agent wurde vor Abschluss gestoppt",
   "header.switchToCli": "Zur CLI wechseln",
   "history.active": "Aktiv",
@@ -276,6 +336,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Verwalten",
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
+  "connection.connecting": "Verbindung wird hergestellt…",
+  "connection.notNow": "Nicht jetzt",
+  "connection.failed": "Verbindung fehlgeschlagen",
+  "connection.adminRequired":
+    "Bitte wende dich an einen Workspace-Admin, um diesen Dienst zu verbinden.",
   "limit.account": "deines Kontos",
   "limit.descriptionAll":
     "Der Agent hat alle verfügbaren Schritte verwendet. Fahre in einem neuen Durchlauf fort oder erhöhe zuerst das Limit {{scope}}.",
@@ -293,8 +358,15 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "Nachricht kopieren",
   "message.copyRequestId": "Anfrage-ID kopieren",
   "message.requestIdUnavailable": "Anfrage-ID nicht verfügbar",
+  "message.unavailable":
+    "Die Nachricht ist in dieser Unterhaltung nicht mehr verfügbar.",
+  "message.navigationUnavailable":
+    "Die Unterhaltungsnavigation ist nicht verfügbar.",
   "message.edit": "Nachricht bearbeiten",
   "message.forkChat": "Chat abzweigen",
+  "message.mobileInteractiveTitle": "Interaktive Inhalte",
+  "message.mobileInteractiveDescription":
+    "Diese interaktive Ansicht ist im Web-Chat verfügbar, aber noch nicht im nativen Chat.",
   "message.missingFinal":
     "Der Agent wurde gestoppt, ohne eine abschließende Nachricht zu senden. Bitte ihn, fortzufahren, oder versuche es erneut.",
   "message.messages": "Nachrichten",
@@ -305,11 +377,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Antwort neu generieren",
   "message.restoreFailed": "Wiederherstellung fehlgeschlagen ({{status}}).",
   "message.restoreQuestion": "Bis hierher wiederherstellen?",
+  "message.revertQuestion":
+    "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
   "message.revertHere": "Bis hierher zurücksetzen",
+  "message.revertToBeginning": "Zum Anfang zurückkehren",
   "message.sentAt": "Gesendet {{time}}",
   "plan.act": "Ausführen",
   "plan.implement": "Umsetzen",
@@ -317,6 +392,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "Plan bereit",
   "plan.switchToAct": "Zum Ausführungsmodus wechseln",
   "queue.count": "{{count}} in der Warteschlange",
+  "queue.label": "Wartende Nachrichten",
   "queue.followUp": "Folgenachricht senden...",
   "queue.followUpWithCount":
     "{{count}} in der Warteschlange – Folgenachricht senden...",
@@ -330,8 +406,12 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Verbindung zu Builder.io wird hergestellt",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.deferredSubmissionFailed":
+    "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":
-    "Die aktuellen Zugangsdaten für Builder.io oder den Modellanbieter wurden abgelehnt. Verbinde Builder.io erneut und versuche diese Nachricht noch einmal.",
+    "Der Modellanbieter hat die gespeicherten Zugangsdaten abgelehnt. Aktualisiere deine Builder.io-Verbindung oder den Anbieterschlüssel und versuche diese Nachricht erneut.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents sind nicht verbunden. Verbinde Builder.io in den Einstellungen, um diese gehostete Codeänderung auszuführen. Modellanbieter-Schlüssel funktionieren weiterhin für Chats und andere KI-Funktionen, autorisieren aber nicht den Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnostizieren und erneut versuchen",
   "recovery.forkDescription":
     "Diese Unterhaltung in einen separaten Chat abzweigen.",
@@ -344,6 +424,12 @@ const messages: AgentChatTranslation = {
     "Der vorherige Hintergrundlauf des Agenten hat sein Zeitlimit vor dem Abschluss erreicht. Die Teilergebnisse wurden beibehalten; fahre fort oder versuche es erneut.",
   "recovery.noProgress":
     "Der vorherige Agentenlauf zeigte während der Wiederherstellung keinen sichtbaren Fortschritt mehr und wurde beendet, bevor er in einer Schleife weiterlaufen konnte.",
+  "recovery.stuckTitle": "Dieser Chat scheint festzustecken.",
+  "recovery.stuckNoProgress":
+    "Kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
+  "recovery.stuckWithDuration":
+    "Seit {{seconds}} s kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
+  "recovery.stuckRetrying": "Automatischer erneuter Versuch läuft.",
   "recovery.statusCheckFailed":
     "Der Server war nicht erreichbar, um zu prüfen, ob der Agent noch arbeitet. Sende deine Nachricht erneut, um es noch einmal zu versuchen.",
   "recovery.streamEnded":
@@ -391,6 +477,12 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
+  "setup.checkingProvider": "KI-Verbindung wird geprüft…",
+  "setup.providerStatusUnavailable":
+    "KI-Verbindung konnte nicht geprüft werden.",
+  "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Stelle eine Frage zu diesem Meeting",
   "setup.connected": "Verbunden",
   "setup.connectedOrganization": "Verbunden – {{organization}}",
   "setup.connectedTo": "Mit {{organization}} verbunden",
@@ -403,6 +495,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "Arbeitet weiter",
   "status.thinking": "Denkt nach",
   "status.working": "Arbeitet",
+  "status.workingFor": "Arbeitet seit {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Terminal wird geladen...",
   "shell.toggleAgent": "Agent ein-/ausblenden",
@@ -503,6 +596,8 @@ const messages: AgentChatTranslation = {
     "Beschreibe den Skill, den du erstellen möchtest...",
   "composer.documentTooLarge":
     "„{{name}}“ ist {{size}} MB groß. {{label}} sind auf {{maxSize}} MB begrenzt, damit die Nachrichtengröße nicht überschritten wird. Verkleinere die Datei oder teile sie in kleinere Teile auf.",
+  "composer.requestTooLarge":
+    "Diese Nachricht und ihre Anhänge sind zu groß zum Senden. Entferne einen Anhang oder kürze die Nachricht.",
   "composer.file": "Datei",
   "composer.imageModel": "Bildmodell",
   "composer.imagePreview": "Bildvorschau",
@@ -727,7 +822,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "Der KI-Anbieter hat diese Anfrage vorübergehend abgelehnt. Das behebt sich meist innerhalb einer Minute – versuche es erneut.",
   "errorMessages.startNewChat": "Neuen Chat starten",
-  "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
+  "errorMessages.addCreditsInBuilder": "Credits bei Builder hinzufügen",
   "feedback.inaccurate": "Ungenau",
   "feedback.keyboardHint": "{{shortcut}} Enter zum Senden",
   "feedback.notHelpful": "Nicht hilfreich",
@@ -841,6 +936,8 @@ const messages: AgentChatTranslation = {
     "Alle in deiner Organisation können es ansehen",
   "share.owner": "Eigentümer",
   "share.peopleWithAccess": "Personen mit Zugriff",
+  "share.people": "Personen",
+  "share.agents": "Agenten",
   "share.private": "Privat",
   "share.privateDescription": "Nur Personen mit Zugriff können es ansehen",
   "share.public": "Öffentlich",
@@ -866,6 +963,29 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "Bestätigung konnte nicht gesendet werden.",
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
+  "usage.builderCredits": "Builder-Credits",
+  "usage.inviteFriends": "Freunde einladen",
+  "usage.inviteCredits":
+    "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",
+  "usage.copyInviteLink": "Einladungslink kopieren",
+  "usage.inviteLinkCopied": "Einladungslink kopiert",
+  "usage.creditBalance": "Workspace-Guthaben",
+  "usage.monthlyPlan": "Monatsplan",
+  "usage.dailyFreeLimit": "Tägliches Gratislimit",
+  "usage.creditUsedOfLimit": "{{used}} von {{limit}} verbraucht",
+  "usage.creditRemaining": "{{amount}} verbleibend",
+  "usage.creditUsageUnavailable":
+    "Der Builder-Credit-Verbrauch konnte nicht geladen werden.",
+  "usage.estimatedBuilderCredits": "~{{amount}} geschätzte Credits",
+  "usage.otherUsdSpend": "{{amount}} USD sonstige",
+  "usage.noBuilderCredits": "0 Builder-Credits",
+  "usage.otherUnclassifiedSpend":
+    "Sonstige oder nicht zugeordnete Ausgaben in USD",
+  "usage.providerSpendDetail":
+    "Anbieteraufrufe oder ältere Aufrufe außerhalb der Builder-Abrechnung",
+  "usage.providerSpendToday":
+    "Sonstige oder nicht zugeordnete Nutzung heute: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder-Credits / USD",
 };
 
 export default messages;

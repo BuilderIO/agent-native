@@ -953,6 +953,13 @@ const rawLiterals = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",
@@ -1086,6 +1093,35 @@ const rawLiterals = {
     contentSpace: "Espacio de Content",
     addChild: "Agregar hijo",
     addChildTo: "Agregar hijo a {{title}}",
+    collapseItem: "Contraer {{title}}",
+    removeFromRecent: "Quitar de Recientes",
+    copyLink: "Copiar enlace",
+    openInNewTab: "Abrir en una pestaña nueva",
+    rename: "Cambiar nombre",
+    duplicate: "Duplicar",
+    moveTo: "Mover a",
+    moveToTrash: "Mover a la papelera",
+    lastEditedBy: "Última edición por {{name}}",
+    lastEdited: "Última edición",
+    pageName: "Nombre de la página",
+    movePageTo: "Mover «{{title}}» a",
+    topLevel: "Nivel superior",
+    noMatchingPages: "No hay páginas coincidentes",
+    failedRenamePage: "No se pudo cambiar el nombre de la página",
+    failedDuplicatePage: "No se pudo duplicar la página",
+    duplicatedFromLastSave:
+      "Se copió la última versión guardada; no se incluyeron los cambios recientes sin guardar.",
+    chooseSpace: "Elige un espacio de trabajo",
+    moveToSpaceTitle: "¿Mover a {{space}}?",
+    moveToSpaceWarningShared:
+      "Todos en {{space}} podrán ver «{{title}}» y sus subpáginas. Se quitan el uso compartido actual y el enlace público, y pasas a ser el propietario.",
+    moveToSpaceWarningPrivate:
+      "«{{title}}» y sus subpáginas serán privadas para ti en {{space}}. Se quitan el uso compartido actual y el enlace público, y pasas a ser el propietario.",
+    back: "Atrás",
+    movePage: "Mover",
+    movedToSpace: "Se movió «{{title}}» a {{space}}",
+    failedRemoveFromRecent: "No se pudo quitar de Recientes",
+    expandItem: "Expandir {{title}}",
     completeStepsAboveFirst: "Completa primero los pasos anteriores",
     connectWorkspace: "Conectar espacio",
     connected: "Conectado",
@@ -1195,6 +1231,11 @@ const comments = {
   suggestionWith: "por",
   suggestionReplace: "Reemplazar",
   suggestionDetails: "Detalles de la sugerencia",
+  proposalEditCount_one: "{{count}} cambio",
+  proposalEditCount_many: "{{count}} cambios",
+  proposalEditCount_other: "{{count}} cambios",
+  acceptRemaining: "Aceptar restantes",
+  rejectRemaining: "Rechazar restantes",
   typeFilter: "Tipo",
   statusFilter: "Estado",
   authorFilter: "Persona",
@@ -1271,6 +1312,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
@@ -1296,6 +1344,26 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Información",
+      copyLink: "Copiar enlace",
+      copyForPeople: "Copiar para personas",
+      copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quién tiene acceso",
+      sharePeople: "Personas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instrucciones para el agente",
+      openInClaude: "Abrir en Claude",
+      openInClaudeCode: "Abrir en Claude Code",
+      openInCodex: "Abrir en Codex",
+      agentCopyAccessNote:
+        "Los agentes pueden usar Content MCP con tus permisos actuales",
+      temporaryAgentLink: "Enlace temporal para agentes",
+      privateLinkCanView: "Solo las personas con acceso pueden verlo",
+      publicLinkCanView: "Cualquiera con el enlace puede verlo",
+      copiedAgentPrompt: "Instrucciones para el agente copiadas",
+      couldNotCopyAgentPrompt:
+        "No se pudieron copiar las instrucciones para el agente",
+      agentPrompt:
+        'Lee este documento de Content: {{documentUrl}}\n\nUsa una conexión disponible de Content MCP para {{mcpUrl}} y llama a get-document con el ID "{{documentId}}". También puedes leer directamente una página de acceso público.\n\nSi se necesita acceso autenticado y Content MCP no está disponible o la sesión está cerrada, pídeme que lo conecte e inicie sesión. Configuración de la conexión: {{connectUrl}}. Guía oficial: {{docsUrl}}\n\nCuando confirme que la conexión está lista, vuelve a intentar la lectura con los permisos existentes de mi cuenta. Si se deniega la lectura autenticada, comunícame ese resultado.',
       closeUtilityPanel: "Cerrar panel",
       exportCsv: "Exportar CSV",
       exportDatabase: "Exportar colección",
@@ -1319,6 +1387,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Enlace de página copiado",
       copyPageLink: "Copiar enlace de página",
+      createShareableCopy: "Crear copia para compartir",
       couldNotCopyLink: "No se pudo copiar el enlace",
       clipboardAccessUnavailable:
         "El acceso al portapapeles no está disponible en este navegador.",
@@ -1377,6 +1446,15 @@ const history = {
 };
 
 const overrides = {
+  close: "Cerrar",
+  setup: { checkingProvider: "Comprobando la conexión de IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+      statusUnavailable:
+        "El estado del almacenamiento de archivos no está disponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1533,6 +1611,13 @@ const overrides = {
     genericError: "Algo salió mal",
   },
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origen",

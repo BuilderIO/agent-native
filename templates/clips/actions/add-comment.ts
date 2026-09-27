@@ -1,12 +1,3 @@
-/**
- * Add a comment to a recording at a specific video timestamp.
- *
- * For new threads, omit threadId/parentId. For replies, pass both.
- *
- * Usage:
- *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -65,9 +56,6 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    // Commenting is open to any signed-in viewer with access to the
-    // recording, not just an explicitly-granted "commenter" role — the
-    // `authorEmail` check below is what actually requires an account.
     const access = await assertAccess("recording", args.recordingId, "viewer");
     if (
       isRecordingExpiredForViewer({
@@ -101,7 +89,6 @@ export default defineAction({
     const parentId = args.parentId?.trim() ?? null;
     const now = new Date().toISOString();
 
-    // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
       .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
@@ -139,8 +126,6 @@ export default defineAction({
       rec.organizationId,
     );
 
-    // Floor to the nearest second so nearby comments land on the same
-    // timestamp bucket for scrubber grouping and the playback overlay.
     const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
 
     await db.insert(schema.recordingComments).values({

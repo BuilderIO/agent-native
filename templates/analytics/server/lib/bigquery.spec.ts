@@ -3,19 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const execute = vi.fn();
 const resolveCredential = vi.fn();
 const getAccessToken = vi.fn();
+const getCredentialContext = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
 }));
 
-vi.mock("./credentials", () => ({ resolveCredential }));
-
-vi.mock("./credentials-context", () => ({
-  requireRequestCredentialContext: () => ({
-    userEmail: "test@example.com",
-    orgId: null,
-  }),
+vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext,
+  getRequestRunContext: () => undefined,
 }));
+
+vi.mock("./credentials", () => ({ resolveCredential }));
 
 vi.mock("./gcloud", () => ({ getAccessToken }));
 
@@ -34,6 +33,11 @@ describe("runQuery cancellation", () => {
   beforeEach(() => {
     execute.mockReset();
     execute.mockResolvedValue({ rows: [] });
+    getCredentialContext.mockReset();
+    getCredentialContext.mockReturnValue({
+      userEmail: "test@example.com",
+      orgId: null,
+    });
     resolveCredential.mockReset();
     resolveCredential.mockImplementation(async (key: string) =>
       key === "BIGQUERY_PROJECT_ID" ? "test-project" : null,
@@ -60,8 +64,6 @@ describe("runQuery cancellation", () => {
 
     const pending = runQuery("SELECT 1", { signal: controller.signal });
 
-    // Advance only pending microtasks: the query request has completed and
-    // BigQuery polling is now waiting for its first one-second interval.
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -74,8 +76,6 @@ describe("runQuery cancellation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await vi.advanceTimersByTimeAsync(60_000);
 
-    // Cancellation clears the pending interval, avoids another
-    // getQueryResults poll, and best-effort cancels the submitted job.
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/projects/test-project/jobs/job-1/cancel"),
@@ -231,5 +231,51 @@ describe("runQuery cancellation", () => {
     expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain(
       "agent-native-utc-date:2026-09-09",
     );
+  });
+
+  it("rejects mutating SQL before resolving credentials or contacting BigQuery", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runQuery("WITH rows AS (SELECT 1) DELETE FROM target"),
+    ).rejects.toThrow("Source SQL must be read-only.");
+
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("isolates cached results by default member and organization-only scope", async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 9743 AS credential_scope_cache_test";
+
+    await runQuery(sql);
+    getCredentialContext.mockReturnValue({
+      userEmail: "other@example.com",
+      orgId: "customer-org",
+    });
+    await runQuery(sql);
+    getCredentialContext.mockReturnValue({
+      userEmail: "admin-a@example.com",
+      orgId: "customer-org",
+      credentialScope: "org",
+    });
+    await runQuery(sql);
+    getCredentialContext.mockReturnValue({
+      userEmail: "admin-b@example.com",
+      orgId: "customer-org",
+      credentialScope: "org",
+    });
+    await runQuery(sql);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

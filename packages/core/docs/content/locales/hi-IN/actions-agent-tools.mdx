@@ -47,8 +47,8 @@ export default createCoreRoutesPlugin({
 
 बाकी groups boolean हैं, सब डिफ़ॉल्ट रूप से on: `sharing`, `review`,
 `history`, `featureFlags`, `localization`, `audit`, `contextXray`,
-`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
-`chat`, और `email`। एक voice-first या single-purpose ऐप के लिए सभी groups
+`userProfile`, `automation`, `docs`, `resources`, `browserSessions`, `web`,
+`workspaceApps`, `chat`, और `email`। एक voice-first या single-purpose ऐप के लिए सभी groups
 एक साथ बंद करने के लिए `frameworkTools: "minimal"` उपयोग करें, या सिर्फ़ एक
 रखने के लिए `frameworkTools: { preset: "minimal", resources: true }`। एक
 explicit group key हमेशा preset पर भारी पड़ती है।

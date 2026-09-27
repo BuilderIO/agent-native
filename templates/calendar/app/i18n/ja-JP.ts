@@ -48,6 +48,11 @@ export default {
       "イベント ID が指定されていません。URL に ?id=<eventId> を追加してください。",
     openCalendar: "カレンダーを開く",
   },
+  eventCreation: {
+    created: "予定を作成しました",
+    zoomNotAdded: "予定は作成されましたが、Zoomを追加できませんでした。",
+    openInCalendar: "Calendarで予定を開く",
+  },
   agentSidebar: {
     emptyState: "カレンダーについて何でも聞いてください",
     suggestions: {
@@ -250,6 +255,43 @@ export default {
     weekStartLabel: "週の開始日",
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
+    eventRules: "招待ルール",
+    eventRulesConnectJev: "招待ルールを実行するには Jev を接続",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io なら無料、または API キーを追加。",
+    eventRulesConnectBuilder: "Builder.io を接続",
+    eventRulesAddJevApiKey: "API キーを追加",
+    eventRulesTabRules: "ルール",
+    eventRulesHelpLabel: "招待ルールのプロンプトについて",
+    eventRulesHelp:
+      "Jev に自動で承諾、辞退、非表示にする招待を指示するプロンプトを入力します。",
+    eventRuleAccept: "自動承諾",
+    eventRuleDecline: "自動辞退",
+    eventRuleHide: "自動非表示",
+    eventRulePlaceholderAccept: "例: チームとの1対1の予定を承諾する",
+    eventRulePlaceholderDecline:
+      "例: ベンダーのデモや営業時間外の予定を辞退する",
+    eventRulePlaceholderHide: "例: 集中時間やリマインダーを非表示にする",
+    eventRulesSave: "ルールを保存",
+    eventRulesClearSaved: "保存済みルールを消去",
+    eventRulesRecentActivity: "最近のアクティビティ",
+    eventRulesNoActivity: "まだアクティビティはありません",
+    eventRuleActivityAccepted: "承諾済み",
+    eventRuleActivityDeclined: "辞退済み",
+    eventRuleActivityHidden: "非表示",
+    eventRuleUndoDone: "操作を元に戻しました",
+    eventRuleUndoFailed: "操作を元に戻せませんでした",
+    eventRulesActive:
+      "ルールは接続済みアカウントのメインカレンダーで5分ごとに実行されます。",
+    eventRulesDisabled:
+      "常時稼働する Calendar worker で RUN_BACKGROUND_JOBS=1 を有効にしてください。",
+    eventRulesDeploymentDisabled:
+      "このデプロイではスケジュール自動化が無効です。",
+    eventRulesChecking: "自動化の状態を確認中…",
+    eventRulesConflict:
+      "承諾ルールと辞退ルールの両方に一致したため、招待をスキップしました。",
+    eventRulesUnregistered:
+      "このサーバーに Calendar 自動化が登録されていません。",
   },
   eventDialog: {
     eventUpdated: "イベントを更新しました",
@@ -484,8 +526,18 @@ export default {
     confirmBooking: "予約を確認する",
     confirmation: "確認",
     confirmationSent: "完了しました。確認メールを送信しました。",
+    meetingDetailsPending:
+      "予約枠を確保しました。主催者からミーティングの詳細をご連絡します。",
     confirmed: "確定済み",
     confirmedCount: "確定済み（{{count}}）",
+    zoomNeedsReview: "再試行する前にZoomを確認",
+    zoomCancellationNeedsReview: "キャンセルする前にZoomを確認",
+    zoomCancellationRequiresHostReview:
+      "この予約をキャンセルする前に、主催者がZoomミーティングを確認する必要があります。",
+    zoomCancelTitle: "キャンセルする前にZoomを確認",
+    zoomCancelDescription:
+      "Zoomがこの予約のミーティングを作成している可能性があります。Zoomアカウントを確認し、ミーティングがあればZoomでキャンセルしてください。キャンセルしたか、ミーティングが存在しないことを確認してから続行してください。",
+    zoomCancelConfirm: "Zoomを確認しました",
     confirming: "確認中",
     conferencing: "会議",
     connectZoom: "Zoomを接続する",

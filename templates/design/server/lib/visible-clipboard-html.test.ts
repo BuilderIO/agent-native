@@ -40,4 +40,19 @@ describe("parseVisibleClipboardHtml", () => {
       fallbackHtml: "<div>Visible</div>",
     });
   });
+
+  it("treats Figma's empty pre-wrap span as no visible HTML", () => {
+    const html =
+      '<meta charset="utf-8"><span data-metadata="<!--(figmeta)e30=(/figmeta)-->"></span><span data-buffer="<!--(figma)AAAA(/figma)-->"></span><span style="white-space:pre-wrap;"></span>';
+
+    expect(parseVisibleClipboardHtml(html)).toEqual({
+      fallbackHtml: undefined,
+    });
+  });
+
+  it("keeps markup whose only content is an image or svg", () => {
+    const html = '<div><svg viewBox="0 0 1 1"></svg></div>';
+
+    expect(parseVisibleClipboardHtml(html)).toEqual({ fallbackHtml: html });
+  });
 });

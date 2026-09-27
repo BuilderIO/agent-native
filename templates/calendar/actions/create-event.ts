@@ -148,6 +148,26 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
+  chatUI: {
+    renderer: "calendar.event-created",
+    projectResult: (_args, result) => {
+      const event = result as Record<string, unknown>;
+      return {
+        id: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        startTimeZone: event.startTimeZone,
+        endTimeZone: event.endTimeZone,
+        allDay: event.allDay,
+        location: event.location,
+        hangoutLink: event.hangoutLink,
+        meetingLink: event.meetingLink,
+        conferenceData: event.conferenceData,
+        videoConferenceError: event.videoConferenceError,
+      };
+    },
+  },
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

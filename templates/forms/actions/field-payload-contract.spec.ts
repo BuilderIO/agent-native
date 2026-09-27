@@ -1,21 +1,3 @@
-/**
- * Pins the contract that broke in production: a JSON-string `fields` payload
- * whose first field had no `type` reached `assertValidFields` and died there
- * with "field #1 has an invalid type undefined", three identical times.
- *
- * It got that far because the parameter was declared `z.union([z.string(),
- * z.array(formFieldSchema)])`. That single branch disabled both safety nets:
- *
- *   1. `coerceGatewayStringifiedArgs` (packages/core/src/action.ts) refuses to
- *      JSON-parse a stringified argument when the schema also accepts a
- *      string, so a gateway-stringified array was never turned back into one.
- *   2. Zod then validated the value as "a string" and waved it through, so
- *      `formFieldSchema` -- the thing that knows `type` is a required enum --
- *      never ran on the contents.
- *
- * These tests assert the declared JSON-schema type, not just the rejection:
- * an `anyOf` string branch coming back is what silently re-opens both holes.
- */
 import { validateActionArgs } from "@agent-native/core/action";
 import { describe, expect, it, vi } from "vitest";
 
@@ -53,7 +35,6 @@ function parameterSchema(
   return (action as ActionEntry).tool.parameters?.properties?.[name];
 }
 
-/** The same validation every agent, MCP, HTTP, and CLI call goes through. */
 async function validate(action: unknown, args: unknown): Promise<unknown> {
   const entry = action as ActionEntry;
   return validateActionArgs(entry.schema, args, entry.tool.parameters as never);
@@ -79,14 +60,11 @@ describe("structured payloads are never declared as plain strings", () => {
     const spec = parameterSchema(action(), param);
 
     expect(spec?.type).toBe(expectedType);
-    // An `anyOf` here is the regression: it is what makes core skip the
-    // stringified-JSON coercion and skip every per-item check underneath.
     expect(spec?.anyOf).toBeUndefined();
   });
 });
 
 describe("a field with no type is rejected before it reaches storage", () => {
-  // The payload shape from the production report.
   const reported =
     '[{"label":"Your Name","required":true},{"type":"email","label":"Email","required":true}]';
 
@@ -96,8 +74,6 @@ describe("a field with no type is rejected before it reaches storage", () => {
       fields: reported,
     });
 
-    // Naming the path is what lets the next attempt differ from the one that
-    // just failed, instead of being identical three times over.
     expect(message).toContain("fields.0.type");
     for (const type of FIELD_TYPES) expect(message).toContain(type);
   });

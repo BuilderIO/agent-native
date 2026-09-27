@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
+import { aiFilterRuleMode } from "@shared/ai-filter-rules";
 import type { AutomationRule, AutomationAction } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -39,7 +40,19 @@ export function useCreateAutomation() {
       domain?: AutomationRule["domain"];
       kind?: AutomationRule["kind"];
     }) => callAction("create-automation", data) as Promise<AutomationRule>,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+    onSuccess: (_rule, data) => {
+      const invalidations = [
+        qc.invalidateQueries({ queryKey: ["automations"] }),
+      ];
+      if (
+        (data.domain ?? "mail") === "mail" &&
+        data.kind === "ai-filter" &&
+        aiFilterRuleMode(data) === "filtered"
+      ) {
+        invalidations.push(qc.invalidateQueries({ queryKey: ["settings"] }));
+      }
+      return Promise.all(invalidations);
+    },
   });
 }
 
@@ -76,7 +89,18 @@ export function useUpdateAutomation() {
         qc.setQueryData(["automations"], context.previous);
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+    onSettled: (_rule, _error, data) => {
+      const invalidations = [
+        qc.invalidateQueries({ queryKey: ["automations"] }),
+      ];
+      if (
+        data.actions &&
+        aiFilterRuleMode({ actions: data.actions }) === "filtered"
+      ) {
+        invalidations.push(qc.invalidateQueries({ queryKey: ["settings"] }));
+      }
+      return Promise.all(invalidations);
+    },
   });
 }
 
@@ -86,6 +110,53 @@ export function useDeleteAutomation() {
     mutationFn: (id: string) =>
       callAction("delete-automation", { id }, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useConsolidateAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      id: string;
+      duplicateIds: string[];
+      expectedRules: {
+        id: string;
+        name: string;
+        condition: string;
+        actions: AutomationAction[];
+      }[];
+      name: string;
+      condition: string;
+      actions: AutomationAction[];
+    }) =>
+      callAction("consolidate-ai-filter-rules", data, {
+        method: "PUT",
+      }) as Promise<{ saved: boolean }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useClearAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "clear",
+        ids,
+      }) as Promise<{ undoId: string }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useRestoreAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (undoId: string) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "undo",
+        undoId,
+      }) as Promise<{ restored: true }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }
 

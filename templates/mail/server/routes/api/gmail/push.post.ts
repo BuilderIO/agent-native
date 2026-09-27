@@ -12,10 +12,8 @@ import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,
 } from "../../../lib/google-auth.js";
-import { syncInboxAccount } from "../../../lib/inbox-sync.js";
+import { recordInboxPushInvalidation } from "../../../lib/inbox-store.js";
 
-// Cache Google's public keys for OIDC verification. jose handles TTL + refresh.
-// https://cloud.google.com/pubsub/docs/push#validate_tokens
 const GOOGLE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/oauth2/v3/certs"),
 );
@@ -41,10 +39,6 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
     throw new Error("email_verified claim is not true");
   }
 
-  // Pin to the specific service account Pub/Sub signs as. Without this any
-  // Google-issued token with the right audience (e.g. a different GCP
-  // project) would pass verification and spoof mailbox updates. Required
-  // whenever OIDC auth is on.
   const expectedSigner = process.env.GMAIL_PUSH_SIGNER_EMAIL;
   if (!expectedSigner) {
     throw new Error("GMAIL_PUSH_SIGNER_EMAIL not configured");
@@ -57,17 +51,6 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  // The push endpoint is registered as a public path so Google's Pub/Sub
-  // can reach it without a user session. That's only safe when OIDC
-  // verification is active — otherwise any caller who knows an email
-  // address could bump historyId and force cache invalidation + Gmail
-  // rehydrate loops on the server. So:
-  //
-  //   - GMAIL_PUSH_AUDIENCE set   → verify every request; reject on failure.
-  //   - GMAIL_PUSH_AUDIENCE unset → the endpoint is disabled. Return 503 so
-  //     a misconfigured deployment (watches running via GMAIL_WATCH_TOPIC
-  //     with no audience) surfaces in Pub/Sub's delivery metrics, and so
-  //     anonymous callers can't trigger processing.
   const audience = process.env.GMAIL_PUSH_AUDIENCE;
   if (!audience) {
     setResponseStatus(event, 503);
@@ -123,23 +106,12 @@ export default defineEventHandler(async (event: H3Event) => {
     bumpHistoryWatermark(emailAddress, historyId);
     if (owner) {
       invalidateListCacheForOwner(owner);
-      // Best-effort: drive the synced inbox store off the same push instead
-      // of waiting for the next 15s freshness check. A sync failure here
-      // must never fail the push ack (Pub/Sub would just redeliver it).
-      // Budget stays well under Pub/Sub's default 10s ack deadline — an
-      // incremental history sync (the common case here) is ~1-2s, and a full
-      // sync just resumes on the next request/poll since its progress is
-      // persisted, so there's no need to risk redelivery chasing it to
-      // completion synchronously (fire-and-forget after responding is killed
-      // on Netlify Lambdas, so this can't run past the response either way).
-      await syncInboxAccount(owner, emailAddress, { budgetMs: 4_000 }).catch(
-        (syncErr: any) => {
-          console.warn(`[gmail-push] inbox resync failed: ${syncErr?.message}`);
-        },
-      );
+      await recordInboxPushInvalidation(owner, emailAddress);
     }
   } catch (err: any) {
     console.warn(`[gmail-push] processing failed: ${err.message}`);
+    setResponseStatus(event, 500);
+    return { ok: false, error: "processing failed" };
   }
 
   return { ok: true };

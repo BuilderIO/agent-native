@@ -3,6 +3,50 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Improved
+
+- Assets prompts for storage only when you choose to upload files.
+- Loading screens now reflect the app's home layout.
+
+### Fixed
+
+- Dismissing storage setup now cancels queued uploads.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Brand-kit and template uploads show how to connect file storage when it is not configured
+- Public asset library links show their title and description in previews.
+
+### Fixed
+
+- Reference-image uploads stay disabled until object storage is connected.
+- Public previews no longer show archived asset library details
+
+## 2026-09-24
+
+### Added
+
+- Builder-connected workspaces can generate brand-safe images and videos in Assets.
+
+### Fixed
+
+- Video generation avoids duplicate Gemini jobs when a start response is lost
+- Video generation runs recover after temporary provider or storage failures.
+
+## 2026-09-23
+
+### Fixed
+
+- Stale image candidates stop showing as generating when their generation run is missing.
+
 ## 2026-09-01
 
 ### Improved

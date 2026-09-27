@@ -4,12 +4,6 @@ import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-/**
- * Grouping and selection traversal, asserted against Figma's documented
- * behaviour. Doc facts are quoted in each failure message so a reviewer can
- * check the claim without trusting the test author.
- */
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -198,8 +192,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
@@ -207,7 +199,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
 async function scale(page: Page): Promise<number> {
   const card = await page.locator("[data-screen-card]").first().boundingBox();
   if (!card) throw new Error("no screen card");
-  // Never assume the page size — the screen's own viewport is the truth.
   const inner = await page
     .locator("iframe[data-design-preview-iframe]")
     .first()
@@ -367,9 +358,6 @@ test.describe("keyboard selection traversal", () => {
     ).toHaveCount(0);
   });
 
-  // A top-level layer's parent is the collapsed <body>, which the layers panel
-  // never shows — the pop walk treated that as "no parent" and selected the
-  // containing screen instead of clearing.
   test("Escape on a top-level layer does not select the containing screen", async ({
     page,
   }) => {
@@ -685,7 +673,9 @@ test.describe("groups", () => {
         await input.fill(String(value));
         await input.press("Enter");
         await page.keyboard.press("Escape");
-        await expect(fillButton).toContainText(`${value}%`);
+        await expect(
+          fillSection.getByRole("textbox", { name: "Paint opacity" }),
+        ).toHaveValue(String(value));
       };
 
       await setOpacity(50);
@@ -710,8 +700,8 @@ test.describe("groups", () => {
           has: page.getByRole("heading", { name: "Fill", exact: true }),
         })
         .first()
-        .getByRole("button", { name: "Open color picker" });
-      await expect(reloadedFill).toContainText("100%");
+        .getByRole("textbox", { name: "Paint opacity" });
+      await expect(reloadedFill).toHaveValue("100");
       await expect.poll(readFill).toBe("rgb(249, 115, 22)");
 
       await setOpacity(50);
@@ -721,7 +711,7 @@ test.describe("groups", () => {
       await expect
         .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
         .not.toMatch(/0\.5|50%/);
-      await expect(reloadedFill).toContainText("100%");
+      await expect(reloadedFill).toHaveValue("100");
       expect(viteUpdates).toEqual([]);
     } finally {
       await postAction(page, "delete-design", { id });
@@ -788,7 +778,6 @@ test.describe("groups", () => {
       const previewOpacity = await opacity.getAttribute("aria-valuenow");
       expect(previewOpacity).not.toBe("100");
       expect(await readFill()).toMatch(/^rgba\(/);
-      // Figma cancels the active paint-opacity gesture before pointer-up.
       await page.keyboard.press(`${MOD}+z`);
       await expect(opacity).toBeHidden();
       await expect
@@ -1009,8 +998,6 @@ test.describe("groups", () => {
         bodyBackground: "rgb(15, 17, 21)",
       });
 
-      // Undo while the picker gesture is held cancels its preview; it must not
-      // leave a new paint commit or fill the transparent gap inside the Group.
       await page.keyboard.press(`${MOD}+z`);
       await expect(opacity).toHaveAttribute("aria-valuenow", "100");
       await expect.poll(readPaint).toMatchObject(authoredPaint);
@@ -1655,8 +1642,11 @@ test.describe("groups", () => {
       const fillButton = fillSection.getByRole("button", {
         name: "Open color picker",
       });
+      const fillOpacity = fillSection.getByRole("textbox", {
+        name: "Paint opacity",
+      });
       await expect(fillButton).toBeVisible();
-      await expect(fillButton).toContainText("100%");
+      await expect(fillOpacity).toHaveValue("100");
       const selectionColors = page
         .locator("section")
         .filter({
@@ -1718,7 +1708,7 @@ test.describe("groups", () => {
       await opacity.fill("50");
       await opacity.press("Enter");
       await page.keyboard.press("Escape");
-      await expect(fillButton).toContainText("50%");
+      await expect(fillOpacity).toHaveValue("50");
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgba(249, 115, 22, 0.5)");
@@ -1746,7 +1736,7 @@ test.describe("groups", () => {
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgb(249, 115, 22)");
-      await expect(fillButton).toContainText("100%");
+      await expect(fillOpacity).toHaveValue("100");
 
       await fillButton.click();
       const hex = page.getByRole("textbox", { name: "Hex", exact: true });
@@ -2079,8 +2069,6 @@ test.describe("groups", () => {
     }
     await page.waitForTimeout(2000);
 
-    // Figma moves the group container and leaves each child's own offset
-    // alone, so the source offsets must not move while the paint does.
     const after = await indexHtml(page, id);
     const sourceDeltas = [
       styleNum(styleOf(after, "loose-a"), "left") - aBefore,
@@ -2119,8 +2107,6 @@ test.describe("multi-selection", () => {
 
     const s = await scale(page);
     const box = (await node(page, "loose-a").boundingBox())!;
-    // Figma snaps to alignment guides unless the primary modifier is held,
-    // so an unmodified drag legitimately lands within a few px of the ask.
     await page.keyboard.down(MOD === "Meta" ? "Meta" : "Control");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
@@ -2151,16 +2137,12 @@ test.describe("multi-selection", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Loose A");
-    // Selecting in the tree can pan the canvas; measure after it settles or
-    // the drag starts from stale coordinates.
     await page.waitForTimeout(1500);
 
     const before = await indexHtml(page, id);
     const aBefore = styleNum(styleOf(before, "loose-a"), "top");
     const s = await scale(page);
     const box = (await node(page, "loose-a").boundingBox())!;
-    // Drag UP into empty space: moving right would land on Loose B and the
-    // drop nests instead of translating.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(
@@ -2174,11 +2156,6 @@ test.describe("multi-selection", () => {
 
     const aDelta =
       aBefore - styleNum(styleOf(await indexHtml(page, id), "loose-a"), "top");
-    // Snapping is on, so the drop is pulled onto an alignment guide. The
-    // bridge holds SNAP_THRESHOLD_PX (6) constant on SCREEN, so zoomed out it
-    // spans 6/s content px — the delta is measured in content px. Cmd is
-    // Figma's snap bypass but is overloaded with deep-select here, so an
-    // exact-delta drag is not expressible.
     const tolerance = Math.ceil(6 / s);
     expect(
       Math.abs(100 - aDelta),
@@ -2195,8 +2172,6 @@ test.describe("multi-selection", () => {
     await multiSelect(page, ["Loose A", "Loose B"]);
     await page.waitForTimeout(800);
 
-    // The element selection chrome is painted INSIDE the preview iframe;
-    // [data-resize-handle] in the host is the screen's own board chrome.
     const preview = page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -2281,8 +2256,6 @@ test.describe("frames versus groups", () => {
     await page.waitForTimeout(2000);
 
     const afterHtml = await indexHtml(page, id);
-    // The child has to actually move, or "the frame kept its size" holds for
-    // the trivial reason that nothing happened.
     expect(
       styleNum(styleOf(afterHtml, "kid-1"), "left"),
       `the child must move for this to test anything (left stayed ${kidLeftBefore})`,

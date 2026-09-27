@@ -484,6 +484,8 @@ const messages = {
       requestAccess: "Solicitar acceso",
       requestAccessTitle: "Solicitar acceso a este plan",
       requestSent: "Solicitud enviada",
+      storageStatusUnavailable:
+        "No se pudo comprobar el almacenamiento de archivos.",
       retry: "Rever",
       sendFeedback: "Enviar comentarios",
       feedbackPlaceholder:
@@ -731,6 +733,13 @@ const messages = {
       share: "Compartir {{noun}}",
       shareAria: "Compartir {{noun}}",
       shareThis: "Comparte este {{noun}}",
+      teammateSuggestion: {
+        message: "Invita a tu equipo a Plan.",
+        invite: "Invitar al equipo",
+        enableDomain: "Permitir que cualquiera de @{{domain}} se una",
+        enableFailed:
+          "No se pudo activar la unión por dominio. Inténtalo de nuevo.",
+      },
       signedInRetry: "He iniciado sesión - reinténtalo",
       updateLink: "Enlace de actualización",
       updating: "Actualizando",

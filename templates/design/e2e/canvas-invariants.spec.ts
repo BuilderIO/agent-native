@@ -3,17 +3,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { canvasZoom } from "./helpers";
 
-/**
- * Invariants a direct-manipulation canvas must hold: the inspector, the
- * document and the rendered pixels all describe the same element. Each test
- * asserts the correct behaviour, so a failure is the bug report.
- */
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Mirrors the reported screenshot: an auto-layout section with three children. */
 const INTRO_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -32,7 +25,6 @@ const INTRO_PAGE = `<!doctype html>
   </body>
 </html>`;
 
-/** An in-flow child of an auto-layout page: no authored left/top at all. */
 const FLOW_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -180,7 +172,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
   await expandAllLayers(page);
 }
 
-/** Nested rows only appear once every ancestor is expanded. */
 async function expandAllLayers(page: Page): Promise<void> {
   for (let pass = 0; pass < 6; pass += 1) {
     const toggles = page.getByRole("button", { name: "Expand layer" });
@@ -195,7 +186,6 @@ async function expandAllLayers(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** Prefer the real aria-label; a text-then-next-input walk lands on padding. */
 async function inspectorField(page: Page, label: string): Promise<string> {
   const aria =
     label === "W" || label === "H"
@@ -215,13 +205,6 @@ async function inspectorField(page: Page, label: string): Promise<string> {
   return (await input.inputValue()).trim();
 }
 
-/**
- * Click a layer row and wait for the inspector to actually reflect it.
- *
- * `inspectorField` reads once with no retry, so the blind settle this replaces
- * was load-bearing: X/Y only render for a live selection, so absent -> present
- * is the real transition to wait on.
- */
 async function selectLayerRow(page: Page, name: string): Promise<void> {
   const row = layerRow(page, name);
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -249,7 +232,6 @@ function num(value: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-/** The element's real box inside the preview document. */
 async function renderedRect(page: Page, id: string): Promise<Rect> {
   return node(page, id).evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -288,7 +270,6 @@ async function selectOnCanvas(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(1800);
 }
 
-/** The screen's own content viewport — never assume; it is not the page size. */
 async function contentSize(page: Page): Promise<{ w: number; h: number }> {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -328,12 +309,6 @@ async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
   await page.waitForTimeout(1600);
 }
 
-/**
- * Every caller asserts this list is EMPTY, so swallowing a read failure into
- * `[]` made "no toast" and "could not read the toasts" the same answer — the
- * assertion could not fail. A zero-match locator already returns `[]` without
- * throwing, so the catch only ever hid real errors.
- */
 async function toasts(page: Page): Promise<string[]> {
   const all = await page
     .locator("[data-sonner-toast], [role='alert']")
@@ -539,8 +514,6 @@ test.describe("inspector reports the truth", () => {
       "left",
     );
     await setInspectorField(page, "X", String(num(shown)));
-    // Negative assertion: a poll would pass on its first tick before any write
-    // could have landed, so this one has to wait out the commit window.
     await page.waitForTimeout(1800); // e2e-harness-ignore negative assertion needs a real settle
     const after = styleNum(
       styleOf(await indexHtml(page, id), "plain-box"),
@@ -567,8 +540,6 @@ test.describe("inspector reports the truth", () => {
       )
       .toBe(500);
     const after = styleOf(await indexHtml(page, id), "plain-box");
-    // The width has to land, or "the position did not change" is true for the
-    // trivial reason that nothing was committed.
     expect(
       styleNum(after, "width"),
       `the width edit must commit before position stability means anything ` +
@@ -580,8 +551,6 @@ test.describe("inspector reports the truth", () => {
     ]);
   });
 });
-
-// ── Auto layout must actually lay out ─────────────────────────────────────
 
 test.describe("auto layout", () => {
   test("children of a column do not overlap each other", async ({ page }) => {
@@ -655,8 +624,6 @@ test.describe("auto layout", () => {
     const boxes = await Promise.all(
       ["abs-title", "abs-sub", "abs-body"].map((n) => renderedRect(page, n)),
     );
-    // A row layout legitimately shares tops, so test for overlap, not for
-    // differing tops.
     const overlapping = boxes.filter((b, i) =>
       boxes.some(
         (other, j) =>
@@ -705,8 +672,6 @@ test.describe("auto layout", () => {
   });
 });
 
-// ── What you draw is what you get ─────────────────────────────────────────
-
 test.describe("drawing fidelity", () => {
   for (const tool of ["Rectangle", "Frame"]) {
     test(`${tool} commits the exact rect you dragged`, async ({ page }) => {
@@ -739,8 +704,6 @@ test.describe("drawing fidelity", () => {
           drift: Math.abs(actual[index]! - expected[index]!),
         }))
         .filter((entry) => entry.drift > tolerance);
-      // Report the shape, not one edge: which edge drifted says whether the
-      // origin moved or the rect was scaled, and that is the whole diagnosis.
       expect(
         off,
         `drew ${JSON.stringify(want)}, committed ${JSON.stringify(actual)}; ` +
@@ -778,8 +741,6 @@ test.describe("drawing fidelity", () => {
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
-    // Zooming off 100% is what makes `clientDelta / zoom` fractional, and a
-    // fractional left/top is what puts 192.1 in the X field.
     await page.keyboard.press(`${MOD}+-`);
     await page.waitForTimeout(1200);
     await drawWith(page, "Rectangle", {
@@ -809,9 +770,6 @@ test.describe("drawing fidelity", () => {
   test("the inspector never shows a fractional X or Y", async ({ page }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    // A line-height-driven flow child is where subpixel layout shows up: its
-    // rendered position is genuinely fractional, and the field still has to
-    // read as a coordinate a designer could have typed.
     await selectLayerRow(page, "Title");
 
     const shown = [
@@ -842,8 +800,6 @@ test.describe("drawing fidelity", () => {
     await openEditor(page, id);
     await selectLayerRow(page, "Plain Box");
 
-    // Drag by an amount that is deliberately NOT a multiple of 8, so landing on
-    // one can only come from the grid.
     const box = await node(page, "plain-box").boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -881,17 +837,12 @@ test.describe("drawing fidelity", () => {
     const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
     await openEditor(page, id);
 
-    // The canvas suppresses a grid whose lines would land under 10px apart on
-    // screen, so a size fixed in content px is invisible at the zoom the
-    // editor happens to open at — and this test is about a VISIBLE grid.
     const zoom = await canvasZoom(page);
     const size = Math.ceil(15 / zoom);
     await postAction(page, "set-layout-grid", { designId: id, screenId, size });
 
     const overlay = page.locator(`[data-layout-grid="${screenId}"]`);
     await expect(overlay).toHaveCount(1);
-    // A sibling overlay at a fixed z cannot beat the focused frame's z boost,
-    // so an opaque body paints over its own grid.
     const stacking = await overlay.evaluate((el) => {
       const card = el.closest("[data-screen-card]");
       const rect = el.getBoundingClientRect();
@@ -902,8 +853,6 @@ test.describe("drawing fidelity", () => {
       const hit = document.elementFromPoint(mid.x, mid.y);
       return {
         insideCard: Boolean(card),
-        // Custom properties come back verbatim, so resolve through a probe to
-        // assert what actually paints.
         lineColor: (() => {
           const probe = document.createElement("span");
           probe.style.color = getComputedStyle(el).getPropertyValue(
@@ -915,7 +864,6 @@ test.describe("drawing fidelity", () => {
           return resolved;
         })(),
         backgroundSize: getComputedStyle(el).backgroundSize,
-        // Nothing opaque from the screen's own content may sit above it.
         topmostIsAboveOverlay: el.contains(hit) || el === hit,
       };
     });
@@ -923,11 +871,7 @@ test.describe("drawing fidelity", () => {
       stacking.insideCard,
       "the grid must live inside the frame it belongs to, not beside it",
     ).toBe(true);
-    // Sampled from Figma: a grid line is #F2F2F2 on white, i.e. black at ~5%.
-    // Anything stronger competes with the content it sits under.
     expect(stacking.lineColor).toBe("rgba(0, 0, 0, 0.05)");
-    // Two gradients (vertical + horizontal lines), so the computed value
-    // carries one size per layer.
     expect(stacking.backgroundSize).toBe(
       `${size}px ${size}px, ${size}px ${size}px`,
     );
@@ -955,9 +899,6 @@ test.describe("drawing fidelity", () => {
         await indexHtml(page, id2),
       )?.[1] ?? "";
 
-    // Anchor to the size that was actually asked for. Comparing the two runs
-    // only to each other passes when BOTH are equally wrong — with no
-    // rectangle committed, both regexes miss and NaN equals NaN.
     expect(
       [styleNum(first, "width"), styleNum(first, "height")],
       `drew ${want.width}x${want.height} at 100% but committed ` +
@@ -1047,8 +988,6 @@ test.describe("drawing fidelity", () => {
   });
 });
 
-// ── Moving things ─────────────────────────────────────────────────────────
-
 test.describe("moving", () => {
   test("a canvas drag moves the element by the drag delta", async ({
     page,
@@ -1075,7 +1014,6 @@ test.describe("moving", () => {
 
     const after = styleOf(await indexHtml(page, id), "plain-box");
     const moved = styleNum(after, "left") - styleNum(before, "left");
-    // A drag-start threshold consumes the first few px, as in Figma.
     expect(
       moved > 90 && moved < 110,
       `dragged 100 page-px right; left went ${styleNum(before, "left")} → ` +
@@ -1124,8 +1062,6 @@ test.describe("moving", () => {
   });
 });
 
-// ── Selection ─────────────────────────────────────────────────────────────
-
 test.describe("selection", () => {
   test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
     page,
@@ -1133,9 +1069,6 @@ test.describe("selection", () => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
-    // Deliberate divergence from Figma (see selectionTargetForHit in
-    // editor-chrome.bridge.ts): this canvas is real HTML, where climbing to
-    // the outermost ancestor makes a label select its whole container.
     await selectOnCanvas(page, "intro-title");
     const clicked = (
       await page
@@ -1224,8 +1157,6 @@ test.describe("selection", () => {
   });
 });
 
-// ── The document is the source of truth ───────────────────────────────────
-
 test.describe("persistence and history", () => {
   test("a reload changes nothing", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -1272,8 +1203,6 @@ test.describe("persistence and history", () => {
   });
 });
 
-// ── Layer tree mirrors the document ───────────────────────────────────────
-
 test.describe("layers panel", () => {
   test("tree nesting matches DOM nesting", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -1315,10 +1244,6 @@ test.describe("layers panel", () => {
     await row.hover();
     await row.getByRole("button", { name: "Hide layer" }).first().click();
     await page.waitForTimeout(2000);
-    // `false` is exactly what this test asserts, so coercing a failed read to
-    // it made a deleted or unreachable node pass as "hidden". Hiding sets
-    // display:none, so the node must still be in the document — require that,
-    // then let a genuine read error surface instead of answering "hidden".
     await expect(node(page, "plain-box")).toHaveCount(1);
     const visible = await node(page, "plain-box").evaluate((el) => {
       const cs = getComputedStyle(el);
@@ -1333,8 +1258,6 @@ test.describe("layers panel", () => {
     );
   });
 });
-
-// ── Nothing should throw ──────────────────────────────────────────────────
 
 test("basic authoring raises no uncaught page errors", async ({ page }) => {
   const id = await newDesign(page, BLANK_PAGE);

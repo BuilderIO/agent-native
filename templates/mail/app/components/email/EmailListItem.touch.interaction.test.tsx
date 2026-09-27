@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -60,7 +61,7 @@ function renderRow(
     onHover: vi.fn(),
     ...overrides,
   };
-  render(<EmailListItem {...props} />);
+  render(<EmailListItem {...props} />, { wrapper: MemoryRouter });
   return {
     row: screen.getByRole("row"),
     props,
@@ -88,6 +89,58 @@ describe("EmailListItem touch swipe interactions", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("shows trash for trashable rows and the importance menu when supplied", () => {
+    renderRow({ canTrash: true, onTrash: vi.fn() });
+    expect(screen.getByLabelText("mail.actions.moveToTrash")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeNull();
+
+    cleanup();
+    renderRow({ onImportanceFeedback: vi.fn() });
+    expect(
+      screen.getByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("mail.actions.moveToTrash")).toBeNull();
+  });
+
+  it("hides scores while keeping importance feedback available", () => {
+    const labelId = "Label_Important";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    const { row } = renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([[labelId, "agent-native-important"]]),
+      onImportanceFeedback: vi.fn(),
+    });
+
+    expect(row.textContent).not.toMatch(/\b0\.\d+\b/);
+    expect(row.textContent).not.toContain("agent-native-important");
+    const marker = screen.getByText("mail.aiFilter.importantMode");
+    expect(marker.classList.contains("bg-muted")).toBe(true);
+    expect(marker.classList.contains("text-muted-foreground")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priorityFeedbackLabel" }),
+    ).toBeTruthy();
+  });
+
+  it("sizes the automated notifications label to its full text", () => {
+    const labelId = "label:automated-notifications";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([
+        [labelId, "[Superhuman]/AI/Automated_notifications"],
+      ]),
+    });
+
+    const label = screen.getByText("automated notifications");
+    expect(label.textContent).toBe("automated notifications");
+    expect((label as HTMLElement).style.maxWidth).toBe("max-content");
+    expect(label.classList.contains("shrink-0")).toBe(true);
   });
 
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {
@@ -252,8 +305,7 @@ describe("EmailListItem touch swipe interactions", () => {
       canArchive: true,
       onSnooze: vi.fn(),
       canSnooze: true,
-      onTrash: vi.fn(),
-      canTrash: true,
+      onImportanceFeedback: vi.fn(),
       onSendNow: vi.fn(),
       onCancelSchedule: vi.fn(),
       scheduledJobId: "scheduled-1",
@@ -266,7 +318,7 @@ describe("EmailListItem touch swipe interactions", () => {
       "mail.snooze.snooze",
       "mail.sendLater.sendNow",
       "mail.sendLater.cancelScheduledSend",
-      "mail.actions.moveToTrash",
+      "mail.sort.priorityFeedbackLabel",
       "mail.actions.star",
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();

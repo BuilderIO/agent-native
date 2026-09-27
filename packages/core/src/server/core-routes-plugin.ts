@@ -51,6 +51,8 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
+  type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -67,6 +69,10 @@ import {
   type DatabaseSchemaHealthResult,
 } from "../db/runtime-diagnostics.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import {
+  BUILDER_CREDIT_USAGE_REPORTING_FLAG,
+  registerFeatureFlags,
+} from "../feature-flags/registry.js";
 import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
@@ -137,6 +143,7 @@ import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
+import { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import { createAgentEngineOllamaModelsHandler } from "./agent-engine-ollama-models-route.js";
 import {
@@ -328,6 +335,11 @@ export interface AgentEngineStatusResult {
   source?: "settings" | "env" | "app_secrets";
   envVar?: string;
   openAiBaseUrlConfigured?: boolean;
+}
+
+export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
+  /** Strict chat-only eligibility; distinct from broad engine `configured`. */
+  chatEligible: boolean;
 }
 
 export interface AgentEngineStatusDeps<
@@ -1638,6 +1650,14 @@ export interface CoreRoutesPluginOptions {
   googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
+  /**
+   * Let anonymous visitors keep application state under the owner that
+   * `anonymousOwner` resolves, instead of answering them 401. For apps whose
+   * chat or pages run for visitors without a session (a guest chat): the
+   * client's navigation, URL and composer preference sync then works for them
+   * too. Off by default, since every anonymous visitor then gets state rows.
+   */
+  anonymousApplicationState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
   disableOpenRoute?: boolean;
   /** Disable the /_agent-native/embed/start iframe session launcher. */
@@ -2017,10 +2037,20 @@ export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
   app: H3AppShim = getH3App(nitroApp),
+  options: { anonymousOwner?: AppStateAnonymousOwnerResolver } = {},
 ): void {
+  // Hand the handlers the app's anonymous owner resolver; they consult it only
+  // when the request has no session.
+  const withAnonymousOwner = (event: H3Event) => {
+    if (options.anonymousOwner && event.context) {
+      event.context[APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY] =
+        options.anonymousOwner;
+    }
+  };
   app.use(
     `${routePrefix}/application-state/compose`,
     defineEventHandler(async (event: H3Event) => {
+      withAnonymousOwner(event);
       const id =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (event.context) {
@@ -2046,6 +2076,7 @@ export function mountApplicationStateRoutes(
       const key =
         (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
       if (key === "compose") return;
+      withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
         return;
@@ -2080,6 +2111,7 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
+    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
@@ -2140,7 +2172,11 @@ export function createCoreRoutesPlugin(
         // Application state is part of the client bootstrap contract. Register
         // it before optional plugin/bootstrap work so the first localization
         // write cannot fall through to the template router on a cold start.
-        mountApplicationStateRoutes(nitroApp, P);
+        mountApplicationStateRoutes(nitroApp, P, undefined, {
+          anonymousOwner: options.anonymousApplicationState
+            ? options.anonymousOwner
+            : undefined,
+        });
       }
 
       // This response is a side-effect-free static contract used by the SSR
@@ -4654,8 +4690,8 @@ export function createCoreRoutesPlugin(
               if (!creds.privateKey || !creds.publicKey) {
                 setResponseStatus(event, 400);
                 return {
-                  error:
-                    "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
+                  errorCode: "builder_agent_not_connected",
+                  error: "Builder Cloud Agents are not connected.",
                 };
               }
               const body = (await readBody(event)) as {
@@ -4816,18 +4852,23 @@ export function createCoreRoutesPlugin(
         createAgentEngineOllamaModelsHandler(),
       );
 
-      // GET /_agent-native/agent-engine/status — reports whether an engine
-      // is configured (settings row, settings+env, or auto-detected from env).
-      // The agent-chat UI uses this to skip the onboarding gate for providers
-      // not in the env-status list (OpenRouter, Groq, Ollama, …).
+      // GET /_agent-native/agent-engine/status — reports broad engine status
+      // plus the stricter eligibility gate for interactive Agent-Native chat.
       getH3App(nitroApp).use(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await runWithRequestContext({ userEmail, orgId }, () =>
-              resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
+            return await runWithRequestContext(
+              { userEmail, orgId },
+              async (): Promise<AgentEngineStatusResponse> => {
+                const [engineStatus, chatEligible] = await Promise.all([
+                  resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
+                  isAgentChatAiSetupReady(),
+                ]);
+                return { ...engineStatus, chatEligible };
+              },
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
@@ -4902,6 +4943,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              authUserId: session.authUserId,
               sessionId: readBrowserSessionIdHeader(event),
               telemetryOrigin: "client",
             });
@@ -5077,24 +5119,19 @@ export function createCoreRoutesPlugin(
             const active = await getActiveFileUploadProviderForRequest();
             let builderConfigured = false;
             let builderUploadConfigured = false;
-            try {
-              const {
-                canAuthorizeBuilderApiRequest,
-                hasBuilderApiCredentialCustody,
-              } = await import("./builder-api-auth.js");
-              builderConfigured = await hasBuilderApiCredentialCustody();
-              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
-                BUILDER_ASSETS_WRITE_SCOPE,
-              );
-            } catch {
-              builderConfigured = false;
-              builderUploadConfigured = false;
-            }
+            const {
+              canAuthorizeBuilderApiRequest,
+              hasBuilderApiCredentialCustody,
+            } = await import("./builder-api-auth.js");
+            builderConfigured = await hasBuilderApiCredentialCustody();
+            builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+              BUILDER_ASSETS_WRITE_SCOPE,
+            );
 
             const providers = await Promise.all(
               listFileUploadProviders().map(async (p) => {
                 const scopedConfigured = p.isConfiguredForRequest
-                  ? await p.isConfiguredForRequest().catch(() => false)
+                  ? await p.isConfiguredForRequest()
                   : false;
                 return {
                   id: p.id,
@@ -5198,7 +5235,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           return {
             error:
-              "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
+              "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
           };
         }),
       );

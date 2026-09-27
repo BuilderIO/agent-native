@@ -96,6 +96,36 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
+  it("diagnoses an inaccessible cookie and skips the startup gate", () => {
+    const cookie = vi
+      .spyOn(document, "cookie", "get")
+      .mockImplementation(() => {
+        throw new DOMException("Sandboxed document", "SecurityError");
+      });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      act(() => {
+        root.render(
+          <FirstRunOnboardingStartupGate>
+            <div data-testid="app-content">app</div>
+          </FirstRunOnboardingStartupGate>,
+        );
+      });
+    } finally {
+      cookie.mockRestore();
+    }
+
+    expect(mocks.fetchStatus).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[onboarding] first-run cookie is unreadable; skipping startup gate",
+    );
+    warn.mockRestore();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+  });
+
   it("holds the app behind a neutral screen while eligibility is unresolved", () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
@@ -109,9 +139,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     });
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
-    expect(
-      container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+    const loading = container.querySelector("[data-first-run-startup-loading]");
+    expect(loading?.getAttribute("role")).toBe("status");
+    expect(loading?.getAttribute("aria-label")).toBe("Loading application");
+    expect(loading?.hasAttribute("inert")).toBe(false);
+    expect(loading?.querySelector("[inert]")).not.toBeNull();
     expect(
       container.querySelector("[data-first-run-app-hidden]"),
     ).not.toBeNull();

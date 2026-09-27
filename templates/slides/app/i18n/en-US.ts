@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Template actions for {{title}}",
+    previewAction: "Preview",
+    title: "Templates",
+    browseAll: "Browse all",
+    searchPlaceholder: "Search templates…",
+    loading: "Loading templates",
+    empty: "No templates match your search.",
+    loadFailed: "Could not load templates.",
+    preview: "Template preview",
+    useTemplate: "Use template",
+    opening: "Opening template…",
+    createFailed: "Could not create a presentation from this template.",
+    previous: "Previous",
+    next: "Next",
+    slidePosition: "Slide {{current}} of {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandPresentations: "Presentations",
@@ -26,6 +43,7 @@ const messages = {
     team: "Team",
   },
   settings: {
+    agentObservability: "Agent Observability",
     title: "Settings",
     description: "Language and workspace preferences for this app.",
     labs: "Labs",
@@ -54,6 +72,7 @@ const messages = {
     emptyState: "Ask me anything about your presentations",
     thisSlide: "This Slide",
     currentSelection: "Current Selection",
+    slideNumber: "Slide {{number}}",
     suggestionPitch: "Build a 10-slide pitch from this doc",
     suggestionBrand: "Apply our brand to this deck",
     suggestionHero: "Generate a hero image for this slide",
@@ -107,7 +126,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -631,6 +650,12 @@ const messages = {
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
+    generationStalled: "Generation paused after 5 minutes without progress",
+    generationStalledDescription:
+      "Your saved slides are still here. Continue from this deck in chat.",
+    continueInChat: "Continue in chat",
+    continueGenerationPrompt:
+      "Continue generating slides for this deck. Check its current slides and saved generation context first. Keep completed slides and add only the missing slides.",
     checkingSharedAccess:
       "Checking whether this presentation is shared with your account.",
     joinTeamDescription:
@@ -679,7 +704,7 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
@@ -698,6 +723,10 @@ const messages = {
       "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
     keepEditing: "Keep editing",
     leaveWithoutSaving: "Exit without saving",
+    editorMarkupNotSaved:
+      "This edit wasn't saved because it would have added editor markup to the slide.",
+    textEditConflictNotSaved:
+      "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",
@@ -783,12 +812,129 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Create a product pitch deck",
+      roadmap: "Create a product roadmap",
+      explainer: "Explain a topic in a presentation",
+    },
+    suggestedPrompts: "Suggested prompts",
+    importMenu: {
+      import: "Import",
+      options: "Import options",
+      invalidPdf: "Choose a PDF file.",
+      invalidPptx: "Choose a PPTX file.",
+      invalidFile: "Choose a PDF or PPTX file.",
+      networkFailed:
+        "The import request timed out or lost its network connection. Check your connection and retry.",
+      notStarted: "Complete any required sign-in, then retry the import.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
+    },
+    importDeck: "Import Deck",
+    context: {
+      websiteReference: "Attach website",
+      websiteUrlLabel: "Website URL",
+      websiteUrl: "Paste a website URL",
+      figmaUrlLabel: "Figma link",
+      invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+      createSystem: "Create a design system",
+      noSystems:
+        "You don’t have a design system yet. Create one from website, files, or Figma.",
+      searchSystems: "Search design systems…",
+      searchFrames: "Search Figma frames…",
+      searchDesigns: "Search designs…",
+      searchPresentations: "Search presentations…",
+      menu: {
+        system: "Use a design system",
+        figma: "Attach Figma",
+        design: "Reference a design",
+        deck: "Reference a presentation",
+        searchDesign: "Search design…",
+      },
+      loadFailed: "Couldn't load this reference. Try again.",
+      saveFailed: "Couldn't save your context selection.",
+      system: "Design systems",
+      figmaUrl: "Paste a Figma link",
+      browse: "Browse frames",
+      empty: "No references found.",
+      previous: "Previous",
+      next: "Next",
+      title: "Context",
+      remove: "Remove reference",
+      deck: "Presentations",
+      design: "Design references",
+      figma: "Figma frames",
+      notReady:
+        "Context is still loading or unavailable. Retry or remove it before sending.",
+      emptySource: "This source returned no usable context.",
+      figmaReadFailed:
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
+      tooMany: "Choose up to 20 references.",
+      search: "Search references",
+      designCategory: "Design",
+    },
+    quickStart: {
+      invalidUrl: "Enter a valid HTTP or HTTPS URL.",
+      starting: "Starting…",
+      generate: "Generate",
+      connectionRequired:
+        "Connect an AI provider above the home prompt or add your own AI key, then try again.",
+      invalidPdf: "Choose a PDF file.",
+      notReady:
+        "Review the prompt's loading or failed context and connection status, then try again.",
+      tooLong: "Keep source text under 20,000 characters.",
+      trends: {
+        label: "Create a presentation on latest industry trends",
+        field: "Industry or topic",
+        prompt:
+          "Research the latest trends for the supplied topic and create a presentation with current sources. Verify the information before generating.",
+      },
+      notes: {
+        label: "Turn meeting notes into a presentation",
+        field: "Meeting notes",
+        prompt:
+          "Turn the supplied meeting notes into a presentation covering key points, decisions, and next steps. Use the notes as source material.",
+      },
+      pdf: {
+        label: "Summarize a PDF into key takeaways",
+        field: "PDF file",
+        prompt:
+          "Read the attached PDF and create a presentation summarizing its key takeaways. Report unreadable content instead of guessing.",
+      },
+      website: {
+        label: "Generate a deck from my company website",
+        field: "Company website URL",
+        prompt:
+          "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
+      },
+    },
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
+    recent: "Recent",
+    starters: {
+      pitch: {
+        label: "Pitch deck",
+        prompt: "Create a pitch deck about ",
+      },
+      update: {
+        label: "Project update",
+        prompt:
+          "Create a project update covering progress, results, and next steps for ",
+      },
+      lesson: {
+        label: "Teach a topic",
+        prompt: "Create a presentation that explains ",
+      },
+    },
     loadFailed: "Couldn't load your content",
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",
     retry: "Retry",
+    fileStorageStatusUnavailable:
+      "Couldn't check object storage. Retry before uploading files.",
+    fileStorageSetupRequired:
+      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
-    newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
     deckLengthShort: "Short (3–5 slides)",
@@ -813,11 +959,13 @@ const messages = {
     newDeckPromptTitle: "New presentation",
     newDeckPlaceholder: "Describe the presentation you want to generate...",
     skipPrompt: "Skip prompt",
-    firstDeckPromptTitle: "What kind of presentation should we generate?",
+    firstDeckPromptTitle: "Let's create your first presentation",
     firstDeckSkip: "Skip",
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    referenceFileStorageUnavailable:
+      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",

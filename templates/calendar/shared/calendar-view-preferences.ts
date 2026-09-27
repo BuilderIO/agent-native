@@ -20,28 +20,20 @@ export const MIN_CALENDAR_DAYS = 1;
 export const MAX_CALENDAR_DAYS = 31;
 export const DEFAULT_CALENDAR_DAYS = 7;
 
-/** Account-scoped key: a Google account email, or `"ics:<externalCalendarId>"`. */
 export type CalendarColorSourceKey = string;
 
 export interface CalendarViewPreferences {
   hideWeekends: boolean;
-  /** Number of days shown by the week-style calendar view. */
   numberOfDays: number;
-  /** Whether events declined by the current account remain visible. */
   showDeclinedEvents: boolean;
-  /** Whether month view reserves a leading column for week numbers. */
   showWeekNumbers: boolean;
   /** @deprecated kept for back-compat migration; use accountColorModes */
   colorMode: CalendarColorMode;
   /** @deprecated kept for back-compat migration; use accountColors */
   singleColor: string;
-  /** Per-account color mode ("multi" = color by meeting type, "single" = fixed color) */
   accountColorModes: Record<CalendarColorSourceKey, CalendarColorMode>;
-  /** Per-account fixed color, used when that account's mode is "single" */
   accountColors: Record<CalendarColorSourceKey, string>;
-  /** Agent-Native visibility overrides for Google calendar sources. */
   googleCalendarVisibility: Record<string, boolean>;
-  /** Local display-color overrides keyed by opaque canonical Google calendar key. */
   googleCalendarColors: Record<string, string>;
 }
 
@@ -112,11 +104,6 @@ function normalizeBooleanRecord(input: unknown): Record<string, boolean> {
   return out;
 }
 
-/**
- * Returns a stable default color for an account that hasn't picked one yet,
- * cycling through the shared palette by the account's position in `keys` so
- * distinct accounts default to distinct swatches.
- */
 export function defaultColorForAccount(
   accountKey: CalendarColorSourceKey,
   allKeysInOrder: CalendarColorSourceKey[],

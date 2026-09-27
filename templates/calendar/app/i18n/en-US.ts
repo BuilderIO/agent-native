@@ -47,6 +47,11 @@ export default {
     noEventId: "No event id provided. Add ?id=<eventId> to the URL.",
     openCalendar: "Open calendar",
   },
+  eventCreation: {
+    created: "Event created",
+    zoomNotAdded: "The event was created, but Zoom could not be added.",
+    openInCalendar: "Open event in Calendar",
+  },
   agentSidebar: {
     emptyState: "Ask me anything about your calendar",
     suggestions: {
@@ -249,6 +254,42 @@ export default {
     weekStartLabel: "Week starts on",
     weekStartSunday: "Sunday - Saturday",
     weekStartMonday: "Monday - Sunday",
+    eventRules: "Invitation rules",
+    eventRulesConnectJev: "Connect Jev to run invitation rules",
+    eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
+    eventRulesConnectBuilder: "Connect Builder.io",
+    eventRulesAddJevApiKey: "Add API key",
+    eventRulesTabRules: "Rules",
+    eventRulesHelpLabel: "About invitation rule prompts",
+    eventRulesHelp:
+      "Write prompts that tell Jev which invitations to accept, decline, or hide.",
+    eventRuleAccept: "Auto accept",
+    eventRuleDecline: "Auto decline",
+    eventRuleHide: "Auto hide",
+    eventRulePlaceholderAccept: "Example: Accept one-on-ones from my team",
+    eventRulePlaceholderDecline:
+      "Example: Decline vendor demos and after-hours events",
+    eventRulePlaceholderHide: "Example: Hide focus blocks and reminders",
+    eventRulesSave: "Save rules",
+    eventRulesClearSaved: "Clear saved rules",
+    eventRulesRecentActivity: "Recent activity",
+    eventRulesNoActivity: "No activity yet",
+    eventRuleActivityAccepted: "Accepted",
+    eventRuleActivityDeclined: "Declined",
+    eventRuleActivityHidden: "Hidden",
+    eventRuleUndoDone: "Action undone",
+    eventRuleUndoFailed: "Could not undo this action",
+    eventRulesActive:
+      "Rules run every 5 minutes on connected accounts' primary calendars.",
+    eventRulesDisabled:
+      "Enable RUN_BACKGROUND_JOBS=1 on a long-lived Calendar worker.",
+    eventRulesDeploymentDisabled:
+      "Scheduled automation is disabled for this deployment.",
+    eventRulesChecking: "Checking automation status…",
+    eventRulesConflict:
+      "An invitation was skipped because accept and decline both matched.",
+    eventRulesUnregistered:
+      "Calendar automation is not registered in this server.",
   },
   eventDialog: {
     eventUpdated: "Event updated",
@@ -482,8 +523,18 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "You're all set! A confirmation has been sent to your email.",
+    meetingDetailsPending:
+      "Your time is reserved. The host will follow up with meeting details.",
     confirmed: "Confirmed",
     confirmedCount: "Confirmed ({{count}})",
+    zoomNeedsReview: "Check Zoom before retrying",
+    zoomCancellationNeedsReview: "Check Zoom before canceling",
+    zoomCancellationRequiresHostReview:
+      "The organizer must review the Zoom meeting before this booking can be canceled.",
+    zoomCancelTitle: "Check Zoom before canceling",
+    zoomCancelDescription:
+      "Zoom may have created a meeting for this booking. Check your Zoom account and cancel the meeting there if it exists. Continue only after the meeting is canceled or you confirm no meeting exists.",
+    zoomCancelConfirm: "I've checked Zoom",
     confirming: "Confirming",
     conferencing: "Conferencing",
     connectZoom: "Connect Zoom",

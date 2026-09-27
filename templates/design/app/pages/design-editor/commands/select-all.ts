@@ -4,13 +4,8 @@ export type SelectAllDecision =
   | { kind: "layers"; layerIds: string[] }
   | { kind: "screens" };
 
-/**
- * What Cmd+A falls back to when nothing is selected. Overview treats screens as
- * the top-level objects; a single screen treats its own root layers as those.
- */
 export type SelectAllFallback = "screens" | "top-level-layers";
 
-/** Includes the anchor, so select-all never drops the row it started from. */
 function siblingIdsOf(
   nodes: readonly CodeLayerTreeNode[],
   layerId: string,
@@ -25,15 +20,9 @@ function siblingIdsOf(
   return null;
 }
 
-/**
- * A repeat renders N rows from one source element, so its rows share one layer
- * id and collapse to a single entry here. Selecting that entry is what makes an
- * edit reach every row.
- */
 export function runSelectAll(args: {
   tree: readonly CodeLayerTreeNode[];
   selectedLayerIds: readonly string[];
-  /** Screen/file rows are not layers, and `__` ids are editor-internal. */
   nonLayerIds: ReadonlySet<string>;
   fallback: SelectAllFallback;
 }): SelectAllDecision {

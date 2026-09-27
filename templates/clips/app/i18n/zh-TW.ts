@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   timelineTrack: {
     helpOtherSide: "先點一下那一段，再把紅線往右拖。",
     helpOtherSideTerm: "改為從右側那一段裁掉素材",
@@ -401,6 +409,9 @@ const messages = {
     agentEmptyTitle: "加入對話",
     agentEmptyDescription:
       "建立免費的 Clips 帳號，即可留言、回應並詢問此剪輯。",
+    commentSignupTitle: "AI 代理看得見也聽得見的螢幕錄影",
+    commentSignupDescription:
+      "Clips 是一款免費開源的螢幕錄影工具，可與 AI 代理分享 bug、回饋和逐步操作示範。",
     agentEmptySignInPrompt: "已經有帳號了嗎？",
     signUp: "註冊",
     ownerInsights: "擁有者洞察",
@@ -532,6 +543,9 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮蔽處理",
+    redactionsPendingBody:
+      "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",
@@ -585,9 +599,6 @@ const messages = {
     customizeEmbed: "自訂嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "這段錄影上畫了 {{count}} 處遮蔽，但尚未合成進影片，因此檔案裡遮蔽下方的內容依然看得到。開啟編輯器完成合成後，即可重新分享。",
-    redactionsPendingTitle: "請先完成遮蔽",
   },
   shareUi: {
     owner: "擁有者： {{email}}",
@@ -777,6 +788,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "無法更新目前工作區",
     whatsNew: "最新變化",
     changelogEmpty: "暫無更新。",
+    changelogCommentSignup:
+      "沒有留言時，側邊欄會簡要說明 Clips 的價值，並提供清楚的註冊入口。",
+    changelogCommentsEmptyState:
+      "沒有留言時，現在會說明螢幕錄影如何幫助 AI 代理。",
+    changelogShareLink:
+      "已登入的使用者在無法使用、已過期或私人分享連結中選擇「返回首頁」時，現在會前往媒體庫，而不是公開行銷頁面。",
     viewAllUpdates: "檢視所有更新",
     expand: "展開",
     collapse: "收起",
@@ -1161,6 +1178,7 @@ const messages = {
     transcript: "轉錄",
     comment: "評論",
     titleOrDescription: "標題或描述",
+    matchAt: "影片中 {{time}} 處比對",
   },
   organizationSwitcher: {
     noOrganization: "沒有組織",
@@ -1347,10 +1365,20 @@ const messages = {
     disconnected: "麥克風已中斷連線。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請允許此網站顯示快顯視窗後再試一次。",
+    builderConnectError: "無法連線至 Builder.io。請再試一次或聯絡支援團隊。",
+    checkingBuilderConnection: "正在檢查 Builder 連線…",
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     connectBuilder: "使用 Builder.io",
+    createBuilderAccount: "建立 Builder.io 帳戶",
+    signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
+    builderConsentPrefix: "建立 Builder.io 帳戶即表示您同意我們的",
+    builderTerms: "服務條款",
+    builderConsentAnd: "和",
+    builderPrivacy: "隱私權政策",
     free: "免費",
     configureS3: "設定 S3 相容儲存",
     whyPrompt: "為什麼我會看到這個？",

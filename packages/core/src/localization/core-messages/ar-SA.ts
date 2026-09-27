@@ -1,7 +1,37 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "عنوان URL",
+  "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
+  "composer.contextAttach": "إرفاق",
+  "composer.menu.search": "بحث…",
+  "composer.contextPrevious": "السابق",
+  "composer.contextNext": "التالي",
+  "composer.contextLoadFailed": "تعذّر تحميل السياق.",
+  "composer.contextLinkRequired": "أدخل رابطًا.",
+  "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
+  "composer.contextLimitExceeded":
+    "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
+  "activity.groupLabel": "نشاط الوكيل",
+  "activity.agents": "تعاون الوكلاء",
+  "activity.tasks": "مهام الوكلاء",
+  "agent.started": "بدأ العمل",
+  "agent.resumed": "استأنف العمل",
+  "agent.messaged": "أرسل رسالة",
+  "agent.delegated": "فوّض العمل",
+  "agent.paused": "أوقف العمل مؤقتًا",
+  "agent.completed": "أنهى العمل",
+  "agent.failed": "يحتاج إلى الانتباه",
+  "agent.closed": "أغلق",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
   "approval.alwaysAllowAction": "السماح بهذا الإجراء دائمًا",
@@ -12,6 +42,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "رفض",
   "approval.moreOptions": "المزيد من خيارات الموافقة",
   "approval.question": "هل توافق على تشغيل {{tool}}؟",
+  "approval.submit": "إرسال",
+  "approval.other": "أخرى",
+  "approval.otherPlaceholder": "اكتب إجابتك",
   "auth.expiredDescription":
     "ربما انتهت صلاحية جلستك. سجّل الخروج ثم ادخل مجددًا لإعادة الاتصال.",
   "auth.expiredTitle": "انتهت صلاحية الجلسة",
@@ -32,6 +65,27 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "observability.viewDetails": "عرض التفاصيل",
+  "observability.hideDetails": "إخفاء التفاصيل",
+  "observability.input": "الإدخال",
+  "observability.output": "الإخراج",
+  "observability.error": "خطأ",
+  "observability.metadata": "بيانات وصفية",
+  "observability.notCaptured": "لم يتم الالتقاط",
+  "observability.openFullConversation": "فتح المحادثة الكاملة",
+  "observability.learnAboutTab": "تعرّف على علامة التبويب",
+  "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
+  "observability.regenerateSummary": "إعادة إنشاء الملخص",
+  "observability.summarizeWithAgentHelp":
+    "اطلب من الوكيل قراءة هذا الموضوع وتلخيص الطلب والنتيجة وربط العناصر التي تم التحقق منها فقط.",
+  "observability.regenerateSummaryHelp":
+    "اطلب من الوكيل تحديث هذا الملخص استنادًا إلى أحدث رسائل الموضوع والعناصر التي تم التحقق منها.",
+  "observability.summarySending": "جارٍ إرسال الطلب إلى الوكيل…",
+  "observability.summaryQueued":
+    "وُضع الطلب في قائمة الانتظار. سيظهر الملخص هنا بعد أن يحفظه الوكيل.",
+  "observability.summaryFailed": "تعذّر إرسال الطلب. حاول مرة أخرى.",
+  "observability.summaryExpired":
+    "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",
@@ -48,8 +102,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
+  "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -80,9 +134,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
-  "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
+  "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
+  "onboarding.fileStorage.custom": "استخدم مفاتيح مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",
@@ -119,6 +175,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "نسخ بيانات التشخيص",
   "aboutAgentNative.unknown": "غير معروف",
   "common.agent": "الوكيل",
+  "common.you": "أنت",
   "agentPanel.mode": "الوضع",
   "agentPanel.uiMode": "واجهة المستخدم",
   "agentPanel.keyScope": "نطاق المفتاح",
@@ -274,6 +331,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "صِف المهارة التي تريد إنشاءها...",
   "composer.documentTooLarge":
     'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لـ {{label}} هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
+  "composer.requestTooLarge":
+    "هذه الرسالة ومرفقاتها كبيرة جدًا بحيث يتعذر إرسالها. أزل مرفقًا أو اختصر الرسالة.",
   "composer.file": "ملف",
   "composer.imageModel": "نموذج الصور",
   "composer.imagePreview": "معاينة الصورة",
@@ -445,6 +504,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "كيف يمكنني مساعدتك؟",
   "error.afterDuration": "{{headline}} بعد {{duration}}",
   "error.failed": "واجه الوكيل خطأ",
+  "error.render": "تعذّر عرض هذا المحتوى.",
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
     "انقطع اتصال الوكيل. تحقّق من اتصالك وأعد المحاولة.",
@@ -484,7 +544,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "رفض مزوّد الذكاء الاصطناعي هذا الطلب مؤقتًا. عادةً ما يُحل هذا خلال دقيقة — أعد المحاولة.",
   "errorMessages.startNewChat": "بدء محادثة جديدة",
-  "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
+  "errorMessages.addCreditsInBuilder": "إضافة أرصدة في Builder",
   "feedback.inaccurate": "غير دقيق",
   "feedback.keyboardHint": "{{shortcut}} Enter للإرسال",
   "feedback.notHelpful": "غير مفيد",
@@ -516,6 +576,10 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "إدارة",
   "integrations.recommended": "موصى به",
   "integrations.subtitle": "اربط الأدوات التي يمكن لوكيلك استخدامها.",
+  "connection.connecting": "جارٍ الاتصال…",
+  "connection.notNow": "ليس الآن",
+  "connection.failed": "فشل الاتصال",
+  "connection.adminRequired": "اطلب من مسؤول مساحة العمل ربط هذه الخدمة.",
   "limit.account": "حسابك",
   "limit.descriptionAll":
     "استخدم الوكيل جميع الخطوات المتاحة. تابع في دورة جديدة، أو ارفع حد {{scope}} أولًا.",
@@ -544,8 +608,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "نسخ الرسالة",
   "message.copyRequestId": "نسخ معرّف الطلب",
   "message.requestIdUnavailable": "معرّف الطلب غير متاح",
+  "message.unavailable": "لم تعد هذه الرسالة متاحة في هذه المحادثة.",
+  "message.navigationUnavailable": "التنقل في المحادثة غير متاح.",
   "message.edit": "تعديل الرسالة",
   "message.forkChat": "تفريع المحادثة",
+  "message.mobileInteractiveTitle": "محتوى تفاعلي",
+  "message.mobileInteractiveDescription":
+    "يتوفر هذا العرض التفاعلي في دردشة الويب، لكنه غير متاح بعد في دردشة التطبيق.",
   "message.missingFinal":
     "توقف الوكيل دون إرسال رسالة نهائية. اطلب منه المتابعة أو أعد المحاولة.",
   "message.messages": "الرسائل",
@@ -555,11 +624,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "إعادة إنشاء الرد",
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
+  "message.revertQuestion":
+    "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
+  "message.revertToBeginning": "الرجوع إلى البداية",
   "message.sentAt": "أُرسلت في {{time}}",
   "contextMeter.ariaLabel":
     "السياق {{percent}}%، {{totalTokens}}{{breakdown}}. افتح تحليل السياق.",
@@ -626,6 +698,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "الخطة جاهزة",
   "plan.switchToAct": "التبديل إلى وضع التنفيذ",
   "queue.count": "{{count}} في قائمة الانتظار",
+  "queue.label": "رسائل بانتظار الإرسال",
   "queue.followUp": "إرسال متابعة...",
   "queue.followUpWithCount": "{{count}} في قائمة الانتظار — أرسل متابعة...",
   "queue.remove": "إزالة من قائمة الانتظار",
@@ -638,8 +711,12 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
+  "recovery.deferredSubmissionFailed":
+    "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":
-    "تم رفض بيانات اعتماد Builder.io أو مزوّد النموذج الحالية. أعد الاتصال بـ Builder.io، ثم أعد محاولة إرسال هذه الرسالة.",
+    "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
+  "codeRequired.builderAgentNotConnected":
+    "خدمة Builder Cloud Agents غير متصلة. اتصل بـ Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
   "recovery.diagnoseRetry": "تشخيص المشكلة وإعادة المحاولة",
   "recovery.forkDescription": "تفريع هذه المحادثة إلى سلسلة محادثة منفصلة.",
   "recovery.forkFailed": "تعذّر تفريع هذه المحادثة. جرّب بدء محادثة جديدة.",
@@ -650,6 +727,12 @@ const messages: AgentChatTranslation = {
     "بلغ تشغيل الوكيل السابق في الخلفية الحد الزمني قبل الاكتمال. تم الاحتفاظ بالعمل الجزئي؛ تابع أو أعد المحاولة من هنا.",
   "recovery.noProgress":
     "توقف تشغيل الوكيل السابق عن إظهار تقدم أثناء الاسترداد، لذلك تم إيقافه قبل أن يستمر في التكرار.",
+  "recovery.stuckTitle": "يبدو أن هذه المحادثة متوقفة.",
+  "recovery.stuckNoProgress":
+    "لا يوجد تقدم. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
+  "recovery.stuckWithDuration":
+    "لا يوجد تقدم منذ {{seconds}} ثانية. ربما انتهت مهلة الخادم أو انقطع اتصال الوكيل.",
+  "recovery.stuckRetrying": "تجري إعادة المحاولة تلقائيًا الآن.",
   "recovery.statusCheckFailed":
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":
@@ -698,6 +781,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.checkingProvider": "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+  "setup.providerStatusUnavailable": "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+  "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
+  "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
   "setup.connected": "متصل",
   "setup.connectedOrganization": "متصل — {{organization}}",
   "setup.connectedTo": "متصل بـ {{organization}}",
@@ -746,6 +833,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "يمكن لأي شخص في مؤسستك العرض",
   "share.owner": "المالك",
   "share.peopleWithAccess": "الأشخاص الذين لديهم صلاحية الوصول",
+  "share.people": "الأشخاص",
+  "share.agents": "الوكلاء",
   "share.private": "خاص",
   "share.privateDescription": "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
   "share.public": "عام",
@@ -767,6 +856,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
   "status.working": "جارٍ العمل",
+  "status.workingFor": "يعمل منذ {{duration}}",
   "shell.chat": "الدردشة",
   "shell.loadingTerminal": "جارٍ تحميل الطرفية...",
   "shell.toggleAgent": "إظهار الوكيل أو إخفاؤه",
@@ -842,6 +932,26 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "تعذر إرسال التأكيد.",
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
+  "usage.builderCredits": "أرصدة Builder",
+  "usage.inviteFriends": "ادعُ الأصدقاء",
+  "usage.inviteCredits":
+    "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
+  "usage.copyInviteLink": "نسخ رابط الدعوة",
+  "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
+  "usage.creditBalance": "رصيد مساحة العمل",
+  "usage.monthlyPlan": "الخطة الشهرية",
+  "usage.dailyFreeLimit": "الحد اليومي المجاني",
+  "usage.creditUsedOfLimit": "استخدام {{used}} من {{limit}}",
+  "usage.creditRemaining": "المتبقي {{amount}}",
+  "usage.creditUsageUnavailable": "تعذّر تحميل استخدام أرصدة Builder.",
+  "usage.estimatedBuilderCredits": "~{{amount}} رصيد مقدّر",
+  "usage.otherUsdSpend": "{{amount}} دولار أمريكي أخرى",
+  "usage.noBuilderCredits": "0 من أرصدة Builder",
+  "usage.otherUnclassifiedSpend": "إنفاق آخر أو غير مصنّف بالدولار الأمريكي",
+  "usage.providerSpendDetail":
+    "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
+  "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
+  "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
 };
 
 export default messages;

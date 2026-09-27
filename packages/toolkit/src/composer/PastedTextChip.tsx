@@ -48,7 +48,6 @@ function usePastedAttachmentText(attachment: Attachment): {
 export interface PastedTextChipProps {
   attachment: Attachment;
   onRemove?: (id: string) => void;
-  /** Compact variant rendered inside sent user messages. */
   compact?: boolean;
 }
 

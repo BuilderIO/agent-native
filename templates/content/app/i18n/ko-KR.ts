@@ -807,6 +807,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionCreateFailed: "제안을 만들 수 없습니다",
     suggestionsCount: "제안 {{count}}개",
     acceptSuggestion: "수락",
@@ -849,6 +856,35 @@ const rawLiterals = {
     contentSpace: "Content 공간",
     addChild: "하위 항목 추가",
     addChildTo: "{{title}}에 하위 항목 추가",
+    collapseItem: "{{title}} 접기",
+    removeFromRecent: "최근 방문에서 제거",
+    copyLink: "링크 복사",
+    openInNewTab: "새 탭에서 열기",
+    rename: "이름 바꾸기",
+    duplicate: "복제",
+    moveTo: "이동",
+    moveToTrash: "휴지통으로 이동",
+    lastEditedBy: "최종 편집자: {{name}}",
+    lastEdited: "최종 편집",
+    pageName: "페이지 이름",
+    movePageTo: "“{{title}}” 이동 위치",
+    topLevel: "최상위",
+    noMatchingPages: "일치하는 페이지 없음",
+    failedRenamePage: "페이지 이름을 바꾸지 못했습니다",
+    failedDuplicatePage: "페이지를 복제하지 못했습니다",
+    duplicatedFromLastSave:
+      "마지막으로 저장된 버전을 복사했습니다. 저장되지 않은 최근 편집은 포함되지 않았습니다.",
+    chooseSpace: "워크스페이스 선택",
+    moveToSpaceTitle: "{{space}}(으)로 이동할까요?",
+    moveToSpaceWarningShared:
+      "{{space}}의 모든 사람이 “{{title}}” 및 하위 페이지를 볼 수 있게 됩니다. 현재 공유 설정과 공개 링크가 제거되고 내가 소유자가 됩니다.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” 및 하위 페이지는 {{space}}에서 나만 볼 수 있게 됩니다. 현재 공유 설정과 공개 링크가 제거되고 내가 소유자가 됩니다.",
+    back: "뒤로",
+    movePage: "이동",
+    movedToSpace: "“{{title}}”을(를) {{space}}(으)로 이동했습니다",
+    failedRemoveFromRecent: "최근 방문에서 제거하지 못했습니다",
+    expandItem: "{{title}} 펼치기",
     database: "컬렉션",
     collection: "컬렉션",
     databasePermanentlyDeleted: "컬렉션가 영구 삭제되었습니다",
@@ -912,6 +948,9 @@ const comments = {
   suggestionWith: "변경 후",
   suggestionReplace: "변경 전",
   suggestionDetails: "제안 세부정보",
+  proposalEditCount_other: "편집 {{count}}개",
+  acceptRemaining: "나머지 수락",
+  rejectRemaining: "나머지 거절",
   typeFilter: "유형",
   statusFilter: "상태",
   authorFilter: "사용자",
@@ -988,6 +1027,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
@@ -1013,6 +1059,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "정보",
+      copyLink: "링크 복사",
+      copyForPeople: "사람용으로 복사",
+      copyForAgents: "에이전트용으로 복사",
+      whoHasAccess: "접근 권한이 있는 사람",
+      sharePeople: "사람",
+      shareAgents: "에이전트",
+      copyAgentPrompt: "에이전트 지침 복사",
+      openInClaude: "Claude에서 열기",
+      openInClaudeCode: "Claude Code에서 열기",
+      openInCodex: "Codex에서 열기",
+      agentCopyAccessNote:
+        "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
+      temporaryAgentLink: "임시 에이전트 링크",
+      privateLinkCanView: "접근 권한이 있는 사람만 볼 수 있습니다",
+      publicLinkCanView: "링크가 있는 누구나 볼 수 있습니다",
+      copiedAgentPrompt: "에이전트 지침을 복사했습니다",
+      couldNotCopyAgentPrompt: "에이전트 지침을 복사할 수 없습니다",
+      agentPrompt:
+        '이 Content 문서를 읽어 주세요: {{documentUrl}}\n\n{{mcpUrl}}에 사용할 수 있는 Content MCP 연결로 ID "{{documentId}}"를 지정해 get-document를 호출하세요. 공개적으로 읽을 수 있는 페이지는 직접 읽어도 됩니다.\n\n인증된 액세스가 필요한데 Content MCP를 사용할 수 없거나 로그아웃된 상태라면, 연결하고 인증하도록 저에게 요청하세요. 연결 설정: {{connectUrl}}. 공식 가이드: {{docsUrl}}\n\n연결이 준비되었다고 제가 확인하면 제 계정의 기존 권한으로 다시 읽어 보세요. 인증된 읽기가 거부되면 그 결과를 알려 주세요.',
       closeUtilityPanel: "패널 닫기",
       exportCsv: "CSV 내보내기",
       exportDatabase: "컬렉션 내보내기",
@@ -1036,6 +1101,7 @@ const exactEnglish = {
       exportedCsv: "CSV를 내보냈습니다",
       copiedPageLink: "페이지 링크를 복사했습니다",
       copyPageLink: "페이지 링크 복사",
+      createShareableCopy: "공유 가능한 사본 만들기",
       couldNotCopyLink: "링크를 복사하지 못했습니다",
       clipboardAccessUnavailable:
         "이 브라우저에서는 클립보드에 접근할 수 없습니다.",
@@ -1092,6 +1158,14 @@ const history = {
 };
 
 const overrides = {
+  close: "닫기",
+  setup: { checkingProvider: "AI 연결을 확인하는 중…" },
+  onboarding: {
+    fileStorage: {
+      title: "파일 업로드를 위해 저장소 연결",
+      statusUnavailable: "파일 저장소 상태를 확인할 수 없습니다.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1239,6 +1313,13 @@ const overrides = {
     genericError: "문제가 발생했습니다",
   },
   editor: {
+    iconPickerIcons: "아이콘",
+    iconPickerEmoji: "이모지",
+    iconPickerRecent: "최근 항목",
+    iconPickerColors: "색상",
+    iconPickerDefault: "기본값",
+    iconPickerUpload: "업로드",
+    iconPickerUploading: "업로드 중…",
     ...editor,
     sourceComponent: {
       defaultTitle: "소스 컴포넌트",

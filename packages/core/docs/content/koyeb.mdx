@@ -4,6 +4,8 @@ description: "Deploy an Agent-Native app to Koyeb with Nitro's koyeb preset."
 search: "Koyeb deployment Nitro preset Node.js"
 ---
 
+<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
+
 # Koyeb
 
 Use Nitro's `koyeb` preset to build an output for Koyeb's managed application
@@ -19,7 +21,7 @@ Build the app and deploy the generated server with Koyeb's git or container
 workflow:
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 node .output/server/index.mjs
 ```
 

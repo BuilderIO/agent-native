@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
 
+import {
+  createCornerNode,
+  serializePenNodes,
+  type PenPath,
+} from "@shared/pen-path";
 import { act, type ReactNode, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -9,6 +14,7 @@ import { findCanvasIframeForScreen } from "./multi-screen/iframe-targeting";
 import { SURFACE_PADDING } from "./multi-screen/overview-layout";
 import type {
   DuplicateRequest,
+  MultiScreenCanvasProps,
   MultiScreenCanvasTool,
 } from "./multi-screen/types";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
@@ -21,16 +27,69 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function ToolHarness({ initialTool }: { initialTool: MultiScreenCanvasTool }) {
+function ToolHarness({
+  initialTool,
+  onBoardDrawPrimitive,
+  onToolChange,
+}: {
+  initialTool: MultiScreenCanvasTool;
+  onBoardDrawPrimitive?: MultiScreenCanvasProps["onBoardDrawPrimitive"];
+  onToolChange?: (tool: MultiScreenCanvasTool) => void;
+}) {
   const [tool, setTool] = useState(initialTool);
+  const handleToolChange = (nextTool: MultiScreenCanvasTool) => {
+    setTool(nextTool);
+    onToolChange?.(nextTool);
+  };
   return (
     <MultiScreenCanvas
       screens={[]}
       zoom={100}
       activeTool={tool}
-      onActiveToolChange={setTool}
+      onActiveToolChange={handleToolChange}
       onPick={() => {}}
+      boardFileId={onBoardDrawPrimitive ? "board-file" : undefined}
+      onBoardDrawPrimitive={onBoardDrawPrimitive}
     />
+  );
+}
+
+type PenHarnessProps = Pick<
+  MultiScreenCanvasProps,
+  | "onCreatePrimitive"
+  | "onPrimitiveCreated"
+  | "onUpdatePenPath"
+  | "selectedPenPathNodeId"
+  | "vectorEdit"
+> & { screens?: MultiScreenCanvasProps["screens"] };
+
+function PenHarness({
+  screens = [
+    {
+      id: "screen-a",
+      filename: "screen-a.html",
+      content: "<!doctype html><html><body></body></html>",
+    },
+  ],
+  ...props
+}: PenHarnessProps) {
+  const [tool, setTool] = useState<MultiScreenCanvasTool>("pen");
+  return (
+    <>
+      <output data-active-tool>{tool}</output>
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={100}
+        activeId={screens.length > 0 ? "screen-a" : null}
+        activeTool={tool}
+        geometryById={{
+          "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+        }}
+        onActiveToolChange={setTool}
+        onPick={() => {}}
+        {...props}
+      />
+    </>
   );
 }
 
@@ -134,6 +193,352 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(surface).not.toBeNull();
     return surface!;
   }
+
+  async function renderPenHarness(props: PenHarnessProps = {}) {
+    await act(async () => {
+      root.render(<PenHarness {...props} />);
+    });
+    const surface = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-surface]",
+    );
+    expect(surface).not.toBeNull();
+    return surface!;
+  }
+
+  async function clickPenAnchor(surface: HTMLElement, x: number, y: number) {
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", x, y);
+      dispatchMouse(window, "mouseup", x, y);
+    });
+  }
+
+  async function pressKey(key: string) {
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("Enter selects a new vector and returns to Move", async () => {
+    const onCreatePrimitive = vi.fn(() => "vector-a");
+    const onPrimitiveCreated = vi.fn();
+    const surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 220, 180);
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "move",
+    );
+    expect(onPrimitiveCreated).toHaveBeenCalledWith("screen-a", "vector-a", {
+      nextTool: "move",
+    });
+  });
+
+  it("Enter cancels an active anchor drag before finishing the path", async () => {
+    const committedPaths: Array<PenPath | undefined> = [];
+    const onCreatePrimitive: NonNullable<
+      MultiScreenCanvasProps["onCreatePrimitive"]
+    > = (_screenId, primitive) => {
+      committedPaths.push(primitive.penPath);
+      return `vector-${committedPaths.length}`;
+    };
+    const surface = await renderPenHarness({ onCreatePrimitive });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 220, 180);
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 320, 260);
+    });
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Enter");
+
+    expect(committedPaths).toHaveLength(1);
+    expect(committedPaths[0]?.nodes).toHaveLength(2);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "move",
+    );
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 320, 260);
+    });
+
+    expect(committedPaths).toHaveLength(1);
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
+
+  it("Escape discards an empty path and commits a multi-anchor path open", async () => {
+    const onCreatePrimitive = vi.fn(() => "vector-a");
+    const surface = await renderPenHarness({ onCreatePrimitive });
+
+    await clickPenAnchor(surface, 100, 100);
+    await pressKey("Escape");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
+
+    await clickPenAnchor(surface, 120, 120);
+    await clickPenAnchor(surface, 240, 200);
+    await pressKey("Escape");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onCreatePrimitive).toHaveBeenCalledWith(
+      "screen-a",
+      expect.objectContaining({
+        penPath: expect.objectContaining({ closed: false }),
+      }),
+      undefined,
+    );
+  });
+
+  it("Enter keeps Pen active when extending an existing selected vector", async () => {
+    const onChange = vi.fn((_path: PenPath) => true);
+    const onExit = vi.fn();
+    const surface = await renderPenHarness({
+      screens: [],
+      vectorEdit: {
+        path: {
+          closed: false,
+          nodes: [
+            createCornerNode({ x: 100, y: 100 }),
+            createCornerNode({ x: 200, y: 100 }),
+          ],
+        },
+        originCanvas: { x: 0, y: 0 },
+        selectedAnchorIndex: null,
+        onSelectedAnchorChange: vi.fn(),
+        onChange,
+        onExit,
+      },
+    });
+
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 440, 340);
+    });
+    expect(onExit).not.toHaveBeenCalled();
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 540, 400);
+      dispatchMouse(window, "mouseup", 540, 400);
+    });
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
+      "commit",
+    );
+    expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+  });
+
+  it("Escape retains a rejected Pen continuation so it can be retried", async () => {
+    const onChange = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const onExit = vi.fn();
+    const surface = await renderPenHarness({
+      screens: [],
+      vectorEdit: {
+        path: {
+          closed: false,
+          nodes: [
+            createCornerNode({ x: 100, y: 100 }),
+            createCornerNode({ x: 200, y: 100 }),
+          ],
+        },
+        originCanvas: { x: 0, y: 0 },
+        selectedAnchorIndex: null,
+        onSelectedAnchorChange: vi.fn(),
+        onChange,
+        onExit,
+      },
+    });
+
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 440, 340);
+    });
+    await act(async () => {
+      dispatchMouse(surface, "mousedown", 540, 400);
+      dispatchMouse(window, "mouseup", 540, 400);
+    });
+    await pressKey("Escape");
+
+    expect(onExit).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(3);
+
+    await pressKey("Escape");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ closed: false, nodes: expect.any(Array) }),
+      "commit",
+    );
+    expect(onChange.mock.calls[0]?.[0].nodes).toHaveLength(3);
+    expect(onChange.mock.calls[1]?.[0].nodes).toHaveLength(3);
+  });
+
+  it("keeps a newer Pen path active when a failed draft persists on retry", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("vector-a");
+    const onPrimitiveCreated = vi.fn();
+    let surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 180, 180);
+    await pressKey("Enter");
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+
+    await clickPenAnchor(surface, 220, 120);
+    await clickPenAnchor(surface, 280, 180);
+    surface = await renderPenHarness({
+      screens: [
+        {
+          id: "screen-a",
+          filename: "screen-a.html",
+          content: "<!doctype html><html><body><p>updated</p></body></html>",
+        },
+      ],
+      onCreatePrimitive,
+      onPrimitiveCreated,
+    });
+
+    expect(onPrimitiveCreated).toHaveBeenCalledWith("screen-a", "vector-a", {
+      preserveActiveTool: true,
+    });
+    expect(container.querySelector("[data-active-tool]")?.textContent).toBe(
+      "pen",
+    );
+    expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+  });
+
+  it("retries a rejected overview continuation update against the same vector", async () => {
+    const onUpdatePenPath = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const onCreatePrimitive = vi.fn(() => "duplicate-vector");
+    const surface = await renderPenHarness({
+      onCreatePrimitive,
+      onUpdatePenPath,
+      selectedPenPathNodeId: "vector-a",
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    Object.defineProperties(iframe!, {
+      clientWidth: { value: 320 },
+      clientHeight: { value: 640 },
+      getBoundingClientRect: {
+        value: () => ({
+          x: 48,
+          y: 48,
+          top: 48,
+          right: 368,
+          bottom: 688,
+          left: 48,
+          width: 320,
+          height: 640,
+          toJSON: () => ({}),
+        }),
+      },
+    });
+    const frameDocument = iframe!.contentDocument;
+    expect(frameDocument).not.toBeNull();
+    frameDocument!.body.innerHTML = `<svg viewBox="0 0 400 400" data-agent-native-node-id="vector-a" data-an-pen-nodes='${serializePenNodes({ closed: false, nodes: [createCornerNode({ x: 100, y: 100 }), createCornerNode({ x: 200, y: 100 })] })}'><path d="M 100 100 L 200 100" /></svg>`;
+    const svg = frameDocument!.querySelector("svg");
+    expect(svg).not.toBeNull();
+    Object.defineProperty(svg!, "getScreenCTM", {
+      value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    });
+
+    await clickPenAnchor(surface, 248, 148);
+    await clickPenAnchor(surface, 288, 188);
+    await pressKey("Enter");
+
+    expect(container.querySelector("[data-pen-path-overlay]")).not.toBeNull();
+
+    await pressKey("Enter");
+
+    expect(onUpdatePenPath).toHaveBeenCalledTimes(2);
+    expect(
+      onUpdatePenPath.mock.calls.map(([screenId, nodeId]) => [
+        screenId,
+        nodeId,
+      ]),
+    ).toEqual([
+      ["screen-a", "vector-a"],
+      ["screen-a", "vector-a"],
+    ]);
+    expect(onCreatePrimitive).not.toHaveBeenCalled();
+  });
+
+  it("Escape finishes a board path open and Enter selects Move", async () => {
+    type BoardDraw = Parameters<
+      NonNullable<MultiScreenCanvasProps["onBoardDrawPrimitive"]>
+    >;
+    const boardDraws: Array<{
+      primitive: BoardDraw[0];
+      options: BoardDraw[1];
+    }> = [];
+    const onBoardDrawPrimitive: NonNullable<
+      MultiScreenCanvasProps["onBoardDrawPrimitive"]
+    > = (primitive, options) => {
+      boardDraws.push({ primitive, options });
+      return `vector-${boardDraws.length}`;
+    };
+    const onToolChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <ToolHarness
+          initialTool="pen"
+          onBoardDrawPrimitive={onBoardDrawPrimitive}
+          onToolChange={onToolChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    await clickPenAnchor(surface!, 120, 120);
+    await clickPenAnchor(surface!, 180, 180);
+    await pressKey("Escape");
+
+    expect(boardDraws).toHaveLength(1);
+    expect(boardDraws[0]?.primitive.penPath?.closed).toBe(false);
+
+    await clickPenAnchor(surface!, 220, 120);
+    await clickPenAnchor(surface!, 280, 180);
+    await pressKey("Enter");
+
+    expect(boardDraws).toHaveLength(2);
+    expect(boardDraws[1]?.options).toEqual({ nextTool: "move" });
+    expect(onToolChange).toHaveBeenLastCalledWith("move");
+    expect(container.querySelector("[data-pen-path-overlay]")).toBeNull();
+  });
 
   async function createSelectedDraft(surface: HTMLElement) {
     await act(async () => {
@@ -494,22 +899,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       dispatchMouse(window, "mouseup", 180, 180);
     });
 
-    // Figma parity: one drag = one selection-history entry. The two
-    // unchanged in-drag ticks dedupe to a single report, but the host must
-    // still be told the gesture actually ENDED (`final: true`) — otherwise
-    // it can never record that one entry (coalesceMarqueeSelectionHistory) —
-    // so mouseup always sends one more report even when nothing changed.
     expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(2);
-    // Call 1 is the mousedown-time "clear whatever was selected" report;
-    // every later in-drag tick reporting the same empty set dedupes away.
     expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
       1,
       [],
       expect.objectContaining({ source: "marquee" }),
     );
-    // Call 2 is the mouseup-forced final report — required even though the
-    // set never changed, or the gesture would never close out its history
-    // entry (coalesceMarqueeSelectionHistory).
     expect(onLayerMarqueeSelectionChange).toHaveBeenNthCalledWith(
       2,
       [],
@@ -1110,9 +1505,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(dragSurface).not.toBeNull();
     const before = { left: frame.style.left, top: frame.style.top };
 
-    // Regression for beginFrameDrag's old `if (e.shiftKey) return;` bail,
-    // which silently dropped shift+drag instead of arming a move. dx (80)
-    // dominates dy (10), so the constrained move must land purely on X.
     await act(async () => {
       dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
       dispatchMouseShift(window, "mousemove", 400, 750);
@@ -1137,9 +1529,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       container.querySelector("[data-frame-selection-box]"),
     ).not.toBeNull();
 
-    // Regression: this overlay owns the mousedown for an already-selected
-    // frame and stops it from ever reaching handleFrameClick underneath, so
-    // a no-move Shift release must replicate its toggle-out itself.
     await act(async () => {
       dispatchMouseShift(dragSurface!, "mousedown", 320, 740);
       dispatchMouseShift(window, "mouseup", 320, 740);
@@ -1250,8 +1639,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       root.render(rendered([]));
     });
     let event = await act(async () => pressDuplicate());
-    // The shared hotkey hook drops anything already defaultPrevented, so
-    // claiming the event here would silently swallow layer duplication.
     expect(event.defaultPrevented).toBe(false);
     expect(onDuplicate).not.toHaveBeenCalled();
 
@@ -1314,6 +1701,12 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(onDuplicate.mock.calls[0]![1].canvasFrameGeometryById).toMatchObject(
+      {
+        "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+        "screen-b": { x: 420, y: 0, width: 320, height: 640 },
+      },
+    );
     expect(
       new Set(
         onDuplicate.mock.calls.map(([, request]) => request.historyBatchId),
@@ -1491,10 +1884,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(badge?.textContent).toContain(
       "designEditor.nodeRewrite.reviewCandidate",
     );
-    // Counter-scaled to stay a constant screen size at 25% zoom. The live
-    // value comes from the --an-chrome-scale custom property that
-    // applyViewToDom writes every gesture frame; React still renders the same
-    // number as the var's fallback, which is what this asserts.
     expect(
       badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
     ).toContain("scale(var(--an-chrome-scale, 4))");
@@ -1509,8 +1898,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(fullView).not.toBeNull();
     expect(fullView!.getAttribute("data-compact")).toBe("true");
-    expect(fullView!.classList.contains("left-1/2")).toBe(true);
-    expect(fullView!.classList.contains("-translate-x-1/2")).toBe(true);
+    expect(fullView!.classList.contains("right-1")).toBe(true);
+    expect(fullView!.classList.contains("left-1/2")).toBe(false);
     expect(fullView!.classList.contains("w-5")).toBe(true);
     expect(fullView!.style.maxWidth).toBe("20px");
     expect(fullViewLabel?.classList.contains("sr-only")).toBe(true);
@@ -1616,11 +2005,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxHeight: selectionBox!.style.height,
     };
 
-    // PERF9: beginDraftResize now writes the live geometry straight to the
-    // draft's own DOM node + selection box via updateDraftPrimitivesRefOnly
-    // (mirroring beginResize's frame path), instead of committing full React
-    // state (setDraftPrimitives) on every native mousemove. Confirm those DOM
-    // writes actually happen mid-gesture (not just at the eventual commit).
     await act(async () => {
       dispatchMouse(resizeHandle!, "mousedown", 400, 400);
       dispatchMouse(window, "mousemove", 450, 450);
@@ -1631,9 +2015,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).not.toBe(before.boxWidth);
     expect(selectionBox!.style.height).not.toBe(before.boxHeight);
 
-    // Escape must roll back every DOM node the live resize mutated
-    // imperatively, not just the (already-reverted) React draft state —
-    // otherwise the shape stays visually stuck at its last dragged size.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -1723,11 +2104,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       container.querySelector("[data-frame-selection-box]"),
     ).not.toBeNull();
 
-    // MultiScreenCanvas auto-fits a lone screen into the mocked 800x600
-    // surface on mount (see the "lineup fit" effect keyed on screens.length),
-    // so pan/zoom aren't simply {0,0}/100 here. Read the actual world-layer
-    // transform it committed instead of assuming a 1:1 mapping, so this test
-    // targets the frame's real screen-space edge regardless of that fit math.
     const worldLayer = surface!.firstElementChild as HTMLElement;
     const transformMatch = worldLayer.style.transform.match(
       /translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/,
@@ -1737,21 +2113,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const panX = Number.parseFloat(panXStr);
     const panY = Number.parseFloat(panYStr);
     const scale = Number.parseFloat(scaleStr);
-    // Mirrors getCanvasPoint/screenToCanvasPoint's inverse: clientX = surface
-    // rect.left (mocked to 0) + panX + (SURFACE_PADDING + canvasX) * scale.
     const clientPointForCanvas = (canvasX: number, canvasY: number) => ({
       clientX: panX + (SURFACE_PADDING + canvasX) * scale,
       clientY: panY + (SURFACE_PADDING + canvasY) * scale,
     });
 
-    // The frame spans canvas x:[0,320]. Start a shift+mousedown just to the
-    // right of it (on empty canvas, so beginMarquee fires, not the frame's
-    // own drag), then jitter 2 canvas px left — comfortably below
-    // DRAG_THRESHOLD (3 CLIENT px, and even smaller once scaled down here) —
-    // which crosses back over the frame's right edge. Before the fix, every
-    // mousemove (even sub-threshold ones) ran xorMarqueeSelection against the
-    // live rect, so this exact jitter toggled the already-selected frame OUT
-    // of the selection.
     const origin = clientPointForCanvas(321, 300);
     const jittered = clientPointForCanvas(319, 300);
 
@@ -1772,10 +2138,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   });
 
   it("requires full enclosure to marquee-select a top-level screen, unlike a shape's intersect rule", async () => {
-    // screen-a spans canvas x:[0,320] y:[0,640] (renderSelectedFrame's
-    // default geometry). Ground truth: a top-level frame only joins the
-    // marquee selection once the box fully contains it — mere intersection
-    // (Figma's rule for shapes/board objects) must not select it.
     await renderSelectedFrame(320, false);
     const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
     expect(surface).not.toBeNull();
@@ -1795,8 +2157,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       clientY: panY + (SURFACE_PADDING + canvasY) * scale,
     });
 
-    // A marquee box that only clips the frame's right edge (well above the
-    // frame's top so the mousedown starts on empty canvas, not the label).
     const partialOrigin = clientPointForCanvas(340, -100);
     const partialEnd = clientPointForCanvas(300, 40);
     await act(async () => {
@@ -1819,7 +2179,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "a marquee that only clips the screen's edge must not select it",
     ).toBeNull();
 
-    // Now fully enclose the frame.
     const fullOrigin = clientPointForCanvas(-40, -100);
     const fullEnd = clientPointForCanvas(360, 700);
     await act(async () => {
@@ -1906,12 +2265,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxTransform: selectionBox!.style.transform,
     };
 
-    // PERF9: rotate now writes the live transform straight to the frame
-    // shell + selection box via updateFrameGeometryRefOnly (mirroring
-    // beginFrameDrag), instead of committing full React state on every
-    // native mousemove. A rotate gesture starts at the handle's own
-    // position (outside the frame, near its corner) and needs to move past
-    // the drag threshold from there.
     await act(async () => {
       dispatchMouse(rotateHandle!, "mousedown", 500, 100);
       dispatchMouse(window, "mousemove", 560, 100);
@@ -1920,8 +2273,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(frame.style.transform).not.toBe(before.frameTransform);
     expect(selectionBox!.style.transform).not.toBe(before.boxTransform);
 
-    // Escape must roll back the imperatively-mutated transform on both
-    // nodes, not just the (already-reverted) React geometry state.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -1963,6 +2314,83 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     ).not.toBe(0);
   });
 
+  it("disables only the focused screen's resize handles in Interact", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "screen-a", filename: "screen-a.html", content: "" },
+            { id: "screen-b", filename: "screen-b.html", content: "" },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          interactScreenId="screen-a"
+          focusedInteractViewport={{ width: 390, height: 844 }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+            "screen-b": { x: 500, y: 0, width: 390, height: 844 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const focusedFrame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const otherFrame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"]',
+    );
+    expect(focusedFrame).not.toBeNull();
+    expect(otherFrame).not.toBeNull();
+    expect(focusedFrame!.querySelector("[data-resize-handle]")).toBeNull();
+    expect(
+      container.querySelector(
+        "[data-frame-selection-box] [data-resize-handle]",
+      ),
+    ).toBeNull();
+    expect(otherFrame!.querySelector("[data-resize-handle]")).not.toBeNull();
+  });
+
+  it("uses the focused device viewport for near-matching aspect ratios", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body>Preview</body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          interactMode
+          interactScreenId="screen-a"
+          focusedInteractViewport={{ width: 402, height: 874 }}
+          metadataById={{
+            "screen-a": { width: 390, height: 844 },
+          }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 390, height: 844 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="screen-a"]',
+    );
+    expect(iframe).not.toBeNull();
+    expect(iframe!.style.width).toBe("402px");
+    expect(iframe!.style.height).toBe("874px");
+    expect(iframe!.style.transform).toBe("");
+  });
+
   it("resizes a frame and restores it when Escape cancels the drag", async () => {
     const { frame } = await renderSelectedFrame();
     const selectionBox = container.querySelector<HTMLElement>(
@@ -1984,10 +2412,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       boxHeight: selectionBox!.style.height,
     };
 
-    // Resize commits through the shared geometry state during the gesture, so
-    // the frame, screen card, and selection box all stay on the same geometry
-    // boundary. Confirm those surfaces update during the live gesture rather
-    // than only when the gesture ends.
     await act(async () => {
       dispatchMouse(resizeHandle!, "mousedown", 400, 400);
       dispatchMouse(window, "mousemove", 450, 450);
@@ -1999,8 +2423,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(selectionBox!.style.width).not.toBe(before.boxWidth);
     expect(selectionBox!.style.height).not.toBe(before.boxHeight);
 
-    // Escape must roll back the shared geometry state, otherwise the frame
-    // stays visually stuck at its last dragged size.
     await act(async () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -2114,14 +2536,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
   it("moves the alt-drag duplicate ghost imperatively on every tick and unmounts it on release", async () => {
     const { label } = await renderSelectedFrame();
 
-    // PERF9: beginDuplicateGesture now writes the ghost's left/top straight
-    // to its own DOM node (data-duplicate-preview-ghost) every native
-    // mousemove tick, instead of calling setDuplicatePreview (a full
-    // re-render) unconditionally each time — see duplicatePreviewElRef.
-    // canDuplicate/moved never flip in this harness (no onDuplicate prop is
-    // passed), which is exactly the steady-state case the fix targets: the
-    // ghost must still track the pointer on every tick even though nothing
-    // conditional ever changes.
     await act(async () => {
       dispatchMouseAlt(label, "mousedown", 320, 100);
     });
@@ -2403,9 +2817,6 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
-      // The board colour is painted on the layer, not baked into the srcdoc:
-      // inside the document it would be part of the iframe's identity, so every
-      // colour-picker tick would rebuild the frame and drop in-iframe state.
       expect(boardLayer!.style.background).toBe(
         "var(--design-editor-canvas-bg)",
       );
@@ -2588,12 +2999,6 @@ describe("canvas iframe identity", () => {
         "postMessage",
       );
 
-      // The mount-time board-fit effect centers the lone board content in
-      // the viewport, so pan is not {0,0} here — derive the click point from
-      // the transform it actually committed rather than assuming a fixed
-      // pan. right-edge sits at canvas (35000, 100) (see the fixture above):
-      // visible near the viewport's right edge but outside the centered
-      // 24,576-world-pixel live iframe.
       const worldLayer = container.querySelector<HTMLElement>(
         "[data-multi-screen-canvas-world]",
       );
@@ -2698,7 +3103,6 @@ describe("canvas iframe identity", () => {
 
       await act(async () => {
         dispatchMouse(surface, "mousedown", 706, 8);
-        // Invalidate the pending handoff before its live-bridge frame runs.
         root.render(
           <MultiScreenCanvas
             {...boardProps}

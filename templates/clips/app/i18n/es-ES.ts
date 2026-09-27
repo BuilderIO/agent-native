@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Haz clic primero en esa sección y arrastra la línea roja hacia la derecha.",
@@ -433,6 +443,10 @@ const messages = {
     agentEmptyTitle: "Únete a la conversación",
     agentEmptyDescription:
       "Crea una cuenta gratuita de Clips para comentar, reaccionar y preguntar sobre este clip.",
+    commentSignupTitle:
+      "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+    commentSignupDescription:
+      "Clips es una grabadora de pantalla gratuita y de código abierto para compartir errores, comentarios y demostraciones paso a paso con agentes de IA.",
     agentEmptySignInPrompt: "¿Ya tienes una cuenta?",
     signUp: "Registrarse",
     ownerInsights: "Estadísticas del propietario",
@@ -573,6 +587,9 @@ const messages = {
     saveThumbnail: "Guardar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Termina las ocultaciones antes de compartir",
+    redactionsPendingBody:
+      "Ocultaciones pendientes: {{count}}. Aplícalas en el editor antes de compartir; el video aún contiene el contenido original.",
     publicDescription:
       "Cualquiera que tenga el enlace puede verlo: inicie sesión para comentar o reaccionar.",
     shareRecording: "Compartir grabación",
@@ -629,9 +646,6 @@ const messages = {
     customizeEmbed: "Personalizar inserción",
     more: "Más",
     sharePlainTitle: "Compartir {{title}}",
-    redactionsPendingBody:
-      "Hay {{count}} difuminación(es) dibujadas en esta grabación que no se han aplicado al vídeo, así que el archivo sigue mostrando todo lo que hay debajo. Abre el editor, aplícalas y podrás volver a compartir.",
-    redactionsPendingTitle: "Termina antes las difuminaciones",
   },
   shareUi: {
     owner: "Propietario: {{email}}",
@@ -835,6 +849,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
+    changelogCommentSignup:
+      "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogCommentsEmptyState:
+      "El estado vacío de comentarios ahora explica cómo las grabaciones de pantalla ayudan a los agentes de IA.",
+    changelogShareLink:
+      "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
@@ -1241,6 +1261,7 @@ const messages = {
     transcript: "Transcripción",
     comment: "Comentario",
     titleOrDescription: "Título o descripción",
+    matchAt: "Coincidencia en {{time}} del video",
   },
   organizationSwitcher: {
     noOrganization: "Sin organización",
@@ -1446,11 +1467,22 @@ const messages = {
     disconnected: "Micrófono desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+    builderConnectError:
+      "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+    checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Crear cuenta de Builder.io",
+    signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
+    builderConsentPrefix: "Al crear una cuenta de Builder.io, aceptas nuestros",
+    builderTerms: "Términos de servicio",
+    builderConsentAnd: "y",
+    builderPrivacy: "Política de privacidad",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",

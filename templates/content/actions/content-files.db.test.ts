@@ -46,8 +46,6 @@ beforeAll(async () => {
   getDocumentAction = (await import("./get-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
-  // The db plugin schedules post-boot maintenance fire-and-forget; joining the
-  // memoized run here keeps this file's unseeded-Files fixtures deterministic.
   const { scheduleStartupMaintenance } =
     await import("../server/lib/startup-maintenance.js");
   await scheduleStartupMaintenance();
@@ -1611,5 +1609,86 @@ describe("Content Files membership reconciliation", () => {
         "CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique ON content_database_items (database_id, document_id)",
       );
     }
+  });
+});
+
+describe("sidebar Duplicate", () => {
+  it("keeps the copy beside its original and in its own space's Files", async () => {
+    const createDocument = (await import("./create-document.js")).default;
+    const updateDocument = (await import("./update-document.js")).default;
+    const duplicate = (await import("./duplicate-database-item.js")).default;
+    const spaceId = personalContentSpaceId(OWNER);
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+
+    const parent = await asOwner(() =>
+      createDocument.run({ title: "Duplicate parent", spaceId } as any),
+    );
+    const child = await asOwner(() =>
+      createDocument.run({
+        title: "Nested original",
+        spaceId,
+        parentId: parent.id,
+      } as any),
+    );
+    await asOwner(() =>
+      updateDocument.run({ id: child.id, isFavorite: true } as any),
+    );
+
+    await asOwner(() => duplicate.run({ documentId: child.id }));
+    await asOwner(() => duplicate.run({ documentId: parent.id }));
+
+    const copies = await getDb()
+      .select({
+        id: schema.documents.id,
+        title: schema.documents.title,
+        parentId: schema.documents.parentId,
+        spaceId: schema.documents.spaceId,
+      })
+      .from(schema.documents)
+      .where(
+        inArray(schema.documents.title, [
+          "Copy of Nested original",
+          "Copy of Duplicate parent",
+        ]),
+      );
+    const nestedCopy = copies.find(
+      (copy: { title: string }) => copy.title === "Copy of Nested original",
+    );
+    const rootCopy = copies.find(
+      (copy: { title: string }) => copy.title === "Copy of Duplicate parent",
+    );
+    expect(nestedCopy).toMatchObject({ parentId: parent.id, spaceId });
+    expect(rootCopy).toMatchObject({ parentId: null, spaceId });
+
+    const [space] = await getDb()
+      .select({ filesDatabaseId: schema.contentSpaces.filesDatabaseId })
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, spaceId));
+    const memberships = await getDb()
+      .select({
+        documentId: schema.contentDatabaseItems.documentId,
+        databaseId: schema.contentDatabaseItems.databaseId,
+      })
+      .from(schema.contentDatabaseItems)
+      .where(
+        inArray(schema.contentDatabaseItems.documentId, [
+          nestedCopy!.id,
+          rootCopy!.id,
+        ]),
+      );
+    expect(
+      memberships.every(
+        (membership: { databaseId: string }) =>
+          membership.databaseId === space.filesDatabaseId,
+      ),
+    ).toBe(true);
+    expect(
+      new Set(
+        memberships.map(
+          (membership: { documentId: string }) => membership.documentId,
+        ),
+      ),
+    ).toEqual(new Set([nestedCopy!.id, rootCopy!.id]));
   });
 });

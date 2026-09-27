@@ -4,8 +4,6 @@ import { join } from "node:path";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We test the pure functions that don't require database initialization.
-
 describe("PGlite dev reloads", () => {
   const processState = process as NodeJS.Process & {
     __agentNativePgliteClients?: Map<string, Promise<unknown>>;
@@ -99,6 +97,7 @@ describe("db/client Postgres URL handling", () => {
 
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
     vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
     vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
     const { getDatabaseUrl } = await import("./client.js");
@@ -130,6 +129,67 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it.each([
+    ["test", ""],
+    ["production", "true"],
+    ["production", "1"],
+  ])(
+    "keeps test PGlite isolated with NODE_ENV=%s and VITEST=%s",
+    async (nodeEnv, vitest) => {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      vi.stubEnv("VITEST", vitest);
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+      vi.stubEnv(
+        "CONTENT_DATABASE_URL_UNPOOLED",
+        "postgres://app-direct.example/db",
+      );
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "postgres://direct.example/db");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+      vi.stubEnv(
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "postgres://netlify-direct.example/db",
+      );
+
+      const {
+        getDatabaseUrl,
+        getMigrationDatabaseUrl,
+        getRuntimeDatabaseSource,
+        getRuntimeDatabaseUrl,
+      } = await import("./client.js");
+
+      expect(getDatabaseUrl()).toBe("pglite:memory");
+      expect(getRuntimeDatabaseUrl()).toBe("pglite:memory");
+      expect(getRuntimeDatabaseSource()).toBe("DATABASE_URL");
+      expect(getMigrationDatabaseUrl()).toBe("pglite:memory");
+    },
+  );
+
+  it("preserves hosted alias precedence over PGlite outside test processes", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "content");
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.stubEnv("CONTENT_DATABASE_URL", "postgres://app.example/db");
+    vi.stubEnv(
+      "CONTENT_DATABASE_URL_UNPOOLED",
+      "postgres://app-direct.example/db",
+    );
+
+    const {
+      getDatabaseUrl,
+      getMigrationDatabaseUrl,
+      getRuntimeDatabaseSource,
+      getRuntimeDatabaseUrl,
+    } = await import("./client.js");
+
+    expect(getDatabaseUrl()).toBe("postgres://app.example/db");
+    expect(getRuntimeDatabaseUrl()).toBe("postgres://app-direct.example/db");
+    expect(getRuntimeDatabaseSource()).toBe("CONTENT_DATABASE_URL_UNPOOLED");
+    expect(getMigrationDatabaseUrl()).toBe("postgres://app-direct.example/db");
+  });
+
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
     const {
@@ -140,8 +200,6 @@ describe("db/client Postgres URL handling", () => {
     } = await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    // Small enough that many warm instances stay under the provider's cap, but
-    // above 1 so a request's concurrent reads don't serialize behind one slot.
     expect(neonPoolMax()).toBe(2);
     expect(neonPoolMax()).toBeLessThan(4);
     expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
@@ -150,8 +208,6 @@ describe("db/client Postgres URL handling", () => {
       idle_in_transaction_session_timeout: 30_000,
     });
     expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
-      // Without this every backend reports `pgbouncer` in pg_stat_activity, and
-      // a runaway query cannot be attributed to the app that issued it.
       application_name: "agent-native:app",
       idle_in_transaction_session_timeout: 30_000,
     });
@@ -256,10 +312,6 @@ describe("db/client Postgres URL handling", () => {
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
-    // The marker records which URL the foreground TARGETED, not where the
-    // request landed. A misrouted worker on the ~60s sync function must not
-    // change its pool policy before the runtime proves that it landed on the
-    // dedicated worker.
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -457,7 +509,6 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("strips the -pooler suffix from a real Neon pooler host", async () => {
     vi.stubEnv("APP_NAME", "");
-    // Exact pooler URL shape from templates/plan/.env (region segment .c-7.).
     vi.stubEnv(
       "DATABASE_URL",
       "postgresql://neondb_owner:npg_pw@ep-round-heart-ap9wji9h-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
@@ -487,6 +538,7 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
     vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv(
       "DATABASE_URL_UNPOOLED",
       "postgresql://old:pw@old.example.com/db",
@@ -503,6 +555,7 @@ describe("getMigrationDatabaseUrl", () => {
 
   it("keeps app-specific unpooled migration URLs ahead of Netlify's shared unpooled env", async () => {
     vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv(
       "PLAN_DATABASE_URL_UNPOOLED",
       "postgresql://plan:pw@plan.example.com/db",
@@ -534,22 +587,25 @@ describe("getDbExec", () => {
   it("returns the same proxy on multiple calls before init", async () => {
     vi.stubEnv("DATABASE_URL", "");
     const { getDbExec } = await import("./client.js");
-    // getDbExec returns a new proxy each time when _exec is not set,
-    // but after first execute it should resolve
     const a = getDbExec();
     expect(a).toBeDefined();
   });
 });
 
 describe("initClient hosted-runtime local database guard", () => {
-  // App-prefixed URLs (e.g. PLAN_DATABASE_URL) are read straight off
-  // process.env, bypassing getAppConfig()'s self-invalidating cache — an
-  // earlier spec in this file that stubs APP_NAME without also clearing it
-  // is enough to leak a real-looking Neon URL in here, so every case below
-  // clears APP_NAME too, not just the generic DATABASE_URL* keys.
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_EMBEDDED_RUNTIME__",
+    );
   });
 
   it("throws instead of silently serving a hosted function invocation without a database URL", async () => {
@@ -565,6 +621,113 @@ describe("initClient hosted-runtime local database guard", () => {
       await import("./client.js");
 
     await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("throws on a Cloudflare Worker/Pages invocation without a database URL, even without NODE_ENV=production", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not treat NETLIFY=true alone as an invocation (netlify build / migrate-production, not a request)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("AWS_EXECUTION_ENV", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { isHostedFunctionInvocationRuntime } = await import("./client.js");
+
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+  });
+
+  it("throws on a production Node/Docker server (server-runtime marker, no invocation env var) with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("VERCEL_FUNCTION_ID", "");
+    vi.stubEnv("VERCEL_REGION", "");
+
+    const { getDbExec, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    await expect(getDbExec().execute("SELECT 1")).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("does not throw for the server-runtime marker outside NODE_ENV=production (pnpm dev, test suites, embedded hosts)", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    markServerRuntimeStarted();
+
+    expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+  });
+
+  it("does not throw for a migration-authorized runtime, even with the server-runtime marker set on NODE_ENV=production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase } = await import("./client.js");
+    const { markServerRuntimeStarted } = await import("./server-runtime.js");
+    const { withMigrationRuntime } = await import("./migration-runtime.js");
+    markServerRuntimeStarted();
+
+    await withMigrationRuntime(async () => {
+      expect(() => assertHostedRuntimeDatabase()).not.toThrow();
+    });
+  });
+
+  it("still throws on a real hosted function invocation even when embedded-runtime authorized", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { assertHostedRuntimeDatabase, HostedRuntimeLocalDatabaseError } =
+      await import("./client.js");
+    const { markEmbeddedRuntimeAuthorized } =
+      await import("./embedded-runtime.js");
+    markEmbeddedRuntimeAuthorized();
+    vi.stubEnv("DATABASE_URL", "pglite:./data/embedded");
+
+    expect(() => assertHostedRuntimeDatabase()).toThrow(
       HostedRuntimeLocalDatabaseError,
     );
   });
@@ -697,8 +860,6 @@ describe("describeDbError", () => {
     expect(describeDbError(new Error("connection dropped"))).toBe(
       "connection dropped",
     );
-    // Neon's WebSocket path rejects with a raw DOM-style ErrorEvent: message
-    // on the event itself, or on a nested .error, or nothing but type:"error".
     expect(describeDbError({ type: "error", message: "ws closed" })).toBe(
       "ws closed",
     );
@@ -731,18 +892,10 @@ describe("describeDbError", () => {
 
 describe("guardNeonPool", () => {
   it("does not let a refused connect immediately produce another attempt", async () => {
-    // Production sat in this loop for hours: Neon refuses the ATTEMPT ("Failed
-    // to acquire permit... Too many database connection attempts are currently
-    // ongoing"), the failed acquire leaves zero idle clients, so the next
-    // execute() connects again — and retryOnConnectionError backs off only
-    // 100ms. The process answers a refusal by manufacturing the next attempt,
-    // which is what keeps the refusal true.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { EventEmitter } = await import("node:events");
     const { guardNeonPool, isConnectionError } = await import("./client.js");
 
-    // Verbatim Neon refusal tagged 53300 — the worst case, where the existing
-    // retry loop WOULD classify it as retryable.
     const refusal = Object.assign(
       new Error(
         "Failed to acquire permit to connect to the database. Too many database connection attempts are currently ongoing.",
@@ -763,15 +916,12 @@ describe("guardNeonPool", () => {
     expect(attempts).toBe(1);
 
     const second = await pool.connect().catch((e: unknown) => e);
-    expect(attempts).toBe(1); // 2 without the gate
-    // Must NOT look retryable, or retryOnConnectionError drives the storm back.
+    expect(attempts).toBe(1);
     expect(isConnectionError(second)).toBe(false);
-    // ...but must still say what actually happened.
     expect((second as Error).message).toContain("Failed to acquire permit");
   });
 
   it("still serves a checkout from an idle client during cooldown", async () => {
-    // A cooldown must degrade throughput, not black out a warm instance.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { EventEmitter } = await import("node:events");
     const { guardNeonPool } = await import("./client.js");
@@ -788,7 +938,7 @@ describe("guardNeonPool", () => {
     guardNeonPool(pool, "postgres://gate-idle.neon.tech/db");
 
     await expect(pool.connect()).rejects.toThrow("refused");
-    pool.idleCount = 1; // a warm client is now available
+    pool.idleCount = 1;
     await expect(pool.connect()).resolves.toEqual({ released: true });
     expect(attempts).toBe(2);
   });
@@ -807,8 +957,6 @@ describe("guardNeonPool", () => {
     guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
     guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
 
-    // Deduped per pool: a pool-level "error" listener + a "connect" listener,
-    // wired exactly once despite the second attach call.
     expect(on).toHaveBeenCalledTimes(2);
     expect(on).toHaveBeenCalledWith("error", expect.any(Function));
     expect(on).toHaveBeenCalledWith("connect", expect.any(Function));
@@ -824,25 +972,17 @@ describe("guardNeonPool", () => {
   });
 
   it("keeps a dropped client's 'error' event from crashing the process", async () => {
-    // Reproduces the highest-volume production crash: a checked-out neon client
-    // whose socket drops emits 'error'; with no listener Node turns that into an
-    // uncaught exception. An EventEmitter with no 'error' listener throws
-    // synchronously on emit — so this test fails (throws) without the fix.
     const { EventEmitter } = await import("node:events");
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { guardNeonPool } = await import("./client.js");
 
     const pool = new EventEmitter();
-    // Pools may exceed the default 10-listener warning under load; mirror prod.
     pool.setMaxListeners(0);
     guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon");
 
-    // Control: a client the pool never announced has no listener and WOULD crash.
     const orphan = new EventEmitter();
     expect(() => orphan.emit("error", new Error("socket closed"))).toThrow();
 
-    // A client announced via 'connect' gets a persistent 'error' listener, so a
-    // mid-flight socket drop degrades to a logged warning instead of a crash.
     const client = new EventEmitter();
     pool.emit("connect", client);
     expect(client.listenerCount("error")).toBeGreaterThan(0);
@@ -877,8 +1017,6 @@ describe("withDbTimeout", () => {
     }
     expect(caught).toBeInstanceOf(Error);
     expect(caught.code).toBe("CONNECT_TIMEOUT");
-    // The timeout must be classified as a connection error so the existing
-    // retry / reject-reset paths recover instead of staying poisoned.
     expect(isConnectionError(caught)).toBe(true);
   });
 
@@ -937,8 +1075,6 @@ describe("withDbTimeout", () => {
     const { withDbTimeout } = await import("./client.js");
     const value = await withDbTimeout("query", async () => 42, 20);
     expect(value).toBe(42);
-    // Wait past the timeout window; a leaked timer would surface as an
-    // unhandled rejection and fail the test run.
     await new Promise((r) => setTimeout(r, 40));
   });
 });
@@ -1565,9 +1701,6 @@ describe("annotateMissingTable", () => {
   });
 });
 
-// Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
-// (the helper moved to `./widen-columns.js`).
-
 describe("db/client shared connection pools", () => {
   afterEach(() => {
     vi.resetModules();
@@ -1616,7 +1749,6 @@ describe("db/client shared connection pools", () => {
     expect(ended.sort()).toEqual(["neon", "postgres-js"]);
     expect(notified).toBe(1);
 
-    // A pool created after the close is a genuinely new one.
     const rebuilt = sharedDbPool("neon", "postgres://close.test/db", () => ({
       end: async () => {},
     }));
@@ -1639,7 +1771,6 @@ describe("db/client shared connection pools", () => {
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
     expect(notified).toBe(1);
 
-    // A stale caller holding the already-replaced pool must not clobber it.
     replaceSharedDbPool("postgres-js", url, original, {
       name: "stale",
       end: async () => {},

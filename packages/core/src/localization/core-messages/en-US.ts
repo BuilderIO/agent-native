@@ -1,5 +1,35 @@
 const messages = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
+  "composer.contextAttach": "Attach",
+  "composer.menu.search": "Search…",
+  "composer.contextPrevious": "Previous",
+  "composer.contextNext": "Next",
+  "composer.contextLoadFailed": "Could not load context.",
+  "composer.contextLinkRequired": "Enter a link.",
+  "composer.submitFailed": "Could not submit. Try again.",
+  "composer.addContext": "Add context",
+  "composer.contextActionFailed": "Could not add context.",
+  "composer.contextBack": "Back",
+  "composer.searchContext": "Search context…",
+  "composer.noContextResults": "No matching context.",
+  "composer.contextPending": "Context pending",
+  "composer.contextError": "Context failed",
+  "composer.retryContext": "Retry {{name}} context",
+  "composer.contextLimitExceeded":
+    "Context is too large. Remove an item or attach a smaller selection.",
   "activity.reasoning": "Reasoning",
+  "activity.groupLabel": "Agent activity",
+  "activity.agents": "Agent collaboration",
+  "activity.tasks": "Agent tasks",
+  "agent.started": "started working",
+  "agent.resumed": "resumed working",
+  "agent.messaged": "sent a message",
+  "agent.delegated": "delegated work",
+  "agent.paused": "paused",
+  "agent.completed": "finished",
+  "agent.failed": "needs attention",
+  "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
   "approval.alwaysAllowAction": "Always allow this action",
@@ -10,6 +40,9 @@ const messages = {
   "approval.deny": "Deny",
   "approval.moreOptions": "More approval options",
   "approval.question": "Approve to run {{tool}}?",
+  "approval.submit": "Submit",
+  "approval.other": "Other",
+  "approval.otherPlaceholder": "Type your answer",
   "auth.expiredDescription":
     "Your session may have expired. Log out and log back in to reconnect.",
   "auth.expiredTitle": "Session expired",
@@ -30,6 +63,27 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "observability.viewDetails": "View details",
+  "observability.hideDetails": "Hide details",
+  "observability.input": "Input",
+  "observability.output": "Output",
+  "observability.error": "Error",
+  "observability.metadata": "Metadata",
+  "observability.notCaptured": "Not captured",
+  "observability.openFullConversation": "Open full conversation",
+  "observability.learnAboutTab": "Learn about this tab",
+  "observability.summarizeWithAgent": "Summarize with agent",
+  "observability.regenerateSummary": "Regenerate summary",
+  "observability.summarizeWithAgentHelp":
+    "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+  "observability.regenerateSummaryHelp":
+    "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
+  "observability.summarySending": "Sending request to agent…",
+  "observability.summaryQueued":
+    "Request queued. The summary will appear here after the agent saves it.",
+  "observability.summaryFailed": "Could not send the request. Try again.",
+  "observability.summaryExpired":
+    "No summary has appeared yet. You can retry, but the agent may still be working.",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
@@ -46,8 +100,8 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
-  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -79,10 +133,12 @@ const messages = {
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
-  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.fileStorage.title": "Connect storage to upload files",
+  "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
-    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-  "onboarding.fileStorage.custom": "Use custom storage keys",
+    "Connect Builder.io (free) or configure your own S3-compatible object storage.",
+  "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
+  "onboarding.fileStorage.custom": "Use custom keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
@@ -119,6 +175,7 @@ const messages = {
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
   "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
+  "common.you": "You",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "Key scope",
@@ -279,6 +336,8 @@ const messages = {
   "composer.describeSkill": "Describe the skill you want to create...",
   "composer.documentTooLarge":
     '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+  "composer.requestTooLarge":
+    "This message and its attachments are too large to send. Remove an attachment or shorten the message.",
   "composer.file": "file",
   "composer.imageModel": "Image model",
   "composer.imagePreview": "Image preview",
@@ -445,6 +504,7 @@ const messages = {
   "empty.prompt": "How can I help you?",
   "error.afterDuration": "{{headline}} after {{duration}}",
   "error.failed": "The agent hit an error",
+  "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
@@ -483,7 +543,7 @@ const messages = {
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
-  "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
+  "errorMessages.addCreditsInBuilder": "Add credits in Builder",
   "feedback.inaccurate": "Inaccurate",
   "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
@@ -515,6 +575,10 @@ const messages = {
   "integrations.manage": "Manage",
   "integrations.recommended": "Recommended",
   "integrations.subtitle": "Connect the tools your agent can use.",
+  "connection.connecting": "Connecting…",
+  "connection.notNow": "Not now",
+  "connection.failed": "Connection failed",
+  "connection.adminRequired": "Ask a workspace admin to connect this service.",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -536,8 +600,14 @@ const messages = {
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
   "message.requestIdUnavailable": "Request ID unavailable",
+  "message.unavailable":
+    "The message is no longer available in this conversation.",
+  "message.navigationUnavailable": "Conversation navigation is unavailable.",
   "message.edit": "Edit message",
   "message.forkChat": "Fork chat",
+  "message.mobileInteractiveTitle": "Interactive content",
+  "message.mobileInteractiveDescription":
+    "This interactive view is available in web chat, but not in native chat yet.",
   "message.missingFinal":
     "The agent stopped without sending a final message. Ask it to continue or retry.",
   "message.messages": "Messages",
@@ -547,11 +617,14 @@ const messages = {
   "message.regenerate": "Regenerate response",
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
+  "message.revertQuestion":
+    "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
+  "message.revertToBeginning": "Revert to beginning",
   "message.sentAt": "Sent {{time}}",
   "contextMeter.ariaLabel":
     "Context {{percent}}%, {{totalTokens}}{{breakdown}}. Open Context X-Ray.",
@@ -618,6 +691,7 @@ const messages = {
   "plan.ready": "Plan ready",
   "plan.switchToAct": "Switch to Act mode",
   "queue.count": "{{count}} queued",
+  "queue.label": "Queued messages",
   "queue.followUp": "Send a follow-up...",
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
@@ -630,8 +704,12 @@ const messages = {
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.deferredSubmissionFailed":
+    "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":
-    "The current Builder.io or model-provider credential was rejected. Reconnect Builder.io, then retry this message.",
+    "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents aren't connected. Connect Builder.io in Setup to run this hosted code-change operation. Model-provider keys still work for chat and other AI features, but they don't authorize the Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnose and retry",
   "recovery.forkDescription":
     "Fork this conversation into a separate chat thread.",
@@ -643,6 +721,12 @@ const messages = {
     "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here.",
   "recovery.noProgress":
     "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+  "recovery.stuckTitle": "This chat looks stuck.",
+  "recovery.stuckNoProgress":
+    "No progress. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckWithDuration":
+    "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckRetrying": "Retrying automatically now.",
   "recovery.statusCheckFailed":
     "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
   "recovery.streamEnded":
@@ -689,6 +773,10 @@ const messages = {
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.checkingProvider": "Checking AI connection…",
+  "setup.providerStatusUnavailable": "Couldn't check AI connection.",
+  "agentNativeClips.meetingAsk.placeholder": "Ask anything",
+  "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
   "setup.connected": "Connected",
   "setup.connectedOrganization": "Connected — {{organization}}",
   "setup.connectedTo": "Connected to {{organization}}",
@@ -737,6 +825,8 @@ const messages = {
   "share.organizationDescription": "Anyone in your organization can view",
   "share.owner": "Owner",
   "share.peopleWithAccess": "People with access",
+  "share.people": "People",
+  "share.agents": "Agents",
   "share.private": "Private",
   "share.privateDescription": "Only people with access can view",
   "share.public": "Public",
@@ -758,6 +848,7 @@ const messages = {
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
   "status.working": "Working",
+  "status.workingFor": "Working for {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Loading terminal...",
   "shell.toggleAgent": "Toggle agent",
@@ -820,6 +911,26 @@ const messages = {
   "settings.emailChangeError": "Could not send confirmation.",
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
+  "usage.builderCredits": "Builder credits",
+  "usage.inviteFriends": "Invite friends",
+  "usage.inviteCredits":
+    "Earn {{amount}} Builder credits when a friend subscribes.",
+  "usage.copyInviteLink": "Copy invite link",
+  "usage.inviteLinkCopied": "Invite link copied",
+  "usage.creditBalance": "Workspace balance",
+  "usage.monthlyPlan": "Monthly plan",
+  "usage.dailyFreeLimit": "Free daily limit",
+  "usage.creditUsedOfLimit": "{{used}} of {{limit}} used",
+  "usage.creditRemaining": "{{amount}} remaining",
+  "usage.creditUsageUnavailable": "Builder credit usage couldn’t be loaded.",
+  "usage.estimatedBuilderCredits": "~{{amount}} estimated credits",
+  "usage.otherUsdSpend": "{{amount}} other USD",
+  "usage.noBuilderCredits": "0 Builder credits",
+  "usage.otherUnclassifiedSpend": "Other or unclassified USD spend",
+  "usage.providerSpendDetail":
+    "Provider or older calls outside Builder billing",
+  "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 
 export default messages;

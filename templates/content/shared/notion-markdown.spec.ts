@@ -141,7 +141,6 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("<details>");
       expect(result).toContain("<summary>My Toggle</summary>");
-      // Base-level content inside toggle becomes <p>
       expect(result).toContain("<p>Some content here</p>");
       expect(result).toContain("</details>");
     });
@@ -157,7 +156,6 @@ describe("parseNfmForEditor", () => {
       const result = parseNfmForEditor(input);
       expect(result).toContain("<ul");
       expect(result).toContain("<li>");
-      // List items must have <p> wrappers for TipTap's ListItem to parse them
       expect(result).toContain("<p>item 1</p>");
       expect(result).toContain("<p>item 2</p>");
     });
@@ -171,7 +169,6 @@ describe("parseNfmForEditor", () => {
         "</details>",
       ].join("\n");
       const result = parseNfmForEditor(input);
-      // Should have nested <ul> structure
       const ulCount = (result.match(/<ul\b/g) || []).length;
       expect(ulCount).toBeGreaterThanOrEqual(2);
       expect(result).toContain("<p>parent</p>");
@@ -262,10 +259,8 @@ describe("parseNfmForEditor", () => {
         "</details>",
       ].join("\n");
       const result = parseNfmForEditor(input);
-      // Nested items should be siblings, not parent-child
       expect(result).toContain("<p>Nested A</p>");
       expect(result).toContain("<p>Nested B</p>");
-      // Must have valid HTML: no <ul> directly inside <ul>
       const lines = result.split("\n");
       for (let i = 0; i < lines.length - 1; i++) {
         if (
@@ -277,7 +272,6 @@ describe("parseNfmForEditor", () => {
           );
         }
       }
-      // Should have exactly 2 <ul> levels (outer + nested)
       const ulCount = (result.match(/<ul\b/g) || []).length;
       expect(ulCount).toBe(2);
     });
@@ -311,7 +305,6 @@ describe("parseNfmForEditor", () => {
         "</details>",
       ].join("\n");
       const result = parseNfmForEditor(input);
-      // Deep items should be at level 2, not level 4
       const ulCount = (result.match(/<ul\b/g) || []).length;
       expect(ulCount).toBe(2);
       expect(result).toContain("<p>Deep</p>");
@@ -420,13 +413,11 @@ describe("parseNfmForEditor", () => {
       const nfm =
         "heading\n<empty-block/>\nparent\n\tchild\n- bullet\n\t- nested";
       const result = parseNfmForEditor(nfm);
-      // All content should be present
       expect(result).toContain("heading");
       expect(result).toContain("parent");
       expect(result).toContain("child");
       expect(result).toContain("bullet");
       expect(result).toContain("nested");
-      // NFM constructs should be gone
       expect(result).not.toContain("<empty-block");
       expect(result).not.toMatch(/^\t/m);
     });
@@ -503,18 +494,15 @@ describe("serializeEditorToNfm", () => {
     });
 
     it("does not inflate empty-blocks on repeated save/load cycles", () => {
-      // Simulate editor output with 2 empty paragraphs between content
       const editorMd = "Hello\n\n&nbsp;\n\n&nbsp;\n\nWorld";
       const cycle1 = serializeEditorToNfm(editorMd);
       const count1 = (cycle1.match(/<empty-block\/>/g) || []).length;
       expect(count1).toBe(2);
 
-      // Second cycle: load → re-serialize must produce the same result
       const loaded = parseNfmForEditor(cycle1);
       const cycle2 = serializeEditorToNfm(loaded);
       expect(cycle2).toBe(cycle1);
 
-      // Third cycle: still stable
       const loaded2 = parseNfmForEditor(cycle2);
       const cycle3 = serializeEditorToNfm(loaded2);
       expect(cycle3).toBe(cycle1);

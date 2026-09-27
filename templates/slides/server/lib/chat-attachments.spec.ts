@@ -472,10 +472,6 @@ describe("prepareSlidesChatAttachments", () => {
   });
 
   it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {
-    // No inline `data` — this is the shape a pre-uploaded image takes once
-    // `referenceImagePaths` merges into `images` and the framework wraps it
-    // as an image content part with a plain URL
-    // (packages/core/src/client/agent-chat-adapter.ts extractAttachmentsFromMessage).
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",
       message: "add this image",

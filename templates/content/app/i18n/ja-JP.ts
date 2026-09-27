@@ -813,6 +813,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionCreateFailed: "提案を作成できませんでした",
     suggestionsCount: "{{count}} 件の提案",
     acceptSuggestion: "承認",
@@ -855,6 +862,35 @@ const rawLiterals = {
     contentSpace: "Content スペース",
     addChild: "子項目を追加",
     addChildTo: "{{title}} に子項目を追加",
+    collapseItem: "{{title}} を折りたたむ",
+    removeFromRecent: "最近の閲覧から削除",
+    copyLink: "リンクをコピー",
+    openInNewTab: "新しいタブで開く",
+    rename: "名前を変更",
+    duplicate: "複製",
+    moveTo: "移動先",
+    moveToTrash: "ゴミ箱に移動",
+    lastEditedBy: "最終編集者: {{name}}",
+    lastEdited: "最終編集",
+    pageName: "ページ名",
+    movePageTo: "「{{title}}」の移動先",
+    topLevel: "最上位",
+    noMatchingPages: "一致するページはありません",
+    failedRenamePage: "ページ名を変更できませんでした",
+    failedDuplicatePage: "ページを複製できませんでした",
+    duplicatedFromLastSave:
+      "最後に保存されたバージョンをコピーしました。保存されていない最近の編集は含まれていません。",
+    chooseSpace: "ワークスペースを選択",
+    moveToSpaceTitle: "{{space}} に移動しますか？",
+    moveToSpaceWarningShared:
+      "{{space}} の全員が「{{title}}」とそのサブページを閲覧できるようになります。現在の共有設定と公開リンクは削除され、あなたが所有者になります。",
+    moveToSpaceWarningPrivate:
+      "「{{title}}」とそのサブページは {{space}} であなただけが閲覧できるようになります。現在の共有設定と公開リンクは削除され、あなたが所有者になります。",
+    back: "戻る",
+    movePage: "移動",
+    movedToSpace: "「{{title}}」を {{space}} に移動しました",
+    failedRemoveFromRecent: "最近の閲覧から削除できませんでした",
+    expandItem: "{{title}} を展開",
     database: "コレクション",
     collection: "コレクション",
     databasePermanentlyDeleted: "コレクションを完全に削除しました",
@@ -918,6 +954,9 @@ const comments = {
   suggestionWith: "変更後",
   suggestionReplace: "変更前",
   suggestionDetails: "提案の詳細",
+  proposalEditCount_other: "{{count}} 件の編集",
+  acceptRemaining: "残りを承認",
+  rejectRemaining: "残りを却下",
   typeFilter: "種類",
   statusFilter: "ステータス",
   authorFilter: "ユーザー",
@@ -994,6 +1033,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
@@ -1020,6 +1066,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "情報",
+      copyLink: "リンクをコピー",
+      copyForPeople: "人向けにコピー",
+      copyForAgents: "エージェント向けにコピー",
+      whoHasAccess: "アクセスできる人",
+      sharePeople: "人",
+      shareAgents: "エージェント",
+      copyAgentPrompt: "エージェント用指示をコピー",
+      openInClaude: "Claude で開く",
+      openInClaudeCode: "Claude Code で開く",
+      openInCodex: "Codex で開く",
+      agentCopyAccessNote:
+        "エージェントは既存の権限で Content MCP を利用できます",
+      temporaryAgentLink: "一時的なエージェントリンク",
+      privateLinkCanView: "アクセス権のある人だけが閲覧できます",
+      publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      copiedAgentPrompt: "エージェント用指示をコピーしました",
+      couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
+      agentPrompt:
+        'この Content ドキュメントを読んでください: {{documentUrl}}\n\n{{mcpUrl}} に利用可能な Content MCP 接続を使い、ID "{{documentId}}" で get-document を呼び出してください。公開されているページは直接読むこともできます。\n\n認証が必要で、Content MCP が利用できないかサインアウトしている場合は、接続して認証するよう私に依頼してください。接続の設定: {{connectUrl}}。公式ガイド: {{docsUrl}}\n\n接続の準備ができたと私が確認したら、私のアカウントの既存の権限を使って再度読み込んでください。認証後の読み込みが拒否された場合は、その結果を教えてください。',
       closeUtilityPanel: "パネルを閉じる",
       exportCsv: "CSV をエクスポート",
       exportDatabase: "コレクションをエクスポート",
@@ -1043,6 +1108,7 @@ const exactEnglish = {
       exportedCsv: "CSV をエクスポートしました",
       copiedPageLink: "ページリンクをコピーしました",
       copyPageLink: "ページリンクをコピー",
+      createShareableCopy: "共有できるコピーを作成",
       couldNotCopyLink: "リンクをコピーできませんでした",
       clipboardAccessUnavailable:
         "このブラウザではクリップボードにアクセスできません。",
@@ -1099,6 +1165,14 @@ const history = {
 };
 
 const overrides = {
+  close: "閉じる",
+  setup: { checkingProvider: "AI 接続を確認しています…" },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+      statusUnavailable: "ファイルストレージの状態を確認できません。",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1253,6 +1327,13 @@ const overrides = {
     genericError: "問題が発生しました",
   },
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     ...editor,
     sourceComponent: {
       defaultTitle: "ソースコンポーネント",

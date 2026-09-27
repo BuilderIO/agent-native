@@ -35,16 +35,23 @@ let schema: typeof import("../server/db/schema.js");
 let updateDocument: typeof import("./update-document.js").default;
 let restoreDocumentVersion: typeof import("./restore-document-version.js").default;
 let listDocumentHistory: typeof import("./list-document-history.js").default;
+let listDocumentVersions: typeof import("./list-document-versions.js").default;
 let listDocumentHistoryCheckpoints: typeof import("./list-document-history-checkpoints.js").default;
 let getDocumentHistoryCheckpoint: typeof import("./get-document-history-checkpoint.js").default;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
+const editorGenerations = new Map<string, number>();
+let editorTestRun = 0;
+let saveAttempt = 0;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   ({ getDb, schema } = await import("../server/db/index.js"));
   updateDocument = (await import("./update-document.js")).default;
+  ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   restoreDocumentVersion = (await import("./restore-document-version.js"))
     .default;
   listDocumentHistory = (await import("./list-document-history.js")).default;
+  listDocumentVersions = (await import("./list-document-versions.js")).default;
   listDocumentHistoryCheckpoints = (
     await import("./list-document-history-checkpoints.js")
   ).default;
@@ -56,6 +63,8 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  editorTestRun += 1;
+  editorGenerations.clear();
   writeAppStateMock.mockReset();
   writeAppStateMock.mockResolvedValue(undefined);
   await getDb().delete(schema.documentVersions);
@@ -88,6 +97,34 @@ async function currentDocument() {
   return document;
 }
 
+function authoredBrowserSave(
+  base: Awaited<ReturnType<typeof currentDocument>>,
+  content: string,
+  historySessionId: string,
+  title?: string,
+) {
+  const generation = (editorGenerations.get(historySessionId) ?? 0) + 1;
+  editorGenerations.set(historySessionId, generation);
+  saveAttempt += 1;
+  const baseRevision = documentRevisionToken(base.bodyRevision, base.content);
+  return {
+    id: DOCUMENT_ID,
+    ...(title === undefined ? {} : { title, baseTitle: base.title }),
+    content,
+    baseUpdatedAt: base.updatedAt,
+    baseRevision,
+    authoredBaseRevision: baseRevision,
+    authoredBaseContent: base.content,
+    authoredCandidateContent: content,
+    editorSessionId: `history-test-${editorTestRun}:${historySessionId}`,
+    editorEditGeneration: generation,
+    editorSnapshotTitle: title ?? base.title,
+    editorSnapshotContent: content,
+    browserSaveAttemptId: `history-save-${saveAttempt}`,
+    historySessionId,
+  };
+}
+
 function inlineDatabaseBlock(args: {
   blockId: string;
   databaseId: string;
@@ -104,31 +141,194 @@ function inlineDatabaseBlock(args: {
 }
 
 describe("grouped document history", () => {
+  it("deduplicates concurrent chat-start checkpoints at the insert boundary", async () => {
+    const document = await currentDocument();
+    const transition = (runId: string) =>
+      recordDocumentHistoryTransition({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: DOCUMENT_ID,
+        before: { title: document.title, content: document.content },
+        after: { title: document.title, content: document.content },
+        cause: {
+          groupId: `agent:${OWNER}:${runId}`,
+          groupKind: "agent_run",
+          actorEmail: OWNER,
+          actorKind: "agent",
+          origin: "agent-chat",
+          operation: "chat start",
+          chatContext: {
+            threadId: "thread-concurrent",
+            runId,
+            phase: "start",
+          },
+          skipBeforeCheckpoint: true,
+        },
+        now: new Date().toISOString(),
+      });
+
+    await Promise.all([
+      transition("concurrent-run-1"),
+      transition("concurrent-run-2"),
+    ]);
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({
+      groupId: `agent:${OWNER}:concurrent-run-1`,
+      operation: "chat start",
+      checkpointKind: "after",
+    });
+    expect(versions[0]?.id).toBe(
+      `agent-chat-start:${encodeURIComponent(OWNER)}:${encodeURIComponent(DOCUMENT_ID)}:thread-concurrent`,
+    );
+  });
+
+  it("stores a single chat-start checkpoint with its phase", async () => {
+    const document = await currentDocument();
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      before: { title: document.title, content: document.content },
+      after: { title: document.title, content: document.content },
+      cause: {
+        groupId: "agent:history-owner@example.com:run-1",
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        origin: "agent-chat",
+        operation: "chat start",
+        chatContext: {
+          threadId: "thread-1",
+          runId: "run-1",
+          phase: "start",
+        },
+        skipBeforeCheckpoint: true,
+      },
+      now: new Date().toISOString(),
+    });
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, DOCUMENT_ID));
+    expect(versions).toHaveLength(1);
+    expect(versions[0]).toMatchObject({ checkpointKind: "after" });
+    expect(JSON.parse(versions[0].chatContext!)).toMatchObject({
+      threadId: "thread-1",
+      phase: "start",
+    });
+  });
+
+  it("finds a chat-start checkpoint for a serialized thread ID", async () => {
+    const document = await currentDocument();
+    const threadId = 'thread "quoted" %_\\path';
+    await recordDocumentHistoryTransition({
+      db: getDb(),
+      ownerEmail: OWNER,
+      documentId: DOCUMENT_ID,
+      before: { title: document.title, content: document.content },
+      after: { title: document.title, content: document.content },
+      cause: {
+        groupId: "agent:history-owner@example.com:serialized-thread",
+        groupKind: "agent_run",
+        actorEmail: OWNER,
+        actorKind: "agent",
+        origin: "agent-chat",
+        operation: "chat start",
+        chatContext: { threadId, runId: "run-serialized", phase: "start" },
+        skipBeforeCheckpoint: true,
+      },
+      now: new Date().toISOString(),
+    });
+
+    const result = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 1,
+        threadId,
+      }),
+    );
+    expect(result.versions).toHaveLength(1);
+    expect(result.versions[0]?.chatContext).toMatchObject({
+      threadId,
+      phase: "start",
+    });
+  });
+
+  it("keeps a malformed recent checkpoint without treating it as the chat start", async () => {
+    const threadId = 'legacy "%_\\thread';
+    const malformedTime = new Date(Date.now() - 60_000).toISOString();
+    await getDb()
+      .insert(schema.documentVersions)
+      .values([
+        {
+          id: "malformed-chat-context",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Legacy checkpoint",
+          content: "content",
+          chatContext: `{"phase":"start","threadId":${JSON.stringify(threadId)},broken}`,
+          createdAt: malformedTime,
+        },
+        {
+          id: "newer-ordinary-checkpoint",
+          ownerEmail: OWNER,
+          documentId: DOCUMENT_ID,
+          title: "Recent checkpoint",
+          content: "recent",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+    const bounded = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 1,
+        threadId,
+      }),
+    );
+    expect(bounded.versions.map((version) => version.id)).toEqual([
+      "newer-ordinary-checkpoint",
+    ]);
+
+    const recent = await asOwner(() =>
+      listDocumentVersions.run({
+        documentId: DOCUMENT_ID,
+        includeContent: false,
+        limit: 100,
+        threadId,
+      }),
+    );
+    expect(recent.versions).toContainEqual(
+      expect.objectContaining({
+        id: "malformed-chat-context",
+        editable: false,
+      }),
+    );
+  });
+
   it("retains every saved checkpoint in session A and attributes session B to its own result", async () => {
     let current = await currentDocument();
     for (const content of ["session A first", "session A final"]) {
       const result = await asOwner(() =>
-        updateDocument.run(
-          {
-            id: DOCUMENT_ID,
-            content,
-            baseUpdatedAt: current.updatedAt,
-            historySessionId: "session-a",
-          },
-          { caller: "frontend", userEmail: OWNER },
-        ),
+        updateDocument.run(authoredBrowserSave(current, content, "session-a"), {
+          caller: "frontend",
+          userEmail: OWNER,
+        }),
       );
       expect("conflict" in result && result.conflict).toBe(false);
       current = await currentDocument();
     }
     await asOwner(() =>
       updateDocument.run(
-        {
-          id: DOCUMENT_ID,
-          content: "session B final",
-          baseUpdatedAt: current.updatedAt,
-          historySessionId: "session-b",
-        },
+        authoredBrowserSave(current, "session B final", "session-b"),
         { caller: "frontend", userEmail: OWNER },
       ),
     );
@@ -344,31 +544,31 @@ describe("grouped document history", () => {
       .update(schema.documents)
       .set({ updatedAt: fixedUpdatedAt })
       .where(eq(schema.documents.id, DOCUMENT_ID));
+    const fixedBase = await currentDocument();
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(fixedMs);
     try {
       const first = await asOwner(() =>
         updateDocument.run(
-          {
-            id: DOCUMENT_ID,
-            content: "same tick one",
-            baseUpdatedAt: fixedUpdatedAt,
-            historySessionId: "same-tick-one",
-          },
+          authoredBrowserSave(fixedBase, "same tick one", "same-tick-one"),
           { caller: "frontend", userEmail: OWNER },
         ),
       );
       expect("conflict" in first && first.conflict).toBe(false);
       const afterFirst = await currentDocument();
       expect(afterFirst.updatedAt).toBe(new Date(fixedMs + 1).toISOString());
+      const [firstCheckpoint] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.groupId, `human:${OWNER}:same-tick-one`),
+            eq(schema.documentVersions.checkpointKind, "after"),
+          ),
+        );
 
       const second = await asOwner(() =>
         updateDocument.run(
-          {
-            id: DOCUMENT_ID,
-            content: "same tick two",
-            baseUpdatedAt: afterFirst.updatedAt,
-            historySessionId: "same-tick-two",
-          },
+          authoredBrowserSave(afterFirst, "same tick two", "same-tick-two"),
           { caller: "frontend", userEmail: OWNER },
         ),
       );
@@ -376,18 +576,18 @@ describe("grouped document history", () => {
       const afterSecond = await currentDocument();
       expect(afterSecond.updatedAt).toBe(new Date(fixedMs + 2).toISOString());
 
-      const stale = await asOwner(() =>
-        updateDocument.run(
-          {
-            id: DOCUMENT_ID,
-            content: "stale overwrite",
-            baseUpdatedAt: afterFirst.updatedAt,
-            historySessionId: "same-tick-stale",
-          },
-          { caller: "frontend", userEmail: OWNER },
+      await expect(
+        asOwner(() =>
+          restoreDocumentVersion.run(
+            {
+              documentId: DOCUMENT_ID,
+              versionId: firstCheckpoint.id,
+              expectedUpdatedAt: afterFirst.updatedAt,
+            },
+            { caller: "frontend", userEmail: OWNER },
+          ),
         ),
-      );
-      expect("conflict" in stale && stale.conflict).toBe(true);
+      ).rejects.toMatchObject({ errorCode: "DOCUMENT_RESTORE_CONFLICT" });
       expect(await currentDocument()).toMatchObject({
         content: "same tick two",
         updatedAt: afterSecond.updatedAt,
@@ -400,15 +600,10 @@ describe("grouped document history", () => {
   it("restores atomically and writes nothing when the expected current state is stale", async () => {
     let current = await currentDocument();
     await asOwner(() =>
-      updateDocument.run(
-        {
-          id: DOCUMENT_ID,
-          content: "state A",
-          baseUpdatedAt: current.updatedAt,
-          historySessionId: "session-a",
-        },
-        { caller: "frontend", userEmail: OWNER },
-      ),
+      updateDocument.run(authoredBrowserSave(current, "state A", "session-a"), {
+        caller: "frontend",
+        userEmail: OWNER,
+      }),
     );
     const [stateA] = await getDb()
       .select()
@@ -422,15 +617,10 @@ describe("grouped document history", () => {
       .orderBy(asc(schema.documentVersions.createdAt));
     current = await currentDocument();
     await asOwner(() =>
-      updateDocument.run(
-        {
-          id: DOCUMENT_ID,
-          content: "state B",
-          baseUpdatedAt: current.updatedAt,
-          historySessionId: "session-b",
-        },
-        { caller: "frontend", userEmail: OWNER },
-      ),
+      updateDocument.run(authoredBrowserSave(current, "state B", "session-b"), {
+        caller: "frontend",
+        userEmail: OWNER,
+      }),
     );
     current = await currentDocument();
     const beforeRestoreCount = (
@@ -696,13 +886,12 @@ describe("grouped document history", () => {
     let current = await currentDocument();
     await asOwner(() =>
       updateDocument.run(
-        {
-          id: DOCUMENT_ID,
-          title: "Restore target title",
-          content: "restore target",
-          baseUpdatedAt: current.updatedAt,
-          historySessionId: "target",
-        },
+        authoredBrowserSave(
+          current,
+          "restore target",
+          "target",
+          "Restore target title",
+        ),
         { caller: "frontend", userEmail: OWNER },
       ),
     );
@@ -726,13 +915,12 @@ describe("grouped document history", () => {
     });
     await asOwner(() =>
       updateDocument.run(
-        {
-          id: DOCUMENT_ID,
-          title: "Current database title",
-          content: rollbackContent,
-          baseUpdatedAt: current.updatedAt,
-          historySessionId: "current",
-        },
+        authoredBrowserSave(
+          current,
+          rollbackContent,
+          "current",
+          "Current database title",
+        ),
         { caller: "frontend", userEmail: OWNER },
       ),
     );

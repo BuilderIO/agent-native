@@ -83,10 +83,6 @@ export default defineAction({
       return { count: 0, designSystems: [] };
     }
 
-    // docCount is never stored in SQL and never read from a cached value on
-    // the row: it always comes from Builder's own document-count endpoint,
-    // fetched fresh for every Builder-backed row on every list call, in
-    // parallel so N Builder-backed systems cost one round trip, not N.
     const builderRows = rows
       .map((row) => ({
         row,
@@ -118,16 +114,10 @@ export default defineAction({
       }
     }
 
-    // The row-level isDefault column is per-owner, so a shared system owned by
-    // someone else can carry isDefault: true for them. Compute the caller's
-    // own effective default once and report that instead of the raw column.
     const effectiveDefaultId = userEmail
       ? await resolveDefaultDesignSystemId(userEmail)
       : null;
 
-    // Resolve every row's role from one batched shares query. Calling
-    // resolveAccess() per row reloads the resource and its shares (N+1) and
-    // fans out an unbounded Promise.all as the catalog grows.
     const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
     if (userEmail) {
       principalClauses.push(

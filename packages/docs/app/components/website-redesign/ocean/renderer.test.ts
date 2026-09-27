@@ -25,8 +25,6 @@ describe("ocean IFFT stage table", () => {
     const stages = createIfftStageTable();
     expect(stages).toHaveLength(18);
     expect(stages.filter((s) => s.horizontal)).toHaveLength(9);
-    // Nine axis stages is exactly log2(512) -- the table and the resolution
-    // have to move together or the transform silently truncates.
     expect(2 ** 9).toBe(OCEAN_RESOLUTION);
   });
 
@@ -77,8 +75,6 @@ describe("ocean graph", () => {
     setPresentColors(graph, LIGHT);
     await frame(gpu, (current) => renderGraph(current, graph, output));
 
-    // Same texture object, so the 512x512 simulation targets were not
-    // reallocated -- that is the whole point of the in-place path.
     expect(graph.simulation.spectrum).toBe(before);
     destroyGraph(graph);
     gpu.dispose();
@@ -95,9 +91,6 @@ describe("ocean graph", () => {
 
   it("rejects rather than returning a half-built graph when a pass cannot compile", async () => {
     const { gpu, output } = await mockOutput();
-    // prewarm() compiles the present pass against the output format, so an
-    // unrenderable format fails after most targets are already allocated --
-    // the path where returning a usable-looking graph would be the bug.
     const unrenderable = { ...output, format: "depth24plus" } as never;
     await expect(
       createGraph(gpu, unrenderable, "test", DARK),

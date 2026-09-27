@@ -344,6 +344,16 @@ const enUS = {
       adminConnections: "Connections",
       adminAgentPlatform: "Agent platform",
       adminWorkspaceExtensions: "Workspace extensions",
+      usageAlertDescription:
+        "Get an in-app or email notice when usage reaches an alert threshold. Alerts do not stop usage or limit charges.",
+      usageAlertEmpty:
+        "No alerts yet. Add one to get notified when usage reaches your threshold.",
+      usageAlertThreshold: "Alert threshold",
+      usageAlertReached: "Threshold reached",
+      usageAlertCurrentAndThreshold:
+        "Usage {{current}} · alert threshold {{threshold}} per {{period}}",
+      usageAlertDay: "day",
+      usageAlertMonth: "month",
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
       appAdoption: "App adoption",
@@ -1274,6 +1284,16 @@ export const messagesByLocale = {
           adminConnections: "连接",
           adminAgentPlatform: "代理平台",
           adminWorkspaceExtensions: "工作区扩展",
+          usageAlertDescription:
+            "使用量达到提醒阈值时，你会收到应用内或电子邮件通知。提醒不会停止使用，也不会限制费用。",
+          usageAlertEmpty:
+            "还没有使用提醒。添加提醒后，使用量达到阈值时你会收到通知。",
+          usageAlertThreshold: "提醒阈值",
+          usageAlertReached: "已达到阈值",
+          usageAlertCurrentAndThreshold:
+            "使用量 {{current}} · {{period}}提醒阈值 {{threshold}}",
+          usageAlertDay: "每天",
+          usageAlertMonth: "每月",
           dataLoadFailed: "无法加载数据",
           dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
           appAdoption: "应用使用情况",
@@ -1726,6 +1746,16 @@ export const messagesByLocale = {
           adminConnections: "Conexiones",
           adminAgentPlatform: "Plataforma de agentes",
           adminWorkspaceExtensions: "Extensiones del espacio de trabajo",
+          usageAlertDescription:
+            "Recibe un aviso en la app o por correo cuando el uso alcance un umbral. Las alertas no detienen el uso ni limitan los cargos.",
+          usageAlertEmpty:
+            "Aún no hay alertas. Añade una para recibir avisos cuando el uso alcance el umbral.",
+          usageAlertThreshold: "Umbral de alerta",
+          usageAlertReached: "Umbral alcanzado",
+          usageAlertCurrentAndThreshold:
+            "Uso: {{current}} · umbral de alerta: {{threshold}} por {{period}}",
+          usageAlertDay: "día",
+          usageAlertMonth: "mes",
           dataLoadFailed: "No se pudieron cargar los datos",
           dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
           appAdoption: "Adopción de apps",
@@ -2188,6 +2218,16 @@ export const messagesByLocale = {
           adminConnections: "Connexions",
           adminAgentPlatform: "Plateforme d’agents",
           adminWorkspaceExtensions: "Extensions de l’espace de travail",
+          usageAlertDescription:
+            "Recevez une notification dans l’app ou par e-mail lorsque l’utilisation atteint un seuil. Les alertes n’arrêtent pas l’utilisation et ne plafonnent pas les frais.",
+          usageAlertEmpty:
+            "Aucune alerte pour le moment. Ajoutez-en une pour être averti lorsque l’utilisation atteint le seuil.",
+          usageAlertThreshold: "Seuil d’alerte",
+          usageAlertReached: "Seuil atteint",
+          usageAlertCurrentAndThreshold:
+            "Utilisation : {{current}} · seuil d’alerte : {{threshold}} par {{period}}",
+          usageAlertDay: "jour",
+          usageAlertMonth: "mois",
           dataLoadFailed: "Impossible de charger les données",
           dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
           appAdoption: "Adoption des apps",
@@ -2638,6 +2678,16 @@ export const messagesByLocale = {
           adminConnections: "Verbindungen",
           adminAgentPlatform: "Agentenplattform",
           adminWorkspaceExtensions: "Arbeitsbereichserweiterungen",
+          usageAlertDescription:
+            "Erhalte eine In-App- oder E-Mail-Benachrichtigung, wenn die Nutzung einen Schwellenwert erreicht. Alerts stoppen die Nutzung nicht und begrenzen keine Kosten.",
+          usageAlertEmpty:
+            "Noch keine Alerts. Lege einen Schwellenwert fest, um bei Erreichen benachrichtigt zu werden.",
+          usageAlertThreshold: "Alarm-Schwellenwert",
+          usageAlertReached: "Schwellenwert erreicht",
+          usageAlertCurrentAndThreshold:
+            "Nutzung: {{current}} · Alarmschwelle: {{threshold}} pro {{period}}",
+          usageAlertDay: "Tag",
+          usageAlertMonth: "Monat",
           dataLoadFailed: "Daten konnten nicht geladen werden",
           dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
           appAdoption: "App-Nutzung",
@@ -3082,6 +3132,16 @@ export const messagesByLocale = {
           adminConnections: "接続",
           adminAgentPlatform: "エージェントプラットフォーム",
           adminWorkspaceExtensions: "ワークスペース拡張機能",
+          usageAlertDescription:
+            "使用量がしきい値に達すると、アプリ内またはメールで通知します。通知は利用を停止したり請求額を制限したりしません。",
+          usageAlertEmpty:
+            "アラートはまだありません。使用量の通知を受け取るしきい値を追加してください。",
+          usageAlertThreshold: "通知しきい値",
+          usageAlertReached: "しきい値に到達",
+          usageAlertCurrentAndThreshold:
+            "使用量：{{current}}・通知しきい値：{{threshold}}／{{period}}",
+          usageAlertDay: "日",
+          usageAlertMonth: "月",
           dataLoadFailed: "データを読み込めませんでした",
           dataLoadFailedDescription:
             "Dispatch はこのデータを読み込めませんでした。",
@@ -3520,6 +3580,16 @@ export const messagesByLocale = {
           adminConnections: "연결",
           adminAgentPlatform: "에이전트 플랫폼",
           adminWorkspaceExtensions: "워크스페이스 확장",
+          usageAlertDescription:
+            "사용량이 임계값에 도달하면 앱 내 또는 이메일 알림을 받습니다. 알림은 사용을 중단하거나 청구 금액을 제한하지 않습니다.",
+          usageAlertEmpty:
+            "아직 알림이 없습니다. 사용량 알림을 받을 임계값을 추가하세요.",
+          usageAlertThreshold: "알림 임계값",
+          usageAlertReached: "임계값 도달",
+          usageAlertCurrentAndThreshold:
+            "사용량: {{current}} · {{period}} 알림 임계값: {{threshold}}",
+          usageAlertDay: "일",
+          usageAlertMonth: "월",
           dataLoadFailed: "데이터를 불러올 수 없습니다",
           dataLoadFailedDescription:
             "Dispatch에서 이 데이터를 불러오지 못했습니다.",
@@ -3970,6 +4040,16 @@ export const messagesByLocale = {
           adminConnections: "Conexões",
           adminAgentPlatform: "Plataforma de agentes",
           adminWorkspaceExtensions: "Extensões do espaço de trabalho",
+          usageAlertDescription:
+            "Receba um aviso no app ou por e-mail quando o uso atingir um limite. Os alertas não interrompem o uso nem limitam cobranças.",
+          usageAlertEmpty:
+            "Ainda não há alertas. Adicione um para receber avisos quando o uso atingir o limite.",
+          usageAlertThreshold: "Limite do alerta",
+          usageAlertReached: "Limite atingido",
+          usageAlertCurrentAndThreshold:
+            "Uso: {{current}} · limite do alerta: {{threshold}} por {{period}}",
+          usageAlertDay: "dia",
+          usageAlertMonth: "mês",
           dataLoadFailed: "Não foi possível carregar os dados",
           dataLoadFailedDescription:
             "O Dispatch não conseguiu carregar estes dados.",
@@ -4407,6 +4487,16 @@ export const messagesByLocale = {
           adminConnections: "कनेक्शन",
           adminAgentPlatform: "एजेंट प्लेटफ़ॉर्म",
           adminWorkspaceExtensions: "वर्कस्पेस एक्सटेंशन",
+          usageAlertDescription:
+            "उपयोग सीमा तक पहुँचने पर ऐप में या ईमेल से सूचना पाएं। अलर्ट उपयोग को रोकते या शुल्क को सीमित नहीं करते।",
+          usageAlertEmpty:
+            "अभी कोई अलर्ट नहीं है। उपयोग की सूचना पाने के लिए एक सीमा जोड़ें।",
+          usageAlertThreshold: "अलर्ट सीमा",
+          usageAlertReached: "सीमा तक पहुँचे",
+          usageAlertCurrentAndThreshold:
+            "उपयोग: {{current}} · {{period}} की अलर्ट सीमा: {{threshold}}",
+          usageAlertDay: "दिन",
+          usageAlertMonth: "महीना",
           dataLoadFailed: "डेटा लोड नहीं हो सका",
           dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
           appAdoption: "ऐप अपनाना",
@@ -4874,6 +4964,16 @@ export const messagesByLocale = {
           adminConnections: "الاتصالات",
           adminAgentPlatform: "منصة الوكلاء",
           adminWorkspaceExtensions: "امتدادات مساحة العمل",
+          usageAlertDescription:
+            "تلقَّ إشعارًا داخل التطبيق أو عبر البريد الإلكتروني عند بلوغ الاستخدام العتبة. لا توقف التنبيهات الاستخدام ولا تحدّ من الرسوم.",
+          usageAlertEmpty:
+            "لا توجد تنبيهات بعد. أضف تنبيهًا لتلقي إشعار عند بلوغ الاستخدام العتبة.",
+          usageAlertThreshold: "عتبة التنبيه",
+          usageAlertReached: "تم بلوغ العتبة",
+          usageAlertCurrentAndThreshold:
+            "الاستخدام: {{current}} · عتبة التنبيه: {{threshold}} لكل {{period}}",
+          usageAlertDay: "يوم",
+          usageAlertMonth: "شهر",
           dataLoadFailed: "تعذر تحميل البيانات",
           dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
           appAdoption: "اعتماد التطبيقات",

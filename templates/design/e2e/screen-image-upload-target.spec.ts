@@ -342,8 +342,6 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       )
       .toBe("rgb(128, 85, 0)");
 
-    // Exercise the async target after a source refresh for A. The upload must
-    // apply to A's latest markup, not a stale whole-document snapshot.
     const screenAHtmlBeforeEdit = await readScreenHtml(
       page,
       designId,
@@ -587,7 +585,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
   page,
 }) => {
   test.setTimeout(120_000);
-  const { designId, screenAId } = await createTwoScreenDesign(page);
+  const { designId, screenAId, screenBId } = await createTwoScreenDesign(page);
   const marker = "Screen A source updated during active upload";
   const timeline: Array<Record<string, unknown>> = [];
   let releaseUpload!: () => void;
@@ -738,7 +736,12 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
         `[data-screen-shell][data-frame-id="${screenAId}"] [data-frame-label]`,
       )
       .dblclick();
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+    await expect(
+      page.locator(`[data-screen-shell][data-frame-id="${screenAId}"]`),
+    ).toHaveAttribute("data-screen-interact-mode", "true");
+    await expect(
+      page.locator(`[data-screen-shell][data-frame-id="${screenBId}"]`),
+    ).toHaveAttribute("data-screen-interact-mode", "false");
     await expect(
       page.locator(`iframe[data-screen-iframe-id="${screenAId}"]`),
     ).toBeVisible();
@@ -832,7 +835,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       "screen-image-upload-active-collab-timeline",
       JSON.stringify(timeline),
     );
-    expect(requestBody.syncCollab, JSON.stringify(timeline)).toBe(false);
+    expect(requestBody.syncCollab, JSON.stringify(timeline)).toBe(true);
     if (fileUpdateResponse.status() === 409) {
       expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
     } else {

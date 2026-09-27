@@ -1,5 +1,99 @@
 # @agent-native/dispatch
 
+## 0.38.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/toolkit@0.22.2
+
+## 0.38.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+
+## 0.38.12
+
+### Patch Changes
+
+- 7eb9cbb: Scope provider credentials to their endpoints, coalesce workspace app access checks, and support desktop authenticator sign-in.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+
+## 0.38.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [6ff4d47]
+  - @agent-native/toolkit@0.21.3
+
+## 0.38.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [2ba6541]
+  - @agent-native/toolkit@0.21.2
+
+## 0.38.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.21.1
+
+## 0.38.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+
+## 0.38.7
+
+### Patch Changes
+
+- a10ae73: Limit Dispatch app launchers to apps connected to the current workspace and clarify that usage alerts notify at a threshold without limiting spend.
+- fbd85b3: Allow hosts to customize the Dispatch sidebar name and icon through the exported `Layout` and `NavContent` components while preserving the existing Dispatch branding by default.
+- Release all public npm packages with a patch version bump.
+- 973e7d5: Stop deleting workspace app registry rows when an app is missing from the current deployment's manifest. Deployments that share one database (production, beta, local development) each see a different app list, so this removed access for apps that were still live elsewhere. Removing an app from the registry is now only done by archiving it.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.9
+
 ## 0.38.6
 
 ### Patch Changes
@@ -933,86 +1027,5 @@
 - Updated dependencies [b3b4580]
 - Updated dependencies [b3b4580]
   - @agent-native/toolkit@0.14.1
-
-## 0.24.0
-
-### Minor Changes
-
-- aa17e22: Add a personal-first LLM usage investigation view with daily trends, prompt attribution, and agent review handoff.
-
-### Patch Changes
-
-- aa17e22: Use Plan's blue accent for generated app icons instead of a disabled-looking gray.
-- aa17e22: Open workspace apps at their registered app URL instead of treating the workspace mount path as an in-app document route.
-- aa17e22: Keep metadata-only workspace app edits from starting new Builder branches, and use canonical home URLs when launching built-in connected apps.
-- aa17e22: Make the Dispatch logo return to the Overview page when clicked.
-- aa17e22: Add an Admin link to Dispatch settings navigation.
-- aa17e22: Hide the current Dispatch app from the shared app switcher while keeping other workspace apps available.
-- aa17e22: Accept human-friendly names when creating workspace apps and normalize them into URL-safe ids.
-- aa17e22: Keep completed Dispatch app handoffs in the chat-first app pane instead of rendering a nested app shell inside the conversation.
-- aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
-
-## 0.23.5
-
-### Patch Changes
-
-- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
-
-  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
-
-## 0.23.4
-
-### Patch Changes
-
-- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
-- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
-- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
-- Updated dependencies [7c5888c]
-  - @agent-native/toolkit@0.13.10
-
-## 0.23.3
-
-### Patch Changes
-
-- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
-- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
-
-## 0.23.2
-
-### Patch Changes
-
-- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
-
-## 0.23.1
-
-### Patch Changes
-
-- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
-- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-  - @agent-native/toolkit@0.13.9
-
-## 0.23.0
-
-### Minor Changes
-
-- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
-
-### Patch Changes
-
-- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
-- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
-- Updated dependencies [c41fd16]
-  - @agent-native/toolkit@0.13.8
-
-## 0.22.1
-
-### Patch Changes
-
-- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

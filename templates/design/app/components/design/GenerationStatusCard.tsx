@@ -6,18 +6,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export interface GenerationStatusCardProps {
   generating: boolean;
-  /** Non-null only when generation failed; the caller gates on it. */
   issue: string | null;
   retryablePrompt: string | null;
   onRetry: () => void;
 }
 
-/**
- * Shown in the canvas column only while a design with nothing in it is
- * generating or has just failed. An empty design is not a state worth
- * announcing — it renders the board and the tools instead — but a failure
- * with no retry leaves the run unrecoverable, so that half stays.
- */
 export function GenerationStatusCard({
   generating,
   issue,

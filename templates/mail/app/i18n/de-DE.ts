@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Alle",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -32,6 +33,74 @@ const messages = {
       newest: "Neueste",
       priority: "Priorität",
       priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+      priorityScoreHelp:
+        "Ein höherer Wert bedeutet, dass Jev die Nachricht für wichtiger hält.",
+      priorityFeedbackSuggestion:
+        "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
+      priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
+      aiSetupTitle: "KI-Posteingang einrichten",
+      aiSetupTagLabel: "KI-Tag erstellen",
+      aiSetupImportanceLabel: "Wichtige E-Mails",
+      aiSetupSpamLabel: "Unerwünscht",
+      aiSetupArchiveLabel: "Posteingang überspringen",
+      aiSetupSave: "Einrichtung speichern",
+      aiSetupSkip: "Vorerst überspringen",
+      aiSetupImportantHeadline: "Was ist wichtig?",
+      aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
+      aiSetupTagsHeadline: "Tabs auswählen",
+      aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
+      aiSetupTagReceipts: "Belege",
+      aiSetupTagUpdates: "Produktupdates",
+      aiSetupTagGitHub: "Menschen auf GitHub",
+      aiSetupPromptReceipts: "Belege und Bestellbestätigungen von Onlineshops",
+      aiSetupPromptUpdates: "Produktupdates und Versionshinweise meiner Tools",
+      aiSetupPromptGitHub:
+        "GitHub-Benachrichtigungen mit Kommentaren von Menschen",
+      aiSetupImportantPrompt:
+        "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
+      aiSetupArchiveSpamPrompt:
+        "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+      aiSetupCustomTag: "Benutzerdefiniert",
+      aiSetupDone: "Fertig",
+      aiSetupRunAgain: "Einrichtung erneut starten",
+      aiSetupTagCalendar: "Kalender",
+      aiSetupPromptCalendar:
+        "Kalendereinladungen und Terminänderungen, die ich brauche",
+      aiSetupTagTravel: "Reisen",
+      aiSetupPromptTravel:
+        "Reisebestätigungen und Reservierungen, die ich brauche",
+      aiSetupTagFinance: "Finanzen",
+      aiSetupPromptFinance: "Rechnungen und Kontoauszüge, die ich brauche",
+      aiSetupArchiveExample:
+        "Bot- und CI-Benachrichtigungen von GitHub, Vercel und Dependabot",
+      aiSetupFilteredExample:
+        "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
+      aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
+      aiSetupSortingProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
+      aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupSortingFailed:
+        "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
+      aiSetupUndoComplete:
+        "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupRuleCount: "{{count}} Treffer",
+      aiSetupNoMatches:
+        "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
+      aiSetupChatTip:
+        "Du kannst Regeln jederzeit im Chat verfeinern oder ergänzen.",
+      aiSetupChatPrompt: "E-Mails von meiner Führungskraft priorisieren…",
+      aiSetupNoRules: "Es wurden keine Regeln ausgewählt.",
+      aiSetupPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      aiSetupSortInbox: "Posteingang sortieren",
+      aiSetupImportantExample: "Alles von meiner Führungskraft Priya…",
+      priorityFeedbackLabel: "Feedback zur Wichtigkeit",
+      priorityScoreHigh: "Hohe Wichtigkeit",
+      priorityScoreMedium: "Mittlere Wichtigkeit",
+      priorityScoreLow: "Geringe Wichtigkeit",
+      priorityEditRules: "Wichtigkeitsregeln bearbeiten",
+      aiSetupContinue: "Weiter",
     },
     toolbar: {
       toggleMenu: "Menü umschalten",
@@ -46,7 +115,7 @@ const messages = {
       unpinSidebar: "Seitenleiste lösen",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
-      aiSettings: "KI-Tags & Spam",
+      aiSettings: "Tags und Regeln verwalten",
     },
     search: {
       label: "Suchen",
@@ -62,13 +131,16 @@ const messages = {
       filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
+      splitInbox: "Geteilter Posteingang",
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
       renameTab: "Tab umbenennen",
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
-      help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
+      allTab: "Alle-Tab",
+      help: "Der kombinierte Posteingang zeigt alle Konten zusammen. Deaktiviere ihn, um E-Mails auf Tabs aufzuteilen.",
+      aiSetup: "KI-Tags und Regeln einrichten",
     },
     accounts: {
       remove: "Entfernen",
@@ -102,6 +174,7 @@ const messages = {
       deleteDraft: "Entwurf löschen",
       deleteDrafts: "Entwürfe löschen",
       reopenDraft: "Wieder öffnen",
+      openInMail: "In Mail öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -438,6 +511,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Nicht wichtig",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -498,6 +572,8 @@ const messages = {
         "Fügt das Label agent-native-filtered hinzu und archiviert die Unterhaltung. Du kannst dies jederzeit rückgängig machen.",
       learningNote:
         "Behält die Nachricht im Posteingang und bringt dem Filter bei, den Fehler nicht zu wiederholen.",
+      learningProgress:
+        "{{count}} von {{required}} Beispielen bestätigt. Aktuelle E-Mails werden geprüft, sobald alle {{required}} bestätigt sind.",
       rememberLabel: "Für zukünftige Nachrichten merken (optional)",
       correctLabel: "Was soll der Filter lernen? (optional)",
       rememberPlaceholder:
@@ -513,11 +589,47 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      autoArchiveMode: "Automatisch archivieren",
+      skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
+      aiTagsTitle: "KI-Tags",
+      ruleHelpLabel: "{{mode}}-Regeln erklären",
+      aiTagRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+      importantRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+      skipInboxRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+      spamRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
+      filteredMode: "Gefiltert",
+      manageSettings: "Verwalten",
+      askJev: "Jev fragen",
+      askJevPrompt:
+        "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
+      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
+      chatSuggestionPriority: "E-Mails von … priorisieren",
+      chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
+      ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
+      ruleBackfillProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
+      ruleBackfillMatches: "{{count}} aktuelle Nachrichten passen",
+      ruleBackfillNoMatches:
+        "Keine aktuellen Nachrichten passen zu dieser Regel.",
+      ruleBackfillFailed:
+        "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      ruleBackfillUndoing: "Aktuelle E-Mails werden wiederhergestellt…",
+      ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
+      ruleBackfillReview: "Treffer prüfen",
       importantMode: "Wichtig",
+      notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",
       reviewImportant: "Wichtige anzeigen",
       importantPlaceholder:
@@ -530,6 +642,8 @@ const messages = {
       spamPlaceholder:
         "z. B. Nachrichten, die eindeutig Werbung oder unerwünscht sind",
       tagPlaceholder: "z. B. Belege und Bestellbestätigungen von Onlineshops",
+      archivePlaceholder:
+        "z. B. GitHub-Bot-Benachrichtigungen, die keine Aufmerksamkeit benötigen",
       addShortcut: "⌘ Enter zum Hinzufügen",
       previewTitle: "Letzte E-Mails prüfen",
       previewDescription:
@@ -538,6 +652,7 @@ const messages = {
       previewButton: "Vorschau starten",
       previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
       jevBadge: "Jev",
+      jevMatchProbability: "Jev-Trefferwahrscheinlichkeit: {{percent}}%",
       feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
       notSpamShort: "Kein Spam",
       notMatchShort: "Kein Treffer",
@@ -552,6 +667,18 @@ const messages = {
       previewEmpty:
         "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
       previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
+      promptRulesCleared: "Triage-Regeln entfernt.",
+      tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
+      addTag: "Tag hinzufügen",
+      triageTitle: "KI-Triage",
+      connectJev: "Jev verbinden",
+      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      freeBuilderOrApiKey:
+        "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      jevAvailabilityFailed:
+        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+      connectBuilder: "Builder.io verbinden",
+      addJevApiKey: "API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -610,6 +737,9 @@ const messages = {
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+    ruleSuggestionFilter: "Nachrichten wie diese herausfiltern",
+    ruleSuggestionImportant: "E-Mails von meiner Führungskraft priorisieren",
+    ruleSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
   },
   settings: {
     openAgentSettings: "Agent verwalten",
@@ -742,7 +872,7 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
-    aiFilter: "KI-Filter",
+    aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",

@@ -1,4 +1,15 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Verificando a conexão com a IA…",
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+    common: { retry: "Tentar novamente" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Clique primeiro naquela seção e arraste a linha vermelha para a direita.",
@@ -428,6 +439,10 @@ const messages = {
     agentEmptyTitle: "Participe da conversa",
     agentEmptyDescription:
       "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
+    commentSignupTitle:
+      "Gravações de tela que seu agente de IA pode ver e ouvir",
+    commentSignupDescription:
+      "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais passo a passo com agentes de IA.",
     agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",
@@ -568,6 +583,9 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
+    redactionsPendingBody:
+      "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
     publicDescription:
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",
@@ -623,9 +641,6 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
-    redactionsPendingBody:
-      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas. Abra o editor, aplique-as, e o compartilhamento volta.",
-    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
@@ -829,6 +844,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "Não foi possível atualizar o espaço ativo",
     whatsNew: "Novidades",
     changelogEmpty: "Ainda não há atualizações.",
+    changelogCommentSignup:
+      "A barra lateral de comentários vazia explica rapidamente por que experimentar o Clips e oferece um caminho claro para se cadastrar.",
+    changelogCommentsEmptyState:
+      "O estado vazio de comentários agora explica como as gravações de tela ajudam os agentes de IA.",
+    changelogShareLink:
+      "Agora, ao escolher “Ir para o início” em um link compartilhado indisponível, expirado ou privado, quem estiver conectado será levado à biblioteca em vez da página pública de marketing.",
     viewAllUpdates: "Ver todas as atualizações",
     expand: "Expandir",
     collapse: "Recolher",
@@ -1235,6 +1256,7 @@ const messages = {
     transcript: "Transcrição",
     comment: "Comentário",
     titleOrDescription: "Título ou descrição",
+    matchAt: "Correspondência em {{time}} do vídeo",
   },
   organizationSwitcher: {
     noOrganization: "Sem organização",
@@ -1436,11 +1458,23 @@ const messages = {
     disconnected: "Microfone desconectado.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Não foi possível abrir o Builder.io. Se este app estiver incorporado em um chat, abra-o em uma aba do navegador; caso contrário, permita pop-ups para este site e tente novamente.",
+    builderConnectError:
+      "Não foi possível conectar ao Builder.io. Tente novamente ou entre em contato com o suporte.",
+    checkingBuilderConnection: "Verificando a conexão com o Builder…",
     builderTimeout:
       "Não houve resposta do Builder em 5 minutos. Verifique o pop-up e tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
     connectBuilder: "Usar Builder.io",
+    createBuilderAccount: "Criar conta do Builder.io",
+    signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
+    builderConsentPrefix:
+      "Ao criar uma conta Builder.io, você concorda com nossos",
+    builderTerms: "Termos de Serviço",
+    builderConsentAnd: "e",
+    builderPrivacy: "Política de Privacidade",
     free: "Grátis",
     configureS3: "configurar armazenamento compatível com S3",
     whyPrompt: "Por que estou vendo isso?",

@@ -42,6 +42,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import "@/lib/register-chat-renderers";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -186,18 +187,12 @@ function ThemeToggleItem() {
   );
 }
 
-/**
- * Public booking routes (/book/*, /meet/*, /booking/manage/*) must SSR real
- * content for first-visit signed-out users and crawlers. These paths bypass
- * ClientOnly so entry.server.tsx can stream the actual route markup rather than
- * a bare spinner. Auth/private routes are unaffected.
- */
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
-    p.startsWith("/book/") ||
-    p.startsWith("/meet/") ||
-    p.startsWith("/booking/manage/")
+    /^\/book\/[^/]+(?:\/[^/]+)?$/.test(p) ||
+    /^\/meet\/[^/]+\/[^/]+$/.test(p) ||
+    /^\/booking\/manage\/[^/]+$/.test(p)
   );
 }
 
@@ -206,12 +201,6 @@ function isAgentNativeDesktop(): boolean {
     typeof navigator !== "undefined" &&
     /AgentNativeDesktop/i.test(navigator.userAgent)
   );
-}
-
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
 }
 
 function PrivateAppContent() {
@@ -286,8 +275,6 @@ export default function Root() {
           // webview focus events otherwise duplicate the events request.
           // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: !isAgentNativeDesktop(),
-          // Flat retry: calendar data fetches don't need the auth-aware
-          // retry function — auth errors surface through the booking flow.
           retry: 1,
         },
       },
@@ -295,14 +282,13 @@ export default function Root() {
   );
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath =
-    isMarketingHome || isPublicBookingPath(location.pathname);
+  const isPublicPath = isPublicBookingPath(location.pathname);
 
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="calendar"
         isPublicPath={isPublicPath}
         sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}
@@ -314,7 +300,7 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

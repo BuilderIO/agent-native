@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Tout",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -32,6 +33,74 @@ const messages = {
       newest: "Plus récents",
       priority: "Priorité",
       priorityFailed: "Impossible de trier la boîte de réception.",
+      priorityScoreHelp:
+        "Un score plus élevé signifie que Jev juge le message plus important.",
+      priorityFeedbackSuggestion:
+        "Transformez ce comportement en règle d’importance ou d’archivage automatique.",
+      priorityFeedbackAskAgent: "Demander à l’agent de proposer des règles",
+      aiSetupTitle: "Configurer votre boîte de réception IA",
+      aiSetupTagLabel: "Créer un tag IA",
+      aiSetupImportanceLabel: "Messages importants",
+      aiSetupSpamLabel: "Indésirable",
+      aiSetupArchiveLabel: "Ignorer la boîte de réception",
+      aiSetupSave: "Enregistrer la configuration",
+      aiSetupSkip: "Ignorer pour le moment",
+      aiSetupImportantHeadline: "Ce qui est important",
+      aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
+      aiSetupTagsHeadline: "Choisissez vos onglets",
+      aiSetupArchiveSpamHeadline: "Ignorer la boîte de réception et spam",
+      aiSetupTagReceipts: "Reçus",
+      aiSetupTagUpdates: "Mises à jour produit",
+      aiSetupTagGitHub: "Personnes sur GitHub",
+      aiSetupPromptReceipts:
+        "Reçus et confirmations de commande de boutiques en ligne",
+      aiSetupPromptUpdates:
+        "Mises à jour produit et notes de version de mes outils",
+      aiSetupPromptGitHub: "Notifications GitHub avec des commentaires humains",
+      aiSetupImportantPrompt:
+        "Messages nécessitant une réponse ou ayant une échéance, y compris les commentaires humains sur GitHub. Ignorer les commentaires des robots.",
+      aiSetupArchiveSpamPrompt:
+        "Ignorer la boîte de réception : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
+      aiSetupCustomTag: "Personnalisé",
+      aiSetupDone: "Terminé",
+      aiSetupRunAgain: "Relancer la configuration",
+      aiSetupTagCalendar: "Calendrier",
+      aiSetupPromptCalendar:
+        "Invitations et mises à jour de calendrier dont j’ai besoin",
+      aiSetupTagTravel: "Voyages",
+      aiSetupPromptTravel:
+        "Confirmations et réservations de voyage dont j’ai besoin",
+      aiSetupTagFinance: "Finances",
+      aiSetupPromptFinance: "Factures et relevés de compte dont j’ai besoin",
+      aiSetupArchiveExample:
+        "Notifications de bots et de CI de GitHub, Vercel et Dependabot",
+      aiSetupFilteredExample:
+        "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
+      aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupFindingRecentMail: "Recherche des e-mails récents…",
+      aiSetupSortingProgress:
+        "Tri des messages récents : {{processed}} sur {{total}}",
+      aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupSortingFailed:
+        "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
+      aiSetupUndoComplete:
+        "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupRuleCount: "{{count}} correspondances",
+      aiSetupNoMatches:
+        "Aucun message des 14 derniers jours ne correspond à ces règles.",
+      aiSetupChatTip:
+        "Vous pouvez modifier ou ajouter des règles dans le chat à tout moment.",
+      aiSetupChatPrompt: "Prioriser les e-mails de ma responsable…",
+      aiSetupNoRules: "Aucune règle n’a été sélectionnée.",
+      aiSetupPartialFailure: "{{count}} messages n’ont pas pu être mis à jour.",
+      aiSetupSortInbox: "Trier ma boîte de réception",
+      aiSetupImportantExample: "Tout ce qui vient de ma responsable, Priya…",
+      priorityFeedbackLabel: "Retour sur l’importance",
+      priorityScoreHigh: "Importance élevée",
+      priorityScoreMedium: "Importance moyenne",
+      priorityScoreLow: "Faible importance",
+      priorityEditRules: "Modifier les règles d’importance",
+      aiSetupContinue: "Continuer",
     },
     toolbar: {
       toggleMenu: "Basculer le menu",
@@ -46,7 +115,7 @@ const messages = {
       unpinSidebar: "Désépingler la barre latérale",
       closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
-      aiSettings: "Tags et spam IA",
+      aiSettings: "Gérer les tags et les règles",
     },
     search: {
       label: "Rechercher",
@@ -61,13 +130,16 @@ const messages = {
       filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
+      splitInbox: "Boîte de réception séparée",
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
       renameTab: "Renommer l’onglet",
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
-      help: "Les éléments cochés s’affichent comme onglets. Les emails libellés sont séparés de la boîte de réception.",
+      allTab: "Onglet Tout",
+      help: "La boîte combinée réunit tous les comptes ; désactivez-la pour répartir les messages en onglets.",
+      aiSetup: "Configurer les tags et règles IA",
     },
     accounts: {
       remove: "Retirer",
@@ -101,6 +173,7 @@ const messages = {
       deleteDraft: "Supprimer le brouillon",
       deleteDrafts: "Supprimer les brouillons",
       reopenDraft: "Rouvrir",
+      openInMail: "Ouvrir dans Mail",
       discardDraft: "Abandonner le brouillon",
       enterLinkUrl: "Saisissez l’URL du lien.",
       forward: "Forward",
@@ -437,6 +510,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Pas important",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -497,6 +571,8 @@ const messages = {
         "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
       learningNote:
         "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      learningProgress:
+        "{{count}} exemple(s) sur {{required}} confirmé(s). Le courrier récent sera vérifié une fois les {{required}} confirmés.",
       rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
       correctLabel: "Que doit-il apprendre ? (facultatif)",
       rememberPlaceholder:
@@ -512,10 +588,47 @@ const messages = {
         "{{count}} conversation(s) gardée(s) dans la boîte de réception.",
       actionFailed: "Impossible de mettre à jour le filtre IA.",
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
+      automationRulesLoadFailed: "Impossible de charger les règles de tri.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      autoArchiveMode: "Archivage automatique",
+      skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
       tagMode: "Tag",
+      aiTagsTitle: "Tags IA",
+      ruleHelpLabel: "Expliquer les règles {{mode}}",
+      aiTagRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute ce tag aux messages correspondants.",
+      importantRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev marque les messages correspondants comme importants.",
+      skipInboxRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev archive les messages correspondants pour ignorer la boîte de réception.",
+      spamRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
+      filteredMode: "Filtrés",
+      manageSettings: "Gérer",
+      askJev: "Demander à Jev",
+      askJevPrompt:
+        "Aidez-moi à améliorer cette règle Mail : {{condition}}. Demandez-moi ce que je souhaite modifier, puis mettez-la à jour.",
+      composerPlaceholder: "Demandez à Jev d’organiser votre boîte…",
+      chatSuggestionFilter: "Filtrer les messages comme celui-ci",
+      chatSuggestionPriority: "Prioriser les e-mails de…",
+      chatSuggestionArchive:
+        "Archiver automatiquement les notifications de bots",
+      ruleBackfillStarting: "Application de cette règle aux messages récents…",
+      ruleBackfillProgress:
+        "Application aux messages récents : {{processed}} sur {{total}}",
+      ruleBackfillMatches: "{{count}} messages récents correspondent",
+      ruleBackfillNoMatches:
+        "Aucun message récent ne correspond à cette règle.",
+      ruleBackfillFailed:
+        "Impossible d’appliquer cette règle aux messages récents.",
+      ruleBackfillPartialFailure:
+        "{{count}} messages n’ont pas pu être mis à jour.",
+      ruleBackfillUndoing: "Restauration des messages récents…",
+      ruleBackfillUndoComplete: "{{count}} messages restaurés",
+      ruleBackfillReview: "Examiner les correspondances",
       importantMode: "Important",
+      notImportantMode: "Pas important",
       importantLabel: "Important par IA",
       reviewImportant: "Voir les importants",
       importantPlaceholder:
@@ -528,6 +641,8 @@ const messages = {
       spamPlaceholder: "ex. Messages clairement promotionnels ou indésirables",
       tagPlaceholder:
         "ex. Reçus et confirmations de commande de boutiques en ligne",
+      archivePlaceholder:
+        "ex. Notifications de robots GitHub sans action requise",
       addShortcut: "Appuyez sur ⌘ Entrée pour ajouter",
       previewTitle: "Prévisualiser les emails récents",
       previewDescription:
@@ -536,6 +651,7 @@ const messages = {
       previewButton: "Lancer la prévisualisation",
       previewRunning: "Vérification des emails récents…",
       jevBadge: "Jev",
+      jevMatchProbability: "Probabilité de correspondance Jev : {{percent}}%",
       feedbackLabel: "Cochez les correspondances à exclure",
       notSpamShort: "Pas indésirable",
       notMatchShort: "Pas une correspondance",
@@ -550,6 +666,16 @@ const messages = {
       previewEmpty:
         "Lancez une prévisualisation pour voir les correspondances probables.",
       previewFailed: "Impossible de prévisualiser les emails récents.",
+      promptRulesCleared: "Règles de tri supprimées.",
+      tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
+      addTag: "Ajouter un tag",
+      triageTitle: "Tri par IA",
+      connectJev: "Connecter Jev",
+      connectJevToRunTriage: "Connectez Jev pour lancer le tri",
+      freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
+      jevAvailabilityFailed: "Impossible de vérifier si Jev est disponible.",
+      connectBuilder: "Connecter Builder.io",
+      addJevApiKey: "Ajouter une clé API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -608,6 +734,9 @@ const messages = {
     suggestionSummarize: "Resumer mes e-mails non lus",
     suggestionReplies: "A quoi dois-je repondre aujourd'hui?",
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
+    ruleSuggestionFilter: "Filtrer les messages comme celui-ci",
+    ruleSuggestionImportant: "Prioriser les e-mails de mon responsable",
+    ruleSuggestionArchive: "Archiver automatiquement les notifications de bots",
   },
   settings: {
     openAgentSettings: "Gérer l’agent",
@@ -740,7 +869,7 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
-    aiFilter: "Filtre IA",
+    aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",

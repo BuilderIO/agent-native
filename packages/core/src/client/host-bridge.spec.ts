@@ -707,7 +707,6 @@ describe("defaultAgentNativeHostCommands hard-reload cooldown", () => {
         fakeEvent,
       ),
     ).toEqual({ reloading: true });
-    // Both command aliases share a single guard.
     expect(
       defaultAgentNativeHostCommands["hard-reload"]?.(
         commandRequest("hard-reload"),

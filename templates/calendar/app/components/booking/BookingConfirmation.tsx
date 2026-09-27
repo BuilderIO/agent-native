@@ -37,7 +37,9 @@ export function BookingConfirmation({
           {t("bookingLinks.bookingConfirmed")}
         </h2>
         <p className="text-muted-foreground">
-          {t("bookingLinks.confirmationSent")}
+          {booking.meetingLinkPending
+            ? t("bookingLinks.meetingDetailsPending")
+            : t("bookingLinks.confirmationSent")}
         </p>
       </div>
 

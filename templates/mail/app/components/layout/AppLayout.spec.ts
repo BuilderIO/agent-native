@@ -20,6 +20,46 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("dynamicSuggestions={false}");
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
+    expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
+  });
+
+  it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain("RouterSidebarLink,");
+    expect(source).toContain("const link = ( <RouterSidebarLink");
+    expect(source).toContain(
+      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
+    );
+    expect(
+      source.match(
+        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+  });
+
+  it("keeps the tab scrollport within the space before its settings cog", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'cn("relative shrink-0", tabsLoading && "invisible")',
+    );
+  });
+
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
 
@@ -37,7 +77,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(",
+      "const inboxSidebarUnreadCount = inboxMetadata?.labels.find(",
     );
     expect(source).not.toContain('getInboxCount("unread")');
     expect(source).not.toContain("labelThreadCounts");
@@ -80,13 +120,53 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
     );
-    expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
+    expect(source).toContain(
+      "const inboxOverview = useInboxOverview(inboxAccountEmails);",
+    );
+    expect(source).toContain("const tabs = inboxMetadata?.tabs ?? [];");
+    expect(source).toContain("mergeOptimisticInboxTabCounts(");
+    expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
+    expect(source).toContain("const aiTagName = aiTagDisplayNames.get(tab.id)");
+    expect(source).toContain(
+      "new Map(aiTags.map((tag) => [tag.id, tag.name]))",
+    );
+    expect(source).toContain("fullLabel: aiTagName ?? label?.name");
+    expect(source).toContain("labelAliases[tag.id]?.trim() || tag.name");
+    expect(source).toContain(
+      "label={labelAliases[tag.id]?.trim() || tag.name}",
+    );
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
+    expect(source).toContain("hasFilteredRule || hasFilteredLabel");
+    expect(source).toContain("allTabVisible={showAllTab}");
+    expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
+    expect(source).not.toContain('"relative hidden sm:block"');
     expect(source).toContain("tooltip: tab.query");
     expect(source).toContain("total: tab.total");
     expect(source).toContain("unread: tab.unread");
+  });
+
+  it("does not reuse placeholder metadata from a previous account filter", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      "inboxOverview.data ?? (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data)",
+    );
+  });
+
+  it("keeps the route-selected tab while loading and uses the server fallback when loaded", () => {
+    const source = appLayoutSource();
+
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "const activeInboxTabId = inboxThreads.isPlaceholderData ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id) : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);",
+    );
+    expect(source).toContain(
+      'isActive: view === "inbox" && activeInboxTabId === tab.id,',
+    );
   });
 
   it("keeps the search restoration path", () => {
@@ -167,7 +247,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(focusHook).toContain("focusTarget.focus({ preventScroll: true })");
   });
 
-  it("uses the tab cog to persist and apply the combined inbox preference", () => {
+  it("uses the tab cog to persist the split inbox preference", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
@@ -181,10 +261,27 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
     expect(source).toContain("resolveDefaultMailHref({");
     expect(source).toContain("if (combineInbox) return [];");
+    expect(source).toContain("showSplitInbox={accounts.length > 1}");
+    expect(source).toContain("{showSplitInbox && (");
     expect(source).toContain(
-      '<Switch\n          id="combined-inbox-toggle"\n          checked={combinedInbox}\n          onCheckedChange={onCombinedInboxChange}',
+      '<Switch\n            id="split-inbox-toggle"\n            checked={!combinedInbox}\n            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}',
     );
-    expect(source).toContain('t("mail.tabSettings.combinedInbox")');
+    expect(source).toContain('t("mail.tabSettings.splitInbox")');
+  });
+
+  it("lists AI rule tags first and keeps them out of the Gmail label tree", () => {
+    const source = appLayoutSource();
+    const aiTagsSection = source.indexOf("{/* AI rule tags stay separate");
+    const viewsSection = source.indexOf("{/* System views */}");
+
+    expect(source).toContain('rule.kind !== "ai-filter"');
+    expect(source).toContain('aiFilterRuleMode(rule) !== "tag"');
+    expect(source).toContain(
+      "!aiTagIds.has(normalizedAiFilterLabelId(l.name))",
+    );
+    expect(source).toContain("checked={pinnedLabels.includes(tag.id)}");
+    expect(aiTagsSection).toBeGreaterThan(-1);
+    expect(viewsSection).toBeGreaterThan(aiTagsSection);
   });
 
   it("routes saved searches through the Gmail query path", () => {
@@ -294,6 +391,36 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
 
+  it("exposes Filtered as a system view when its rule, label, or pin exists", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      "data: connectedLabelsData, accountErrors: connectedLabelErrors, isError: connectedLabelsFailed, } = useLabels();",
+    );
+    expect(source).toContain("connectedLabelsFailed ||");
+    expect(source).toContain("Boolean(connectedLabelErrors?.length)");
+    expect(source).toContain(
+      "[connectedLabelsData ?? EMPTY_LABELS, labels].some(",
+    );
+    expect(source).toContain(
+      "const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;",
+    );
+    expect(source).toContain(
+      "hasFilteredRule || hasFilteredLabel || hasFilteredPin",
+    );
+    expect(source).toContain(
+      'id: AI_FILTER_LABEL, labelKey: "mail.aiFilter.filteredMode"',
+    );
+    expect(source).toContain(
+      "return pinnedLabels .filter((id) => systemViews.some((v) => v.id === id))",
+    );
+    expect(source).toContain("label: t(sysView.labelKey)");
+    expect(source).toContain(
+      "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
+    );
+    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
+  });
+
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {
     const source = appLayoutSource();
 
@@ -306,7 +433,7 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      "const inboxSyncing = inboxThreads.data?.syncing === true;",
+      "const inboxSyncing = inboxMetadata?.syncing === true;",
     );
     expect(source).toContain("{inboxSyncing && (");
     expect(source).toContain('{t("mail.inbox.syncing")}');
@@ -328,12 +455,6 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
-  // Repro: with no Google account connected, `view` for an unmatched URL
-  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
-  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
-  // the routed NotFound page — with the Google-connect banner instead. The
-  // page's <title> was correct (computed separately in $view.tsx's meta())
-  // while the rendered body silently became the inbox shell.
   it("only shows the Google-connect takeover for a known mail view", () => {
     const source = appLayoutSource();
 

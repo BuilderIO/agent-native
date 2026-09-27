@@ -40,12 +40,8 @@ import {
   setAgentChatContextItem,
   type AgentChatContextItem,
 } from "./agent-chat.js";
+import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import { agentNativePath, appPath } from "./api-path.js";
-import {
-  AssistantChat,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-} from "./AssistantChat.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   buildChatModelGroups,
@@ -56,6 +52,11 @@ import {
   type ChatHistoryItem,
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
+import type {
+  AssistantChatProps,
+  AssistantChatHandle,
+  AssistantChatSendOptions,
+} from "./chat/surface-types.js";
 import {
   fetchBuilderStatus,
   fetchEnvironmentStatus,
@@ -73,7 +74,6 @@ import {
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
 import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
-import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
 import {
@@ -109,6 +109,8 @@ interface PendingSend {
   /** See `AgentChatMessage.usageLabel`. */
   usageLabel?: string;
   actionScope?: AgentActionScope;
+  /** See `AgentChatMessage.approvedToolCalls`. */
+  approvedToolCalls?: string[];
 }
 
 /**
@@ -130,24 +132,22 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (
-    send.trackInRunsTray ||
-    send.requestMode ||
-    send.submitMessageId ||
-    send.attachments ||
-    send.usageLabel ||
-    send.actionScope
-  ) {
-    ref.sendMessage(send.message, send.images, {
-      ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
-      ...(send.requestMode ? { requestMode: send.requestMode } : {}),
-      ...(send.attachments ? { attachments: send.attachments } : {}),
-      ...(send.submitMessageId
-        ? { submitMessageId: send.submitMessageId }
-        : {}),
-      ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
-      ...(send.actionScope ? { actionScope: send.actionScope } : {}),
-    });
+  // Every field is decided once, here; a separate "has options" condition
+  // listing them again is how a new field ends up silently dropped.
+  const options: AssistantChatSendOptions = {
+    ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
+    ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+    ...(send.attachments ? { attachments: send.attachments } : {}),
+    ...(send.submitMessageId ? { submitMessageId: send.submitMessageId } : {}),
+    ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
+    ...(send.actionScope ? { actionScope: send.actionScope } : {}),
+    // An approval resume is a protocol continuation, not a visible prompt.
+    ...(send.approvedToolCalls
+      ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
+      : {}),
+  };
+  if (Object.keys(options).length > 0) {
+    ref.sendMessage(send.message, send.images, options);
   } else {
     ref.sendMessage(send.message, send.images);
   }
@@ -1429,6 +1429,47 @@ export function MultiTabAssistantChat({
     } catch {}
   }, [parentMap, PARENT_MAP_KEY]);
 
+  // AgentKit message forks are distinct from Agent Team child tabs. Keep their
+  // lineage separate so fork navigation never changes sub-agent semantics.
+  const FORK_PARENT_MAP_KEY = `agent-chat-fork-parent-map${keyPrefix}`;
+  const [forkParentMap, setForkParentMap] = useState<Record<string, string>>(
+    () => {
+      try {
+        const raw = localStorage.getItem(FORK_PARENT_MAP_KEY);
+        if (!raw) return {};
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return {};
+        }
+        const next: Record<string, string> = {};
+        for (const [child, parent] of Object.entries(
+          parsed as Record<string, unknown>,
+        )) {
+          if (
+            child &&
+            typeof parent === "string" &&
+            parent &&
+            child !== parent
+          ) {
+            next[child] = parent;
+          }
+        }
+        return next;
+      } catch (error) {
+        console.warn("Could not read stored AgentKit fork lineage.", error);
+        return {};
+      }
+    },
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FORK_PARENT_MAP_KEY, JSON.stringify(forkParentMap));
+    } catch (error) {
+      console.warn("Could not persist AgentKit fork lineage.", error);
+    }
+  }, [forkParentMap, FORK_PARENT_MAP_KEY]);
+
   // Sub-agent display names — persisted to localStorage.
   // Maps childThreadId → short name (e.g. "Research", "Draft email").
   const SUB_AGENT_NAMES_KEY = `agent-chat-sub-agent-names${keyPrefix}`;
@@ -1947,6 +1988,7 @@ export function MultiTabAssistantChat({
         engine,
         effort,
         newTab,
+        targetTabId,
         reuseEmptyTab,
         background,
         submit,
@@ -1955,6 +1997,7 @@ export function MultiTabAssistantChat({
         submitMessageId,
         usageLabel,
         actionScope,
+        approvedToolCalls,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1990,6 +2033,7 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
         ...(usageLabel ? { usageLabel } : {}),
         ...(actionScope ? { actionScope } : {}),
+        ...(approvedToolCalls ? { approvedToolCalls } : {}),
       };
 
       // Resolved once, up front, and carried with the send until a thread
@@ -2034,7 +2078,18 @@ export function MultiTabAssistantChat({
         }
       };
 
-      if (newTab) {
+      if (targetTabId) {
+        if (!openTabIds.includes(targetTabId)) {
+          mountedTabsRef.current.add(targetTabId);
+          setOpenTabIds((prev) =>
+            prev.includes(targetTabId) ? prev : [...prev, targetTabId],
+          );
+        }
+        if (!chatRefs.current.has(targetTabId)) {
+          switchThread(targetTabId);
+        }
+        sendToTab(targetTabId);
+      } else if (newTab) {
         const previousTabId = activeThreadIdRef.current;
         const previousChat = previousTabId
           ? chatRefs.current.get(previousTabId)
@@ -2109,6 +2164,7 @@ export function MultiTabAssistantChat({
     clearContextInTab,
     createThread,
     isNewThread,
+    openTabIds,
     postMessageSubmissionsDisabled,
     props.execMode,
     removeContextInTab,
@@ -2650,13 +2706,17 @@ export function MultiTabAssistantChat({
     [addTab, props.onExecModeChange],
   );
 
-  const handleForkChat = useCallback(
-    async (sourceThreadId: string) => {
-      const sourceSnapshot =
-        chatRefs.current.get(sourceThreadId)?.exportThreadSnapshot() ?? null;
-      const forkedId = await forkThread(sourceThreadId, sourceSnapshot);
-      if (!forkedId) return false;
+  const activateForkedThread = useCallback(
+    (sourceThreadId: string, forkedId: string) => {
+      if (sourceThreadId && forkedId && sourceThreadId !== forkedId) {
+        setForkParentMap((prev) =>
+          prev[forkedId] === sourceThreadId
+            ? prev
+            : { ...prev, [forkedId]: sourceThreadId },
+        );
+      }
       setOpenTabIds((prev) => {
+        if (prev.includes(forkedId)) return prev;
         const idx = prev.indexOf(sourceThreadId);
         if (idx !== -1) {
           const next = [...prev];
@@ -2666,9 +2726,68 @@ export function MultiTabAssistantChat({
         return [...prev, forkedId];
       });
       switchThread(forkedId);
+    },
+    [switchThread],
+  );
+
+  const activateForkSibling = useCallback(
+    (threadId: string) => {
+      setOpenTabIds((prev) =>
+        prev.includes(threadId) ? prev : [...prev, threadId],
+      );
+      switchThread(threadId);
+    },
+    [switchThread],
+  );
+
+  const getBranchNavigation = useCallback(
+    (threadId: string) => {
+      const parentThreadId = forkParentMap[threadId] ?? threadId;
+      const knownThreadIds = new Set([
+        activeThreadId,
+        ...openTabIds,
+        ...threads.map((thread) => thread.id),
+      ]);
+      const siblings = [
+        parentThreadId,
+        ...Object.entries(forkParentMap)
+          .filter(
+            ([childThreadId, parentId]) =>
+              parentId === parentThreadId && childThreadId !== parentThreadId,
+          )
+          .map(([childThreadId]) => childThreadId),
+      ].filter(
+        (id, index, all) => knownThreadIds.has(id) && all.indexOf(id) === index,
+      );
+      const index = siblings.indexOf(threadId);
+      if (siblings.length < 2 || index < 0) return undefined;
+
+      return {
+        index: index + 1,
+        count: siblings.length,
+        onPrevious: () => {
+          const previous = siblings[index - 1];
+          if (previous) activateForkSibling(previous);
+        },
+        onNext: () => {
+          const next = siblings[index + 1];
+          if (next) activateForkSibling(next);
+        },
+      };
+    },
+    [activeThreadId, activateForkSibling, forkParentMap, openTabIds, threads],
+  );
+
+  const handleForkChat = useCallback(
+    async (sourceThreadId: string) => {
+      const sourceSnapshot =
+        chatRefs.current.get(sourceThreadId)?.exportThreadSnapshot() ?? null;
+      const forkedId = await forkThread(sourceThreadId, sourceSnapshot);
+      if (!forkedId) return false;
+      activateForkedThread(sourceThreadId, forkedId);
       return true;
     },
-    [forkThread, switchThread],
+    [activateForkedThread, forkThread],
   );
 
   // Build tabs from open thread IDs. During the first thread-list fetch,
@@ -3000,28 +3119,7 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
-                <RunStuckBanner
-                  threadId={tabId}
-                  enabled={tabId === activeThreadId}
-                  apiUrl={apiUrl}
-                  autoRetry
-                  autoRetryOwnerId={browserTabId}
-                  hasInFlightWork={() =>
-                    chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
-                  }
-                  isAwaitingResponse={() =>
-                    chatRefs.current.get(tabId)?.isRunning() ?? false
-                  }
-                  onRetry={() => {
-                    const handle = chatRefs.current.get(tabId);
-                    handle?.sendRecoveryMessage(
-                      // i18n-ignore -- stable hidden agent instruction.
-                      "Continue from where you left off and finish my last request. Do not repeat completed work.",
-                      "continue",
-                    );
-                  }}
-                />
-                <AssistantChat
+                <AgentKitAssistantChat
                   {...props}
                   dynamicSuggestions={tabDynamicSuggestions}
                   ref={(handle) => {
@@ -3065,6 +3163,10 @@ export function MultiTabAssistantChat({
                   onSaveThread={handleSaveThread}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}
+                  onForkedThread={(forkedId) =>
+                    activateForkedThread(tabId, forkedId)
+                  }
+                  branchNavigation={getBranchNavigation(tabId)}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
                   selectedEffort={

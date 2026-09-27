@@ -118,8 +118,6 @@ test("flags more than one resolved dismissable-layer version", () => {
 });
 
 test("flags the same version resolved against different peers", () => {
-  // Two peer-resolved snapshots are two directories and two module scopes, so
-  // collapsing them to the published version would miss the real duplicate.
   const source = lockfile([
     "@radix-ui/react-dismissable-layer@1.1.19(@types/react@18.3.1)(react@18.3.1)",
     `@radix-ui/react-dismissable-layer@1.1.19${PEERS}`,

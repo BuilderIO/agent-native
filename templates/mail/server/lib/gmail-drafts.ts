@@ -272,8 +272,6 @@ export async function deleteGmailDraft(args: {
       { method: "DELETE" },
     );
   } catch (error) {
-    // Deletion is idempotent: if Gmail already removed the draft, local state
-    // can still be cleaned up safely. Other provider failures must be visible.
     if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
       throw error;
     }

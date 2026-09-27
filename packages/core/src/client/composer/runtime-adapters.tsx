@@ -1,7 +1,5 @@
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 
-// Toolkit names framework routes by their internal path; the host swaps in
-// the public prefix before the base path is applied.
 function publicFrameworkPathInBrowser(path: string): string {
   return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
 }
@@ -105,7 +103,10 @@ export function CoreComposerRuntimeProvider({
 }) {
   const translate = useT();
   const formatters = useFormatters();
-  const formatNumber = formatters.formatNumber.bind(formatters);
+  const formatNumber = useMemo(
+    () => formatters.formatNumber.bind(formatters),
+    [formatters],
+  );
   const adapters = useMemo(
     () => ({ ...coreComposerAdapters, formatNumber, translate }),
     [formatNumber, translate],

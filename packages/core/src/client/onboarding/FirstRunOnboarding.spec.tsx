@@ -13,11 +13,20 @@ import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
+  routePathname: "/",
   trackOnboardingEvent: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
   useOnboardingPreviewStep: vi.fn(),
 }));
+
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
+  return {
+    ...actual,
+    useLocation: () => ({ pathname: mocks.routePathname }),
+  };
+});
 
 vi.mock("./use-onboarding.js", () => ({
   trackOnboardingEvent: mocks.trackOnboardingEvent,
@@ -35,12 +44,6 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
 
-vi.mock("../settings/deferred-builder-connect-popover.js", async () => {
-  const { BuilderConnectPopover } =
-    await import("../settings/BuilderConnectPopover.js");
-  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
-});
-
 describe("FirstRunOnboarding", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -48,6 +51,7 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.routePathname = "/";
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
@@ -124,6 +128,8 @@ describe("FirstRunOnboarding", () => {
       node.remove();
     });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders nothing while an ineligible member's status is resolving", () => {
@@ -147,7 +153,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
   });
 
-  it("lets users dismiss setup and records completion", async () => {
+  it("does not show a close button during first-run setup", async () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -156,20 +162,121 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    const dismissButton = document.body.querySelector(
-      '[data-testid="first-run-dismiss"]',
+    expect(
+      document.body.querySelector('[data-testid="first-run-dismiss"]'),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="first-run-role-skip"]'),
+    ).not.toBeNull();
+  });
+
+  it("records the current step when setup is abandoned on page exit", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      {
+        flow: "first_run",
+        step_id: "role",
+        step_index: 0,
+        reason: "page_exit",
+      },
     );
-    expect(dismissButton).not.toBeNull();
+  });
+
+  it("does not report a BFCache pagehide as abandonment but tracks a later exit", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    const persistedPageHide = new Event("pagehide");
+    Object.defineProperty(persistedPageHide, "persisted", { value: true });
+    act(() => window.dispatchEvent(persistedPageHide));
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.anything(),
+    );
+
+    act(() => window.dispatchEvent(new Event("pageshow")));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.objectContaining({ flow: "first_run", reason: "page_exit" }),
+    );
+  });
+
+  it("does not report page exit while completion is in flight", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
 
     await act(async () => {
-      (dismissButton as HTMLButtonElement).click();
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
-    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.anything(),
+    );
+
+    await act(async () => {
+      resolveCompletion?.();
+      await Promise.resolve();
+    });
   });
 
-  it("surfaces a failed dismissal with a retry action", async () => {
+  it("surfaces a failed setup completion with a retry action", async () => {
     mocks.completeFirstRun.mockRejectedValue(
       new Error("first-run completion failed: 500"),
     );
@@ -185,6 +292,16 @@ describe("FirstRunOnboarding", () => {
       completeFirstRun: mocks.completeFirstRun,
       completeFirstRunError: "first-run completion failed: 500",
     });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
 
     await act(async () => {
       root.render(
@@ -196,7 +313,13 @@ describe("FirstRunOnboarding", () => {
 
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-dismiss"]')
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -216,7 +339,62 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the legacy Builder connection when account provisioning is disabled", () => {
+  it("tracks abandonment after completion fails and the retry state is shown", async () => {
+    mocks.completeFirstRun.mockRejectedValueOnce(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_abandoned",
+      expect.objectContaining({ flow: "first_run", reason: "page_exit" }),
+    );
+  });
+
+  it("renders the create-account and sign-in Builder buttons", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -232,12 +410,14 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(
-      document.body.querySelector('[data-testid="first-run-connect-builder"]')
-        ?.textContent,
-    ).toContain("Connect Builder.io free credits");
+      document.body.querySelector(
+        '[data-testid="first-run-builder-create-account"]',
+      )?.textContent,
+    ).toBe("Create Builder.io account");
     expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).toBeNull();
+      document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.textContent,
+    ).toBe("Sign in with Builder.io account");
   });
 
   it("starts the Builder connection directly when no provisioning choice is needed", () => {
@@ -269,14 +449,57 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(start).toHaveBeenCalledOnce();
   });
 
-  it("shows one-click account consent in a popover and its loading state when enabled", () => {
+  it("lets users cancel a direct Builder connect during first run", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      retry: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
+    });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-create-account']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const cancelButton = document.body.querySelector<HTMLButtonElement>(
+      "[data-testid='first-run-cancel-builder']",
+    );
+    expect(cancelButton?.textContent).toBe("Cancel");
+    act(() => cancelButton?.click());
+    expect(flow.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("creates a Builder account from the primary button and shows its loading state", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -304,44 +527,9 @@ describe("FirstRunOnboarding", () => {
         .querySelector("[data-testid='first-run-role-skip']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-
-    expect(
-      document.body.querySelector('[data-testid="first-run-connect-builder"]')
-        ?.textContent,
-    ).toContain("Activate Builder.io free credits");
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).toBeNull();
-
     act(() => {
       document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]')
-        ?.textContent,
-    ).toContain("Activate free credits");
-    expect(document.body.textContent).toContain(
-      "We'll automatically create your Builder.io account for you in one click.",
-    );
-    expect(document.body.textContent).toContain("Create and activate");
-    const existingAccountButton = document.body.querySelector(
-      '[data-testid="first-run-builder-existing-account"]',
-    );
-    expect(existingAccountButton?.textContent).toContain(
-      "I have a Builder.io account",
-    );
-    expect(existingAccountButton?.className).not.toContain("border");
-    expect(existingAccountButton?.className).toContain("text-muted-foreground");
-    expect(existingAccountButton?.querySelector("svg")).toBeNull();
-    expect(document.body.textContent).not.toContain("Google credentials");
-    expect(document.body.textContent).not.toContain("Connect or log in");
-
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        .querySelector('[data-testid="first-run-builder-create-account"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -355,6 +543,218 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[role="status"][aria-busy="true"]'),
     ).toBeTruthy();
     expect(flow.start).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
+  });
+
+  it("joins a first-run Builder choice to its connection outcome", async () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.click();
+    });
+
+    const selectedEvent = mocks.trackOnboardingEvent.mock.calls.find(
+      ([name, properties]) =>
+        name === "onboarding_method_clicked" &&
+        (properties as Record<string, unknown>).method_id ===
+          "builder_create_account",
+    );
+    const attemptId = (selectedEvent?.[1] as Record<string, unknown>)
+      ?.onboarding_attempt_id;
+    expect(attemptId).toEqual(expect.any(String));
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_started",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        onboarding_attempt_id: attemptId,
+      }),
+    );
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls.at(
+      -1,
+    )?.[0] as {
+      onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
+    };
+    await act(async () => {
+      await connectOptions.onConnected?.({ orgName: null });
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        onboarding_attempt_id: attemptId,
+        outcome: "connected",
+      }),
+    );
+  });
+
+  it("records Builder account-exists as a sanitized failed outcome", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      start: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.click();
+    });
+
+    flow.accountExists = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "builder_create_account",
+        outcome: "failed",
+        error_type: "account_exists",
+        onboarding_attempt_id: expect.any(String),
+      }),
+    );
+    const outcome = mocks.trackOnboardingEvent.mock.calls.find(
+      ([name, properties]) =>
+        name === "onboarding_method_outcome" &&
+        (properties as Record<string, unknown>).method_id ===
+          "builder_create_account",
+    );
+    expect(JSON.stringify(outcome)).not.toContain("Error:");
+  });
+
+  it("does not attach a stale Builder error to a later manual setup attempt", async () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null as string | null,
+      start: vi.fn(),
+    };
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-builder-create-account']")
+        ?.click();
+    });
+
+    flow.error = "stale Builder error";
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+    });
+    flow.error = "stale Builder error changed";
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      resolveCompletion?.();
+      await Promise.resolve();
+    });
+
+    expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({ method_id: "custom_keys", outcome: "failed" }),
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        outcome: "settings_opened",
+        onboarding_attempt_id: expect.any(String),
+      }),
+    );
   });
 
   it("shows the full list of included Builder.io services on the card", () => {
@@ -414,7 +814,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("Optional");
   });
 
-  it("uses the existing-account connection flow from the consent popover", () => {
+  it("uses the existing-account connection flow from the sign-in button", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -441,12 +841,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-existing-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -490,14 +885,11 @@ describe("FirstRunOnboarding", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-connect-builder"]')
-        ?.click();
-    });
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
-        ?.click();
+      (
+        document.body.querySelector(
+          '[data-testid="first-run-builder-create-account"]',
+        ) as HTMLButtonElement | null
+      )?.click();
     });
 
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -575,7 +967,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -622,6 +1014,78 @@ describe("FirstRunOnboarding", () => {
     expect(completedSteps()).toEqual(["choice"]);
     expect(skippedSteps()).toEqual(["role"]);
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    const methodClick = mocks.trackOnboardingEvent.mock.calls.find(
+      ([event, properties]) =>
+        event === "onboarding_method_clicked" &&
+        (properties as Record<string, unknown>).method_id === "custom_keys",
+    );
+    const attemptId = (methodClick?.[1] as Record<string, unknown>)
+      ?.onboarding_attempt_id;
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_method_outcome",
+      expect.objectContaining({
+        method_id: "custom_keys",
+        onboarding_attempt_id: attemptId,
+        outcome: "settings_opened",
+      }),
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("does not start duplicate manual setup attempts while completion is pending", async () => {
+    let resolveCompletion: (() => void) | undefined;
+    mocks.completeFirstRun.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const manualSetupButton = document.body.querySelector(
+      "[data-testid='first-run-open-key-settings']",
+    );
+    act(() => {
+      manualSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+      manualSetupButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_method_clicked" &&
+          (properties as Record<string, unknown>).method_id === "custom_keys",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      resolveCompletion?.();
+    });
+
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([event, properties]) =>
+          event === "onboarding_method_outcome" &&
+          (properties as Record<string, unknown>).method_id === "custom_keys",
+      ),
+    ).toHaveLength(1);
     window.history.replaceState(null, "", "/");
   });
 
@@ -773,14 +1237,10 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,
-  // so a failed completion never surfaced — the click looked like it did
-  // nothing, and a rejecting mock here would fail the test via an unhandled
-  // rejection under the old behavior.
-  it("surfaces a failed Skip instead of silently doing nothing", async () => {
-    mocks.completeFirstRun.mockRejectedValue(
-      new Error("first-run completion failed: 500"),
-    );
+  it("preserves the completed step when first-run completion succeeds on retry", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -795,10 +1255,15 @@ describe("FirstRunOnboarding", () => {
     });
     registerFirstRunOnboardingExtension({
       id: "test-extension",
-      component: ({ onSkip }) => (
-        <button type="button" onClick={onSkip}>
-          Extension Skip
-        </button>
+      component: ({ onComplete, onSkip }) => (
+        <>
+          <button type="button" onClick={onComplete}>
+            Extension Complete
+          </button>
+          <button type="button" onClick={onSkip}>
+            Extension Skip
+          </button>
+        </>
       ),
     });
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -826,40 +1291,48 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-connect-builder']")
+        .querySelector("[data-testid='first-run-builder-create-account']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain("Extension Complete");
     expect(
       document.body.querySelector('[data-testid="first-run-dismiss"]'),
-    ).not.toBeNull();
+    ).toBeNull();
 
     await act(async () => {
       [...document.body.querySelectorAll("button")]
-        .find((button) => button.textContent === "Extension Skip")
+        .find((button) => button.textContent === "Extension Complete")
         ?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
-    // Stays on the same step — no crash, no misleading full-screen bounce —
-    // and the failure is visible with a way forward.
-    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",
     );
     expect(document.body.textContent).toContain("Try again");
-    expect(
+    const completedExtensionEvents = () =>
       mocks.trackOnboardingEvent.mock.calls.some(
         ([event, properties]) =>
           event === "onboarding_step_completed" &&
-          (properties as { step_id?: string }).step_id?.startsWith(
-            "extension:",
-          ),
-      ),
-    ).toBe(false);
+          (properties as { step_id?: string }).step_id ===
+            "extension:test-extension",
+      );
+    expect(completedExtensionEvents()).toBe(false);
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(completedExtensionEvents()).toBe(true);
   });
 
   it("renders the role step from the non-English core catalog", async () => {
@@ -888,10 +1361,7 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 
-  // A failed initial status read must not leave the free-credits CTA inert.
-  // The click can still start the provisioning flow, which performs its own
-  // fresh status read without bypassing the consent step.
-  it("keeps the free-credits CTA actionable after a failed status read", () => {
+  it("keeps the create-account CTA actionable after a failed status read", () => {
     const start = vi.fn();
     const retry = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
@@ -926,26 +1396,15 @@ describe("FirstRunOnboarding", () => {
     ).toContain("Couldn't reach Builder");
 
     const cta = document.body.querySelector(
-      '[data-testid="first-run-connect-builder"]',
+      '[data-testid="first-run-builder-create-account"]',
     );
-    expect(cta?.getAttribute("aria-disabled")).toBeNull();
+    expect(cta?.hasAttribute("disabled")).toBe(false);
 
     act(() => {
       cta?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(retry).not.toHaveBeenCalled();
-    expect(
-      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).not.toBeNull();
-    expect(start).not.toHaveBeenCalled();
-
-    act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({ provisionAccount: true }),
     );
@@ -971,9 +1430,39 @@ describe("FirstRunOnboarding", () => {
       await Promise.resolve();
     });
 
-    expect(window.location.pathname).toBe("/settings/agent/llm");
+    expect(window.location.pathname).toBe("/settings/keys");
     expect(mocks.completeFirstRun).toHaveBeenCalled();
     window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the API key destination inside the live mount omitted by the workspace manifest", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "content", path: "/content" }]),
+    );
+    window.history.replaceState(null, "", "/dispatch/");
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe("/dispatch/settings/keys");
   });
 
   it("keeps the choice screen visible when completion fails", async () => {

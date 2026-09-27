@@ -13,7 +13,6 @@ export interface MentionEntry {
   name: string;
 }
 
-/** Display label used for a member in the composer and stored mention. */
 export function mentionLabel(member: MentionMember): string {
   return member.name?.trim() || member.email.split("@")[0];
 }
@@ -34,12 +33,6 @@ interface CommentComposerProps {
   className?: string;
 }
 
-/**
- * A comment text input with Notion-style `@mention` autocomplete. Typing `@`
- * opens a filtered list of organization members; selecting one inserts the
- * member's name and reports it via `onMentionAdd`. Enter submits (unless the
- * mention menu is open, where it picks the highlighted member).
- */
 export const CommentComposer = forwardRef<
   HTMLTextAreaElement,
   CommentComposerProps
@@ -92,7 +85,6 @@ export const CommentComposer = forwardRef<
           })
           .slice(0, 6);
 
-  // Detect an in-progress `@query` immediately before the caret.
   const refreshQuery = (el: HTMLTextAreaElement) => {
     const caret = el.selectionStart ?? el.value.length;
     const before = el.value.slice(0, caret);
@@ -115,7 +107,6 @@ export const CommentComposer = forwardRef<
     onChange(next);
     onMentionAdd({ email: member.email, name: label });
     setQuery(null);
-    // Restore the caret just after the inserted mention.
     const nextCaret = atStart + label.length + 2;
     requestAnimationFrame(() => {
       const node = innerRef.current;
@@ -192,7 +183,6 @@ export const CommentComposer = forwardRef<
         }}
         onBlur={() => {
           consumedKeys.current.clear();
-          // Defer so a mention click registers before the menu unmounts.
           setTimeout(() => setQuery(null), 120);
           onBlur?.();
         }}

@@ -22,6 +22,7 @@ import {
   ensureGmailLabel,
 } from "../server/lib/automation-actions.js";
 import {
+  assertMailJevEnabled,
   createAutomationRule,
   listAutomationRules,
 } from "../server/lib/automations.js";
@@ -139,21 +140,49 @@ export default defineAction({
     comment: z.string().max(500).optional(),
     settings: settingsSchema.optional(),
   }),
+  chatUI: {
+    renderer: "mail.ai-filter-confirmation",
+    title: "AI filter result",
+    when: (args, result) => {
+      if (
+        (args.mode !== "filter" && args.mode !== "keep") ||
+        !result ||
+        typeof result !== "object"
+      ) {
+        return false;
+      }
+      const changed = (result as Record<string, unknown>).changed;
+      return (
+        typeof changed === "number" &&
+        Number.isSafeInteger(changed) &&
+        changed > 0
+      );
+    },
+  },
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
     if (args.mode === "settings") {
-      const state = await getAiFilterState(ownerEmail);
-      const next = {
-        ...state,
-        ...args.settings,
-      };
-      await saveAiFilterState(ownerEmail, next);
+      if (!args.settings || Object.keys(args.settings).length === 0) {
+        return {
+          changed: 0,
+          failures: [],
+          state: await getAiFilterState(ownerEmail),
+        };
+      }
+      const settingKeys = Object.keys(args.settings);
+      const disableOnly =
+        settingKeys.length === 1 && args.settings?.enabled === false;
+      if (settingKeys.length > 0 && !disableOnly) {
+        await assertMailJevEnabled(ownerEmail);
+      }
+      const state = await saveAiFilterState(ownerEmail, args.settings);
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return { changed: 0, failures: [], state: next };
+      return { changed: 0, failures: [], state };
     }
 
+    await assertMailJevEnabled(ownerEmail);
     const targets = args.targets ?? [];
     if (targets.length === 0) throw new Error("targets are required");
 

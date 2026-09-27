@@ -1,6 +1,5 @@
 import type { NormalizedContextItem } from "../types.js";
 
-/** A native app resource reference supplied by a governed-context submission. */
 export interface NativeCreativeResourceRef {
   appId: string;
   resourceType: string;
@@ -11,10 +10,6 @@ export interface NativeCreativeResourceRef {
 export interface NativeResourceCaptureAdapter {
   appId: string;
   resourceType: string;
-  /**
-   * Reads only the version marker for resources visible to the active caller.
-   * The Library calls this once per resource type with at most 100 ids.
-   */
   listResourceVersions?(resourceIds: readonly string[]): Promise<
     Array<{
       resourceId: string;
@@ -29,14 +24,12 @@ export interface NativeResourceCaptureAdapter {
       externalRef?: string;
       upstreamAccess?: "available" | "restricted" | "unknown";
       containerOwnerVerifiedAt?: string;
-      /** Server-derived from the app's source resource; never client input. */
       access?: {
         visibility: "private" | "org" | "public";
         canManage: boolean;
       };
     };
     items: NormalizedContextItem[];
-    /** Persisted only as internal submission metadata; never action output. */
     privateMetadata?: Record<string, unknown>;
   }>;
 }
@@ -115,10 +108,6 @@ export function parseNativeCreativeArtifactKey(
   return resourceId ? { appId, resourceType, resourceId } : null;
 }
 
-/**
- * Resolves update availability in bounded batches. Missing rows are omitted so
- * an inaccessible native resource is indistinguishable from a deleted one.
- */
 export async function resolveNativeCreativeResourceUpdateStatuses(
   references: readonly PublishedNativeCreativeResourceRef[],
 ): Promise<Map<string, ResolvedNativeCreativeResourceUpdateStatus>> {

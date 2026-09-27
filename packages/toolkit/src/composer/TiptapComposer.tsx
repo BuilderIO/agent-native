@@ -15,6 +15,9 @@ import {
   IconPencil,
   IconPlugConnected,
   IconHelpCircle,
+  IconRefresh,
+  IconAlertCircle,
+  IconLoader2,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { EditorView } from "@tiptap/pm/view";
@@ -40,9 +43,19 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import {
+  ComposerContextMenu,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
+import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
 } from "./ComposerPlusMenu.js";
+import {
+  areComposerContextItemsReady,
+  ComposerContextError,
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+} from "./context-items.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
@@ -90,9 +103,13 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
   focus(): void;
+  /** Add a file through the same attachment pipeline as paste and drop. */
+  addAttachment(file: File): Promise<unknown>;
   /** Insert text through the editor's normal input path. */
   insertText(text: string): void;
   setText(text: string): void;
+  /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
+  submitWithText(text: string): Promise<boolean>;
   insertReference(ref: AgentComposerReference): void;
 }
 
@@ -102,6 +119,7 @@ export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  contextItems?: ComposerContextSnapshot;
 }
 
 export function canSubmitComposerContent(options: {
@@ -333,7 +351,7 @@ export function getOversizedDocumentAttachmentError(
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
+    const maxMb = Number((maxBytes / 1024 / 1024).toFixed(1)).toString();
     return (
       t?.("agentChat.composer.documentTooLarge", {
         defaultValue:
@@ -497,19 +515,28 @@ function clearComposerDraft(
 export function handleComposerFileDrop(options: {
   event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
   addAttachment: (file: File) => Promise<unknown>;
-  onError?: (error: unknown) => void;
+  attachmentsEnabled?: boolean;
+  onError?: (error: unknown, fileName: string) => void;
 }): boolean {
   const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
   if (droppedFiles.length === 0) return false;
 
   options.event.preventDefault();
   options.event.stopPropagation();
+  if (options.attachmentsEnabled === false) return true;
   const attachments = droppedFiles.map(uniquifyComposerImageFile);
+  let errorReported = false;
   void Promise.all(
-    attachments.map((file) => options.addAttachment(file)),
-  ).catch((error) => {
-    options.onError?.(error);
-  });
+    attachments.map(async (file) => {
+      try {
+        await options.addAttachment(file);
+      } catch (error) {
+        if (errorReported) return;
+        errorReported = true;
+        options.onError?.(error, file.name);
+      }
+    }),
+  );
   return true;
 }
 
@@ -762,9 +789,15 @@ export interface TiptapComposerProps {
   ariaLabel?: string;
   disabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
+  submissionDisabled?: boolean;
+  /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
+  /** Disable file attachments while keeping text chat available. */
+  attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
+  contextButtonTooltipDisabled?: boolean;
   /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
@@ -889,9 +922,12 @@ export interface TiptapComposerProps {
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
   /** Keyed context nuggets staged for the next submitted prompt. */
-  contextItems?: AgentChatContextItem[];
+  contextItems?: readonly AgentChatContextItem[];
   /** Remove a staged context nugget by key. */
   onRemoveContextItem?: (key: string) => void;
+  onInspectContextItem?: (key: string) => void;
+  onRetryContextItem?: (key: string) => void;
+  contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
    * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
@@ -1090,22 +1126,33 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-cli": "Claude Code",
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
-  "claude-fable-5": "Fable 5",
+  "claude-fable-5": "Claude Fable 5",
   "kimi-k2-5": "Kimi K2.5",
-  "deepseek-v3-1": "DeepSeek v3.1",
+  "deepseek-v4-pro": "DeepSeek V4 Pro",
   "z-ai/glm-5.2": "GLM 5.2",
-  "openai/gpt-6-astra": "Astra",
-  "openai/gpt-6-astra-pro": "Astra Pro",
+  "openai/gpt-6-astra": "GPT-6 Astra",
+  "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
   "gpt-6-sol": "GPT-6 Sol",
   "gpt-6-luna": "GPT-6 Luna",
   "openai/gpt-6-sol": "GPT-6 Sol",
   "openai/gpt-6-luna": "GPT-6 Luna",
-  "anthropic/claude-opus-5.5": "Opus 5.5",
-  "anthropic/claude-fable-5.1": "Fable 5.1",
+  "anthropic/claude-opus-5.5": "Claude Opus 5.5",
+  "anthropic/claude-fable-5.1": "Claude Fable 5.1",
   "google/gemini-3.8-flash": "Gemini 3.8 Flash",
   "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
   "meta/muse-spark-1.3": "Muse Spark 1.3",
   "inception/mercury-2.5": "Mercury 2.5",
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-opus-4-8": "Claude Opus 4.8",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
+  "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "grok-code-fast": "Grok Code Fast",
+  "qwen3-coder": "Qwen3 Coder",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1115,11 +1162,15 @@ const LOCAL_RUNTIME_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+export function isLocalRuntimeEngine(engine?: string): boolean {
+  return engine !== undefined && LOCAL_RUNTIME_ENGINES.has(engine);
+}
+
 export function hasConfiguredCloudProvider(
   groups: ReadonlyArray<{ engine: string; configured: boolean }>,
 ): boolean {
   return groups.some(
-    (group) => group.configured && !LOCAL_RUNTIME_ENGINES.has(group.engine),
+    (group) => group.configured && !isLocalRuntimeEngine(group.engine),
   );
 }
 
@@ -1206,44 +1257,40 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
     );
   }
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
-  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
-  const claude = model.match(
-    /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8,})?$/,
+  const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
+  // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
+  const claude = normalizedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
-    return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
+    return `Claude ${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
-  if (isOpenAiModelId(model)) {
-    const normalizedModel = model.replace(/^openai\//i, "");
-    const rest = normalizedModel.slice(4);
-    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
-    if (gpt?.[3]) {
-      return gpt[3]
-        .split("-")
-        .map((s) => s[0].toUpperCase() + s.slice(1))
-        .join(" ");
-    }
-    if (gpt) {
-      return `GPT-${gpt[1]}.${gpt[2]}`;
-    }
-    return `GPT-${rest}`;
+  // GPT: gpt-{major}[-minor][-variant] → GPT-Major[.Minor] Variant.
+  const gpt = normalizedModel.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt) {
+    const version = `${gpt[1]}${gpt[2] ? `.${gpt[2]}` : ""}`;
+    const variant = gpt[3]
+      ?.split("-")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+    return `GPT-${version}${variant ? ` ${variant}` : ""}`;
   }
-  if (/^o\d/.test(model)) return model;
-  // Gemini: gemini-{major}-{minor}-{variant}[-preview] → Gemini Major.Minor Variant
-  const geminiVersioned = model.match(
-    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  if (/^o\d/.test(normalizedModel)) return normalizedModel;
+  // Gemini: gemini-{version.parts}-{variant}[-preview] → Gemini Version Variant.
+  const geminiVersioned = normalizedModel.match(
+    /^gemini-(\d+(?:[-.]\d+)+)-(.+?)(?:-preview)?$/,
   );
   if (geminiVersioned) {
-    const variant = geminiVersioned[3]
+    const variant = geminiVersioned[2]
       .split("-")
       .map((s) => s[0].toUpperCase() + s.slice(1))
       .join(" ");
-    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+    const version = geminiVersioned[1].replace(/-/g, ".");
+    return `Gemini ${version} ${variant}`.replace("Flash Lite", "Flash-Lite");
   }
   // Gemini: gemini-{version.parts}[-preview] → Gemini Version Parts
-  const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
+  const gemini = normalizedModel.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
       .split("-")
@@ -1258,7 +1305,20 @@ export function compactComposerModelName(
   model: string,
   t?: ComposerTranslate,
 ): string {
-  return friendlyModelName(model, t);
+  const fullName = friendlyModelName(model, t);
+  if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  const shortName = fullName
+    .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Claude\s+/i, "")
+    .replace(/^Qwen\s*\d*(?:\.\d+)?\s*/i, "")
+    .replace(/^DeepSeek\s+v?\d+(?:\.\d+)?\s*/i, "")
+    .replace(/^Z-AI\s*/i, "")
+    .replace(/^Grok\s*/i, "")
+    .replace(/\s+[a-z]*\d+(?:\.\d+)*$/i, "")
+    .trim();
+  if (shortName) return shortName;
+  return /^deepseek-/i.test(model) ? "DeepSeek" : fullName;
 }
 
 export function compactComposerReasoningEffortLabel(
@@ -1316,32 +1376,63 @@ function localizedReasoningEffortLabel(
   }
 }
 
-/**
- * Deduplicate models to only the latest version per family.
- * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
- */
+function versionedModelFamily(
+  model: string,
+): { family: string; version: number[] } | undefined {
+  const id = model.replace(/^(?:anthropic|openai|google)\//i, "");
+  const claude = id.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?/,
+  );
+  if (claude) {
+    return {
+      family: `claude-${claude[1]}`,
+      version: [Number(claude[2]), Number(claude[3] ?? 0)],
+    };
+  }
+  const gpt = id.match(/^gpt-(\d+)(?:[.-](\d+))?(?:[.-](.+))?$/);
+  if (gpt?.[3]) {
+    return {
+      family: `gpt-${gpt[3]}`,
+      version: [Number(gpt[1]), Number(gpt[2] ?? 0)],
+    };
+  }
+  const gemini = id.match(/^gemini-(\d+)(?:[.-](\d+))?-(.+?)(?:-preview)?$/);
+  if (gemini) {
+    return {
+      family: `gemini-${gemini[3]}`,
+      version: [Number(gemini[1]), Number(gemini[2] ?? 0)],
+    };
+  }
+  return undefined;
+}
+
+function compareModelVersions(
+  left: readonly number[],
+  right: readonly number[],
+) {
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** Keep the newest version of each Claude, Gemini, and GPT tier. */
 function latestModelsOnly(models: readonly string[]): string[] {
-  const seen = new Set<string>();
-  return models.filter((m) => {
-    // Claude: family = tier (opus/sonnet/haiku)
-    const claude = m.match(/^claude-(opus|sonnet|haiku)-/);
-    if (claude) {
-      if (seen.has(claude[1])) return false;
-      seen.add(claude[1]);
-      return true;
+  const latest = new Map<string, { id: string; version: number[] }>();
+  for (const id of models) {
+    const candidate = versionedModelFamily(id);
+    if (!candidate) continue;
+    const current = latest.get(candidate.family);
+    if (
+      !current ||
+      compareModelVersions(candidate.version, current.version) > 0
+    ) {
+      latest.set(candidate.family, { id, version: candidate.version });
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI effort: each is its own family
-    // Gemini: family = gemini-{major} + variant
-    const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
-    if (gemini) {
-      const family = gemini[2]; // flash, pro, etc.
-      if (seen.has(`gemini-${family}`)) return false;
-      seen.add(`gemini-${family}`);
-      return true;
-    }
-    return true;
-  });
+  }
+  const latestIds = new Set([...latest.values()].map(({ id }) => id));
+  return models.filter((id) => !versionedModelFamily(id) || latestIds.has(id));
 }
 
 /**
@@ -1636,7 +1727,7 @@ function ModelSelector({
   const selectedModelName = selectedModelNeedsConnection
     ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
     : friendlyModelName(model, t);
-  const selectedModelLabel = selectedModelName.replace(/^GPT-/, "");
+  const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
     : compactComposerModelName(model, t);
@@ -2383,9 +2474,13 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
+  submissionDisabled = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
+  attachmentsEnabled = true,
+  onAttachmentRequest,
+  contextButtonTooltipDisabled = false,
   focusRef,
   initialText,
   initialTextKey,
@@ -2431,14 +2526,18 @@ export function TiptapComposer({
   onConnectLocalRuntime,
   imageModelMenu,
   draftScope,
-  contextItems = [],
+  contextItems: providedContextItems,
   onRemoveContextItem,
+  onInspectContextItem,
+  onRetryContextItem,
+  contextMenuItems,
   plusMenuMode = "full",
   terminalModeControl,
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
 }: TiptapComposerProps) {
+  const contextItems = providedContextItems ?? [];
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
@@ -2461,10 +2560,18 @@ export function TiptapComposer({
   >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
+  const [contextSubmissionError, setContextSubmissionError] = useState<
+    string | null
+  >(null);
+  useEffect(() => setContextSubmissionError(null), [providedContextItems]);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
-    disabled: disabled || submitting,
+    disabled:
+      disabled ||
+      submissionDisabled ||
+      submitting ||
+      !areComposerContextItemsReady(contextItems),
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -2565,6 +2672,12 @@ export function TiptapComposer({
   onTextChangeRef.current = onTextChange;
   const contextItemsRef = useRef(contextItems);
   contextItemsRef.current = contextItems;
+  const contextItemsProvidedRef = useRef(providedContextItems !== undefined);
+  contextItemsProvidedRef.current = providedContextItems !== undefined;
+  const submissionDisabledRef = useRef(
+    disabled || submissionDisabled || submitting,
+  );
+  submissionDisabledRef.current = disabled || submissionDisabled || submitting;
   const onRemoveContextItemRef = useRef(onRemoveContextItem);
   onRemoveContextItemRef.current = onRemoveContextItem;
   const selectedContextItemKeyRef = useRef<string | null>(null);
@@ -2683,7 +2796,25 @@ export function TiptapComposer({
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-sm text-foreground outline-none leading-[1.625rem] min-h-[3.25rem] max-h-[10rem] overflow-y-auto",
       },
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
+        if (disabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
+        if (!attachmentsEnabled) {
+          if (event.clipboardData?.files.length) {
+            event.preventDefault();
+            const pastedText = readClipboardPaste(event.clipboardData).text;
+            if (pastedText) {
+              view.pasteText(pastedText, new Event("paste") as ClipboardEvent);
+            }
+            return true;
+          }
+          return false;
+        }
         const paste = readClipboardPaste(event.clipboardData);
         const pastedText = paste.text;
         const files = Array.from(event.clipboardData?.files ?? []).filter(
@@ -2749,13 +2880,21 @@ export function TiptapComposer({
         return false;
       },
       handleDrop: (_view, event) => {
+        if (disabled || !attachmentsEnabled) {
+          if (event.dataTransfer?.files.length) {
+            event.preventDefault();
+            return true;
+          }
+          return false;
+        }
         // Drag-and-drop files (decks, images, PDFs, etc.) into the composer.
         // Mark handled drops as consumed so the chat-wide drop target does not
         // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
-          onError: (error) => {
+          attachmentsEnabled,
+          onError: (error, fileName) => {
             const msg = formatAttachmentError(
               error,
               t("agentChat.composer.droppedFileError", {
@@ -2763,7 +2902,7 @@ export function TiptapComposer({
                   "Could not attach the dropped file. Try a different format.",
               }),
             );
-            onAttachmentErrorRef.current?.(msg);
+            onAttachmentErrorRef.current?.(`${fileName}: ${msg}`);
           },
         });
       },
@@ -2820,7 +2959,9 @@ export function TiptapComposer({
         const cursorAtStart = from === to && from <= 1;
         if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
-            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            contextItemKeys: contextItemsRef.current
+              .filter((item) => item.removable !== false)
+              .map((item) => item.key),
             selectedKey: selectedContextItemKeyRef.current,
             cursorAtStart,
           });
@@ -2832,9 +2973,6 @@ export function TiptapComposer({
             } else {
               selectedContextItemKeyRef.current = null;
               setSelectedContextItemKey(null);
-              contextItemsRef.current = contextItemsRef.current.filter(
-                (item) => item.key !== chipAction.key,
-              );
               onRemoveContextItemRef.current?.(chipAction.key);
             }
             return true;
@@ -3092,6 +3230,9 @@ export function TiptapComposer({
     focus() {
       if (isComposerEditorUsable(editor)) editor.commands.focus("end");
     },
+    addAttachment(file: File) {
+      return addAttachmentForCurrentScope(file);
+    },
     insertText(text: string) {
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
@@ -3111,6 +3252,7 @@ export function TiptapComposer({
       onTextChangeRef.current?.(trimmed);
       flushComposerDraft();
     },
+    submitWithText: (text: string) => submitComposer("immediate", text),
     insertReference,
   }));
 
@@ -3507,10 +3649,34 @@ export function TiptapComposer({
   );
 
   const submitComposer = useCallback(
-    async (intent: ComposerSubmitIntent = "immediate") => {
+    async (
+      intent: ComposerSubmitIntent = "immediate",
+      textOverride?: string,
+    ): Promise<boolean> => {
       const ed = editor;
-      if (!isComposerEditorUsable(ed)) return;
-      if (submitInFlightRef.current) return;
+      if (!isComposerEditorUsable(ed)) return false;
+      if (submitInFlightRef.current) return false;
+      if (
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      )
+        return false;
+      let contextSnapshot: ComposerContextSnapshot | undefined;
+      setContextSubmissionError(null);
+      try {
+        contextSnapshot = snapshotComposerContextItems(
+          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
+        );
+      } catch (error) {
+        if (!(error instanceof ComposerContextError)) throw error;
+        setContextSubmissionError(
+          t("agentChat.composer.contextLimitExceeded", {
+            defaultValue:
+              "Context is too large. Remove an item or attach a smaller selection.",
+          }),
+        );
+        return false;
+      }
 
       draftEditorRef.current = ed;
       flushComposerDraft();
@@ -3532,10 +3698,11 @@ export function TiptapComposer({
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
-      const { text, references } = syncComposerState();
+      const { text: draftText, references } = syncComposerState();
+      const text = textOverride ?? draftText;
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
-        return;
+        return false;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
         {
@@ -3546,7 +3713,7 @@ export function TiptapComposer({
       );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);
-        return;
+        return false;
       }
       const cancelActiveVoice = () => {
         if (
@@ -3566,7 +3733,7 @@ export function TiptapComposer({
         if (matched) {
           clearEditorAfterSubmit();
           announceSlashCommand(matched);
-          return;
+          return true;
         }
       }
 
@@ -3583,20 +3750,20 @@ export function TiptapComposer({
       ) {
         cancelActiveVoice();
         clearEditorAfterSubmit();
-        return;
+        return true;
       }
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
         try {
           const shouldSubmit = await onBeforeSubmit();
-          if (!shouldSubmit) return;
+          if (!shouldSubmit) return false;
         } finally {
           submitInFlightRef.current = false;
         }
       }
-      if (!isComposerEditorUsable(ed)) return;
-      if (!isCurrentDraftScope()) return;
+      if (!isComposerEditorUsable(ed)) return false;
+      if (!isCurrentDraftScope()) return false;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -3617,15 +3784,25 @@ export function TiptapComposer({
                 defaultValue: "Use the attached context.",
               })
             : "");
+        const modeContext = config.getContext(modePrompt);
+        const contextItemsText = contextSnapshot?.length
+          ? formatPromptContextItems(contextSnapshot)
+          : "";
+        const context = contextItemsText
+          ? `${modeContext}\n\n${contextItemsText}`
+          : modeContext;
         if (attachments.length > 0) {
           composerRuntime.setText(
-            `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
+            `${message}\n\n<context>\n${context}\n</context>`,
           );
           composerRuntime.send();
         } else {
           adapters.agentChat!.sendToAgentChat!({
             message,
-            context: config.getContext(modePrompt),
+            context,
+            ...(contextSnapshot === undefined
+              ? {}
+              : { contextItems: contextSnapshot }),
             mode:
               execMode === "plan"
                 ? "plan"
@@ -3644,32 +3821,44 @@ export function TiptapComposer({
         cancelScheduledDraftPersist();
         clearComposerDraft(draftKey);
         closePopover();
-        return;
+        return true;
       }
 
       if (onSubmit) {
-        if (submitInFlightRef.current) return;
+        if (submitInFlightRef.current) return false;
         submitInFlightRef.current = true;
         try {
-          await onSubmit(text, references, attachments, { intent });
-        } catch {
-          // Hosts own their submit errors. Keep the draft and attachments
-          // available for recovery when a host rejects the submission.
-          return;
+          await onSubmit(text, references, attachments, {
+            intent,
+            ...(contextSnapshot === undefined
+              ? {}
+              : { contextItems: contextSnapshot }),
+          });
+        } catch (error) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+          return false;
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) return;
+        if (!isCurrentDraftScope()) return true;
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
           closePopover();
-          return;
+          return true;
         }
         cancelActiveVoice();
         clearEditorAfterSubmit(submittingDraftSnapshot);
-        return;
+        return true;
       } else {
+        if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
       }
       cancelActiveVoice();
@@ -3679,6 +3868,7 @@ export function TiptapComposer({
       cancelScheduledDraftPersist();
       clearComposerDraft(draftKey);
       closePopover();
+      return true;
     },
     [
       closePopover,
@@ -4019,6 +4209,9 @@ export function TiptapComposer({
           {contextItems.map((item) => (
             <span
               key={item.key}
+              data-context-key={item.key}
+              data-context-status={item.status ?? "ready"}
+              title={item.statusMessage}
               data-state={
                 selectedContextItemKey === item.key ? "selected" : undefined
               }
@@ -4028,27 +4221,73 @@ export function TiptapComposer({
                   : "border-border bg-muted/50"
               }`}
             >
-              <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">{item.title}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  selectedContextItemKeyRef.current = null;
-                  setSelectedContextItemKey(null);
-                  onRemoveContextItem?.(item.key);
-                }}
-                aria-label={t("agentChat.composer.removeContext", {
-                  defaultValue: "Remove {{name}} context",
-                  name: item.title,
-                })}
-                className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <IconX className="h-3 w-3" />
-              </button>
+              {item.status === "pending" ? (
+                <IconLoader2
+                  aria-label={t("agentChat.composer.contextPending", {
+                    defaultValue: "Context pending",
+                  })}
+                  className="size-3 shrink-0 animate-spin motion-reduce:animate-none text-muted-foreground"
+                />
+              ) : item.status === "error" ? (
+                <IconAlertCircle
+                  aria-label={t("agentChat.composer.contextError", {
+                    defaultValue: "Context failed",
+                  })}
+                  className="size-3 shrink-0 text-destructive"
+                />
+              ) : (
+                <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+              {onInspectContextItem ? (
+                <button
+                  type="button"
+                  onClick={() => onInspectContextItem(item.key)}
+                  className="min-w-0 truncate hover:underline"
+                >
+                  {item.title}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate">{item.title}</span>
+              )}
+              {item.status === "error" && onRetryContextItem ? (
+                <button
+                  type="button"
+                  onClick={() => onRetryContextItem(item.key)}
+                  aria-label={t("agentChat.composer.retryContext", {
+                    defaultValue: "Retry {{name}} context",
+                    name: item.title,
+                  })}
+                  className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconRefresh className="size-3" />
+                </button>
+              ) : null}
+              {onRemoveContextItem && item.removable !== false ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    selectedContextItemKeyRef.current = null;
+                    setSelectedContextItemKey(null);
+                    onRemoveContextItem?.(item.key);
+                  }}
+                  aria-label={t("agentChat.composer.removeContext", {
+                    defaultValue: "Remove {{name}} context",
+                    name: item.title,
+                  })}
+                  className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              ) : null}
             </span>
           ))}
         </div>
       )}
+      {contextSubmissionError ? (
+        <p role="alert" className="px-2 text-xs text-destructive">
+          {contextSubmissionError}
+        </p>
+      ) : null}
       <div
         data-agent-composer-variant={layoutVariant}
         data-agent-composer-slot="editor-wrap"
@@ -4069,18 +4308,56 @@ export function TiptapComposer({
         data-agent-composer-slot="toolbar"
         className="agent-composer-toolbar flex items-center gap-1 px-2 py-1.5"
       >
-        {attachButton ??
-          (plusMenuMode === "hidden" ? null : (
-            <ComposerPlusMenu
-              addAttachment={addAttachmentForCurrentScope}
-              attachmentAccept={composerRuntime.getState().attachmentAccept}
-              onSelectMode={handleSelectMode}
-              mode={plusMenuMode}
-              terminalModeControl={terminalModeControl}
-              extensionTools={extensionTools}
-              onAttachmentError={onAttachmentError}
-            />
-          ))}
+        {!disabled && attachmentsEnabled && attachButton ? (
+          attachButton
+        ) : contextMenuItems !== undefined || plusMenuMode === "upload-only" ? (
+          <ComposerContextMenu
+            items={contextMenuItems ?? []}
+            addAttachment={
+              attachmentsEnabled ? addAttachmentForCurrentScope : undefined
+            }
+            onAttachmentRequest={onAttachmentRequest}
+            contextButtonTooltipDisabled={contextButtonTooltipDisabled}
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onAttachmentError={onAttachmentError}
+            onDisabledFocus={() => {
+              const root = editor?.view.dom.closest<HTMLElement>(
+                '[data-agent-composer-slot="root"]',
+              );
+              const localTarget = Array.from(
+                root?.querySelectorAll<HTMLElement>(
+                  '[data-agent-composer-slot="stop-button"]:not(:disabled), button:not(:disabled)',
+                ) ?? [],
+              ).find((element) => !element.closest("[hidden]"));
+              if (localTarget) {
+                localTarget.focus();
+                return;
+              }
+              const pageTarget = Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled), a[href], input:not([type="hidden"]):not(:disabled), textarea:not(:disabled)',
+                ),
+              ).find(
+                (element) =>
+                  !root?.contains(element) && !element.closest("[hidden]"),
+              );
+              pageTarget?.focus();
+            }}
+            disabled={disabled && !onAttachmentRequest}
+          />
+        ) : disabled || plusMenuMode === "hidden" ? null : (
+          <ComposerPlusMenu
+            addAttachment={addAttachmentForCurrentScope}
+            attachmentsEnabled={attachmentsEnabled}
+            onAttachmentRequest={onAttachmentRequest}
+            attachmentAccept={composerRuntime.getState().attachmentAccept}
+            onSelectMode={handleSelectMode}
+            mode={plusMenuMode}
+            terminalModeControl={terminalModeControl}
+            extensionTools={extensionTools}
+            onAttachmentError={onAttachmentError}
+          />
+        )}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
         {shouldRenderModelSelector(availableModels, onModelChange) && (
@@ -4130,6 +4407,7 @@ export function TiptapComposer({
                     type="button"
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
+                    aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >

@@ -65,7 +65,6 @@ describe("navigate action", () => {
         _writeId: expect.any(String),
       }),
     );
-    // Single navigation channel: the `navigate` command is the only write.
     expect(appState.writeAppState).toHaveBeenCalledTimes(1);
   });
 

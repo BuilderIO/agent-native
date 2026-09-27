@@ -1,7 +1,38 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
+  "composer.menu.search": "検索…",
+  "composer.contextPrevious": "前へ",
+  "composer.contextNext": "次へ",
+  "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
+  "composer.contextLinkRequired": "リンクを入力してください。",
+  "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
+  "composer.contextLimitExceeded":
+    "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
+  "activity.groupLabel": "エージェントのアクティビティ",
+  "activity.agents": "エージェントの連携",
+  "activity.tasks": "エージェントのタスク",
+  "agent.started": "作業を開始しました",
+  "agent.resumed": "作業を再開しました",
+  "agent.messaged": "メッセージを送信しました",
+  "agent.delegated": "作業を委任しました",
+  "agent.paused": "作業を一時停止しました",
+  "agent.completed": "完了しました",
+  "agent.failed": "対応が必要です",
+  "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -13,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "拒否",
   "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
+  "approval.submit": "送信",
+  "approval.other": "その他",
+  "approval.otherPlaceholder": "回答を入力",
   "auth.expiredDescription":
     "セッションの有効期限が切れた可能性があります。再接続するには、ログアウトしてからもう一度ログインしてください。",
   "auth.expiredTitle": "セッションの有効期限が切れました",
@@ -33,6 +67,28 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
+  "observability.viewDetails": "詳細を表示",
+  "observability.hideDetails": "詳細を非表示",
+  "observability.input": "入力",
+  "observability.output": "出力",
+  "observability.error": "エラー",
+  "observability.metadata": "メタデータ",
+  "observability.notCaptured": "未取得",
+  "observability.openFullConversation": "会話全体を開く",
+  "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.summarizeWithAgent": "エージェントで要約",
+  "observability.regenerateSummary": "要約を再生成",
+  "observability.summarizeWithAgentHelp":
+    "エージェントにこのスレッドを読み、依頼と結果を要約し、確認済みの成果物のみをリンクするよう依頼します。",
+  "observability.regenerateSummaryHelp":
+    "最新のスレッドと確認済みの成果物をもとに、エージェントにこの要約を更新するよう依頼します。",
+  "observability.summarySending": "エージェントにリクエストを送信中…",
+  "observability.summaryQueued":
+    "リクエストをキューに追加しました。エージェントが要約を保存するとここに表示されます。",
+  "observability.summaryFailed":
+    "リクエストを送信できませんでした。もう一度お試しください。",
+  "observability.summaryExpired":
+    "まだ要約が表示されていません。再試行できますが、エージェントが処理中の可能性があります。",
   "onboarding.back": "戻る",
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",
@@ -50,8 +106,8 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
-  "onboarding.builderConnectCredits": "Builder.io 無料クレジットに接続",
+  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -85,10 +141,13 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
-  "onboarding.fileStorage.title": "ファイルストレージを選択",
+  "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
+  "onboarding.fileStorage.statusUnavailable":
+    "ストレージを確認できませんでした",
   "onboarding.fileStorage.description":
-    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
-  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+    "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
+  "onboarding.fileStorage.custom": "カスタムキーを使用",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
@@ -125,6 +184,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "common.you": "あなた",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "キーの範囲",
@@ -287,6 +347,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "作成したいスキルを説明してください...",
   "composer.documentTooLarge":
     "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、{{label}} は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
+  "composer.requestTooLarge":
+    "このメッセージと添付ファイルは大きすぎて送信できません。添付ファイルを削除するか、メッセージを短くしてください。",
   "composer.file": "ファイル",
   "composer.imageModel": "画像モデル",
   "composer.imagePreview": "画像プレビュー",
@@ -456,6 +518,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "どのようにお手伝いできますか？",
   "error.afterDuration": "{{duration}} 後に{{headline}}",
   "error.failed": "エージェントでエラーが発生しました",
+  "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
@@ -495,7 +558,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
-  "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
+  "errorMessages.addCreditsInBuilder": "Builderでクレジットを追加",
   "feedback.inaccurate": "不正確",
   "feedback.keyboardHint": "{{shortcut}} Enter で送信",
   "feedback.notHelpful": "役に立たない",
@@ -528,6 +591,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
+  "connection.connecting": "接続中…",
+  "connection.notNow": "今はしない",
+  "connection.failed": "接続に失敗しました",
+  "connection.adminRequired":
+    "このサービスを接続するには、ワークスペース管理者に依頼してください。",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -546,8 +614,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "メッセージをコピー",
   "message.copyRequestId": "リクエスト ID をコピー",
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
+  "message.unavailable": "この会話ではこのメッセージを利用できなくなりました。",
+  "message.navigationUnavailable": "会話のナビゲーションは利用できません。",
   "message.edit": "メッセージを編集",
   "message.forkChat": "チャットを分岐",
+  "message.mobileInteractiveTitle": "インタラクティブコンテンツ",
+  "message.mobileInteractiveDescription":
+    "このインタラクティブビューはWebチャットでは利用できますが、ネイティブチャットではまだ利用できません。",
   "message.missingFinal":
     "エージェントは最終メッセージを送信せずに停止しました。続行するよう依頼するか、再試行してください。",
   "message.messages": "メッセージ",
@@ -557,11 +630,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "応答を再生成",
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
+  "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
+  "message.revertToBeginning": "最初に戻す",
   "message.sentAt": "{{time}} に送信",
   "contextMeter.ariaLabel":
     "コンテキスト {{percent}}%、合計 {{totalTokens}}{{breakdown}}。コンテキスト X-Ray を開きます。",
@@ -628,6 +703,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "計画の準備ができました",
   "plan.switchToAct": "実行モードに切り替え",
   "queue.count": "{{count}} 件が待機中",
+  "queue.label": "キュー内のメッセージ",
   "queue.followUp": "フォローアップを送信...",
   "queue.followUpWithCount": "{{count}} 件が待機中 — フォローアップを送信...",
   "queue.remove": "キューから削除",
@@ -640,8 +716,12 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
+  "recovery.deferredSubmissionFailed":
+    "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":
-    "現在の Builder.io またはモデルプロバイダーの認証情報が拒否されました。Builder.io に再接続してから、このメッセージを再試行してください。",
+    "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents に接続されていません。このホスト型コード変更を実行するには、設定で Builder.io に接続してください。モデルプロバイダーキーはチャットやその他の AI 機能で引き続き使えますが、Builder Cloud Agent の認証には使えません。",
   "recovery.diagnoseRetry": "診断して再試行",
   "recovery.forkDescription": "この会話を別のチャットスレッドに分岐します。",
   "recovery.forkFailed":
@@ -653,6 +733,12 @@ const messages: AgentChatTranslation = {
     "前回のバックグラウンドエージェント実行は、完了前に制限時間に達しました。途中の作業は保持されています。ここから続行するか、再試行してください。",
   "recovery.noProgress":
     "前回のエージェント実行は復元中に進行状況を表示しなくなったため、ループを続ける前に停止されました。",
+  "recovery.stuckTitle": "このチャットは停止しているようです。",
+  "recovery.stuckNoProgress":
+    "進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckWithDuration":
+    "{{seconds}}秒間進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckRetrying": "自動的に再試行しています。",
   "recovery.statusCheckFailed":
     "エージェントがまだ動作中か確認するためのサーバー接続に失敗しました。メッセージを再送信して再試行してください。",
   "recovery.streamEnded":
@@ -698,6 +784,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
+  "setup.checkingProvider": "AI 接続を確認しています…",
+  "setup.providerStatusUnavailable": "AI 接続を確認できませんでした。",
+  "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
+  "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
   "setup.connected": "接続済み",
   "setup.connectedOrganization": "接続済み — {{organization}}",
   "setup.connectedTo": "{{organization}} に接続済み",
@@ -747,6 +837,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "組織内のすべてのユーザーが閲覧可能",
   "share.owner": "所有者",
   "share.peopleWithAccess": "アクセスできるユーザー",
+  "share.people": "人",
+  "share.agents": "エージェント",
   "share.private": "非公開",
   "share.privateDescription": "アクセス権を持つユーザーのみ閲覧可能",
   "share.public": "公開",
@@ -768,6 +860,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
   "status.working": "処理中",
+  "status.workingFor": "{{duration}} 作業中",
   "shell.chat": "チャット",
   "shell.loadingTerminal": "ターミナルを読み込み中...",
   "shell.toggleAgent": "エージェントの表示を切り替える",
@@ -828,6 +921,27 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "確認メールを送信できませんでした。",
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
+  "usage.builderCredits": "Builder クレジット",
+  "usage.inviteFriends": "友だちを招待",
+  "usage.inviteCredits":
+    "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
+  "usage.copyInviteLink": "招待リンクをコピー",
+  "usage.inviteLinkCopied": "招待リンクをコピーしました",
+  "usage.creditBalance": "ワークスペース残高",
+  "usage.monthlyPlan": "月間プラン",
+  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
+  "usage.creditRemaining": "残り {{amount}}",
+  "usage.creditUsageUnavailable":
+    "Builder クレジットの使用状況を読み込めませんでした。",
+  "usage.estimatedBuilderCredits": "~{{amount}} 推定クレジット",
+  "usage.otherUsdSpend": "{{amount}} その他の USD",
+  "usage.noBuilderCredits": "Builder クレジット 0",
+  "usage.otherUnclassifiedSpend": "その他または未分類の USD 利用額",
+  "usage.providerSpendDetail":
+    "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
+  "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder クレジット / USD",
 };
 
 export default messages;

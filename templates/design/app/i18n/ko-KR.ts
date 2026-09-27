@@ -182,6 +182,18 @@ export default {
     notFoundBackToDesigns: "디자인으로 돌아가기",
     teamCreateOrgDescription: "동료와 디자인을 공유할 팀을 설정하세요.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "파일 업로드를 위해 저장소 연결",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   chat: {
     emptyState: "만들 디자인을 설명하세요",
     suggestionLandingPage: "내 스타트업 랜딩 페이지 디자인",
@@ -259,7 +271,13 @@ export default {
       height: "키",
       opacity: "불투명",
       padding: "심",
-      margin: "여유",
+      margin: "여백",
+      marginTop: "위쪽 여백",
+      marginRight: "오른쪽 여백",
+      marginBottom: "아래쪽 여백",
+      marginLeft: "왼쪽 여백",
+      linkMarginSides: "여백 연결",
+      unlinkMarginSides: "여백 연결 해제",
       radius: "반지름",
       flexGrow: "확장",
       flexShrink: "축소",
@@ -320,6 +338,18 @@ export default {
       perspectiveHint: "원근감 (비어 있음/0 = 없음)",
       customTransform: "사용자 지정 변환 — X/Y/Z 회전으로 편집할 수 없음",
       shaderEffectType: "셰이더",
+      imageScaleMode: "이미지 크기 조정 모드",
+      imageAdjustments: "이미지 조정",
+      imageExposure: "노출",
+      imageContrast: "대비",
+      imageSaturation: "채도",
+      imageScaleFill: "채우기",
+      imageScaleFit: "맞춤",
+      imageScaleCrop: "자르기",
+      noMirroring: "미러링 없음",
+      vector: "벡터",
+      mirrorAngle: "각도 미러링",
+      mirrorAngleAndLength: "각도 및 길이 미러링",
     },
     shaders: {
       fillsTitle: "셰이더 채우기",
@@ -541,8 +571,33 @@ export default {
         adUnit: "광고 단위",
       },
     },
+    scale: {
+      title: "크기 조정",
+      exit: "크기 조정 종료",
+      factor: "배율",
+      presets: "배율 프리셋",
+      anchor: "기준점",
+      topLeft: "왼쪽 위",
+      topCenter: "가운데 위",
+      topRight: "오른쪽 위",
+      middleLeft: "왼쪽 가운데",
+      center: "가운데",
+      middleRight: "오른쪽 가운데",
+      bottomLeft: "왼쪽 아래",
+      bottomCenter: "가운데 아래",
+      bottomRight: "오른쪽 아래",
+    },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "실시간 협업",
+      description:
+        "소유자의 localhost에 접근할 수 없는 사람도 이 디자인의 실시간 사본을 보고 편집할 수 있습니다.",
+      enabled: "켜짐",
+      disabled: "꺼짐",
+      saving: "저장 중…",
+      enableError: "실시간 협업을 업데이트하지 못했습니다.",
+    },
     vectorEndpoints: {
       startPoint: "시작점",
       endPoint: "끝점",
@@ -771,6 +826,8 @@ export default {
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+      figmaPasteAccessDenied:
+        '연결된 Figma 토큰으로 이 파일에 액세스할 수 없습니다. 파일 권한과 토큰에 "File content" 범위가 포함되어 있는지 확인하세요.',
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:
@@ -914,6 +971,10 @@ export default {
     signUpToSaveDescription:
       "무료 계정을 만들어 디자인과 화면 레이아웃을 저장하고 새 방향을 생성하세요.",
     signUpToShare: "가입하고 공유",
+    signUpToShareLiveCanvas: "실시간 캔버스를 공유하려면 가입하세요",
+    liveCanvasLink: "실시간 캔버스 링크",
+    liveCanvasWaitingForOwner:
+      "소유자의 실시간 캔버스 스냅샷을 기다리는 중입니다.",
     shareEditorLink: "디자인 편집기 링크",
     shareEditorLinkDescription:
       "액세스 권한이 있는 누구나 편집기에서 이 디자인을 열 수 있습니다.",
@@ -1066,6 +1127,7 @@ export default {
         ungroup: "그룹 해제",
         frameSelection: "선택 영역 프레임화",
         autoLayout: "자동 레이아웃",
+        imageVideo: "이미지/동영상...",
       },
     },
     undo: "끄르다",
@@ -1183,12 +1245,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "보류 중인 시각 스타일 편집 적용",
       applyButton: "스타일 적용",
+      applySharedEdits: "편집 내용 적용",
       previewLabel: "보류 중인 시각 미리보기",
       applyDesignUpdates: "디자인 업데이트 적용",
       applying: "적용 중…",
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
       sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
@@ -1200,6 +1264,8 @@ export default {
       sourceCheckFailedToast:
         "연결된 소스 파일을 확인할 수 없습니다. 다시 시도하거나 실행 취소할 수 있도록 미리보기를 유지했습니다.",
       copiedToast: "스타일 프롬프트가 복사되었습니다",
+      copiedToastDescription:
+        "코딩 에이전트에 붙여넣고 시각적 변경 사항을 적용해 달라고 요청하세요.",
       abortedToast: "보류 중인 미리보기를 버렸습니다",
       interactBlocked:
         "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
@@ -1263,6 +1329,8 @@ export default {
       annotationSendError:
         "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
       codingHandoffError: "코딩 인계를 만들 수 없음",
+      visualEditPendingConflict:
+        "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",
@@ -1347,6 +1415,10 @@ export default {
       screenSourceUpdateFailed: "화면 소스를 업데이트할 수 없습니다",
       vectorEditUnsupported:
         "이 도형이나 변형은 벡터 편집을 지원하지 않습니다.",
+      imageUploading: "이미지 업로드 중…",
+      pasteReplaceFailed: "해당 레이어를 바꿀 수 없습니다",
+      swapFillStrokeLayeredFill:
+        "여러 채우기나 이미지 채우기는 아직 선으로 옮길 수 없습니다",
     },
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
@@ -1580,7 +1652,65 @@ export default {
       "이 보기를 벗어나면서 보내지 않은 댓글 초안 {{count}}개가 삭제되었습니다.",
     staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
   },
+  homeContext: {
+    websiteReference: "웹사이트 첨부",
+    websiteUrlLabel: "웹사이트 URL",
+    websiteUrl: "웹사이트 URL 붙여넣기",
+    figmaUrlLabel: "Figma 링크",
+    invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
+    tooMany: "참조는 최대 20개까지 선택하세요.",
+    invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+    createSystem: "디자인 시스템 만들기",
+    noSystems:
+      "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
+    searchSystems: "디자인 시스템 검색…",
+    searchFrames: "Figma 프레임 검색…",
+    searchDesigns: "디자인 검색…",
+    searchPresentations: "프레젠테이션 검색…",
+    searchDesign: "디자인 검색…",
+    useDesignSystem: "디자인 시스템 사용",
+    notReady:
+      "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
+    search: "컨텍스트 검색…",
+    figmaUrl: "Figma 링크 붙여넣기",
+    browse: "프레임 찾아보기",
+    loadFailed: "이 참조를 불러오지 못했습니다.",
+    retry: "다시 시도",
+    empty: "일치하는 참조가 없습니다.",
+    none: "없음",
+    design: "디자인",
+    slides: "슬라이드",
+    referenceDesign: "디자인 참조",
+    figmaReference: "Figma 첨부",
+    referenceDeck: "프레젠테이션 참조",
+    quickSaas: "SaaS 랜딩 페이지 만들기",
+    quickDashboard: "대시보드 만들기",
+    quickDeck: "슬라이드 만들기",
+    deckPrompt:
+      "제목 슬라이드, 명확한 이야기, 시각화된 데이터와 간결한 마무리 슬라이드가 있는 세련된 프레젠테이션을 만들어 주세요.",
+  },
   home: {
+    suggestedPrompts: "추천 프롬프트",
+    import: "가져오기",
+    importOptions: "가져오기 옵션",
+    figmaLink: "Figma 링크",
+    importFromFigma: "Figma에서 가져오기",
+    figmaFile: "Figma 파일 (.fig)",
+    openImport: "가져오기 열기",
+    importSelectedFile: "선택한 파일 가져오기",
+    starterSaasPrompt:
+      "어두운 테마, 히어로 섹션, 기능 카드 3개, 마지막 행동 유도 섹션을 갖춘 현대적인 SaaS 랜딩 페이지.",
+    starterDashboardPrompt:
+      "사이드바 탐색, 핵심 지표 카드 4개, 차트, 최근 활동 표를 갖춘 깔끔한 분석 대시보드.",
+    starterMobilePrompt:
+      "휴대폰 프레임 안에 표시되는 모바일 앱 프로토타입. 하단에는 탭 바가 있고 홈 화면에는 목록 카드 3개가 있습니다.",
+    starterPricingPrompt:
+      "월간/연간 전환, 기능 체크리스트, 강조된 추천 요금제가 있는 3단계 요금 페이지.",
+    designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
+    recent: "최근",
+    browseAllTemplates: "모두 둘러보기",
+    connectBuilderIo: "Builder.io 연결",
+    connectingBuilder: "Builder.io 연결 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
@@ -1646,6 +1776,8 @@ export default {
     layoutLabel: "저장할 준비가 된 화면 레이아웃",
   },
   templatesPage: {
+    previewEmpty: "이 템플릿에는 미리 볼 수 있는 화면이 없습니다.",
+    loading: "템플릿 로딩 중",
     title: "템플릿",
     description:
       "알맞은 크기와 기본값으로 시작한 뒤 잠기지 않은 내용을 프롬프트로 조정하세요.",
@@ -1673,7 +1805,7 @@ export default {
     deleteTitle: "템플릿을 삭제할까요?",
     deleteDescription:
       "{{title}}을(를) 영구 삭제합니다. 이미 만든 디자인에는 영향을 주지 않습니다.",
-    templateActions: "템플릿 작업",
+    templateActions: "{{title}} 작업",
     lockedCount: "{{count}}개 잠김",
     categories: {
       ad: "광고",

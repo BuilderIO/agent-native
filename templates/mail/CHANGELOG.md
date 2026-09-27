@@ -3,10 +3,82 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Improved
+
+- AI triage explains how prompts handle matching mail, including how filtered mail is labeled and archived.
+- Drafts and Gmail filter rules appear as compact cards in chat
+- Loading screens now reflect the app's home layout.
+- Mail chat suggestions start with examples for filtering, priority, and auto-archive.
+- See how many conversations Mail filtered or kept in chat
+- AI inbox rules now apply to recent mail, appear as inbox tabs, and can be refined in chat.
+
+### Fixed
+
+- Chat-created inbox rules appear immediately while recent mail is processed in the background.
+- Chat-created Mail rules save and queue recent-mail processing before background model checks run.
+- Fixed AI rule setup progress and chat updates
+- Fixed an inbox crash when the sidebar is pinned
+- Mail AI rules now use the configured OpenRouter provider and rank new mail by its score.
+- Setup examples no longer become archive or spam rules unless you edit them.
+- The Filtered inbox view stays available when Gmail labels are migrated.
+- Fixed importance actions, label display, and triage loading feedback.
+- Inbox setup now keeps result counts and undo available while rules refresh.
+- Mail cancels stale thread-read cooldown retries after a newer unread action
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Mail now guides users to connect Jev before setting up triage and lets them remove existing rules if Jev becomes unavailable.
+- Tune inbox priorities with Jev, label messages clearly, and teach importance with feedback.
+
+### Fixed
+
+- Slack conversations can now use all available Mail actions
+- Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
+- Handle astral Unicode letters in autocomplete word boundaries
+- Keep existing AI filter rules intact when saving a prompt
+- Keep inbox tab counts consistent when switching tabs
+
+## 2026-09-24
+
+### Improved
+
+- Add an All inbox tab that shows every inbox thread and can be hidden in tab settings.
+- Priority sort keeps results when switching inbox tabs, and loading tabs show a skeleton
+- The composer keeps its taller layout in a narrower window.
+- The compose window opens larger, leaving more room to write with quieter toolbar icons.
+
+### Fixed
+
+- Gmail inboxes refresh reliably when push notifications are delayed.
+- Priority sorting stays in place when you return to the inbox
+
+### Security
+
+- Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
+
+## 2026-09-23
+
+### Improved
+
+- Jev email matches now show match probability instead of calling it confidence.
+
+### Fixed
+
+- Mail keeps Priority sort selected when Jev availability is temporarily unavailable.
+
 ## 2026-09-22
 
 ### Improved
 
+- Jev-powered Mail rules and Priority sort work with an enabled Builder space or your personal Jev key.
 - Apps start with an app-shaped skeleton while session data loads immediately.
 
 ### Fixed

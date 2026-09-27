@@ -5,6 +5,11 @@ export {
 export { ShareDialog, type ShareDialogProps } from "./ShareDialog.js";
 export { ShareButton, type ShareButtonProps } from "./ShareButton.js";
 export {
+  SHARE_LINK_REF_PARAM,
+  SHARE_LINK_VIA_PARAM,
+  withShareLinkAttribution,
+} from "./share-link-attribution.js";
+export {
   useShareButtonController,
   type ShareButtonController,
   type ShareButtonControllerOptions,
