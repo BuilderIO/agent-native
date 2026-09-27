@@ -123,7 +123,6 @@ import {
   CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
-  type NotionPageLink,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
@@ -1480,7 +1479,6 @@ interface VisualEditorProps {
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
-  notionPageLinks?: NotionPageLink[];
   onOpenNotionPageLink?: (documentId: string) => void;
   notionPageId?: string | null;
   onHistoryControllerChange?: (
@@ -1666,8 +1664,6 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
-export type { NotionPageLink };
-
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1851,7 +1847,6 @@ interface VisualEditorExtensionOptions {
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
   onJoinTitle?: (text: string) => void;
-  resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -2451,7 +2446,6 @@ export function createVisualEditorExtensions({
   onImageFilePickerRequest,
   canMutateMedia,
   onJoinTitle,
-  resolveNotionPageLink,
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
@@ -2528,7 +2522,6 @@ export function createVisualEditorExtensions({
       NormalizeTableHeaders,
       NormalizeTableAlignment,
       ...createNotionEditorExtensions({
-        resolvePageLink: resolveNotionPageLink,
         onOpenPageLink: onOpenNotionPageLink,
       }),
       ...notionFidelityExtensions,
@@ -2878,7 +2871,6 @@ export function VisualEditor({
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
-  notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
@@ -2981,8 +2973,6 @@ export function VisualEditor({
       historyStateNotificationRef.current = null;
     };
   }, []);
-  const notionPageLinksRef = useRef(notionPageLinks);
-  notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
     ((editor: CoreEditor, transaction: Transaction) => void) | null
   >(null);
@@ -3043,16 +3033,6 @@ export function VisualEditor({
     }
   }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
-  const resolveNotionPageLink = useCallback((notionPageId: string) => {
-    const normalized = notionPageId.replace(/-/g, "").toLowerCase();
-    return (
-      notionPageLinksRef.current.find(
-        (link) =>
-          link.notionPageId === notionPageId ||
-          link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
-      ) ?? null
-    );
-  }, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -3099,7 +3079,6 @@ export function VisualEditor({
         onImageFilePickerRequest,
         canMutateMedia,
         onJoinTitle,
-        resolveNotionPageLink,
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
@@ -3142,7 +3121,6 @@ export function VisualEditor({
       onImageFilePickerRequest,
       canMutateMedia,
       onJoinTitle,
-      resolveNotionPageLink,
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
@@ -3533,7 +3511,7 @@ export function VisualEditor({
   }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
 
   useEffect(() => {
-    if (!editor) {
+    if (!editor || editor.isDestroyed) {
       onHistoryControllerChange?.(null);
       return;
     }

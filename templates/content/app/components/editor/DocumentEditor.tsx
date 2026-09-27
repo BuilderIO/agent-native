@@ -30,7 +30,11 @@ import type {
   SuggestionDecision,
 } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import type { Document, DocumentSyncStatus } from "@shared/api";
+import type {
+  ContentNavigationPathEntry,
+  Document,
+  DocumentSyncStatus,
+} from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -101,6 +105,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
+  useContentNavigationContext,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -178,7 +183,11 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
-import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
+import {
+  DocumentToolbar,
+  type ToolbarBreadcrumbItem,
+  type ToolbarBreadcrumbOpen,
+} from "./DocumentToolbar";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
@@ -227,7 +236,6 @@ import {
 } from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
 import type {
-  NotionPageLink,
   VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
@@ -1594,11 +1602,18 @@ export function documentEditorBreadcrumbNavigationItems(
     catalogDocumentId: string | null;
     workspacesTitle: string;
   },
+  navigationPath: Pick<
+    ContentNavigationPathEntry,
+    "id" | "parentId" | "databaseId"
+  >[] = [], // i18n-ignore type expression
 ): ToolbarBreadcrumbItem[] {
   const peerDocuments = documents.filter(
     (item) => !item.database?.systemRole && item.source?.kind !== "folder",
   );
   const documentById = new Map(documents.map((item) => [item.id, item]));
+  const pathEntryById = new Map(
+    navigationPath.map((entry) => [entry.id, entry]),
+  );
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
   );
@@ -1618,7 +1633,24 @@ export function documentEditorBreadcrumbNavigationItems(
     }
 
     const current = item.id ? documentById.get(item.id) : null;
-    if (!current) return item;
+    if (!current) {
+      const entry = item.id ? pathEntryById.get(item.id) : undefined;
+      // Peers of an item under an unreadable parent are not listable.
+      if (
+        !entry?.databaseId ||
+        (entry.parentId !== null && !pathEntryById.has(entry.parentId))
+      ) {
+        return item;
+      }
+      return {
+        ...item,
+        filesDatabaseId: entry.databaseId,
+        siblings: {
+          filesDatabaseId: entry.databaseId,
+          parentId: entry.parentId,
+        },
+      };
+    }
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
     const siblings = peerDocuments
@@ -1635,13 +1667,16 @@ export function documentEditorBreadcrumbNavigationItems(
           left.position - right.position ||
           left.title.localeCompare(right.title),
       );
-    if (siblings.length < 2) return item;
+    const filesDatabaseId = current.databaseMembership?.databaseId ?? null;
+    if (siblings.length < 2) return { ...item, filesDatabaseId };
     return {
       ...item,
+      filesDatabaseId,
       menuItems: siblings.map((sibling) => ({
         id: sibling.id,
         title: sibling.title,
         icon: sibling.icon,
+        filesDatabaseId: sibling.databaseMembership?.databaseId ?? null,
       })),
     };
   });
@@ -1756,10 +1791,25 @@ function PageEditorSessionBody({
   const canEditRef = useRef(canEdit);
   const navigate = useNavigate();
   const location = useLocation();
-  const documentsQuery = useDocuments();
-  const documents: Document[] = documentsQuery.data ?? [];
   const contentSpacesQuery = useContentSpaces();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const localWorkspaceMode =
+    contentSpacesQuery.data?.sourceMode === "local-files";
+  const localDocumentsQuery = useDocuments({ enabled: localWorkspaceMode });
+  const localDocuments = useMemo<Document[]>(
+    () => (localWorkspaceMode ? (localDocumentsQuery.data ?? []) : []),
+    [localDocumentsQuery.data, localWorkspaceMode],
+  );
+  const navigationContextQuery = useContentNavigationContext(
+    host === "page" ? documentId : null,
+  );
+  const navigationPath = useMemo(
+    () =>
+      navigationContextQuery.data?.document.id === documentId
+        ? navigationContextQuery.data.path
+        : [],
+    [documentId, navigationContextQuery.data],
+  );
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const [, setStoredSpaceId] = useLocalStorage<string | null>(
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -2260,16 +2310,6 @@ function PageEditorSessionBody({
   );
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldFocusTitleRef = useRef(false);
-  const notionPageLinks = useMemo<NotionPageLink[]>(
-    () =>
-      documents.map((doc) => ({
-        notionPageId: doc.notionPageId || doc.id,
-        documentId: doc.id,
-        title: doc.title || "Untitled",
-        icon: doc.icon,
-      })),
-    [documents],
-  );
   const handleOpenNotionPageLink = useCallback(
     (linkedDocumentId: string) => {
       void navigate(`/page/${linkedDocumentId}`, { flushSync: true });
@@ -5846,8 +5886,11 @@ function PageEditorSessionBody({
   const toolbarBreadcrumbItems = useMemo(
     () =>
       documentEditorBreadcrumbNavigationItems(
-        documentEditorBreadcrumbItems(document, documents),
-        documents,
+        documentEditorBreadcrumbItems(
+          document,
+          localWorkspaceMode ? localDocuments : navigationPath,
+        ),
+        localDocuments,
         contentSpaces,
         {
           currentDocumentId: document.id,
@@ -5856,23 +5899,25 @@ function PageEditorSessionBody({
           catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
           workspacesTitle: t("sidebar.workspaces"),
         },
+        navigationPath,
       ),
     [
       contentSpaces,
       contentSpacesQuery.data?.catalogDocumentId,
       document,
-      documents,
+      localDocuments,
+      localWorkspaceMode,
+      navigationPath,
       t,
     ],
   );
 
-  const handleOpenToolbarBreadcrumb = useCallback(
-    (targetId: string) => {
-      const targetDocument = documents.find((item) => item.id === targetId);
-      const filesDocumentId =
-        targetDocument?.databaseMembership?.databaseDocumentId ?? targetId;
+  const handleOpenToolbarBreadcrumb = useCallback<ToolbarBreadcrumbOpen>(
+    (targetId, filesDatabaseId) => {
       const space = contentSpaces.find(
-        (candidate) => candidate.filesDocumentId === filesDocumentId,
+        (candidate) =>
+          candidate.filesDocumentId === targetId ||
+          (!!filesDatabaseId && candidate.filesDatabaseId === filesDatabaseId),
       );
       if (!space) {
         void navigate(`/page/${targetId}`, { flushSync: true });
@@ -5901,7 +5946,7 @@ function PageEditorSessionBody({
           toast.error(error instanceof Error ? error.message : String(error));
         });
     },
-    [contentSpaces, documents, navigate, setStoredSpaceId],
+    [contentSpaces, navigate, setStoredSpaceId],
   );
 
   const renderCommentsSidebar = (
@@ -6892,7 +6937,6 @@ function PageEditorSessionBody({
                             }
                             showCommentIndicators={showCommentIndicators}
                             onJoinTitle={joinFirstBodyBlockToTitle}
-                            notionPageLinks={notionPageLinks}
                             onOpenNotionPageLink={handleOpenNotionPageLink}
                             notionPageId={document.notionPageId}
                             onHistoryControllerChange={

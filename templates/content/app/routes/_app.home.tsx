@@ -5,6 +5,7 @@ import type {
   ContentSpaceLandingResult,
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -114,10 +115,20 @@ export default function HomeRoute() {
   lastLocationHintRef.current = lastLocationHint;
   const recoveredDocumentId =
     readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
+  const queryClient = useQueryClient();
   const resolveLanding = useActionMutation<
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
-  >("resolve-content-landing");
+  >("resolve-content-landing", {
+    // Its app-state writes change nothing another query reads; refreshing
+    // everything here aborts and restarts the startup reads.
+    skipActionQueryInvalidation: true,
+    onSuccess: (result) => {
+      if (result.resolution === "welcome-created") {
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
+      }
+    },
+  });
 
   const openLanding = useCallback(async () => {
     const requestKey = spaceId ?? "personal";

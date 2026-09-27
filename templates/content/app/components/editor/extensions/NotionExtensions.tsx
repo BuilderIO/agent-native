@@ -31,6 +31,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 
+import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
@@ -59,15 +60,7 @@ const INLINE_ATOM_TAGS = [
   "mention-custom-emoji",
 ];
 
-export interface NotionPageLink {
-  notionPageId: string;
-  documentId: string;
-  title: string;
-  icon: IconValue | string | null;
-}
-
 interface NotionBlockAtomOptions {
-  resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenPageLink?: (documentId: string) => void;
 }
 
@@ -597,9 +590,10 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
   const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
-  const pageLink = notionPageId
-    ? options.resolvePageLink?.(notionPageId)
-    : null;
+  const pageLink =
+    usePageLinkTarget(
+      notionPageId && options.onOpenPageLink ? notionPageId : null,
+    ).data ?? null;
   const primary =
     pageLink?.title ||
     label ||
@@ -1131,7 +1125,6 @@ export const NotionBlockAtom = Node.create({
 
   addOptions(): NotionBlockAtomOptions {
     return {
-      resolvePageLink: undefined,
       onOpenPageLink: undefined,
     };
   },

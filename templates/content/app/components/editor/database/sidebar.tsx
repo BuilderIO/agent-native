@@ -67,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { filesNavigationPageParams } from "@/lib/files-navigation";
 import { cn } from "@/lib/utils";
 
 import {
@@ -219,16 +220,16 @@ function PagedContentFilesBranch({
 }) {
   const t = useT();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const query = useActionQuery("query-content-database-items", {
-    databaseId: props.databaseId,
-    limit: 20,
-    navigation: {
+  const query = useActionQuery(
+    "query-content-database-items",
+    filesNavigationPageParams({
+      databaseId: props.databaseId,
       parentId: props.parentId,
       sort: props.sort,
       viewId: props.viewId,
       cursor,
-    },
-  });
+    }),
+  );
   const data =
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)

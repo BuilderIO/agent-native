@@ -18,7 +18,6 @@ import type {
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
-  ContentNavigationContext,
   Document,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
@@ -103,6 +102,7 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  useContentNavigationContext,
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
@@ -121,6 +121,7 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import { filesNavigationOrder } from "@/lib/files-navigation";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -506,9 +507,15 @@ function WorkspaceSidebarItem({
     expanded,
     deferInitialReadUntilDocumentId,
   );
+  // The paged tree draws cloud Files; only local-source matching needs rows.
+  const needsFilesRows = localFileMode || localWorkingCopies.length > 0;
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
+    {
+      enabled: deferredFilesDatabase.enabled,
+      systemRole: "files",
+      ...(needsFilesRows ? {} : { limit: 0 }),
+    },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -609,12 +616,7 @@ function WorkspaceSidebarItem({
   const pagedOverrides = filesPersonalView.data?.overrides;
   const { activeViewId, order: sidebarOrder } = localFileMode
     ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
-    : {
-        activeViewId: pagedOverrides?.activeViewId ?? "default",
-        order: pagedOverrides?.views.find(
-          (view) => view.id === (pagedOverrides.activeViewId ?? "default"),
-        )?.sidebarOrder ?? { mode: "custom" as const, itemIds: [] },
-      };
+    : filesNavigationOrder(pagedOverrides);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -985,9 +987,7 @@ export function DocumentSidebar({
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
   const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const ensureContentSpaces = useEnsureContentSpaces();
@@ -1365,6 +1365,12 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  const { data: trashedDocuments } = useTrashedDocuments({
+    enabled: !collapsedSections.trash,
+  });
+  const { data: trashedDatabases } = useTrashedContentDatabases({
+    enabled: !collapsedSections.trash,
+  });
   useEffect(() => {
     try {
       if (
@@ -1432,11 +1438,7 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const navigationContextQuery = useActionQuery<ContentNavigationContext>(
-    "get-content-navigation-context",
-    activeDocumentId ? { id: activeDocumentId } : undefined,
-    { enabled: Boolean(activeDocumentId) },
-  );
+  const navigationContextQuery = useContentNavigationContext(activeDocumentId);
   useEffect(() => {
     const filesDatabaseId =
       navigationContextQuery.data?.workspaceFilesDatabaseId ?? null;
