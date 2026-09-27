@@ -1,9 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
-import {
-  callAction,
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -18,6 +14,13 @@ import { useEffect, useRef } from "react";
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
+import {
+  contentNavigationBranchFilter,
+  contentNavigationContextFilter,
+  documentScopedQueryFilter,
+  useContentActionMutation,
+  type ContentQueryTarget,
+} from "./use-content-action-mutation";
 import { documentQueryFilter } from "./use-documents";
 
 export function currentRedirectTarget(): string {
@@ -54,6 +57,26 @@ export function invalidateDocumentQueries(
   void queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
+}
+
+/** Link-state writes touch the page and its sync status; a pull can also retitle it. */
+function notionDocumentTargets(
+  documentId: string,
+  { pulled }: { pulled: boolean },
+): ContentQueryTarget[] {
+  return pulled
+    ? [
+        documentScopedQueryFilter(documentId),
+        contentNavigationBranchFilter({ documentIds: [documentId] }),
+        contentNavigationContextFilter([documentId]),
+        ["action", "get-content-recent"],
+        ["action", "list-documents"],
+      ]
+    : [
+        documentQueryFilter(documentId),
+        documentSyncStatusQueryKey(documentId),
+        ["action", "list-documents"],
+      ];
 }
 
 export function documentSyncStatusQueryKey(documentId: string) {
@@ -177,81 +200,72 @@ export function clearAllAutoSyncToggles() {
 }
 
 export function useDisconnectNotion() {
-  const queryClient = useQueryClient();
-  return useActionMutation<{ success: boolean; deleted: number }>(
+  return useContentActionMutation<{ success: boolean; deleted: number }>(
     "disconnect-notion",
     {
-      onSuccess: () => {
-        clearAllAutoSyncToggles();
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "connect-notion-status"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "refresh-notion-sync-status"],
-        });
-      },
+      onSuccess: () => clearAllAutoSyncToggles(),
+      invalidates: [
+        ["action", "connect-notion-status"],
+        ["action", "refresh-notion-sync-status"],
+        ["action", "list-notion-database-sources"],
+        ["action", "search-notion-pages"],
+      ],
     },
   );
 }
 
 export function useLinkDocumentToNotion(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     DocumentSyncStatus,
     LinkNotionPageRequest & { documentId: string }
   >("link-notion-page", {
-    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+    invalidates: notionDocumentTargets(documentId, { pulled: true }),
   });
 }
 
 export function useUnlinkDocumentFromNotion(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<{ success: boolean }, { documentId: string }>(
+  return useContentActionMutation<{ success: boolean }, { documentId: string }>(
     "unlink-notion-page",
     {
       method: "DELETE",
-      onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+      invalidates: notionDocumentTargets(documentId, { pulled: false }),
     },
   );
 }
 
 export function usePullDocumentFromNotion(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<DocumentSyncStatus, { documentId: string }>(
+  return useContentActionMutation<DocumentSyncStatus, { documentId: string }>(
     "pull-notion-page",
     {
-      onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+      invalidates: notionDocumentTargets(documentId, { pulled: true }),
     },
   );
 }
 
 export function usePushDocumentToNotion(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     DocumentSyncStatus,
     { documentId: string; flushOpenEditor?: boolean }
   >("push-notion-page", {
-    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+    invalidates: notionDocumentTargets(documentId, { pulled: false }),
   });
 }
 
 export function useResolveDocumentSyncConflict(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     DocumentSyncStatus,
     ResolveDocumentSyncConflictRequest & { documentId: string }
   >("resolve-notion-sync-conflict", {
-    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+    invalidates: notionDocumentTargets(documentId, { pulled: true }),
   });
 }
 
 export function useCreateAndLinkNotionPage(documentId: string) {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     DocumentSyncStatus,
     CreateNotionPageRequest & { documentId: string }
   >("create-and-link-notion-page", {
-    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+    invalidates: notionDocumentTargets(documentId, { pulled: false }),
   });
 }
 

@@ -6,8 +6,11 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   ContentDatabaseItemsPageResponse,
+  ContentDatabaseNavigationPageResponse,
   ContentDatabaseResponse,
   ContentDatabaseItem,
+  ContentNavigationContext,
+  ContentNavigationPathEntry,
   Document,
   DocumentCreateRequest,
   DocumentCreateResult,
@@ -40,8 +43,19 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  contentNavigationBranchFilter,
+  contentNavigationContextFilter,
+  contentPlacementTargets,
+  contentSpaceFilesDatabaseId,
+  documentScopedQueryFilter,
+  invalidateContentQueries,
+  useContentActionMutation,
+  type ContentQueryTarget,
+} from "./use-content-action-mutation";
+import {
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseItemsContainingDocumentFilter,
+  contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
@@ -540,6 +554,96 @@ export function patchContentSpaceNameCaches(
   return matched;
 }
 
+const NAVIGATION_CONTEXT_QUERY_KEY = [
+  "action",
+  "get-content-navigation-context",
+] as const;
+
+/**
+ * An optimistic page opens before the server has it, so its path read fails
+ * and the sidebar would stop revealing the page's ancestors. Seed the path from
+ * the parent's cached one and show the parent as expandable; the create's
+ * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ */
+export function seedCreatedDocumentNavigation(
+  queryClient: Pick<
+    QueryClient,
+    "getQueriesData" | "setQueriesData" | "setQueryData"
+  >,
+  document: Document,
+  workspaceFilesDatabaseId: string | null,
+) {
+  const parentId = document.parentId ?? null;
+  let parentPath: ContentNavigationPathEntry[] = [];
+  if (parentId) {
+    for (const [
+      ,
+      context,
+    ] of queryClient.getQueriesData<ContentNavigationContext>({
+      queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
+    })) {
+      const index =
+        context?.path?.findIndex((entry) => entry.id === parentId) ?? -1;
+      if (index >= 0) {
+        parentPath = context!.path.slice(0, index + 1);
+        workspaceFilesDatabaseId ??= context!.workspaceFilesDatabaseId;
+        break;
+      }
+    }
+    queryClient.setQueriesData<ContentDatabaseNavigationPageResponse>(
+      contentNavigationBranchFilter({ documentIds: [parentId] }),
+      (current) =>
+        current && {
+          ...current,
+          items: current.items.map((item) =>
+            item.documentId === parentId
+              ? { ...item, hasChildren: true }
+              : item,
+          ),
+        },
+    );
+  }
+  queryClient.setQueryData<ContentNavigationContext>(
+    [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
+    {
+      mode: "database",
+      document,
+      path: [
+        ...parentPath,
+        {
+          id: document.id,
+          parentId,
+          title: document.title,
+          icon: null,
+          databaseId: null,
+          databaseDocumentId: null,
+          isFavorite: false,
+          canEdit: true,
+          canManage: true,
+          createdAt: document.createdAt,
+          updatedAt: document.updatedAt,
+        },
+      ],
+      workspaceFilesDatabaseId,
+    },
+  );
+}
+
+export function removeCreatedDocumentNavigation(
+  queryClient: Pick<QueryClient, "invalidateQueries" | "removeQueries">,
+  document: Pick<Document, "id" | "parentId">,
+) {
+  queryClient.removeQueries({
+    queryKey: [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
+    exact: true,
+  });
+  if (document.parentId) {
+    invalidateContentQueries(queryClient, [
+      contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+    ]);
+  }
+}
+
 export function documentUpdateSuccessPatch(
   data: DocumentUpdateResponse,
   variables: DocumentUpdateRequestWithCas,
@@ -707,7 +811,7 @@ export function useUpdatePreviewDocumentDraft() {
 }
 
 export function useResolvePreviewDocumentDraft() {
-  return useActionMutation<
+  return useContentActionMutation<
     {
       status: "resolved" | "document_conflict";
       choice?: "keep_mine" | "use_saved" | "save_separately";
@@ -723,7 +827,25 @@ export function useResolvePreviewDocumentDraft() {
       expectedDraftContent: string;
       expectedDocumentUpdatedAt?: string;
     }
-  >("resolve-preview-document-draft");
+  >("resolve-preview-document-draft", {
+    invalidates: (result, { documentId }) => [
+      documentScopedQueryFilter(documentId),
+      ...(result.choice === "keep_mine"
+        ? [
+            contentNavigationBranchFilter({ documentIds: [documentId] }),
+            contentNavigationContextFilter([documentId]),
+            ["action", "get-content-recent"],
+            ["action", "list-documents"],
+          ]
+        : []),
+      ...(result.createdDocumentId
+        ? [
+            contentNavigationBranchFilter({ parentIds: [null] }),
+            ["action", "list-documents"],
+          ]
+        : []),
+    ],
+  });
 }
 
 export function useCreateDocument() {
@@ -732,7 +854,17 @@ export function useCreateDocument() {
     "create-document",
     {
       skipActionQueryInvalidation: true,
-      onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+      onSuccess: (created) =>
+        invalidateContentQueries(
+          queryClient,
+          contentPlacementTargets(queryClient, {
+            documentIds: [created.id],
+            parentIds: [created.parentId ?? null],
+            databaseId: created.parentId
+              ? undefined
+              : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
+          }),
+        ),
     },
   );
 }
@@ -1038,16 +1170,11 @@ export function useUpdateDocument() {
           documentUpdateSuccessPatch(data, variables),
         );
         if (variables.title !== undefined) {
-          void queryClient.invalidateQueries(
+          invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
-          );
-          invalidateContentDatabaseNavigationQueries(queryClient);
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-content-recent"],
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-content-navigation-context"],
-          });
+            contentNavigationBranchFilter({ documentIds: [variables.id] }),
+            contentNavigationContextFilter([variables.id]),
+          ]);
         }
         if (renamedContentSpace) {
           patchContentSpaceNameCaches(queryClient, variables.id, data.title);
@@ -1059,7 +1186,9 @@ export function useUpdateDocument() {
           });
         }
         if (variables.isFavorite !== undefined) {
-          invalidateContentDatabaseNavigationQueries(queryClient);
+          invalidateContentQueries(queryClient, [
+            contentNavigationBranchFilter({ documentIds: [variables.id] }),
+          ]);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-content-database"],
           });
@@ -1173,9 +1302,15 @@ export function useUpdateDocument() {
   );
 }
 
+const TRASH_LIST_QUERY_KEYS: readonly ContentQueryTarget[] = [
+  ["action", "list-trashed-documents"],
+  ["action", "list-trashed-content-databases"],
+  ["action", "list-content-trash"],
+];
+
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       deleted: number;
@@ -1185,31 +1320,22 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(variables.id));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-content-spaces"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_data, variables) => [
+      ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
+      contentDatabaseItemsContainingDocumentFilter(variables.id),
+      documentQueryFilter(variables.id),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+      ["action", "list-content-spaces"],
+      ["action", "get-content-recent"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
   });
 }
 
 export function useRollbackCreatedSlashDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     {
       success: boolean;
       id: string;
@@ -1218,22 +1344,16 @@ export function useRollbackCreatedSlashDocument() {
     },
     { id: string; parentId: string }
   >("rollback-created-slash-document", {
-    onSuccess: (_result, { id }) => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries(documentQueryFilter(id));
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_result, { id, parentId }) => [
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [id],
+        parentIds: [parentId],
+      }),
+      documentQueryFilter(id),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1244,27 +1364,27 @@ export function useTrashedDocuments() {
   );
 }
 
+/** A restored page returns to a parent the client does not know, so every mounted branch refreshes. */
+export function restoredDocumentTargets(
+  documentId: string,
+): ContentQueryTarget[] {
+  return [
+    contentDatabaseNavigationQueryFilter(),
+    contentNavigationContextFilter([documentId]),
+    documentScopedQueryFilter(documentId),
+    ["action", "list-documents"],
+    ["action", "get-content-database"],
+    ["action", "get-content-recent"],
+    ...TRASH_LIST_QUERY_KEYS,
+  ];
+}
+
 export function useRestoreDocument() {
-  const queryClient = useQueryClient();
-  return useActionMutation<
+  return useContentActionMutation<
     { success: boolean; restored: number; documentId: string },
     { id: string }
   >("restore-document", {
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-database"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-documents"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-trashed-content-databases"],
-      });
-      invalidateContentDatabaseNavigationQueries(queryClient);
-    },
+    invalidates: (_data, { id }) => restoredDocumentTargets(id),
   });
 }
 
@@ -1285,26 +1405,40 @@ export function usePermanentlyDeleteDocument() {
         { id, planId: plan.planId, scopeToken: plan.scopeToken },
       );
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["action"] });
+    onSuccess: (_data, { id }) => {
+      invalidateContentQueries(queryClient, [
+        documentScopedQueryFilter(id),
+        ["action", "list-documents"],
+        ...TRASH_LIST_QUERY_KEYS,
+      ]);
     },
   });
 }
 
 export function useMoveDocument() {
   const queryClient = useQueryClient();
-  return useActionMutation<Document, DocumentMoveRequest & { id: string }>(
-    "move-document",
-    {
-      onSuccess: (_data, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        void queryClient.invalidateQueries(documentQueryFilter(variables.id));
-        invalidateContentDatabaseNavigationQueries(queryClient);
-      },
-    },
-  );
+  return useContentActionMutation<
+    Document,
+    DocumentMoveRequest & { id: string }
+  >("move-document", {
+    invalidates: (_data, variables) => [
+      ...contentPlacementTargets(queryClient, {
+        documentIds: [variables.id],
+        parentIds: variables.parentId === undefined ? [] : [variables.parentId],
+        databaseId: variables.spaceId
+          ? contentSpaceFilesDatabaseId(queryClient, variables.spaceId)
+          : undefined,
+      }),
+      documentQueryFilter(variables.id),
+      ["action", "list-documents"],
+      ...(variables.spaceId
+        ? [
+            ["action", "get-content-database"],
+            ["action", "get-content-recent"],
+          ]
+        : []),
+    ],
+  });
 }
 
 export function buildDocumentTree(

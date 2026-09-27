@@ -119,24 +119,23 @@ describe("document history hooks", () => {
       invalidateQueries.mock.invocationCallOrder[0]!,
     );
 
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-document-history"],
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-document-history-checkpoints"],
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "get-document-history-checkpoint"],
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-content-databases"],
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-trashed-content-databases"],
-    });
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["document", "page-1"],
-    });
+    const client = new QueryClient();
+    const refreshed = [
+      ["action", "list-document-history", { documentId: "page-1" }],
+      ["action", "list-document-history-checkpoints", { documentId: "page-1" }],
+      ["action", "get-document-history-checkpoint", { documentId: "page-1" }],
+      ["action", "list-content-databases"],
+      ["action", "list-trashed-content-databases"],
+      ["document", "page-1"],
+    ];
+    for (const key of refreshed) client.setQueryData(key, {});
+    for (const [filter] of invalidateQueries.mock.calls) {
+      void client.invalidateQueries(filter);
+    }
+    for (const key of refreshed) {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+    client.clear();
   });
 
   it("invalidates filtered and paged membership after a title restore, including absent rows", async () => {

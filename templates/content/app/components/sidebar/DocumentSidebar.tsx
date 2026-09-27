@@ -81,10 +81,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  contentNavigationBranchFilter,
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
-  invalidateContentDatabaseNavigationQueries,
+  contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -112,8 +117,10 @@ import {
   useMoveDocument,
   useUpdateDocument,
   documentQueryFilter,
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
+  seedCreatedDocumentNavigation,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
@@ -1348,10 +1355,19 @@ export function DocumentSidebar({
         // Space selection remains usable when best-effort agent context sync fails.
       });
   }, [selectedSpace]);
-  const removeLocalFileSource = useActionMutation<
+  const removeLocalFileSource = useContentActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
-  >("remove-local-file-source");
+  >("remove-local-file-source", {
+    invalidates: [
+      contentDatabaseNavigationQueryFilter(),
+      ["action", "get-document"],
+      ["action", "get-content-database"],
+      ["action", "get-content-navigation-context"],
+      ["action", "get-content-recent"],
+      ["action", "list-content-spaces"],
+    ],
+  });
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
@@ -1602,6 +1618,11 @@ export function DocumentSidebar({
         return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        rootFilesDatabaseId ?? null,
+      );
       if (rootFilesDatabaseId) {
         const optimisticItem: ContentDatabaseItem = {
           id: `optimistic-${id}`,
@@ -1653,6 +1674,7 @@ export function DocumentSidebar({
         );
         settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
             contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1724,6 +1746,7 @@ export function DocumentSidebar({
         });
       }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(queryClient, tempDoc, null);
       navigateToDocument(id);
       onNavigate?.();
 
@@ -1763,6 +1786,7 @@ export function DocumentSidebar({
           );
         }
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
           void navigate(previousPath, {
@@ -1992,7 +2016,10 @@ export function DocumentSidebar({
   const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+    onSuccess: (_result, { documentId }) =>
+      invalidateContentQueries(queryClient, [
+        contentNavigationBranchFilter({ documentIds: [documentId] }),
+      ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
   const sidebarPageActions = useMemo<SidebarPageActions>(

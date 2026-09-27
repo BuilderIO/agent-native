@@ -3,7 +3,6 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { type CollabUser } from "@agent-native/core/client/collab";
-import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
@@ -127,6 +126,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  contentNavigationBranchFilter,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -653,12 +656,24 @@ export function DocumentToolbar({
   const pullDocument = usePullDocumentFromNotion(documentId);
   const pushDocument = usePushDocumentToNotion(documentId);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
-  const setDocumentDiscoverability = useActionMutation(
+  const setDocumentDiscoverability = useContentActionMutation(
     "set-document-discoverability",
+    { invalidates: [["action", "search-documents"]] },
   );
-  const exportDocument = useActionMutation("export-document");
-  const revealLocalSource = useActionMutation("reveal-local-source-file");
-  const shareLocalFile = useActionMutation("share-local-file-document");
+  const exportDocument = useContentActionMutation("export-document", {
+    invalidates: [],
+  });
+  const revealLocalSource = useContentActionMutation(
+    "reveal-local-source-file",
+    { invalidates: [] },
+  );
+  const shareLocalFile = useContentActionMutation("share-local-file-document", {
+    invalidates: [
+      contentNavigationBranchFilter({ parentIds: [null] }),
+      ["action", "list-documents"],
+      ["action", "get-content-database"],
+    ],
+  });
 
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
@@ -891,7 +906,6 @@ export function DocumentToolbar({
       if (!result?.id) {
         throw new Error(t("editor.toolbar.shareableCopyWasNotCreated"));
       }
-      await queryClient.invalidateQueries({ queryKey: ["action"] });
       toast.success(t("editor.toolbar.shareableCopyReady"), {
         description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
@@ -902,7 +916,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, navigate, queryClient, shareLocalFile, t]);
+  }, [documentId, navigate, shareLocalFile, t]);
 
   const handleDbShareOpenChange = useCallback(
     (nextOpen: boolean) => {
