@@ -3341,6 +3341,8 @@ export interface AgentKitChatProps {
   composer?: boolean;
   /** Configures the reference composer without replacing its slot. */
   composerProps?: Omit<AgentKitComposerProps, "threadId">;
+  /** Marks conversations with messages supplied by a custom transcript slot. */
+  hasRenderedMessages?: boolean;
   /** New conversations center the composer; embedded panels can anchor it. */
   emptyComposerPlacement?: "center" | "bottom";
   /** Follow new output until the user deliberately scrolls away. */
@@ -3374,6 +3376,7 @@ export function AgentKitChat({
   toolbar,
   composer = true,
   composerProps,
+  hasRenderedMessages = false,
   emptyComposerPlacement = "center",
   autoScroll = true,
   className,
@@ -3402,7 +3405,7 @@ export function AgentKitChat({
     setMessage: setEditingMessage,
   };
   useEffect(() => setPendingEdit(null), [threadId]);
-  const hasConversation = thread.messages.length > 0;
+  const hasConversation = thread.messages.length > 0 || hasRenderedMessages;
   const Message = slots.message ?? AgentMessageView;
   const EmptyState = slots.emptyState;
   const Composer = slots.composer ?? AgentKitComposer;
@@ -3889,7 +3892,9 @@ export function AgentKitChat({
         aria-label={typeof title === "string" ? title : labels.conversation}
         className={`agentkit-chat ${className ?? ""}`}
         data-empty={!hasConversation}
-        data-empty-composer-placement={emptyComposerPlacement}
+        data-empty-composer-placement={
+          hasConversation ? "bottom" : emptyComposerPlacement
+        }
         onDragEnter={handleFileDragEnter}
         onDragOver={handleFileDragOver}
         onDragLeave={handleFileDragLeave}

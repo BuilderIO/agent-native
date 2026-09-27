@@ -2530,6 +2530,7 @@ const AgentKitAssistantChatBody = forwardRef<
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+        hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty ? "center" : "bottom"
         }

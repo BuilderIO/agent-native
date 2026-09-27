@@ -47,6 +47,7 @@ export function AgentChat(props: AgentChatProps) {
     toolbar,
     composer,
     composerProps,
+    hasRenderedMessages,
     emptyComposerPlacement,
     autoScroll,
     className,
@@ -74,6 +75,7 @@ export function AgentChat(props: AgentChatProps) {
         toolbar={toolbar}
         composer={composer}
         composerProps={composerProps}
+        hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={emptyComposerPlacement}
         autoScroll={autoScroll}
         className={className}

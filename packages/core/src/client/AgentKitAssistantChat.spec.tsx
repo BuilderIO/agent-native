@@ -571,6 +571,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.suggestionBarProps.className).toBe(
       "agentkit-home-suggestions",
     );
+    expect(chatMocks.chatProps.emptyComposerPlacement).toBe("center");
     expect(
       composer?.querySelector(".agentkit-after-composer-slot"),
     ).not.toBeNull();
@@ -1751,6 +1752,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
     expect(container.querySelector(".agentkit-home-suggestions")).toBeNull();
     expect(container.querySelector(".agentkit-after-composer-slot")).toBeNull();
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
     expect(container.querySelector('[aria-busy="true"]')).toBeNull();
     const handoff = await chatMocks.rootProps.transport.getThreadSnapshot({
       threadId,
