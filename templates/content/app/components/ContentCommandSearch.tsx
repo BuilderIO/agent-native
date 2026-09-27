@@ -177,7 +177,11 @@ function SearchUpdating() {
   );
 }
 
-function SearchPartialError({ onRetry }: { onRetry: () => void }) {
+function SearchPartialError({
+  onRetry,
+}: {
+  onRetry: (event: { currentTarget: HTMLElement }) => void;
+}) {
   const t = useT();
   return (
     <div role="alert" className="p-3 text-sm">
@@ -336,6 +340,7 @@ function renderSearchResultItem({
   return (
     <CommandMenu.Item
       key={document.id}
+      value={`document:${document.id}`}
       deferSelect={false}
       className="group items-start py-2"
       onSelect={() => {
@@ -547,7 +552,7 @@ export function SearchPage({
       )}
       {isFetchingActive ? <SearchUpdating /> : null}
       {serverError && !isFetchingActive ? (
-        <SearchPartialError onRetry={() => void activeResults.refetch()} />
+        <SearchPartialError onRetry={retryActive} />
       ) : null}
       {visibleOffset > 0 || pagination?.hasMore ? (
         <div
