@@ -58,9 +58,9 @@ describe("generate-home-suggestions", () => {
     );
   });
 
-  it("accepts the JSON array when the model adds surrounding prose", async () => {
+  it("accepts the JSON array when the model adds bracketed prose", async () => {
     mocks.completeText.mockResolvedValue({
-      text: `Here are three ideas:\n${JSON.stringify(suggestions)}\nHope these help!`,
+      text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
     });
 
     const result = await action.run({}, {
