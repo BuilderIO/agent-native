@@ -643,8 +643,18 @@ describe("ObservabilityDashboard human review", () => {
           ...primary,
           runCount: 2,
           runs: [
-            { runId: "run-1", model: "test-model", createdAt: 20 },
-            { runId: "run-1-older", model: "test-model", createdAt: 10 },
+            {
+              runId: "run-1",
+              threadId: "thread-1",
+              model: "test-model",
+              createdAt: 20,
+            },
+            {
+              runId: "run-1-older",
+              threadId: "thread-older",
+              model: "test-model",
+              createdAt: 10,
+            },
           ],
         },
       ],
@@ -688,6 +698,9 @@ describe("ObservabilityDashboard human review", () => {
       runPicker.value = "run-1-older";
       runPicker.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    expect(
+      reviewDetail("run-1")?.querySelector('a[href*="thread=thread-older"]'),
+    ).toBeTruthy();
     const summaryButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(
         'button[aria-label="Summarize with agent"]',

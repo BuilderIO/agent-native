@@ -42,6 +42,7 @@ export interface TraceSummary {
   createdAt: number;
   runCount?: number;
   reviewGroupLabel?: string;
+  reviewGroupRunIds?: string[];
 }
 
 export type FeedbackType = "thumbs_up" | "thumbs_down" | "category" | "text";
@@ -102,6 +103,7 @@ export interface OutputReviewListRow {
 
 export interface OutputReviewRun {
   runId: string;
+  threadId?: string | null;
   model: string;
   createdAt: number;
   summaryUpdatedAt?: number;
@@ -152,6 +154,11 @@ export type ObservabilityReviewScope =
 export interface ObservabilityReviewThreadScope {
   orgId: string;
   threadId: string;
+}
+
+export interface ObservabilityReviewRunScope {
+  orgId: string;
+  runId: string;
 }
 
 export function observabilityReviewThreadKey(

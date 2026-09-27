@@ -11,16 +11,18 @@ import {
   getHumanReviewSummariesForThreads,
   getTraceSummary,
   getTraceSummaries,
-  getRecentReviewRunsForThreads,
+  getRecentReviewRunsForReviewGroups,
 } from "./store.js";
 import type {
   FeedbackEntry,
   HumanReviewArtifactRef,
+  HumanReviewSummary,
   InstructionUpdate,
   ObservabilityReviewScope,
   ObservabilityReviewThreadScope,
   OutputReviewDetail,
   OutputReviewListRow,
+  ObservabilityReviewRunScope,
   TraceSummary,
 } from "./types.js";
 import { observabilityReviewThreadKey } from "./types.js";
@@ -593,18 +595,33 @@ export async function listOutputReviews(opts: {
         ]
       : [],
   );
-  const [feedback, updates] = await Promise.all([
+  const runScopesByReview = new Map<string, ObservabilityReviewRunScope[]>();
+  for (const summary of summaries) {
+    if (!summary.orgId) continue;
+    const runIds = [
+      ...new Set([summary.runId, ...(summary.reviewGroupRunIds ?? [])]),
+    ].slice(0, 6);
+    const scopes = runIds.map((runId) => ({ orgId: summary.orgId!, runId }));
+    runScopesByReview.set(summary.runId, scopes);
+  }
+  const reviewRunScopes = [...runScopesByReview.values()].flat();
+  const [feedback, updates, reviewRuns] = await Promise.all([
     getFeedback({
       sinceMs: opts.sinceMs,
       limit: opts.limit * 4,
       ...(orgId ? { orgId } : {}),
       threadScopes,
+      runScopes: reviewRunScopes,
     }),
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
       perThreadLimit: 1,
       ...(orgId ? { orgId } : {}),
       threadScopes,
+    }),
+    getRecentReviewRunsForReviewGroups({
+      runScopes: reviewRunScopes,
+      sinceMs: opts.sinceMs,
     }),
   ]);
   const updateByThread = new Map<string, InstructionUpdate>();
@@ -615,27 +632,27 @@ export async function listOutputReviews(opts: {
     }
   }
 
-  const [threadRows, reviewRuns] = await Promise.all([
-    getOrgScopedReviewThreads(threadScopesWithOwner),
-    getRecentReviewRunsForThreads({
-      threadScopes,
-      sinceMs: opts.sinceMs,
-      perThreadLimit: 6,
-    }),
-  ]);
+  const threadRows = await getOrgScopedReviewThreads(threadScopesWithOwner);
   const humanSummaries = await getHumanReviewSummariesForThreads(
     threadScopes,
     reviewRuns.flatMap((run) =>
       run.orgId ? [{ orgId: run.orgId, runId: run.runId }] : [],
     ),
   );
-  const runsByThread = new Map<string, TraceSummary[]>();
+  const runsByReview = new Map<string, TraceSummary[]>();
+  const reviewRunByScope = new Map<string, string>();
+  for (const [reviewRunId, scopes] of runScopesByReview) {
+    for (const run of scopes) {
+      reviewRunByScope.set(JSON.stringify([run.orgId, run.runId]), reviewRunId);
+    }
+  }
   for (const run of reviewRuns) {
     if (!run.orgId || !run.threadId) continue;
-    const key = observabilityReviewThreadKey(run.orgId, run.threadId);
-    const runs = runsByThread.get(key) ?? [];
+    const key = reviewRunByScope.get(JSON.stringify([run.orgId, run.runId]));
+    if (!key) continue;
+    const runs = runsByReview.get(key) ?? [];
     runs.push(run);
-    runsByThread.set(key, runs);
+    runsByReview.set(key, runs);
   }
   const threads = new Map(
     [...threadRows].map(([key, thread]) => [key, thread.threadData]),
@@ -649,20 +666,42 @@ export async function listOutputReviews(opts: {
     ),
   );
   const feedbackByThread = groupByThread(feedback);
+  const feedbackByRun = new Map<string, FeedbackEntry[]>();
+  for (const entry of feedback) {
+    if (!entry.orgId || !entry.runId) continue;
+    const key = JSON.stringify([entry.orgId, entry.runId]);
+    const runFeedback = feedbackByRun.get(key) ?? [];
+    runFeedback.push(entry);
+    feedbackByRun.set(key, runFeedback);
+  }
+  const humanSummaryByRun = new Map<string, HumanReviewSummary>();
+  for (const summariesForThread of humanSummaries.values()) {
+    for (const summary of summariesForThread) {
+      humanSummaryByRun.set(
+        JSON.stringify([summary.orgId, summary.runId]),
+        summary,
+      );
+    }
+  }
 
   return summaries
     .map((summary): OutputReviewListRow | null => {
       if (!summary.orgId || !summary.threadId) return null;
       const key = observabilityReviewThreadKey(summary.orgId, summary.threadId);
       if (!threadRows.has(key)) return null;
-      const threadSummaries = humanSummaries.get(key) ?? [];
-      const savedSummary = threadSummaries[0] ?? null;
-      const summaryByRun = new Map(
-        threadSummaries.map((reviewSummary) => [
-          reviewSummary.runId,
-          reviewSummary,
-        ]),
+      const reviewRunScopes = runScopesByReview.get(summary.runId) ?? [];
+      const runIdsForReview = new Set(
+        reviewRunScopes.map((runScope) => runScope.runId),
       );
+      const savedSummary =
+        reviewRunScopes
+          .map((runScope) =>
+            humanSummaryByRun.get(
+              JSON.stringify([runScope.orgId, runScope.runId]),
+            ),
+          )
+          .filter((entry): entry is HumanReviewSummary => Boolean(entry))
+          .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
       const threadData = threads.get(key) ?? undefined;
       if (threadData === undefined && !savedSummary) return null;
       const { answer, inlineApp } = askAndAnswer(summary, threadData ?? null);
@@ -735,10 +774,13 @@ export async function listOutputReviews(opts: {
           ? { summaryUpdatedAt: savedSummary.updatedAt }
           : {}),
         artifacts,
-        runs: (runsByThread.get(key) ?? [summary]).map((run) => {
-          const runSummary = summaryByRun.get(run.runId);
+        runs: (runsByReview.get(summary.runId) ?? [summary]).map((run) => {
+          const runSummary = run.orgId
+            ? humanSummaryByRun.get(JSON.stringify([run.orgId, run.runId]))
+            : undefined;
           return {
             runId: run.runId,
+            threadId: run.threadId,
             model: run.model,
             createdAt: run.createdAt,
             ...(runSummary ? { summaryUpdatedAt: runSummary.updatedAt } : {}),
@@ -751,7 +793,21 @@ export async function listOutputReviews(opts: {
         ...(title ? { inlineAppTitle: title } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
-        feedback: feedbackByThread.get(key) ?? [],
+        feedback: [
+          ...new Map(
+            [
+              ...(feedbackByThread.get(key) ?? []).filter(
+                (entry) => !entry.runId || runIdsForReview.has(entry.runId),
+              ),
+              ...reviewRunScopes.flatMap(
+                (runScope) =>
+                  feedbackByRun.get(
+                    JSON.stringify([runScope.orgId, runScope.runId]),
+                  ) ?? [],
+              ),
+            ].map((entry) => [entry.id, entry]),
+          ).values(),
+        ],
         instructionUpdate: updateByThread.get(key) ?? null,
       } satisfies OutputReviewListRow;
     })

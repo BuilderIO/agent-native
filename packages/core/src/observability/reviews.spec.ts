@@ -11,7 +11,7 @@ const mockGetOrgScopedReviewThreads = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummaries = vi.hoisted(() => vi.fn());
 const mockGetHumanReviewSummariesForThreads = vi.hoisted(() => vi.fn());
 const mockGetSuccessfulToolSpansForReview = vi.hoisted(() => vi.fn());
-const mockGetRecentReviewRunsForThreads = vi.hoisted(() => vi.fn());
+const mockGetRecentReviewRunsForReviewGroups = vi.hoisted(() => vi.fn());
 
 const reviewThreadKey = (orgId: string, threadId: string) =>
   JSON.stringify([orgId, threadId]);
@@ -60,8 +60,8 @@ vi.mock("./store.js", () => ({
     ),
   getSuccessfulToolSpansForReview: (...args: unknown[]) =>
     mockGetSuccessfulToolSpansForReview(...args),
-  getRecentReviewRunsForThreads: (...args: unknown[]) =>
-    Promise.resolve(mockGetRecentReviewRunsForThreads(...args)).then(
+  getRecentReviewRunsForReviewGroups: (...args: unknown[]) =>
+    Promise.resolve(mockGetRecentReviewRunsForReviewGroups(...args)).then(
       normalizeReviewRows,
     ),
   getTraceSummaries: (...args: unknown[]) =>
@@ -150,7 +150,7 @@ describe("listOutputReviews", () => {
       new Map([["thread-1", "A real thread"]]),
     );
     mockGetHumanReviewSummariesForThreads.mockResolvedValue(new Map());
-    mockGetRecentReviewRunsForThreads.mockResolvedValue([]);
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValue([]);
     mockGetSuccessfulToolSpansForReview.mockResolvedValue([]);
     mockGetFeedback.mockResolvedValue([
       {
@@ -188,6 +188,7 @@ describe("listOutputReviews", () => {
       limit: 40,
       orgId: "org-a",
       threadScopes: [{ orgId: "org-a", threadId: "thread-1" }],
+      runScopes: [{ orgId: "org-a", runId: "run-1" }],
     });
     expect(mockGetInstructionUpdates).toHaveBeenCalledWith({
       sinceMs: 0,
@@ -224,7 +225,18 @@ describe("listOutputReviews", () => {
   });
 
   it("keeps a prior run's summary on the current thread rollup", async () => {
-    mockGetRecentReviewRunsForThreads.mockResolvedValueOnce([
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-1",
+        orgId: "org-a",
+        threadId: "thread-1",
+        userId: "alice@example.com",
+        model: "test-model",
+        createdAt: 123,
+        reviewGroupRunIds: ["run-1", "run-old"],
+      },
+    ]);
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce([
       {
         runId: "run-1",
         orgId: "org-a",
@@ -283,7 +295,10 @@ describe("listOutputReviews", () => {
       ask: "Build a report",
       answer: "Created the weekly dashboard",
       runId: "run-1",
-      runs: [{ runId: "run-1" }, { runId: "run-old", summaryUpdatedAt: 2 }],
+      runs: [
+        { runId: "run-1", threadId: "thread-1" },
+        { runId: "run-old", threadId: "thread-1", summaryUpdatedAt: 2 },
+      ],
     });
     expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
       [{ orgId: "org-a", threadId: "thread-1" }],
@@ -297,6 +312,84 @@ describe("listOutputReviews", () => {
         orgId: "org-a",
         excludeSpanName: "agent_run:observability:human-review-summary",
         requireReviewContext: true,
+      }),
+    );
+  });
+
+  it("includes cross-thread executions from the same automation rollup", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-new",
+        orgId: "org-a",
+        threadId: "thread-new",
+        userId: "alice@example.com",
+        model: "new-model",
+        createdAt: 200,
+        runCount: 2,
+        reviewGroupLabel: "daily-digest",
+        reviewGroupRunIds: ["run-new", "run-old"],
+      },
+    ]);
+    mockGetOrgScopedReviewThreads.mockResolvedValueOnce(
+      new Map([
+        [
+          reviewThreadKey("org-a", "thread-new"),
+          scopedThread("{}", "Daily digest"),
+        ],
+      ]),
+    );
+    mockGetRecentReviewRunsForReviewGroups.mockResolvedValueOnce([
+      {
+        runId: "run-new",
+        orgId: "org-a",
+        threadId: "thread-new",
+        userId: "alice@example.com",
+        model: "new-model",
+        createdAt: 200,
+      },
+      {
+        runId: "run-old",
+        orgId: "org-a",
+        threadId: "thread-old",
+        userId: "alice@example.com",
+        model: "old-model",
+        createdAt: 100,
+      },
+    ]);
+
+    const [row] = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      scope: { kind: "all", activeOrgId: "super-org" },
+    });
+
+    expect(row?.runs).toEqual([
+      {
+        runId: "run-new",
+        threadId: "thread-new",
+        model: "new-model",
+        createdAt: 200,
+      },
+      {
+        runId: "run-old",
+        threadId: "thread-old",
+        model: "old-model",
+        createdAt: 100,
+      },
+    ]);
+    expect(mockGetRecentReviewRunsForReviewGroups).toHaveBeenCalledWith({
+      runScopes: [
+        { orgId: "org-a", runId: "run-new" },
+        { orgId: "org-a", runId: "run-old" },
+      ],
+      sinceMs: 0,
+    });
+    expect(mockGetFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runScopes: [
+          { orgId: "org-a", runId: "run-new" },
+          { orgId: "org-a", runId: "run-old" },
+        ],
       }),
     );
   });

@@ -24,6 +24,7 @@ import type {
   InstructionUpdate,
   HumanReviewSummary,
   ObservabilityReviewThreadScope,
+  ObservabilityReviewRunScope,
 } from "./types.js";
 import { observabilityReviewThreadKey } from "./types.js";
 
@@ -700,40 +701,28 @@ export async function getTraceSummaries(opts: {
           ROW_NUMBER() OVER (
             PARTITION BY org_id, review_group_owner_key, review_group_key
             ORDER BY created_at DESC, run_id DESC
-          ) AS review_row_number
+          ) AS review_row_number,
+          JSON_AGG(run_id) OVER (
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+            ORDER BY created_at DESC, run_id DESC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 5 FOLLOWING
+          ) AS review_group_run_ids
         FROM (
           SELECT agent_trace_summaries.*,
             -- ponytail: legacy spans lack resource IDs; historical resource backfill is the upgrade path.
             CASE
-              WHEN automation_span.name IS NULL
-                THEN 'thread:' || agent_trace_summaries.thread_id
               WHEN NULLIF(
                 automation_span.metadata::jsonb ->> 'automationId', ''
               ) IS NOT NULL
                 THEN 'automation:' || (
                   automation_span.metadata::jsonb ->> 'automationId'
                 )
-              WHEN automation_span.metadata::jsonb ->> 'scope' = 'organization'
-                THEN 'legacy-organization:' || COALESCE(
-                  NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
-                  SUBSTRING(
-                    automation_span.name
-                    FROM LENGTH('background_automation_run:') + 1
-                  )
-                )
-              ELSE 'legacy-personal:' || COALESCE(
-                agent_trace_summaries.user_id,
-                ''
-              ) || ':' || COALESCE(
-                NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
-                SUBSTRING(
-                  automation_span.name
-                  FROM LENGTH('background_automation_run:') + 1
-                )
-              )
+              ELSE 'thread:' || agent_trace_summaries.thread_id
             END AS review_group_key,
             CASE
-              WHEN automation_span.name IS NOT NULL
+              WHEN NULLIF(
+                automation_span.metadata::jsonb ->> 'automationId', ''
+              ) IS NOT NULL
                 AND automation_span.metadata::jsonb ->> 'scope' = 'organization'
                 THEN ''
               ELSE COALESCE(agent_trace_summaries.user_id, '')
@@ -792,37 +781,26 @@ export async function getTraceSummaries(opts: {
   return (rows as any[]).map(rowToTraceSummary);
 }
 
-export async function getRecentReviewRunsForThreads(opts: {
-  threadScopes: readonly ObservabilityReviewThreadScope[];
+export async function getRecentReviewRunsForReviewGroups(opts: {
+  runScopes: readonly ObservabilityReviewRunScope[];
   sinceMs: number;
-  perThreadLimit?: number;
 }): Promise<TraceSummary[]> {
   const scopes = [
     ...new Map(
-      opts.threadScopes
-        .filter(({ orgId, threadId }) => orgId && threadId)
-        .map((scope) => [
-          observabilityReviewThreadKey(scope.orgId, scope.threadId),
-          scope,
-        ]),
+      opts.runScopes
+        .filter(({ orgId, runId }) => orgId && runId)
+        .map((scope) => [JSON.stringify([scope.orgId, scope.runId]), scope]),
     ).values(),
-  ].slice(0, 100);
+  ].slice(0, 1200);
   if (scopes.length === 0) return [];
   await ensureObservabilityTables();
-  const limit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await getDbExec().execute({
-    sql: `SELECT * FROM (
-      SELECT summary.*,
-        ROW_NUMBER() OVER (
-          PARTITION BY summary.org_id, summary.thread_id
-          ORDER BY summary.created_at DESC, summary.run_id DESC
-        ) AS review_run_number
-      FROM agent_trace_summaries summary
+    sql: `SELECT summary.* FROM agent_trace_summaries summary
       INNER JOIN chat_threads thread
         ON thread.id = summary.thread_id AND thread.org_id = summary.org_id
           AND LOWER(thread.owner_email) = LOWER(summary.user_id)
       WHERE summary.created_at >= ? AND (${scopes
-        .map(() => "(summary.org_id = ? AND summary.thread_id = ?)")
+        .map(() => "(summary.org_id = ? AND summary.run_id = ?)")
         .join(" OR ")})
         AND NOT EXISTS (
           SELECT 1 FROM agent_trace_spans review_span
@@ -831,13 +809,10 @@ export async function getRecentReviewRunsForThreads(opts: {
             AND review_span.span_type = 'agent_run'
             AND review_span.name = 'agent_run:observability:human-review-summary'
         )
-    ) AS review_runs
-    WHERE review_run_number <= ?
-    ORDER BY thread_id, created_at DESC, run_id DESC`,
+      ORDER BY summary.created_at DESC, summary.run_id DESC`,
     args: [
       opts.sinceMs,
-      ...scopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
-      limit,
+      ...scopes.flatMap(({ orgId, runId }) => [orgId, runId]),
     ],
   });
   return (rows as Array<Record<string, unknown>>).map(rowToTraceSummary);
@@ -1034,7 +1009,13 @@ export async function getHumanReviewSummariesForThreads(
           AND LOWER(thread.owner_email) = LOWER(trace.user_id)
       WHERE (${uniqueScopes
         .map(() => "(review.org_id = ? AND trace.thread_id = ?)")
-        .join(" OR ")})
+        .join(" OR ")}${
+        uniqueRuns.length > 0
+          ? ` OR ${uniqueRuns
+              .map(() => "(review.org_id = ? AND trace.run_id = ?)")
+              .join(" OR ")}`
+          : ""
+      })
     ) review_summaries
     WHERE review_summaries.thread_summary_number = 1${
       uniqueRuns.length > 0
@@ -1049,6 +1030,7 @@ export async function getHumanReviewSummariesForThreads(
     ORDER BY review_summaries.updated_at DESC, review_summaries.run_id DESC`,
     args: [
       ...uniqueScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
+      ...uniqueRuns.flatMap(({ orgId, runId }) => [orgId, runId]),
       ...uniqueRuns.flatMap(({ orgId, runId }) => [orgId, runId]),
     ],
   });
@@ -1146,6 +1128,7 @@ export async function getFeedback(opts: {
   runIds?: readonly string[];
   threadIds?: readonly string[];
   threadScopes?: readonly ObservabilityReviewThreadScope[];
+  runScopes?: readonly ObservabilityReviewRunScope[];
   perThreadLimit?: number;
 }): Promise<FeedbackEntry[]> {
   const runIds = opts.runIds
@@ -1168,7 +1151,25 @@ export async function getFeedback(opts: {
         ).values(),
       ].slice(0, 100)
     : undefined;
-  if (threadScopes?.length === 0) return [];
+  const runScopes = opts.runScopes
+    ? [
+        ...new Map(
+          opts.runScopes
+            .filter(({ orgId, runId }) => orgId && runId)
+            .map((scope) => [
+              JSON.stringify([scope.orgId, scope.runId]),
+              scope,
+            ]),
+        ).values(),
+      ].slice(0, 1200)
+    : undefined;
+  if (
+    (opts.threadScopes !== undefined || opts.runScopes !== undefined) &&
+    (threadScopes?.length ?? 0) === 0 &&
+    (runScopes?.length ?? 0) === 0
+  ) {
+    return [];
+  }
   await ensureObservabilityTables();
   const client = getDbExec();
   const conditions: string[] = [];
@@ -1181,15 +1182,19 @@ export async function getFeedback(opts: {
     conditions.push(`run_id IN (${runIds.map(() => "?").join(", ")})`);
     args.push(...runIds);
   }
-  if (threadScopes) {
-    conditions.push(
-      `(${threadScopes
-        .map(() => "(org_id = ? AND thread_id = ?)")
-        .join(" OR ")})`,
-    );
-    args.push(
-      ...threadScopes.flatMap(({ orgId, threadId }) => [orgId, threadId]),
-    );
+  const scopedRows = [
+    ...(threadScopes ?? []).map(({ orgId, threadId }) => ({
+      sql: "(org_id = ? AND thread_id = ?)",
+      args: [orgId, threadId],
+    })),
+    ...(runScopes ?? []).map(({ orgId, runId }) => ({
+      sql: "(org_id = ? AND run_id = ?)",
+      args: [orgId, runId],
+    })),
+  ];
+  if (scopedRows.length > 0) {
+    conditions.push(`(${scopedRows.map((scope) => scope.sql).join(" OR ")})`);
+    args.push(...scopedRows.flatMap((scope) => scope.args));
   } else if (threadIds) {
     conditions.push(`thread_id IN (${threadIds.map(() => "?").join(", ")})`);
     args.push(...threadIds);
@@ -1218,18 +1223,22 @@ export async function getFeedback(opts: {
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const perThreadLimit = Math.max(1, Math.min(opts.perThreadLimit ?? 6, 12));
   const { rows } = await client.execute({
-    sql: threadScopes
-      ? `SELECT * FROM (
+    sql:
+      threadScopes || runScopes
+        ? `SELECT * FROM (
         SELECT agent_feedback.*,
           ROW_NUMBER() OVER (
-            PARTITION BY org_id, thread_id ORDER BY created_at DESC, id DESC
+            PARTITION BY org_id,
+              CASE WHEN run_id IS NULL THEN 'thread:' || COALESCE(thread_id, '')
+                ELSE 'run:' || run_id END
+            ORDER BY created_at DESC, id DESC
           ) AS feedback_row_number
         FROM agent_feedback ${where}
       ) AS review_feedback
       WHERE feedback_row_number <= ?
       ORDER BY created_at DESC, id DESC`
-      : threadIds
-        ? `SELECT * FROM (
+        : threadIds
+          ? `SELECT * FROM (
         SELECT agent_feedback.*,
           ROW_NUMBER() OVER (
             PARTITION BY thread_id ORDER BY created_at DESC, id DESC
@@ -1238,11 +1247,13 @@ export async function getFeedback(opts: {
       ) AS review_feedback
       WHERE feedback_row_number <= ?
       ORDER BY created_at DESC, id DESC`
-        : `SELECT * FROM agent_feedback ${where}
+          : `SELECT * FROM agent_feedback ${where}
       ORDER BY created_at DESC LIMIT ?`,
     args: [
       ...args,
-      threadScopes || threadIds ? perThreadLimit : (opts.limit ?? 100),
+      threadScopes || runScopes || threadIds
+        ? perThreadLimit
+        : (opts.limit ?? 100),
     ],
   });
   return (rows as any[]).map(rowToFeedback);
@@ -1901,6 +1912,15 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
 }
 
 function rowToTraceSummary(row: Record<string, any>): TraceSummary {
+  const parsedReviewGroupRunIds = safeJsonParse<unknown>(
+    row.review_group_run_ids,
+    null,
+  );
+  const reviewGroupRunIds = (
+    Array.isArray(parsedReviewGroupRunIds) ? parsedReviewGroupRunIds : []
+  )
+    .filter((runId): runId is string => typeof runId === "string" && !!runId)
+    .slice(0, 6);
   return {
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
@@ -1921,6 +1941,7 @@ function rowToTraceSummary(row: Record<string, any>): TraceSummary {
     ...(typeof row.review_group_label === "string"
       ? { reviewGroupLabel: row.review_group_label }
       : {}),
+    ...(reviewGroupRunIds.length > 0 ? { reviewGroupRunIds } : {}),
   };
 }
 

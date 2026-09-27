@@ -1,3 +1,4 @@
+---
 "@agent-native/core": patch
 ---
 

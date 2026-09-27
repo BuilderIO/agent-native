@@ -50,7 +50,7 @@ const {
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
-  getRecentReviewRunsForThreads,
+  getRecentReviewRunsForReviewGroups,
   getHumanReviewSummaries,
   getHumanReviewSummariesForThreads,
   getFeedback,
@@ -257,6 +257,40 @@ describe("observability store: per-user isolation", () => {
             automationId: "personal-resource",
             scope: "personal",
           },
+          {
+            runId: "g-legacy-org-one",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-g1",
+            createdAt: 8,
+            legacyAutomationName: "nightly-cleanup",
+          },
+          {
+            runId: "h-legacy-org-two",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-h1",
+            createdAt: 9,
+            legacyAutomationName: "nightly-cleanup",
+          },
+          {
+            runId: "i-legacy-personal-one",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-i1",
+            createdAt: 10,
+            legacyAutomationName: "personal-cleanup",
+            scope: "personal",
+          },
+          {
+            runId: "j-legacy-personal-two",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-j1",
+            createdAt: 11,
+            legacyAutomationName: "personal-cleanup",
+            scope: "personal",
+          },
         ] as const;
         for (const run of runs) {
           await pg.query(
@@ -270,7 +304,7 @@ describe("observability store: per-user isolation", () => {
               VALUES ($1, $2, $3, $4)`,
             [run.threadId, run.orgId, run.userId, "A real thread"],
           );
-          if (run.automationId) {
+          if (run.automationId || run.legacyAutomationName) {
             await pg.query(
               `INSERT INTO agent_trace_spans
                 (id, run_id, org_id, span_type, name, metadata, created_at)
@@ -279,10 +313,12 @@ describe("observability store: per-user isolation", () => {
                 `span-${run.runId}`,
                 run.runId,
                 run.orgId,
-                "background_automation_run:daily-digest",
+                `background_automation_run:${run.legacyAutomationName ?? "daily-digest"}`,
                 JSON.stringify({
-                  automationId: run.automationId,
-                  automation: "daily-digest",
+                  ...(run.automationId
+                    ? { automationId: run.automationId }
+                    : {}),
+                  automation: run.legacyAutomationName ?? "daily-digest",
                   scope: run.scope ?? "organization",
                 }),
                 run.createdAt,
@@ -306,7 +342,7 @@ describe("observability store: per-user isolation", () => {
           requireReviewContext: true,
         });
 
-        expect(summaries).toHaveLength(6);
+        expect(summaries).toHaveLength(10);
         expect(summaries).toContainEqual(
           expect.objectContaining({
             runId: "a-new",
@@ -314,6 +350,7 @@ describe("observability store: per-user isolation", () => {
             userId: "bob@example.com",
             runCount: 2,
             reviewGroupLabel: "daily-digest",
+            reviewGroupRunIds: ["a-new", "a-old"],
           }),
         );
         expect(
@@ -321,6 +358,24 @@ describe("observability store: per-user isolation", () => {
             (summary) => summary.reviewGroupLabel === "daily-digest",
           ),
         ).toHaveLength(5);
+        expect(
+          summaries.filter((summary) =>
+            summary.reviewGroupLabel?.endsWith("cleanup"),
+          ),
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ runId: "g-legacy-org-one", runCount: 1 }),
+            expect.objectContaining({ runId: "h-legacy-org-two", runCount: 1 }),
+            expect.objectContaining({
+              runId: "i-legacy-personal-one",
+              runCount: 1,
+            }),
+            expect.objectContaining({
+              runId: "j-legacy-personal-two",
+              runCount: 1,
+            }),
+          ]),
+        );
         expect(
           summaries.filter(
             (summary) =>
@@ -448,36 +503,23 @@ describe("observability store: per-user isolation", () => {
       });
     });
 
-    it("loads recent review runs only through org-owned thread rows", async () => {
-      await getRecentReviewRunsForThreads({
-        threadScopes: [
-          { orgId: "org-a", threadId: "thread-a" },
-          { orgId: "org-b", threadId: "thread-a" },
+    it("loads only explicitly grouped runs through org-owned thread rows", async () => {
+      await getRecentReviewRunsForReviewGroups({
+        runScopes: [
+          { orgId: "org-a", runId: "run-a" },
+          { orgId: "org-b", runId: "run-a" },
         ],
         sinceMs: 100,
-        perThreadLimit: 6,
       });
       const call = lastSelect();
       expect(call.sql).toMatch(
         /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
       );
-      expect(call.sql).toContain(
-        "(summary.org_id = ? AND summary.thread_id = ?)",
-      );
+      expect(call.sql).toContain("(summary.org_id = ? AND summary.run_id = ?)");
       expect(call.sql).toContain(
         "name = 'agent_run:observability:human-review-summary'",
       );
-      expect(call.sql).toContain(
-        "PARTITION BY summary.org_id, summary.thread_id",
-      );
-      expect(call.args).toEqual([
-        100,
-        "org-a",
-        "thread-a",
-        "org-b",
-        "thread-a",
-        6,
-      ]);
+      expect(call.args).toEqual([100, "org-a", "run-a", "org-b", "run-a"]);
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {
@@ -600,7 +642,7 @@ describe("observability store: per-user isolation", () => {
         /INNER JOIN chat_threads thread\s+ON thread\.id = trace\.thread_id AND thread\.org_id = trace\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(trace\.user_id\)/,
       );
       expect(call.sql).toMatch(
-        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\)\)/,
+        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.run_id = \?\)\)/,
       );
       expect(call.sql).toMatch(
         /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
@@ -610,6 +652,54 @@ describe("observability store: per-user isolation", () => {
         "thread-a",
         "org-b",
         "thread-a",
+        "org-a",
+        "run-old",
+        "org-a",
+        "run-old",
+      ]);
+    });
+
+    it("loads explicitly requested summaries from older grouped threads", async () => {
+      selectedRows = [
+        {
+          run_id: "run-old",
+          org_id: "org-a",
+          ask: "Earlier ask",
+          outcome: "Earlier outcome",
+          artifacts: "[]",
+          created_by: "alice@example.com",
+          created_at: 1,
+          updated_at: 2,
+          review_thread_id: "thread-old",
+        },
+      ];
+      await expect(
+        getHumanReviewSummariesForThreads(
+          [{ orgId: "org-a", threadId: "thread-latest" }],
+          [{ orgId: "org-a", runId: "run-old" }],
+        ),
+      ).resolves.toMatchObject(
+        new Map([
+          [
+            JSON.stringify(["org-a", "thread-old"]),
+            [
+              {
+                runId: "run-old",
+                ask: "Earlier ask",
+                outcome: "Earlier outcome",
+              },
+            ],
+          ],
+        ]),
+      );
+      expect(lastSelect().sql).toContain(
+        "(review.org_id = ? AND trace.run_id = ?)",
+      );
+      expect(lastSelect().args).toEqual([
+        "org-a",
+        "thread-latest",
+        "org-a",
+        "run-old",
         "org-a",
         "run-old",
       ]);
@@ -883,6 +973,31 @@ describe("observability store: per-user isolation", () => {
         "org-a",
         "human_review",
         3,
+      ]);
+    });
+
+    it("reads feedback only for the explicit org/run pairs in review groups", async () => {
+      await getFeedback({
+        runScopes: [
+          { orgId: "org-a", runId: "shared-run" },
+          { orgId: "org-b", runId: "shared-run" },
+        ],
+        perThreadLimit: 6,
+      });
+
+      const call = lastSelect();
+      expect(call.sql).toContain(
+        "(org_id = ? AND run_id = ?) OR (org_id = ? AND run_id = ?)",
+      );
+      expect(call.sql).toContain(
+        "PARTITION BY org_id,\n              CASE WHEN run_id IS NULL THEN 'thread:' || COALESCE(thread_id, '')",
+      );
+      expect(call.args).toEqual([
+        "org-a",
+        "shared-run",
+        "org-b",
+        "shared-run",
+        6,
       ]);
     });
 
