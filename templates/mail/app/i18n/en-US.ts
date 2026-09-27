@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Skip inbox",
       aiSetupSave: "Save setup",
       aiSetupSkip: "Skip for now",
+      aiSetupSkipSetup: "Skip inbox setup",
       aiSetupImportantHeadline: "What’s important",
       aiSetupSkipInboxHeadline: "What can skip your inbox",
       aiSetupTagsHeadline: "Pick your tabs",
@@ -446,6 +447,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
+      connectionNotConfigured:
+        "Gmail connection isn't configured for this app. Ask your administrator to enable it, or skip this step for now.",
       heroDescription:
         "Send and receive real email. Connect your Gmail account to get started.",
       setupIntro:

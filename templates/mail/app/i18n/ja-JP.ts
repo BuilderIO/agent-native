@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "受信トレイをスキップ",
       aiSetupSave: "設定を保存",
       aiSetupSkip: "今回はスキップ",
+      aiSetupSkipSetup: "受信トレイの設定をスキップ",
       aiSetupImportantHeadline: "重要なもの",
       aiSetupSkipInboxHeadline: "受信トレイをスキップできるもの",
       aiSetupTagsHeadline: "タブを選ぶ",
@@ -449,6 +450,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",
+      connectionNotConfigured:
+        "このアプリでは Gmail 接続が設定されていません。管理者に有効化を依頼するか、今はこの手順をスキップしてください。",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

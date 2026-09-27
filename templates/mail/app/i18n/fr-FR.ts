@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
       aiSetupSave: "Enregistrer la configuration",
       aiSetupSkip: "Ignorer pour le moment",
+      aiSetupSkipSetup: "Ignorer la configuration de la boîte de réception",
       aiSetupImportantHeadline: "Ce qui est important",
       aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
       aiSetupTagsHeadline: "Choisissez vos onglets",
@@ -454,6 +455,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connecter votre compte Google",
+      connectionNotConfigured:
+        "La connexion Gmail n’est pas configurée pour cette application. Demandez à votre administrateur de l’activer ou ignorez cette étape pour le moment.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
+      aiSetupSkipSetup: "Omitir configuración de la bandeja",
       aiSetupImportantHeadline: "Qué es importante",
       aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
       aiSetupTagsHeadline: "Elige tus pestañas",
@@ -453,6 +454,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",
+      connectionNotConfigured:
+        "La conexión de Gmail no está configurada para esta aplicación. Pide a tu administrador que la habilite o salta este paso por ahora.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

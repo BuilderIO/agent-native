@@ -20,6 +20,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { AiRulePromptField } from "@/components/settings/AiRulePromptField";
 import {
   JevAvailabilityError,
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   useAiFilterBackfillStatus,
@@ -46,6 +48,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { labelTabHref } from "@/lib/inbox-tabs";
 import { getLabelStyle } from "@/lib/label-colors";
 import { cn } from "@/lib/utils";
@@ -128,6 +131,31 @@ function SetupRuleRow({
         })}
       />
     </div>
+  );
+}
+
+function SetupSurface({
+  embedded,
+  visible,
+  onClose,
+  children,
+}: {
+  embedded: boolean;
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+  if (embedded) return children;
+  return (
+    <Dialog
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-3xl">{children}</DialogContent>
+    </Dialog>
   );
 }
 
@@ -362,16 +390,26 @@ function SetupResults({
 
 export function AiInboxSetup({
   forceOpen = false,
+  embedded = false,
   onOpenChange,
+  onComplete,
+  onSkipSetup,
 }: {
   forceOpen?: boolean;
+  embedded?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onComplete?: () => void;
+  onSkipSetup?: () => void;
 }) {
   const t = useT();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
   const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const jevAvailability = useActionQuery(
     "get-jev-availability",
     {},
@@ -455,6 +493,17 @@ export function AiInboxSetup({
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
       onOpenChange?.(false);
+      onComplete?.();
+    } catch {
+      toast.error(t("mail.aiFilter.settingsFailed"));
+    }
+  };
+
+  const skipSetup = async () => {
+    if (saving || updateSettings.isPending) return;
+    try {
+      await updateSettings.mutateAsync({ aiSetupCompleted: true });
+      onSkipSetup?.();
     } catch {
       toast.error(t("mail.aiFilter.settingsFailed"));
     }
@@ -601,21 +650,81 @@ export function AiInboxSetup({
     customTagSelected &&
     (!customTagName.trim() || !customTagPrompt.trim());
 
+  if (
+    embedded &&
+    forceOpen &&
+    (googleStatus.isLoading || (connected && jevAvailability.isLoading))
+  ) {
+    return (
+      <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-10 w-28" />
+      </div>
+    );
+  }
+
+  if (embedded && forceOpen && !connected) {
+    return (
+      <div className="mx-auto w-full max-w-2xl">
+        {googleStatus.data?.configured === true ||
+        canOfferGoogleOAuthSetup ||
+        googleStatus.isError ? (
+          <GoogleConnectBanner variant="hero" />
+        ) : (
+          <div className="py-6">
+            <h1 className="text-lg font-semibold">
+              {t("mail.googleConnect.connectTitle")}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("mail.googleConnect.connectionNotConfigured")}
+            </p>
+          </div>
+        )}
+        <div className="mt-6 flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void skipSetup()}
+            disabled={saving || updateSettings.isPending}
+          >
+            {t("mail.sort.aiSetupSkipSetup")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Dialog
-      open={visible}
-      onOpenChange={(open) => {
-        if (!open) {
-          onOpenChange?.(false);
-          void complete();
-        }
+    <SetupSurface
+      embedded={embedded}
+      visible={visible}
+      onClose={() => {
+        onOpenChange?.(false);
+        void complete();
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <>
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center overflow-y-auto">
-          <DialogHeader className="mb-6">
-            <DialogTitle>{headline}</DialogTitle>
-          </DialogHeader>
+          <div className="mb-6 flex items-center justify-between gap-3">
+            {embedded ? (
+              <h1 className="text-lg font-semibold">{headline}</h1>
+            ) : (
+              <DialogHeader>
+                <DialogTitle>{headline}</DialogTitle>
+              </DialogHeader>
+            )}
+            {embedded && step < 3 && onSkipSetup ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void skipSetup()}
+                disabled={saving || updateSettings.isPending}
+              >
+                {t("mail.sort.aiSetupSkipSetup")}
+              </Button>
+            ) : null}
+          </div>
           <div
             className="mb-8 flex items-center gap-2"
             role="progressbar"
@@ -866,7 +975,7 @@ export function AiInboxSetup({
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </>
+    </SetupSurface>
   );
 }

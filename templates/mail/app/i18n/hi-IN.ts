@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
       aiSetupSave: "सेटअप सहेजें",
       aiSetupSkip: "अभी छोड़ें",
+      aiSetupSkipSetup: "इनबॉक्स सेटअप छोड़ें",
       aiSetupImportantHeadline: "क्या ज़रूरी है",
       aiSetupSkipInboxHeadline: "क्या इनबॉक्स को छोड़ सकता है",
       aiSetupTagsHeadline: "अपने टैब चुनें",
@@ -445,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",
+      connectionNotConfigured:
+        "इस ऐप के लिए Gmail कनेक्शन कॉन्फ़िगर नहीं है। इसे चालू करने के लिए अपने व्यवस्थापक से कहें या अभी यह चरण छोड़ दें।",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

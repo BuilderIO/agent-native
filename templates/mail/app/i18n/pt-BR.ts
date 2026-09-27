@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
+      aiSetupSkipSetup: "Pular configuração da caixa de entrada",
       aiSetupImportantHeadline: "O que é importante",
       aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
       aiSetupTagsHeadline: "Escolha suas abas",
@@ -451,6 +452,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecte sua conta Google",
+      connectionNotConfigured:
+        "A conexão do Gmail não está configurada para este app. Peça ao administrador para ativá-la ou pule esta etapa por enquanto.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
