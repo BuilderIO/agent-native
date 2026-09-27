@@ -10,15 +10,16 @@ import {
   type RealtimeVoiceModeProviderProps,
   type TiptapComposerProps,
 } from "@agent-native/toolkit/composer";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { readClientAppState } from "../application-state.js";
 import { ExternalAgentNudge } from "../external-agent-host.js";
-import { FileStorageSetupPopover } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
 export function PromptComposer(props: PromptComposerProps) {
+  const storageAnchorRef = useRef<HTMLDivElement>(null);
   const fileUploadStatus = useFileUploadStatus(
     props.attachmentsEnabled !== false,
   );
@@ -26,43 +27,33 @@ export function PromptComposer(props: PromptComposerProps) {
     fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
   const attachmentsEnabled =
     props.attachmentsEnabled !== false && fileStorageConfigured;
-  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
-  const [storageAnchorRect, setStorageAnchorRect] = useState<DOMRect | null>(
-    null,
-  );
-  const requestStorageSetup = useCallback((anchor?: HTMLElement) => {
-    const target =
-      anchor ??
-      (document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null);
-    setStorageAnchorRect(target?.getBoundingClientRect() ?? null);
-    window.setTimeout(() => setStorageSetupOpen(true), 220);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
+  const openStoragePrompt = useCallback(() => {
+    setStoragePromptOpen(true);
   }, []);
   const onAttachmentRequest =
     props.onAttachmentRequest ??
-    (props.attachmentsEnabled !== false && !fileStorageConfigured
-      ? requestStorageSetup
-      : undefined);
+    (props.attachmentsEnabled === false || fileStorageConfigured
+      ? undefined
+      : openStoragePrompt);
+
+  useEffect(() => {
+    if (fileStorageConfigured) setStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
 
   return (
-    <div className="relative w-full min-w-0">
+    <div ref={storageAnchorRef} className="relative w-full min-w-0">
       <FileStorageSetupPopover
-        open={storageSetupOpen && !fileStorageConfigured}
-        onOpenChange={(open) => {
-          setStorageSetupOpen(open);
-          if (!open) setStorageAnchorRect(null);
-        }}
+        open={storagePromptOpen}
+        onOpenChange={setStoragePromptOpen}
+        anchorRef={storageAnchorRef}
         onConnected={() => void fileUploadStatus.refetch()}
-        onRetryStatus={() => void fileUploadStatus.refetch()}
-        status={
-          fileUploadStatus.isError
-            ? "unavailable"
-            : fileUploadStatus.data?.configured === false
-              ? "missing"
-              : "checking"
-        }
-        anchorRect={storageAnchorRect}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
       />
       <CoreComposerRuntimeProvider>
         <ToolkitPromptComposer

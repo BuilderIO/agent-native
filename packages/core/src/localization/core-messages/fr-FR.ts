@@ -133,10 +133,12 @@ const messages: AgentChatTranslation = {
     "Téléversement et stockage de fichiers",
   "onboarding.fileStorage.title":
     "Connecter un stockage pour envoyer des fichiers",
+  "onboarding.fileStorage.statusUnavailable":
+    "Impossible de vérifier le stockage",
   "onboarding.fileStorage.description":
     "Connectez Builder.io (gratuit) ou configurez votre propre stockage d’objets compatible S3.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnecter Builder.io",
-  "onboarding.fileStorage.custom": "Ajouter vos propres clés de stockage",
+  "onboarding.fileStorage.custom": "Utiliser des clés personnalisées",
   "onboarding.fileStorage.customDescription":
     "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",

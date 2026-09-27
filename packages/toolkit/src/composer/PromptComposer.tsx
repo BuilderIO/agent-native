@@ -138,8 +138,8 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
-  /** Called when the user requests an upload while attachments are unavailable. */
-  onAttachmentRequest?: (anchor?: HTMLElement) => void;
+  /** Opens host-owned storage setup when the user chooses an upload action. */
+  onAttachmentRequest?: () => void;
   /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
   attachmentAdapter?: AttachmentAdapter;
   /** Let hosts extract ordinary uploaded text without also inlining it. */
@@ -894,7 +894,9 @@ function PromptComposerInner({
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             gateComposer
-              ? "hidden"
+              ? attachmentsEnabled || onAttachmentRequest
+                ? "upload-only"
+                : "hidden"
               : (plusMenuMode ??
                 (attachmentsEnabled || onAttachmentRequest
                   ? "upload-only"

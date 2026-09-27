@@ -282,7 +282,7 @@ vi.mock("./chat/run-recovery.js", () => ({
   getRequestModeMetadata: () => undefined,
 }));
 
-vi.mock("./FileStorageSetupCard.js", async () => {
+vi.mock("./FileStorageSetupPopover.js", async () => {
   const React = await import("react");
   return {
     FileStorageSetupPopover: (props: unknown) => {
@@ -652,13 +652,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
     expect(chatMocks.chatProps.composerProps.attachmentsEnabled).toBe(false);
 
-    await act(async () =>
-      chatMocks.composerProps.onAttachmentRequest(container),
-    );
+    await act(async () => chatMocks.composerProps.onAttachmentRequest());
     expect(chatMocks.fileStoragePopoverProps.open).toBe(true);
-    expect(chatMocks.fileStoragePopoverProps.anchorRect).toBeInstanceOf(
-      DOMRect,
-    );
+    expect(
+      chatMocks.fileStoragePopoverProps.anchorRef.current.classList.contains(
+        "agentkit-host-composer",
+      ),
+    ).toBe(true);
 
     chatMocks.fileUploadStatus = {
       data: { configured: true },
@@ -688,7 +688,7 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.fileStoragePopoverProps).toMatchObject({
       open: false,
-      status: "checking",
+      status: "unavailable",
     });
     expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
   });
@@ -707,11 +707,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.fileStoragePopoverProps).toMatchObject({
       open: false,
       status: "unavailable",
-      onRetryStatus: expect.any(Function),
+      onRetry: expect.any(Function),
     });
     await act(async () => chatMocks.composerProps.onAttachmentRequest());
     expect(chatMocks.fileStoragePopoverProps.open).toBe(true);
-    await act(async () => chatMocks.fileStoragePopoverProps.onRetryStatus());
+    await act(async () => chatMocks.fileStoragePopoverProps.onRetry());
     expect(refetch).toHaveBeenCalledOnce();
   });
 

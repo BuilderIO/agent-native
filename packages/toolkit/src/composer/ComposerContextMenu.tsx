@@ -76,7 +76,7 @@ export type ComposerContextMenuItem =
 export interface ComposerContextMenuProps {
   items: readonly ComposerContextMenuItem[];
   addAttachment?: (file: File) => Promise<unknown>;
-  onAttachmentRequest?: (anchor?: HTMLElement) => void;
+  onAttachmentRequest?: () => void;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
   onDisabledFocus?: () => void;
@@ -225,6 +225,7 @@ export function ComposerContextMenu({
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
+  const pendingAttachmentRequest = useRef(false);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
     null,
   );
@@ -289,6 +290,15 @@ export function ComposerContextMenu({
     },
     [dismissPage, updatePath],
   );
+  useEffect(() => {
+    if (open || !pendingAttachmentRequest.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!pendingAttachmentRequest.current) return;
+      pendingAttachmentRequest.current = false;
+      onAttachmentRequest?.();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onAttachmentRequest, open]);
   useEffect(() => {
     if (!disabled) return;
     pendingDialog.current = null;
@@ -480,6 +490,7 @@ export function ComposerContextMenu({
                 className="size-7 shrink-0"
                 disabled={disabled}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
               >
                 <IconPlus />
               </Button>
@@ -504,15 +515,14 @@ export function ComposerContextMenu({
           <DropdownMenuGroup>
             {(addAttachment || onAttachmentRequest) && (
               <DropdownMenuItem
-                onSelect={(event) => {
-                  changeOpen(false);
-                  if (addAttachment) inputRef.current?.click();
-                  else
-                    onAttachmentRequest?.(
-                      event.currentTarget instanceof HTMLElement
-                        ? event.currentTarget
-                        : undefined,
-                    );
+                onSelect={() => {
+                  if (addAttachment) {
+                    changeOpen(false);
+                    inputRef.current?.click();
+                  } else {
+                    pendingAttachmentRequest.current = true;
+                    changeOpen(false);
+                  }
                 }}
               >
                 <IconFile size={16} />

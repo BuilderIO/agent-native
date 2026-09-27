@@ -214,7 +214,7 @@ function ChatRunFailure({
       originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     void controller.sendMessage({
       threadId,
-      text: prompt || t("chat.retryPreviousRequest"),
+      text: prompt,
       ...(attachments.length ? { attachments } : {}),
       metadata: {
         custom: {

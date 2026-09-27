@@ -142,7 +142,7 @@ import {
   localizeKnownChatErrorText,
 } from "./error-format.js";
 import { ExternalAgentNudge } from "./external-agent-host.js";
-import { FileStorageSetupPopover } from "./FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { useFormatters, useT } from "./i18n.js";
 import { buildSignInReturnHref } from "./require-session.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
@@ -420,7 +420,6 @@ interface AgentKitSurfaceContextValue {
   retryProviderStatus: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
-  fileStorageUnavailable: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
   retryDeferredSubmission: () => Promise<void>;
@@ -2436,7 +2435,6 @@ const AgentKitAssistantChatBody = forwardRef<
     retryProviderStatus,
     fileStorageConfigured,
     fileStorageMissing,
-    fileStorageUnavailable: fileUploadStatus.isError,
     retryFileStorageStatus,
     deferredSubmissionFailed: deferredProviderSubmissionFailureId !== null,
     retryDeferredSubmission,
@@ -2947,7 +2945,6 @@ function AgentKitComposerSurface({
   retryProviderStatus,
   fileStorageConfigured,
   fileStorageMissing,
-  fileStorageUnavailable,
   retryFileStorageStatus,
   deferredSubmissionFailed,
   retryDeferredSubmission,
@@ -2976,7 +2973,6 @@ function AgentKitComposerSurface({
   retryProviderStatus: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
-  fileStorageUnavailable: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
   retryDeferredSubmission: () => Promise<void>;
@@ -3000,23 +2996,14 @@ function AgentKitComposerSurface({
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
   const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
-  const [fileStorageAnchorRect, setFileStorageAnchorRect] =
-    useState<DOMRect | null>(null);
+  const fileStorageAnchorRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (fileStorageConfigured) {
-      setFileStoragePromptOpen(false);
-      setFileStorageAnchorRect(null);
-    }
+    if (fileStorageConfigured) setFileStoragePromptOpen(false);
   }, [fileStorageConfigured]);
-  const requestFileStorage = (anchor?: HTMLElement) => {
-    const target =
-      anchor ??
-      (document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null);
-    setFileStorageAnchorRect(target?.getBoundingClientRect() ?? null);
-    setFileStoragePromptOpen(true);
-  };
+  const requestFileStorage = useCallback(
+    () => setFileStoragePromptOpen(true),
+    [],
+  );
   const thread = useAgentThread(threadId);
   const latestAssistant = [...thread.messages]
     .reverse()
@@ -3034,23 +3021,21 @@ function AgentKitComposerSurface({
     requestedByUser: true,
   });
   return (
-    <div className={cn("agentkit-host-composer", props.composerAreaClassName)}>
+    <div
+      ref={fileStorageAnchorRef}
+      className={cn("agentkit-host-composer", props.composerAreaClassName)}
+    >
       <FileStorageSetupPopover
         open={fileStoragePromptOpen && !fileStorageConfigured}
-        onOpenChange={(open) => {
-          setFileStoragePromptOpen(open);
-          if (!open) setFileStorageAnchorRect(null);
-        }}
+        onOpenChange={setFileStoragePromptOpen}
         onConnected={retryFileStorageStatus}
-        anchorRect={fileStorageAnchorRect}
-        status={
-          fileStorageMissing
-            ? "missing"
-            : fileStorageUnavailable
-              ? "unavailable"
-              : "checking"
-        }
-        onRetryStatus={retryFileStorageStatus}
+        anchorRef={fileStorageAnchorRef}
+        {...(fileStorageMissing
+          ? { status: "missing" as const }
+          : {
+              status: "unavailable" as const,
+              onRetry: retryFileStorageStatus,
+            })}
       />
       {props.composerSlot}
       {showPlanCallout ? (

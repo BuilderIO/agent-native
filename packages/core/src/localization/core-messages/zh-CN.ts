@@ -117,10 +117,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "连接您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "文件上传和存储",
   "onboarding.fileStorage.title": "连接存储以上传文件",
+  "onboarding.fileStorage.statusUnavailable": "无法检查存储",
   "onboarding.fileStorage.description":
     "连接 Builder.io（免费）或配置自己的兼容 S3 对象存储。",
   "onboarding.fileStorage.reconnectBuilder": "重新连接 Builder.io",
-  "onboarding.fileStorage.custom": "添加自己的对象存储密钥",
+  "onboarding.fileStorage.custom": "使用自定义密钥",
   "onboarding.fileStorage.customDescription":
     "配置带有稳定公共 URL 的兼容 S3 存储桶。",
   "onboarding.capability.voiceInput.label": "语音输入",

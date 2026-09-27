@@ -129,10 +129,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
   "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
+  "onboarding.fileStorage.statusUnavailable":
+    "ストレージを確認できませんでした",
   "onboarding.fileStorage.description":
     "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
   "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
-  "onboarding.fileStorage.custom": "独自のオブジェクトストレージキーを追加",
+  "onboarding.fileStorage.custom": "カスタムキーを使用",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",

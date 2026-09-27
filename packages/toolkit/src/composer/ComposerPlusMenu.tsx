@@ -46,7 +46,7 @@ interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   addAttachment?: (file: File) => Promise<unknown>;
   attachmentsEnabled?: boolean;
-  onAttachmentRequest?: (anchor?: HTMLElement) => void;
+  onAttachmentRequest?: () => void;
   onAttachmentError?: (message: string) => void;
   attachmentAccept?: string;
   extensionTools?: boolean;
@@ -290,9 +290,9 @@ function UploadOnlyAttachButton({
               aria-label={t("agentChat.composer.upload", {
                 defaultValue: "Upload",
               })}
-              onClick={(event) => {
+              onClick={() => {
                 if (attachmentsEnabled) inputRef.current?.click();
-                else onAttachmentRequest?.(event.currentTarget);
+                else onAttachmentRequest?.();
               }}
             >
               <IconPlus className="h-4 w-4" />
@@ -609,12 +609,12 @@ function ComposerPlusMenuFull({
             desc: t("agentChat.composer.menu.uploadFileDescription", {
               defaultValue: "Images, PDFs, text/code, JSON, CSV",
             }),
-            action: (anchor?: HTMLElement) => {
+            action: () => {
               setOpen(false);
               if (attachmentsEnabled) {
                 setTimeout(() => fileUploadRef.current?.click(), 0);
               } else {
-                onAttachmentRequest?.(anchor);
+                onAttachmentRequest?.();
               }
             },
           },

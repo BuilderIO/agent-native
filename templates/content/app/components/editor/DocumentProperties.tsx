@@ -83,6 +83,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -2554,8 +2555,10 @@ function FilesMediaValueEditor({
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -2592,31 +2595,47 @@ function FilesMediaValueEditor({
     onDone();
   }
 
-  async function uploadFiles(files: FileList | null) {
-    const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0 || !fileStorageConfigured) return;
-    setUploading(true);
-    try {
-      const uploadedUrls: string[] = [];
-      for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+  const uploadFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const selectedFiles = Array.from(files ?? []);
+      if (selectedFiles.length === 0) return;
+      if (!fileStorageConfigured) {
+        pendingUploadFilesRef.current = selectedFiles;
+        setStorageSetupOpen(true);
+        return;
       }
-      setItems((current) => [...current, ...uploadedUrls]);
-      toast.success(
-        t(
-          uploadedUrls.length === 1
-            ? "editor.properties.imageUploaded_one"
-            : "editor.properties.imageUploaded_other",
-          { count: uploadedUrls.length },
-        ),
-      );
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      setUploading(true);
+      try {
+        const uploadedUrls: string[] = [];
+        for (const file of selectedFiles) {
+          uploadedUrls.push(await uploadImageFile(file));
+        }
+        setItems((current) => [...current, ...uploadedUrls]);
+        toast.success(
+          t(
+            uploadedUrls.length === 1
+              ? "editor.properties.imageUploaded_one"
+              : "editor.properties.imageUploaded_other",
+            { count: uploadedUrls.length },
+          ),
+        );
+      } catch (error) {
+        toast.error(imageUploadErrorMessage(error));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [fileStorageConfigured, t],
+  );
+
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingUploadFilesRef.current;
+    pendingUploadFilesRef.current = null;
+    if (pendingFiles) void uploadFiles(pendingFiles);
+  }, [fileStorageConfigured, uploadFiles]);
 
   return (
     <form
@@ -2707,22 +2726,28 @@ function FilesMediaValueEditor({
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
-      {!fileStorageConfigured ? (
-        <FileStorageStatusGate status={fileUploadStatus} />
-      ) : null}
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={storageSetupOpen}
+        onOpenChange={setStorageSetupOpen}
+      />
       <div className="flex justify-end gap-2">
-        {fileStorageConfigured ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={mutation.isPending || uploading}
-          >
-            <IconUpload className="size-3.5" />
-            {t("editor.properties.upload")}
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            if (fileStorageConfigured) {
+              fileInputRef.current?.click();
+            } else {
+              setStorageSetupOpen(true);
+            }
+          }}
+          disabled={mutation.isPending || uploading}
+        >
+          <IconUpload className="size-3.5" />
+          {t("editor.properties.upload")}
+        </Button>
         <Button
           type="button"
           variant="ghost"
