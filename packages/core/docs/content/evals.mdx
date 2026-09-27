@@ -15,6 +15,8 @@ This is complementary to the post-hoc scoring in [Observability](/docs/observabi
 
 The runner resolves a provider-agnostic engine/model from the existing registry — no model is hardcoded — so the same suite runs against whatever engine the app is configured for.
 
+<Diagram id="doc-block-eval-flow" title="From a production trace to a CI gate" summary="Promote a completed run into a *.eval.ts case, run the agent, and block deploy when a scorer misses its threshold.">
+
 ```html
 <div class="eval-flow">
   <div class="diagram-node">
@@ -277,11 +279,11 @@ When a real run is surprising — it failed in production after working in a dem
 agent-native eval promote <runId> --write evals/from-trace.eval.ts
 ```
 
-That command persists an `EvalDataset` row (the same helper the dashboard and the `promote-trace-eval` action use) and writes a `defineEval` fixture the existing `agent-native eval` gate already discovers. Default scorers are `usesTool(...)` for each successful tool on the trace, plus an optional `--must-contain` substring. Truncated, aborted, or prompt-less runs fail closed: they return a typed error and insert nothing.
+That command persists an `EvalDataset` row (the same helper the dashboard and the `promote-trace-eval` action use) and writes a `defineEval` fixture the existing `agent-native eval` gate already discovers. Default scorers require each tool that succeeded on the trace to complete successfully again on replay — a call that only starts, or that finishes with an error, does not pass — plus an optional `--must-contain` substring. Truncated, aborted, or prompt-less runs fail closed: they return a typed error and insert nothing.
 
-The hosted action and `POST /_agent-native/observability/traces/:runId/promote` never write the app tree. Use `--write` (or copy the returned JSON into a `*.eval.ts`) when you want CI to gate on the case.
+The hosted action and `POST /_agent-native/observability/traces/:runId/promote` never write the app tree. Use `--write` (or copy the returned JSON into a `*.eval.ts`) when you want CI to gate on the case. The CLI and the signed-in action share one dataset per run.
 
-The Observability dashboard's trace detail has a **Promote to eval** control that calls the same endpoint.
+The Observability dashboard's trace detail has a **Promote to eval** control that calls the same endpoint. A run with no successful tool call needs the reply text that case must contain; the control accepts that text before promoting.
 
 ## What's next
 

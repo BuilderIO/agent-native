@@ -225,6 +225,7 @@ function ConversationsTab({ days }: { days: number }) {
   if (selectedRunId) {
     return (
       <TraceDetailView
+        key={selectedRunId}
         runId={selectedRunId}
         onBack={() => setSelectedRunId(null)}
       />
@@ -314,10 +315,15 @@ function TraceDetailView({
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
   const promote = usePromoteTraceEval();
+  const [mustContain, setMustContain] = useState("");
+  const needle = mustContain.trim();
+  const needsNeedle = !!data && data.summary.successfulTools === 0;
+  const canPromote =
+    !!data && !promote.isPending && (!needsNeedle || needle.length > 0);
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <button
           onClick={onBack}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -325,17 +331,47 @@ function TraceDetailView({
           <IconArrowLeft size={14} />
           {t("observability.backToList")}
         </button>
-        <button
-          type="button"
-          disabled={promote.isPending || !data}
-          onClick={() => promote.mutate({ runId })}
-          className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
-        >
-          {promote.isPending
-            ? t("observability.promotingToEval")
-            : t("observability.promoteToEval")}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+            type="text"
+            value={mustContain}
+            onChange={(event) => setMustContain(event.target.value)}
+            disabled={promote.isPending || !data}
+            placeholder={t("observability.promoteMustContain", {
+              defaultValue: needsNeedle
+                ? "Reply must contain…"
+                : "Reply must contain (optional)",
+            })}
+            aria-label={t("observability.promoteMustContainLabel", {
+              defaultValue: "Text the promoted eval reply must contain",
+            })}
+            className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+          />
+          <button
+            type="button"
+            disabled={!canPromote}
+            onClick={() =>
+              promote.mutate({
+                runId,
+                ...(needle ? { mustContain: needle } : {}),
+              })
+            }
+            className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {promote.isPending
+              ? t("observability.promotingToEval")
+              : t("observability.promoteToEval")}
+          </button>
+        </div>
       </div>
+      {needsNeedle && needle.length === 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promoteNeedsContains", {
+            defaultValue:
+              "This run has no successful tool call. Enter text the reply must contain before promoting.",
+          })}
+        </p>
+      )}
 
       {promote.isSuccess && promote.data && (
         <p className="mb-3 text-xs text-muted-foreground">

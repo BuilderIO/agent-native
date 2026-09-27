@@ -8,6 +8,7 @@ import {
   type PromoteTraceEvent,
   type PromoteTraceSpan,
 } from "./from-trace.js";
+import type { AgentRunOutput } from "./types.js";
 
 function events(...items: Array<Record<string, unknown>>): PromoteTraceEvent[] {
   return items.map((item, i) => ({
@@ -47,8 +48,8 @@ describe("promoteTraceToEval", () => {
       runId: "run-abcdef123456",
     });
     expect(result.value.eval.scorers.map((s) => s.name)).toEqual([
-      "uses_tool:search-docs",
-      "uses_tool:create-item",
+      "uses_tool_success:search-docs",
+      "uses_tool_success:create-item",
     ]);
     expect(result.value.spec.scorers).toEqual([
       { type: "usesTool", toolName: "search-docs" },
@@ -388,6 +389,48 @@ describe("promoteTraceToEval", () => {
     ]);
   });
 
+  it("does not pass when the replayed tool fails or never finishes", async () => {
+    const result = promoteTraceToEval({
+      runId: "run-tool-success",
+      run: { status: "completed" },
+      events: events({ type: "user-message", text: "Search then reply" }),
+      spans: [
+        { spanType: "tool_call", name: "search-docs", status: "success" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const scorer = result.value.eval.scorers[0]!;
+    const base = {
+      text: "done",
+      toolCalls: ["search-docs"],
+      ok: true,
+      runId: "eval:1",
+      durationMs: 1,
+    };
+    const score = async (
+      toolCallDetails: AgentRunOutput["toolCallDetails"],
+    ) => {
+      const analysis = await scorer.analyze!(
+        { ...base, toolCallDetails },
+        undefined as never,
+      );
+      return scorer.generateScore(analysis);
+    };
+    expect(
+      await score([
+        { name: "search-docs", input: {}, completed: true, isError: true },
+      ]),
+    ).toBe(0);
+    expect(await score([{ name: "search-docs", input: {} }])).toBe(0);
+    expect(await score(undefined)).toBe(0);
+    expect(
+      await score([
+        { name: "search-docs", input: {}, completed: true, isError: false },
+      ]),
+    ).toBe(1);
+  });
+
   it("emits a loadable defineEval module", () => {
     const result = promoteTraceToEval({
       runId: "run-write",
@@ -402,10 +445,13 @@ describe("promoteTraceToEval", () => {
     if (!result.ok) return;
     const source = generateEvalModuleSource(result.value.spec);
     expect(source).toContain(
-      'import { defineEval, usesTool, contains } from "@agent-native/core/eval";',
+      'import { defineEval, createScorer, contains } from "@agent-native/core/eval";',
     );
     expect(source).toContain("export default defineEval(");
-    expect(source).toContain('usesTool("search-docs")');
+    expect(source).toContain('usesToolSuccessfully("search-docs")');
+    expect(source).toContain("call.completed === true");
+    expect(source).toContain("call.isError !== true");
+    expect(source).not.toContain("usesTool(");
     expect(source).toContain('contains("found it")');
     expect(source).toContain('source: { kind: "trace", runId: "run-write" }');
   });

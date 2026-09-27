@@ -495,6 +495,96 @@ describe("rekeyIdentity", () => {
     }
   });
 
+  it("rewrites promoted dataset idempotency keys to the new email", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        CREATE TABLE agent_eval_datasets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT,
+          idempotency_key TEXT
+        );
+        INSERT INTO agent_eval_datasets VALUES
+          ('ds-trace', 'OLD@example.test', 'from-trace:OLD%40example.test:run-1'),
+          ('ds-other', 'old@example.test', 'custom-key'),
+          ('ds-null', 'old@example.test', NULL);
+      `);
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      const rows = await pg
+        .prepare(
+          "SELECT id, user_id, idempotency_key FROM agent_eval_datasets ORDER BY id",
+        )
+        .all();
+      expect(rows).toEqual([
+        {
+          id: "ds-null",
+          user_id: "new@example.test",
+          idempotency_key: null,
+        },
+        {
+          id: "ds-other",
+          user_id: "new@example.test",
+          idempotency_key: "custom-key",
+        },
+        {
+          id: "ds-trace",
+          user_id: "new@example.test",
+          idempotency_key: "from-trace:new%40example.test:run-1",
+        },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("refuses a promoted dataset idempotency key owned by the new email", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        CREATE TABLE agent_eval_datasets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT,
+          idempotency_key TEXT
+        );
+        INSERT INTO agent_eval_datasets VALUES
+          ('ds-old', 'old@example.test', 'from-trace:old%40example.test:run-1'),
+          ('ds-new', 'new@example.test', 'from-trace:new%40example.test:run-1');
+      `);
+      await expect(
+        pg.db.transaction((tx) =>
+          rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+        ),
+      ).rejects.toThrow(/Promoted eval dataset collision/);
+      expect(await pg.prepare('SELECT email FROM "user"').get()).toEqual({
+        email: "old@example.test",
+      });
+      expect(
+        await pg
+          .prepare(
+            "SELECT id, user_id, idempotency_key FROM agent_eval_datasets ORDER BY id",
+          )
+          .all(),
+      ).toEqual([
+        {
+          id: "ds-new",
+          user_id: "new@example.test",
+          idempotency_key: "from-trace:new%40example.test:run-1",
+        },
+        {
+          id: "ds-old",
+          user_id: "old@example.test",
+          idempotency_key: "from-trace:old%40example.test:run-1",
+        },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("refuses duplicate experiment assignments for the destination email", async () => {
     const pg = await createTestPglite();
     try {

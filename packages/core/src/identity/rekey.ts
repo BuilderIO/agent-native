@@ -575,6 +575,91 @@ export async function rekeyIdentityAfterEmailVerification(
   });
 }
 
+/**
+ * Promotion keys embed the owner email (`from-trace:<encoded-email>:<run>`).
+ * Rewriting only `user_id` would hide the row from the new email and insert
+ * a duplicate on the next promote.
+ */
+function rekeyedPromotedDatasetIdempotencyKey(
+  current: string | null,
+  newEmail: string,
+): string | null {
+  if (current == null) return null;
+  const prefix = "from-trace:";
+  if (!current.startsWith(prefix)) return current;
+  const rest = current.slice(prefix.length);
+  const separator = rest.indexOf(":");
+  if (separator < 0) return current;
+  return `${prefix}${encodeURIComponent(newEmail)}:${rest.slice(separator + 1)}`;
+}
+
+async function rekeyPromotedEvalDatasetKeys(
+  db: IdentityRekeyDb,
+  oldEmail: string,
+  newEmail: string,
+  dryRun: boolean | undefined,
+): Promise<void> {
+  const datasetRows = await db.unsafe(
+    `SELECT id, idempotency_key FROM agent_eval_datasets WHERE LOWER(user_id) = LOWER($1) FOR UPDATE`,
+    [oldEmail],
+  );
+  const updates = datasetRows.map((row) => {
+    const currentKey =
+      typeof row.idempotency_key === "string" ? row.idempotency_key : null;
+    return {
+      id: row.id,
+      previousKey: currentKey,
+      nextKey: rekeyedPromotedDatasetIdempotencyKey(currentKey, newEmail),
+    };
+  });
+  const seen = new Set<string>();
+  for (const update of updates) {
+    if (update.nextKey == null) continue;
+    if (seen.has(update.nextKey)) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+    seen.add(update.nextKey);
+  }
+  const nextKeys = [...seen];
+  if (nextKeys.length > 0 && updates.length > 0) {
+    const keyPlaceholders = nextKeys
+      .map((_, index) => `$${index + 1}`)
+      .join(", ");
+    const idPlaceholders = updates
+      .map((_, index) => `$${nextKeys.length + 1 + index}`)
+      .join(", ");
+    const collisionRows = await db.unsafe(
+      `SELECT 1 FROM agent_eval_datasets
+       WHERE idempotency_key IN (${keyPlaceholders})
+         AND id NOT IN (${idPlaceholders})
+       LIMIT 1`,
+      [...nextKeys, ...updates.map((update) => update.id)],
+    );
+    if (collisionRows.length) {
+      throw new Error(
+        "Promoted eval dataset collision detected; no identity data was changed.",
+      );
+    }
+  }
+  if (dryRun) return;
+  for (const update of updates) {
+    if (update.previousKey != null && update.previousKey !== update.nextKey) {
+      await db.unsafe(
+        `UPDATE agent_eval_datasets SET idempotency_key = NULL WHERE id = $1 AND idempotency_key = $2`,
+        [update.id, update.previousKey],
+      );
+    }
+  }
+  for (const update of updates) {
+    await db.unsafe(
+      `UPDATE agent_eval_datasets SET user_id = $1, idempotency_key = $2 WHERE id = $3`,
+      [newEmail, update.nextKey, update.id],
+    );
+  }
+}
+
 /** Run inside the caller's PostgreSQL transaction. It deliberately refuses credential and derived-key stores it cannot safely rewrite. */
 export async function rekeyIdentity(
   db: IdentityRekeyDb,
@@ -890,6 +975,18 @@ export async function rekeyIdentity(
           throw new Error(
             "Experiment assignment collision detected; no identity data was changed.",
           );
+      }
+      if (
+        entry.table === "agent_eval_datasets" &&
+        available.has("idempotency_key")
+      ) {
+        await rekeyPromotedEvalDatasetKeys(
+          db,
+          oldEmail,
+          newEmail,
+          options.dryRun,
+        );
+        continue;
       }
       if (!options.dryRun)
         await db.unsafe(

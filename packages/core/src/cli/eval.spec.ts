@@ -5,6 +5,9 @@ const fsMock = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
   rename: vi.fn(async () => undefined),
   rm: vi.fn(async () => undefined),
+  readFile: vi.fn(async () => {
+    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  }),
 }));
 const promotion = vi.hoisted(() => ({
   loadTraceEvalPromotion: vi.fn(),
@@ -17,6 +20,10 @@ vi.mock("node:fs/promises", () => ({
   writeFile: fsMock.writeFile,
   rename: fsMock.rename,
   rm: fsMock.rm,
+  readFile: fsMock.readFile,
+}));
+vi.mock("../server/request-context.js", () => ({
+  getRequestUserEmail: () => "alice@example.com",
 }));
 vi.mock("../observability/actions/promote-trace-eval.js", () => ({
   loadTraceEvalPromotion: (...args: unknown[]) =>
@@ -110,6 +117,24 @@ describe("parseEvalArgs", () => {
 
     expect(() => parseEvalArgs(["promote"])).toThrow("process.exit(2)");
   });
+
+  it("rejects promote --write when the path is missing or empty", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => parseEvalArgs(["promote", "run-1", "--write"])).toThrow(
+      "process.exit(2)",
+    );
+    expect(() => parseEvalArgs(["promote", "run-1", "--write="])).toThrow(
+      "process.exit(2)",
+    );
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith("eval promote: --write requires a path");
+  });
 });
 
 describe("runPromote", () => {
@@ -124,10 +149,14 @@ describe("runPromote", () => {
     fsMock.writeFile.mockReset();
     fsMock.rename.mockReset();
     fsMock.rm.mockReset();
+    fsMock.readFile.mockReset();
     fsMock.mkdir.mockResolvedValue(undefined);
     fsMock.writeFile.mockResolvedValue(undefined);
     fsMock.rename.mockResolvedValue(undefined);
     fsMock.rm.mockResolvedValue(undefined);
+    fsMock.readFile.mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
     promotion.loadTraceEvalPromotion.mockResolvedValue(promoted);
     promotion.persistPromotedEvalDataset.mockImplementation(
       async (dataset: unknown) => dataset,
@@ -163,9 +192,18 @@ describe("runPromote", () => {
     ).rejects.toThrow("process.exit(0)");
 
     expect(order).toEqual(["load", "write", "rename", "persist"]);
+    expect(promotion.loadTraceEvalPromotion).toHaveBeenCalledWith(
+      { runId: "run-1", mustContain: undefined, datasetName: undefined },
+      { userId: "alice@example.com" },
+    );
     const tmp = String(fsMock.writeFile.mock.calls[0]?.[0]);
     const target = String(fsMock.rename.mock.calls[0]?.[1]);
     expect(tmp).toMatch(/\.tmp$/);
+    expect(tmp).not.toMatch(new RegExp(`\\.${process.pid}\\.tmp$`));
+    expect(fsMock.writeFile.mock.calls[0]?.[2]).toEqual({
+      encoding: "utf8",
+      flag: "wx",
+    });
     expect(target).toMatch(/from-trace\.eval\.ts$/);
   });
 
@@ -193,5 +231,63 @@ describe("runPromote", () => {
 
     expect(fsMock.rename).toHaveBeenCalled();
     expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+  });
+
+  it("removes the fixture when persistence fails", async () => {
+    promotion.persistPromotedEvalDataset.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      runEval(["promote", "run-1", "--write", "evals/from-trace.eval.ts"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(fsMock.rm).toHaveBeenCalledWith(
+      expect.stringMatching(/from-trace\.eval\.ts$/),
+      { force: true },
+    );
+  });
+
+  it("restores the previous fixture when persistence fails", async () => {
+    fsMock.readFile.mockResolvedValue("export const previous = true;\n");
+    promotion.persistPromotedEvalDataset.mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      runEval(["promote", "run-1", "--write", "evals/from-trace.eval.ts"]),
+    ).rejects.toThrow("process.exit(1)");
+
+    const writes = fsMock.writeFile.mock.calls.map((call) => String(call[1]));
+    expect(writes.at(-1)).toContain("export const previous = true;");
+    expect(fsMock.rename).toHaveBeenCalledTimes(2);
+    expect(fsMock.rm).not.toHaveBeenCalled();
+  });
+
+  it("rewrites the fixture from the dataset that won the save", async () => {
+    promotion.persistPromotedEvalDataset.mockResolvedValue({
+      id: "ds-winner",
+      name: "from-trace:run-1",
+      description: "Promoted from production run run-1",
+      entries: [
+        {
+          input: "hello",
+          expectedOutput: "from the winner",
+          context: { runId: "run-1", history: [], tools: ["search-docs"] },
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 1,
+      userId: "alice@example.com",
+    });
+
+    await expect(
+      runEval(["promote", "run-1", "--write", "evals/from-trace.eval.ts"]),
+    ).rejects.toThrow("process.exit(0)");
+
+    const writes = fsMock.writeFile.mock.calls.map((call) => String(call[1]));
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toContain("from the winner");
+    expect(writes[1]).toContain("search-docs");
   });
 });

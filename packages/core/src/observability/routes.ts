@@ -172,14 +172,19 @@ export function createObservabilityHandler() {
       parts[2] === "promote"
     ) {
       const runId = decodeURIComponent(parts[1]);
-      let body: { mustContain?: unknown; datasetName?: unknown } = {};
+      let body: { mustContain?: unknown; datasetName?: unknown };
       try {
         const raw = await readBody(event);
-        if (raw && typeof raw === "object") {
-          body = raw as { mustContain?: unknown; datasetName?: unknown };
+        // An unreadable or non-object payload is not the same as an absent
+        // one. Absent bodies arrive as `{}` and may promote; garbage must not.
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid JSON body" };
         }
+        body = raw as { mustContain?: unknown; datasetName?: unknown };
       } catch {
-        body = {};
+        setResponseStatus(event, 400);
+        return { error: "Invalid JSON body" };
       }
       try {
         return await promoteTraceEvalFromStore(

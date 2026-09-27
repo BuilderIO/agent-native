@@ -332,4 +332,28 @@ describe("observability routes", () => {
     });
     expect(event._status).toBe(409);
   });
+
+  it("rejects an unreadable promote body instead of promoting", async () => {
+    mockReadBody.mockRejectedValue(new Error("Unexpected token"));
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Invalid JSON body",
+    });
+    expect(event._status).toBe(400);
+    expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-object promote body instead of promoting", async () => {
+    mockReadBody.mockResolvedValue(["not", "options"]);
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Invalid JSON body",
+    });
+    expect(event._status).toBe(400);
+    expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
+  });
 });

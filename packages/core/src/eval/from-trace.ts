@@ -10,8 +10,8 @@
 import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import type { EvalDataset } from "../observability/types.js";
 import { defineEval } from "./define-eval.js";
-import { contains, usesTool } from "./scorer.js";
-import type { Eval, EvalInput } from "./types.js";
+import { contains, createScorer } from "./scorer.js";
+import type { AgentRunOutput, Eval, EvalInput } from "./types.js";
 
 const MAX_TOOLS = 8;
 const DEFAULT_THRESHOLD = 0.5;
@@ -455,6 +455,65 @@ export function promotedEvalSpecFromDataset(
   };
 }
 
+/**
+ * Promotion records tools that succeeded in production. `usesTool` only checks
+ * that a call started, so a replay that fails the tool and still answers would
+ * pass. Require a completed, non-error call. Kept in sync with the helper
+ * emitted by `generateEvalModuleSource`.
+ */
+function toolCallSucceeded(run: AgentRunOutput, toolName: string): boolean {
+  const details = run.toolCallDetails;
+  if (!details) return false;
+  return details.some(
+    (call) =>
+      call.name === toolName &&
+      call.completed === true &&
+      call.isError !== true,
+  );
+}
+
+function successfulToolScorer(toolName: string) {
+  return createScorer<AgentRunOutput, { succeeded: boolean }>({
+    name: `uses_tool_success:${toolName}`,
+    analyze(run) {
+      return { succeeded: toolCallSucceeded(run, toolName) };
+    },
+    generateScore({ succeeded }) {
+      return succeeded ? 1 : 0;
+    },
+    generateReason({ analysis }) {
+      return analysis.succeeded
+        ? `Agent successfully called \`${toolName}\``
+        : `Agent did not successfully call \`${toolName}\``;
+    },
+  });
+}
+
+const SUCCESSFUL_TOOL_HELPER = `function usesToolSuccessfully(toolName: string) {
+  return createScorer({
+    name: \`uses_tool_success:\${toolName}\`,
+    analyze(run) {
+      const details = run.toolCallDetails ?? [];
+      const succeeded = details.some(
+        (call) =>
+          call.name === toolName &&
+          call.completed === true &&
+          call.isError !== true,
+      );
+      return { succeeded };
+    },
+    generateScore({ succeeded }) {
+      return succeeded ? 1 : 0;
+    },
+    generateReason({ analysis }) {
+      return analysis.succeeded
+        ? \`Agent successfully called \\\`\${toolName}\\\`\`
+        : \`Agent did not successfully call \\\`\${toolName}\\\`\`;
+    },
+  });
+}
+`;
+
 export function generateEvalModuleSource(spec: PromotedEvalSpec): string {
   const usesToolNames = spec.scorers
     .filter(
@@ -470,13 +529,15 @@ export function generateEvalModuleSource(spec: PromotedEvalSpec): string {
     .map((scorer) => scorer.needle);
 
   const imports = ["defineEval"];
-  if (usesToolNames.length > 0) imports.push("usesTool");
+  if (usesToolNames.length > 0) imports.push("createScorer");
   if (containsNeedles.length > 0) imports.push("contains");
 
   const scorerLines: string[] = [];
   for (const scorer of spec.scorers) {
     if (scorer.type === "usesTool") {
-      scorerLines.push(`    usesTool(${JSON.stringify(scorer.toolName)}),`);
+      scorerLines.push(
+        `    usesToolSuccessfully(${JSON.stringify(scorer.toolName)}),`,
+      );
     } else {
       scorerLines.push(`    contains(${JSON.stringify(scorer.needle)}),`);
     }
@@ -493,8 +554,9 @@ export function generateEvalModuleSource(spec: PromotedEvalSpec): string {
           )
           .join("\n")}\n    ],`;
 
+  const helper = usesToolNames.length > 0 ? SUCCESSFUL_TOOL_HELPER : "";
   return `import { ${imports.join(", ")} } from "@agent-native/core/eval";
-
+${helper}
 export default defineEval({
   name: ${JSON.stringify(spec.name)},
   input: {
@@ -545,7 +607,9 @@ export function promoteTraceToEval(
       : []),
   ];
   const scorers = scorerSpecs.map((spec) =>
-    spec.type === "usesTool" ? usesTool(spec.toolName) : contains(spec.needle),
+    spec.type === "usesTool"
+      ? successfulToolScorer(spec.toolName)
+      : contains(spec.needle),
   );
 
   const name = `from-trace:${runId.slice(0, RUN_ID_NAME_PREFIX)}`;
