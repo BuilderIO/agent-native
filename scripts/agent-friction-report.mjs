@@ -60,7 +60,7 @@ const SHIPPING_CHURN_RE =
 
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
-    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b(?![^.!?;\n]{0,100}\bproduction[\s-]+deploy\w*\b[^.!?;\n]{0,100}\bbeta\b)[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b(?!(?:(?!\bbeta\b)[^.!?;\n]){0,100}\bproduction[\s-]+deploy\w*\b)[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
     String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b[^.!?;\n]{0,80}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b`,
   ].join("|"),
   "i",
@@ -695,6 +695,10 @@ const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
   [
     true,
     "Don't cancel the beta publisher, since the production deployment is queued.",
+  ],
+  [
+    true,
+    "Don't cancel beta publisher runs, since the production deployment is for beta sites.",
   ],
   [
     false,
