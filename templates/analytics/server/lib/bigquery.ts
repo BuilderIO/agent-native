@@ -6,10 +6,12 @@ import { getRequestRunContext } from "@agent-native/core/server";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
 import {
+  credentialCacheScope,
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
 import { getAccessToken } from "./gcloud";
+import { assertReadOnlySql } from "./read-only-sql";
 
 async function getProjectContext(): Promise<{
   projectId: string;
@@ -21,7 +23,7 @@ async function getProjectContext(): Promise<{
   if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return {
     projectId,
-    cacheScope: cacheScopeForContext(ctx),
+    cacheScope: credentialCacheScope("BIGQUERY_PROJECT_ID", ctx),
     ctx,
   };
 }
@@ -42,10 +44,6 @@ async function getProjectInfo(): Promise<{
     cacheScope,
     appEventsTable: await getAppEventsTable(projectId, ctx),
   };
-}
-
-function cacheScopeForContext(ctx: CredentialContext): string {
-  return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
 }
 
 export interface BigQueryTableRef {
@@ -422,6 +420,7 @@ export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
 ): Promise<QueryResult> {
+  assertReadOnlySql(sql);
   const { signal } = options;
   throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
