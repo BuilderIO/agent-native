@@ -186,6 +186,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_review_suggestion_amendments", column: "author_email" },
   { table: "agent_review_suggestion_amendments", column: "owner_email" },
   { table: "agent_review_suggestion_creations", column: "author_email" },
+  { table: "agent_review_suggestion_proposals", column: "author_email" },
+  {
+    table: "agent_review_suggestion_proposal_creations",
+    column: "author_email",
+  },
   { table: "agent_team_run_queue", column: "owner_email" },
   { table: "sessions", column: "email" },
   { table: "scim_user", column: "primary_email" },
