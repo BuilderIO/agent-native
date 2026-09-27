@@ -943,8 +943,16 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    var userInteractedSinceHostFocus = false;
+    function rememberTrustedCanvasInput(event) {
+      if (readOnly || interactionMode || !event.isTrusted) return;
+      var target = event.target;
+      if (target instanceof Node && editorChromeHost?.contains(target)) return;
+      userInteractedSinceHostFocus = true;
+    }
     function isCanvasFocusTransferSafe() {
       if (activeTextEditEl) return false;
+      if (!userInteractedSinceHostFocus) return true;
       var active = document.activeElement;
       var visited = /* @__PURE__ */ new Set();
       var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
@@ -17755,6 +17763,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
     document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
+    document.addEventListener("keydown", rememberTrustedCanvasInput, true);
+    window.addEventListener(
+      "blur",
+      function() {
+        userInteractedSinceHostFocus = false;
+      },
+      true
+    );
     document.addEventListener(
       "focusout",
       function() {
@@ -18966,6 +18983,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-interaction-mode") {
         var nextInteractionMode = e.data.interact === true;
+        if (nextInteractionMode !== interactionMode) {
+          userInteractedSinceHostFocus = false;
+        }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
           var releaseSpacePan = bridgeSpaceKeyPressed;

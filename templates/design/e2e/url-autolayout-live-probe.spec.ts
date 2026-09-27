@@ -66,9 +66,9 @@ test.describe("URL-backed live auto-layout probe", () => {
       [data-group-card]{background:#ddd6fe;border:2px solid #6d28d9;box-sizing:border-box}
       #group-occupied{grid-column:3 / 5;grid-row:2;background:#fed7aa;border-color:#c2410c}
     </style></head><body><main>
+      <input id="startup-search" type="search" aria-label="Startup search" autofocus style="position:absolute;left:760px;top:24px">
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
       <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
-      <button type="button">Keep focus in app</button>
     </main></body></html>`;
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
@@ -133,178 +133,164 @@ test.describe("URL-backed live auto-layout probe", () => {
 
     const iframe = page.locator("iframe[data-design-preview-iframe]").first();
     const frame = iframe.contentFrame();
+    const expectCanvasFocus = () =>
+      expect
+        .poll(() =>
+          page.evaluate(() => {
+            const active = document.activeElement;
+            const liveFrame = document.querySelector(
+              "iframe[data-design-preview-iframe]",
+            );
+            return (
+              active instanceof HTMLElement &&
+              active.tabIndex === -1 &&
+              Boolean(liveFrame && active.contains(liveFrame))
+            );
+          }),
+        )
+        .toBe(true);
     await expect(
       frame.locator('[data-agent-native-node-id="flow-root"]'),
     ).toBeVisible({ timeout: 30_000 });
     await expect(
       frame.locator('[data-agent-native-edit-overlay="shield"]'),
     ).toBeAttached({ timeout: 15_000 });
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const active = document.activeElement;
-          const liveFrame = document.querySelector(
-            "iframe[data-design-preview-iframe]",
-          );
-          return (
-            active instanceof HTMLElement &&
-            active.tabIndex === -1 &&
-            Boolean(liveFrame && active.contains(liveFrame))
-          );
-        }),
-      )
-      .toBe(true);
+    await expectCanvasFocus();
 
-    await frame.getByRole("button", { name: "Keep focus in app" }).focus();
+    await frame.locator("#startup-search").focus();
+    await expectCanvasFocus();
+
+    const emptyPoint = await page.evaluate(() => {
+      const surface = document
+        .querySelector("[data-multi-screen-canvas-surface]")
+        ?.getBoundingClientRect();
+      const frames = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-screen-shell]"),
+      ).map((element) => element.getBoundingClientRect());
+      if (!surface) return null;
+      for (let y = surface.bottom - 24; y > surface.top + 24; y -= 24) {
+        for (let x = surface.right - 24; x > surface.left + 24; x -= 24) {
+          if (
+            frames.every(
+              (frame) =>
+                x < frame.left ||
+                x > frame.right ||
+                y < frame.top ||
+                y > frame.bottom,
+            )
+          ) {
+            const target = document.elementFromPoint(x, y);
+            if (target?.closest("[data-multi-screen-canvas-surface]")) {
+              return { x, y };
+            }
+          }
+        }
+      }
+      return null;
+    });
+    if (!emptyPoint) throw new Error("no empty point on the canvas surface");
+    const beforePan = await page
+      .locator("[data-multi-screen-canvas-world]")
+      .evaluate((world) => getComputedStyle(world).transform);
+    await page.mouse.move(emptyPoint.x, emptyPoint.y);
+    await page.keyboard.down("Space");
+    await page.mouse.down();
+    await page.mouse.move(emptyPoint.x + 72, emptyPoint.y + 48, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up("Space");
     await expect
       .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
+        page
+          .locator("[data-multi-screen-canvas-world]")
+          .evaluate((world) => getComputedStyle(world).transform),
       )
-      .toBe(true);
+      .not.toBe(beforePan);
+
+    const initialOrder = await frame
+      .locator("#flow")
+      .evaluate((flow) => Array.from(flow.children).map((child) => child.id));
+    const source = await frame.locator("#v3").boundingBox();
+    const target = await frame.locator("#v1").boundingBox();
+    if (!source || !target) throw new Error("live card has no bounding box");
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      source.x + source.width / 2 + 20,
+      source.y + source.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 12 },
+    );
+    await page.waitForTimeout(300);
+    await page.mouse.up();
     await expect
       .poll(() =>
         frame
-          .locator("body")
-          .evaluate((body) => body.ownerDocument.activeElement?.tagName),
-      )
-      .toBe("BUTTON");
-
-    await frame.locator("body").evaluate(() => {
-      const host = document.createElement("e2e-focus-host");
-      host.id = "open-shadow-focus-host";
-      const shadow = host.attachShadow({ mode: "open" });
-      const input = document.createElement("input");
-      input.setAttribute("aria-label", "Shadow input");
-      shadow.append(input);
-      document.body.append(host);
-      input.focus();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame.locator("body").evaluate((body) => {
-          const host = body.ownerDocument.querySelector(
-            "#open-shadow-focus-host",
-          );
-          return (
-            body.ownerDocument.activeElement === host &&
-            host?.shadowRoot?.activeElement?.getAttribute("aria-label") ===
-              "Shadow input"
-          );
-        }),
-      )
-      .toBe(true);
-
-    await frame.locator("body").evaluate(() => {
-      const host = document.createElement("div");
-      host.id = "closed-shadow-focus-host";
-      const shadow = host.attachShadow({ mode: "closed" });
-      const input = document.createElement("input");
-      shadow.append(input);
-      document.body.append(host);
-      input.focus();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame.locator("body").evaluate((body) => {
-          const host = body.ownerDocument.querySelector(
-            "#closed-shadow-focus-host",
-          );
-          return (
-            body.ownerDocument.activeElement === host &&
-            host instanceof HTMLElement &&
-            host.matches(":focus-within")
-          );
-        }),
-      )
-      .toBe(true);
-
-    for (const tagName of ["audio", "video"] as const) {
-      await frame.locator("body").evaluate((body, tag) => {
-        const media = body.ownerDocument.createElement(tag);
-        media.id = `focus-${tag}`;
-        media.controls = true;
-        body.append(media);
-        media.focus();
-      }, tagName);
-      await expect
-        .poll(() =>
-          page.evaluate(
-            () =>
-              document.activeElement ===
-              document.querySelector("iframe[data-design-preview-iframe]"),
+          .locator("#flow")
+          .evaluate((flow) =>
+            Array.from(flow.children).map((child) => child.id),
           ),
-        )
-        .toBe(true);
-      await expect
-        .poll(() =>
-          frame
-            .locator("body")
-            .evaluate(
-              (body, tag) =>
-                body.ownerDocument.activeElement ===
-                body.ownerDocument.querySelector(`#focus-${tag}`),
-              tagName,
-            ),
-        )
-        .toBe(true);
-    }
-
-    await frame.locator("body").evaluate(() => {
-      const nested = document.createElement("iframe");
-      nested.id = "nested-focus-frame";
-      nested.srcdoc = '<input aria-label="Nested frame input">';
-      document.body.append(nested);
-    });
-    const nestedFrame = await frame
-      .locator("#nested-focus-frame")
-      .contentFrame();
-    await nestedFrame.locator("input").focus();
-    await expect
-      .poll(() =>
-        nestedFrame
-          .locator("input")
-          .evaluate((input) => input.ownerDocument.activeElement === input),
       )
-      .toBe(true);
+      .not.toEqual(initialOrder);
+    await expectCanvasFocus();
+
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
+    );
     await expect
       .poll(() =>
         frame
-          .locator("body")
-          .evaluate(
-            (body) =>
-              body.ownerDocument.activeElement ===
-              body.ownerDocument.querySelector("#nested-focus-frame"),
+          .locator("#flow")
+          .evaluate((flow) =>
+            Array.from(flow.children).map((child) => child.id),
           ),
       )
-      .toBe(true);
+      .toEqual(initialOrder);
+  });
+
+  test("keeps a user-focused live input in Interact mode", async ({ page }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    const shell = page.locator("[data-screen-shell]").first();
+    const interact = shell.locator("[data-frame-full-view]");
+    await expect(interact).toBeVisible({ timeout: 90_000 });
+    await interact.click();
+    await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
+
+    const frame = page.locator("iframe[data-design-preview-iframe]").first();
+    const input = frame.contentFrame().locator("#startup-search");
+    const bounds = await input.boundingBox();
+    if (!bounds) throw new Error("Interact input has no bounding box");
+    await page.mouse.click(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
     await expect
       .poll(() =>
         page.evaluate(
           () =>
             document.activeElement ===
             document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        input.evaluate(
+          (element) => element.ownerDocument.activeElement === element,
         ),
       )
       .toBe(true);

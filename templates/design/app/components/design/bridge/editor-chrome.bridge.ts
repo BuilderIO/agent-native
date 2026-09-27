@@ -114,9 +114,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var editorChromeDocumentObserver: MutationObserver | null = null;
   var editorChromeRootObserver: MutationObserver | null = null;
   var repairingEditorChromeHost = false;
+  var userInteractedSinceHostFocus = false;
+
+  function rememberTrustedCanvasInput(event: Event): void {
+    if (readOnly || interactionMode || !event.isTrusted) return;
+    var target = event.target;
+    if (target instanceof Node && editorChromeHost?.contains(target)) return;
+    userInteractedSinceHostFocus = true;
+  }
 
   function isCanvasFocusTransferSafe() {
     if (activeTextEditEl) return false;
+    if (!userInteractedSinceHostFocus) return true;
     var active = document.activeElement;
     var visited = new Set();
     var focusTargetSelector =
@@ -25048,6 +25057,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     document.addEventListener(type, stopBlockedLayerInteraction, true);
   });
   document.addEventListener("focusin", reportCanvasFocusState, true);
+  document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
+  document.addEventListener("keydown", rememberTrustedCanvasInput, true);
+  window.addEventListener(
+    "blur",
+    function () {
+      userInteractedSinceHostFocus = false;
+    },
+    true,
+  );
   document.addEventListener(
     "focusout",
     function () {
@@ -26819,6 +26837,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // installed so returning to Edit can restore selection without a reload.
     if (e.data.type === "set-interaction-mode") {
       var nextInteractionMode = e.data.interact === true;
+      if (nextInteractionMode !== interactionMode) {
+        userInteractedSinceHostFocus = false;
+      }
       interactionMode = nextInteractionMode;
       if (interactionMode) {
         var releaseSpacePan = bridgeSpaceKeyPressed;
