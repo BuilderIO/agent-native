@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { CommentAiRequest } from "@shared/comment-ai";
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
