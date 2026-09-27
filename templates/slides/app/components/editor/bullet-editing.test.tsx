@@ -461,6 +461,30 @@ describe("styled bullet editing", () => {
     ).toBe("gray");
   });
 
+  it("keeps the final run's style when Enter starts at the row boundary", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="frame">' +
+      '<p><span aria-hidden="true" style="display:inline-block;">•</span>' +
+      '<span style="color: gray;">Lead </span><span style="font-weight: 700;">96%</span></p>' +
+      '<p><span aria-hidden="true" style="display:inline-block;">•</span>Next</p>' +
+      "</div></div>";
+    const list = document.querySelector(".frame") as HTMLElement;
+    const row = list.firstElementChild as HTMLElement;
+    const range = document.createRange();
+    range.setStart(row, row.childNodes.length);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const typedInto = selection.anchorNode as Text;
+    typedInto.insertData(selection.anchorOffset, "x");
+
+    expect(typedInto.parentElement?.style.fontWeight).toBe("700");
+    expect((list.children[1] as HTMLElement).textContent).toContain("x");
+  });
+
   it("removes the empty bullet on a second Enter when the first carried a bold run over", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +

@@ -102,6 +102,10 @@ export function padRect(r: Rect, pad = 4): Rect {
   };
 }
 
+/** Unknown rects cannot waive the outside-pixel check. */
+export const resized = (a: Rect | null, b: Rect | null) =>
+  !!a && !!b && (a.width !== b.width || a.height !== b.height);
+
 // ---------------------------------------------------------------- styles ---
 
 export interface StyleDelta {
@@ -238,8 +242,8 @@ export const visibleTextOf = (node: P5.Node): string =>
 
 /**
  * The slide's content in a write's JSON body, once per operation naming the
- * slide; null where one names it without setting content (a delete, a
- * fields-only patch) or a full save leaves the slide out.
+ * slide; null where an operation deletes the slide or a full save leaves it
+ * out.
  */
 export function slideContentsOf(
   action: string,
@@ -248,12 +252,18 @@ export function slideContentsOf(
 ): Array<string | null> {
   const entries: Array<[unknown, unknown]> =
     action === "patch-deck"
-      ? (body.operations ?? []).map((op: any) => [
-          op.slideId,
-          op.fields?.content,
-        ])
+      ? (body.operations ?? []).flatMap((op: any) => {
+          if (String(op.slideId) !== slideId) return [];
+          if (op.op === "delete-slide") return [[op.slideId, null]];
+          if (op.op !== "patch-slide" && op.op !== "add-slide") return [];
+          return Object.hasOwn(op.fields ?? {}, "content")
+            ? [[op.slideId, op.fields.content]]
+            : [];
+        })
       : action === "update-slide"
-        ? [[body.slideId, body.content]]
+        ? Object.hasOwn(body, "content")
+          ? [[body.slideId, body.content]]
+          : []
         : (body.deck?.slides ?? []).map((s: any) => [s.id, s.content]);
   const named = entries.filter(([id]) => String(id) === slideId);
   if (action === "save-deck" && !named.length) return [null];
@@ -308,7 +318,7 @@ export function isDraftRevert(
   ) {
     return false;
   }
-  const textOf = (html: string) => stripSpace(visibleTextOf(parse(html)));
+  const textOf = (html: string) => collapse(visibleTextOf(parse(html)));
   const want = textOf(stored.slice(element.start, element.end));
   const have = textOf(draft.slice(element.start, draft.length - after.length));
   for (let i = 0; i < have.length; i++) {

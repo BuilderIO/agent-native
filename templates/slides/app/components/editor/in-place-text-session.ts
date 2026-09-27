@@ -405,17 +405,18 @@ function textOffset(
  * earlier one, so a caret at the end of an item stays there; otherwise the
  * later one wins, so a caret after <br> does.
  */
-/** Select the word containing `offset` in `node`, when there is one. */
-function selectWordAt(node: Node, offset: number) {
-  if (!(node instanceof Text)) return;
+/** Select the word at a point in the editing root, even across styled runs. */
+function selectWordAt(root: HTMLElement, node: Node, offset: number) {
+  const point = textOffset(root, node, offset);
+  const text = root.textContent ?? "";
   const segments = new Intl.Segmenter(undefined, { granularity: "word" });
-  for (const { index, segment, isWordLike } of segments.segment(node.data)) {
-    if (!isWordLike || offset < index || offset > index + segment.length) {
+  for (const { index, segment, isWordLike } of segments.segment(text)) {
+    if (!isWordLike || point < index || point > index + segment.length) {
       continue;
     }
     const range = document.createRange();
-    range.setStart(node, index);
-    range.setEnd(node, index + segment.length);
+    range.setStart(...textPoint(root, index));
+    range.setEnd(...textPoint(root, index + segment.length, true));
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
@@ -773,6 +774,24 @@ export function startInPlaceTextSession(
     );
   }
 
+  function placeholderFlags(text: Text) {
+    if (!text.data.includes(ZERO_WIDTH_SPACE)) return null;
+    const texts = textNodesIn(el);
+    const index = texts.indexOf(text);
+    return index < 0 ? null : authorFlags(texts)[index];
+  }
+
+  function isSessionPlaceholder(
+    text: Text,
+    offset: number,
+    flags = placeholderFlags(text),
+  ) {
+    return (
+      text.data[offset] === ZERO_WIDTH_SPACE &&
+      flags?.[countZwsp(text.data.slice(0, offset))] === false
+    );
+  }
+
   function keepZwsp(data: string, flags: boolean[]) {
     let index = 0;
     return data.replaceAll(ZERO_WIDTH_SPACE, (char) =>
@@ -781,14 +800,43 @@ export function startInPlaceTextSession(
   }
 
   /**
-   * Chrome reshapes only the edited span of a text node, apart from its
-   * neighbours: typing next to a joined Arabic letter leaves it unjoined, and
-   * any edit drops the kerning the node's last glyph had with the next text
-   * node in the same font (a styled label before its colon) until the node is
-   * recreated.
+   * Chrome leaves joined scripts unreshaped after an edit. It also loses
+   * kerning at a same-font text-node boundary, so recreate those Latin nodes
+   * only when they have an adjacent run to kern with.
    */
+  function hasSameFontTextAfter(text: Text) {
+    let next = text.nextSibling;
+    let parent = text.parentElement;
+    while (!next && parent && parent !== el) {
+      next = parent.nextSibling;
+      parent = parent.parentElement;
+    }
+    if (!(next instanceof Text) || !next.data) return false;
+    if (/\s/u.test(text.data.at(-1) ?? "") || /\s/u.test(next.data[0]))
+      return false;
+    const before = text.parentElement;
+    const after = next.parentElement;
+    if (!before || !after) return false;
+    const a = window.getComputedStyle(before);
+    const b = window.getComputedStyle(after);
+    return (
+      a.font === b.font &&
+      a.fontKerning === b.fontKerning &&
+      a.fontFeatureSettings === b.fontFeatureSettings &&
+      a.fontVariationSettings === b.fontVariationSettings &&
+      a.letterSpacing === b.letterSpacing
+    );
+  }
+
   function reshape(text: Node | null | undefined) {
-    if (!(text instanceof Text) || !text.isConnected) return;
+    if (
+      !(text instanceof Text) ||
+      !text.isConnected ||
+      (!/[^\t\n\r\u0020-\u024f\u2000-\u206f]/.test(text.data) &&
+        !hasSameFontTextAfter(text))
+    ) {
+      return;
+    }
     const range = selectionRange();
     // Read before replaceWith: the selection's live range moves with it.
     const caret =
@@ -1232,10 +1280,12 @@ export function startInPlaceTextSession(
   }
 
   function isNativeInsert(range: Range) {
+    const text = range.startContainer;
     return (
       range.collapsed &&
-      range.startContainer instanceof Text &&
-      range.startContainer.length > 0 &&
+      text instanceof Text &&
+      text.length > 0 &&
+      !placeholderFlags(text)?.some((author) => !author) &&
       !atRowTextStart(range)
     );
   }
@@ -1271,8 +1321,16 @@ export function startInPlaceTextSession(
     if (!caret || !data) return;
     const node = caret.startContainer;
     if (node instanceof Text) {
-      node.insertData(caret.startOffset, data);
-      placeCaret(node, caret.startOffset + data.length);
+      let offset = caret.startOffset;
+      const flags = placeholderFlags(node);
+      for (const candidate of [offset - 1, offset]) {
+        if (!isSessionPlaceholder(node, candidate, flags)) continue;
+        node.deleteData(candidate, 1);
+        if (candidate < offset) offset--;
+        break;
+      }
+      node.insertData(offset, data);
+      placeCaret(node, offset + data.length);
       return;
     }
     const text = document.createTextNode(data);
@@ -2043,10 +2101,9 @@ export function startInPlaceTextSession(
   }
 
   /**
-   * Chrome's native typing deletes collapsed whitespace (source indentation)
-   * next to the caret and can replace a text node, so typing and deleting back
-   * is not byte-identical on its own. An edit whose net effect is invisible is
-   * no edit: `end()` restores the exact start bytes, so nothing is written.
+   * Chrome's native typing deletes collapsed whitespace next to the caret or
+   * turns a space into a no-break space. An invisible edit is no edit: end()
+   * restores the exact start bytes, so nothing is written.
    */
   function hasVisibleChange() {
     if (el.innerHTML === startHtml) return false;
@@ -2064,13 +2121,12 @@ export function startInPlaceTextSession(
         .replace(/&nbsp;|&#0*160;|&#x0*a0;/gi, " ")
         .replace(/\s+/g, "")
         .replaceAll(ZERO_WIDTH_SPACE, "");
-    // ponytail: NBSP and spaces compare alike here; track explicit NBSP input if the editor needs to preserve that distinction.
-    const text = (value: string) =>
+    const comparableText = (value: string) =>
       value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
     return (
       el !== element ||
       squash(live.innerHTML) !== squash(startHtml) ||
-      text(el.innerText) !== text(startText)
+      comparableText(el.innerText) !== comparableText(startText)
     );
   }
 
@@ -2159,7 +2215,7 @@ export function startInPlaceTextSession(
     placeCaret(...point);
     // A double-click in an object's move band has its default prevented, so
     // the browser selected no word.
-    if (options.selectWord) selectWordAt(...point);
+    if (options.selectWord) selectWordAt(el, ...point);
   } else {
     placeCaret(...textPoint(el, Infinity));
   }

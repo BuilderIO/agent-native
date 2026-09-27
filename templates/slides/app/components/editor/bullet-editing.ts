@@ -713,7 +713,7 @@ function primeNewRow(
 export function insertBulletAfterCaret(list: HTMLElement): boolean {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
-  const range = sel.getRangeAt(0);
+  let range = sel.getRangeAt(0);
   if (!range.collapsed) {
     // A selection that spans a row's marker glyph would delete it here, blanking
     // the bullet on the surviving row (and its clone). Clamp both boundaries out
@@ -735,7 +735,14 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
     node = node.parentNode;
   }
   if (!row) return false;
-
+  if (
+    range.collapsed &&
+    range.startContainer === row &&
+    range.startOffset === row.childNodes.length
+  ) {
+    setCaretAtRowBoundary(row, true);
+    range = sel.getRangeAt(0);
+  }
   const marker =
     row.firstElementChild && isBulletMarker(row.firstElementChild)
       ? (row.firstElementChild as HTMLElement)

@@ -247,7 +247,7 @@ describe("in-place text session: entering and ending", () => {
 
   it("recreates an edited Latin node whose last glyph kerns with the next text node", () => {
     const el = mount(
-      '<p id="t"><b><span style="font-weight: 700">Abc</span>:</b> rest</p>',
+      '<p id="t"><b style="font-weight: 700"><span style="font-weight: 700">Abc</span>:</b> rest</p>',
     );
     const before = el.outerHTML;
     const original = textOf(el, "Abc");
@@ -261,6 +261,15 @@ describe("in-place text session: entering and ending", () => {
     typed.deleteData(1, 1);
     session.end();
     expect(el.outerHTML).toBe(before);
+  });
+
+  it("leaves an edited Latin node alone without an adjacent same-font text run", () => {
+    const el = mount('<p id="t">Alpha</p>');
+    const original = el.firstChild as Text;
+    session = startInPlaceTextSession(el);
+    caret(original, 2);
+    type(el, "x");
+    expect(el.firstChild).toBe(original);
   });
 
   it("restores the start bytes when typing and deleting only lost indentation", () => {
@@ -277,6 +286,30 @@ describe("in-place text session: entering and ending", () => {
     type(el, "x");
     // Chrome drops collapsed whitespace next to the caret while typing.
     (el.firstChild as Text).data = "Speakers\n  ";
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
+  it("restores the start bytes when Chrome rewrites a space as a no-break space", () => {
+    vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent ?? "";
+      },
+    );
+    const el = mount('<p id="t">Alpha beta</p>');
+    const before = el.outerHTML;
+    session = startInPlaceTextSession(el);
+    const original = textOf(el, "Alpha beta");
+    caret(original, 6);
+    type(el, "x");
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      false,
+    );
+    const typed = textOf(el, "Alpha xbeta");
+    typed.deleteData(6, 1);
+    typed.data = typed.data.replace(" ", "\u00a0");
+
+    expect(session.changed).toBe(false);
     session.end();
     expect(el.outerHTML).toBe(before);
   });
@@ -463,6 +496,17 @@ describe("in-place text session: the caret at the click point", () => {
       session.end();
     }
   });
+
+  it("selects a double-clicked word across adjacent styled runs", () => {
+    const el = mount('<p id="t"><span>trans</span><em>form</em>ation done</p>');
+    const form = textOf(el, "form");
+    hitAt(form, 2);
+    session = startInPlaceTextSession(el, {
+      caretPoint: { x: 1, y: 1 },
+      selectWord: true,
+    });
+    expect(window.getSelection()!.toString()).toBe("transformation");
+  });
 });
 
 describe("in-place text session: typing", () => {
@@ -541,6 +585,11 @@ describe("in-place text session: Enter", () => {
     caret(el.firstChild!, 4);
     for (let i = 0; i < 3; i++) beforeInput(el, "insertParagraph");
     type(el, "new line");
+    expect(
+      textNodes(el)
+        .filter((node) => node.data)
+        .at(-1)?.data,
+    ).toBe("new line");
     session.end();
     expect(el.innerHTML).toBe("Text<br><br><br>new line");
   });

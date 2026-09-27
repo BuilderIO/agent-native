@@ -47,6 +47,7 @@ import {
   orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
+  resized,
   restyledAddedText,
   slideContentsOf,
   stripSpace,
@@ -542,6 +543,7 @@ async function settleSaved(
   deckId: string,
   slideId: string,
   writesInFlight: () => number,
+  minimumObservationMs = 2_500,
 ) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
@@ -553,7 +555,10 @@ async function settleSaved(
       last = now;
       lastChange = Date.now();
     }
-    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200)
+    if (
+      Date.now() - start >= minimumObservationMs &&
+      Date.now() - lastChange >= 1200
+    )
       return last;
     if (Date.now() - start >= 75_000) {
       throw new Error(
@@ -815,12 +820,6 @@ function summarizeStyle(d: StyleDiff): StyleSummary {
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Unknown rects count as unchanged, so the strict check still runs. */
-const resized = (a: Rect | null, b: Rect | null) =>
-  !!a &&
-  !!b &&
-  (Math.abs(a.width - b.width) > 0 || Math.abs(a.height - b.height) > 0);
 
 interface SlideCtx {
   page: Page;
@@ -1086,9 +1085,16 @@ async function runScenario(
         `a pagehide write carried different content than the edit saved (${unloadMismatches.length} slide content(s) across ${unloadWrites.length} keepalive write(s)${unloadMismatches.includes(null) ? ", some with no content to compare" : ""})`,
       );
     }
-    const reloaded = inFlight.size
-      ? await settleSaved(page, deckId, slideId, () => inFlight.size)
-      : await getSlideContent(page, deckId, slideId);
+    const reloaded =
+      unloadWrites.length || inFlight.size
+        ? await settleSaved(
+            page,
+            deckId,
+            slideId,
+            () => inFlight.size,
+            unloadWrites.length ? 15_000 : 2_500,
+          )
+        : await getSlideContent(page, deckId, slideId);
     if (reloaded !== saved && !ctx.openMutatesContent) {
       write("reloaded.html", reloaded);
       const hardAfter = hardFailures(saved, reloaded);

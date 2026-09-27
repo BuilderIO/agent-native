@@ -12,6 +12,7 @@ import {
   lineDiff,
   orphanedBaselineKeys,
   ratchetBaselineEntry,
+  resized,
   restyledAddedText,
   toBaselineEntry,
   type BaselineEntry,
@@ -53,6 +54,16 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
   hardFailures: 0,
   violations: 0,
   ...over,
+});
+
+describe("resized", () => {
+  it("recognizes a one-pixel growth so outside pixels can be attributed to the edit", () => {
+    const before = { ...rect, height: 138 };
+    expect(resized(before, before)).toBe(false);
+    expect(resized(before, { ...before, height: 139 })).toBe(true);
+    expect(resized(before, { ...before, width: 101 })).toBe(true);
+    expect(resized(null, rect)).toBe(false);
+  });
 });
 
 describe("diffSnapshots", () => {
@@ -365,6 +376,11 @@ describe("isDraftRevert", () => {
     expect(check([patch(stored)])).toBe(false);
   });
 
+  it("rejects a draft that removes a visible space as well as the typed key", () => {
+    const missingSpace = draft.replace("&amp; ", "&amp;");
+    expect(check([patch(missingSpace), patch(stored)])).toBe(false);
+  });
+
   it("rejects a draft that changed bytes outside the edited element or put the key elsewhere", () => {
     const flattened =
       '<div class="a"><p>Q3 &amp; Qx4</p><p>Other</p><svg><text>x</text></svg></div>';
@@ -439,6 +455,29 @@ describe("keepaliveMismatches", () => {
         "<p>saved</p>",
       ),
     ).toEqual([null, null]);
+  });
+
+  it("ignores a patch that does not change slide content", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          {
+            action: "patch-deck",
+            body: JSON.stringify({
+              operations: [
+                {
+                  op: "patch-slide",
+                  slideId: "s1",
+                  fields: { notes: "updated" },
+                },
+              ],
+            }),
+          },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual([]);
   });
 
   it("reads save-deck and update-slide bodies, and reports an unreadable one", () => {

@@ -184,8 +184,9 @@ them per slide. For each target and scenario:
    keeps their bodies in `sessionStorage`. Any slide content one carried that
    differs from `saved.html`, and any that deletes the slide or replaces the
    deck without it, is a violation whether or not it has landed yet
-   (`keepalive-N.html`), so the harness never waits for one; it polls until
-   the stored slide settles only while a write it does see is in flight.
+    (`keepalive-N.html`). When one was sent, the harness also observes the
+    reopened slide for up to 15 s and polls until the stored slide settles,
+    since a keepalive write can land after the reload.
 8. **Idempotence (`typedelete` only).** A second identical edit must save
    exactly what the first one did.
 
