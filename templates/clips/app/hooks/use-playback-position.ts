@@ -19,11 +19,6 @@ export interface UsePlaybackPositionOptions {
   onRestore?: (positionMs: number) => void;
 }
 
-/**
- * Persists the latest native-video position for the current viewer. This is
- * separate from view analytics so the recording owner can resume without
- * becoming one of the clip's counted viewers.
- */
 export function usePlaybackPosition({
   recordingId,
   videoEl,

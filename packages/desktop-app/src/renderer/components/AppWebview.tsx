@@ -48,11 +48,6 @@ const APP_LOAD_TIMEOUT_MS = 15_000;
 export const APP_WEBVIEW_PREFERENCES =
   "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
 
-// The hosted environment switcher redirects authenticated Builder employees
-// from production to beta in a normal browser. Electron child sessions are
-// minted against the configured production origin, so keep first-party
-// production webviews on that same origin unless a beta URL was explicitly
-// supplied. The query is consumed by the hosted app and removed from history.
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
   errorCode?: number;
@@ -209,8 +204,6 @@ export function resolveAppWebviewAuthStateFromProbe(
   result: unknown,
   fallbackState: AppWebviewAuthState,
 ): AppWebviewAuthState {
-  // A missing probe result is a failed read, not evidence that the route is
-  // authenticated. The fallback is reserved for a known-unsupported 404.
   if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
@@ -288,8 +281,6 @@ export function isDesktopIdentityGateEligible(
     }
   };
 
-  // A built-in id must retain its canonical production origin. Otherwise a
-  // local or edited URL could inherit first-party SSO trust in the renderer.
   if (canonical && appConfig?.isBuiltIn === true) {
     if (productionOrigin(appConfig.url) !== productionOrigin(canonical.url)) {
       return false;
@@ -365,37 +356,17 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   );
 }
 
-/**
- * Whether reactivating a tab must hide its guest page behind the identity
- * loading gate again.
- *
- * Returning to an app used to re-gate unconditionally, so a page that was
- * already loaded and verified vanished behind "Loading …" on every switch —
- * the whole reason coming back to a tab read as a full reload. A page is only
- * re-gated when there is nothing usable on screen to preserve.
- */
 export function shouldClearDesktopIdentitySessionOnActivation(input: {
   hasLoadedGuestPage: boolean;
   sessionReady: boolean;
   rememberedStatus?: DesktopIdentityStatus | null;
 }): boolean {
-  // A page loaded under a session the shell has since watched end is not
-  // "usable to preserve": sign-out reloads every app webview including the
-  // hidden ones, so preserving it reveals that app's own signed-out page with
-  // no gate over it until the status round trip lands.
   if (isDesktopIdentitySignedOutStatus(input.rememberedStatus ?? null)) {
     return true;
   }
   return !(input.hasLoadedGuestPage && input.sessionReady);
 }
 
-/**
- * Whether a status the shell already observed means a loaded guest page can no
- * longer be treated as signed in. Sign-out publishes "sign-in-required", so
- * that and a hard "failed" are the only statuses that invalidate a loaded page.
- * "idle" is excluded deliberately — that is workspace SSO switched off, where
- * there is no session to gate and re-gating would stall every tab switch.
- */
 export function isDesktopIdentitySignedOutStatus(
   status: DesktopIdentityStatus | null,
 ): boolean {
@@ -436,51 +407,29 @@ export function shouldReuseRememberedDesktopIdentitySession(
 
 interface AppWebviewProps {
   app: AppDefinition;
-  /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
-  /** Changes when a desktop shortcut explicitly opens this app. */
   focusNonce?: number;
-  /**
-   * Set when the host hides this guest while it is still the active tab, e.g.
-   * behind a full-surface overlay. An Electron guest never observes CSS
-   * hiding, so the host has to say so or the page keeps polling underneath.
-   */
   surfaceHidden?: boolean;
-  /** When false, the shell owns the single native identity sign-in surface. */
   showDesktopIdentityGate?: boolean;
-  /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
-  /** Only same-origin app surfaces should inherit the shell theme. */
   syncTheme?: boolean;
-  /** Explicit browser target for the chat-first with-chrome surface. */
   sourceUrl?: string;
-  /** Changes when the same URL should be opened again. */
   urlOpenNonce?: number;
-  /** Safe app-relative path to load inside this app's origin. */
   urlPath?: string;
-  /** When true, apply an explicit open request without resetting a live webview. */
   urlOpenSoft?: boolean;
-  /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
-  /** Optional explicit Electron partition for preview or other isolated flows. */
   partitionKey?: string;
-  /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
-  /** Emits the guest page's document title so the shell tab can stay current. */
   onTitleChange?: (title: string) => void;
-  /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
-  /** Emits terminal main-frame failures so host-owned overlays can recover. */
   onMainFrameLoadFailure?: (details: {
     errorCode?: number;
     errorDescription: string;
   }) => void;
-  /** Emits the native desktop identity state for sibling host surfaces. */
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
   ) => void;
-  /** Emits the guest webContents id for tab-scoped main-process actions. */
   onWebContentsIdChange?: (webContentsId: number | undefined) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
@@ -499,20 +448,8 @@ export interface AppWebviewHandle {
   toggleAgentSidebar(): void;
 }
 
-/**
- * Determine the URL to load for this app.
- *
- * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: load the app's local dev URL directly. The Electron shell owns
- * chat now, so installed apps no longer need the local dev frame as a wrapper.
- */
 let rememberedEnvironmentLane: DesktopEnvironmentLane = "production";
 
-/**
- * Cache the resolved lane at module scope, the same way the identity status is
- * cached: `resolveAppWebviewUrl` is a pure helper called from several places
- * that have no access to component state.
- */
 export function rememberDesktopEnvironmentLane(
   lane: DesktopEnvironmentLane,
 ): boolean {
@@ -534,9 +471,6 @@ export function resolveAppWebviewUrl(
     return "about:blank";
   }
 
-  // Production mode (default): use the production URL, on the lane the shell
-  // resolved. Loading the lane directly is what keeps the hosted page from
-  // redirecting a Builder account to beta after its session resolves.
   if (appConfig?.url) {
     return withDesktopEnvironmentLane(appConfig.url, rememberedEnvironmentLane);
   }
@@ -549,8 +483,6 @@ export function resolveAppWebviewUrl(
     );
   }
 
-  // Keep incomplete custom entries on a stable blank document instead of
-  // silently routing them through the retired local dev frame.
   return "about:blank";
 }
 
@@ -561,9 +493,6 @@ function isFirstPartyProductionOrigin(rawUrl: string): boolean {
     if (parsed.hostname.toLowerCase().startsWith("beta.")) return false;
     return DESKTOP_DEFAULT_APPS.some((candidate) => {
       try {
-        // Normalize to production explicitly. `resolveAppWebviewUrl` follows
-        // the active lane, so while the shell is on beta a real production
-        // URL would match nothing here and silently lose its opt-out.
         return (
           new URL(
             withDesktopEnvironmentLane(
@@ -937,11 +866,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
     }, [app.placeholder, executeGuestScript, syncTheme, theme]);
 
-    // A <webview> guest never sees its own element hidden: display:none on the
-    // element or any ancestor leaves document.visibilityState "visible" and
-    // fires no visibilitychange. Without this the framework's polling and event
-    // stream keep running at foreground cadence in every backgrounded tab, and
-    // preloaded tabs would each hold one open forever.
     const guestVisible = isActive && !surfaceHidden;
     const applyGuestSurfaceVisibility = useCallback(() => {
       const wv = webviewRef.current;
@@ -1040,11 +964,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       setDesktopIdentityStatus(
         rememberedSignedIn || preserveLoadedSession ? "signed-in" : "idle",
       );
-      // Reactivating a tab whose guest page is already loaded and verified must
-      // not hide it behind the loading gate again — the recheck below is cheap
-      // and runs fine underneath a usable page. Clearing this on every
-      // activation is what made returning to a tab look like a full reload.
-      // Same rule applyStatus already uses when a child-session event repeats.
       if (
         shouldClearDesktopIdentitySessionOnActivation({
           hasLoadedGuestPage: hasLoadedGuestPageRef.current,
@@ -1064,9 +983,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
-          // A child-session event can repeat this check after the guest has
-          // loaded. Keep the verified page usable while the broker confirms
-          // the same session; only gate the initial load or a real transition.
           const preserveLoadedSession =
             hasLoadedGuestPageRef.current &&
             desktopIdentitySessionReadyRef.current;
@@ -1088,11 +1004,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             (preserveLoadedSession || fromRememberedSession) &&
             synchronized !== true
           ) {
-            // A failed lazy sync can mean the broker is in the middle of
-            // sign-out while its public status is still signed-in. Do not
-            // keep reusing this renderer cache during that ceremony. Keep the
-            // current verified tab usable until the broker publishes its
-            // authoritative sign-out status or the next activation rechecks.
             invalidateRememberedDesktopIdentityStatus();
           }
           updateDesktopIdentitySessionReady(
@@ -1140,8 +1051,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             (reuseRememberedSession ? "signed-in" : await identity.getStatus());
           await applyStatus(status, request, reuseRememberedSession);
         } catch {
-          // Keep an eligible app behind the Electron-owned gate when the
-          // identity preload cannot complete. Never fall back to app login.
           if (active && request === statusRequest) {
             if (preserveLoadedSession) {
               setDesktopIdentityEnabled(true);
@@ -1193,8 +1102,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return;
       }
       const timer = window.setTimeout(() => {
-        // A stuck child-session request must fall back to the app's own
-        // sign-in page instead of leaving this webview on about:blank forever.
         updateDesktopIdentitySessionReady(true);
         setDesktopIdentityStatus("failed");
       }, APP_LOAD_TIMEOUT_MS);
@@ -1427,8 +1334,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       onAuthStateChangeRef.current?.("unknown");
 
       const onReady = () => {
-        // Chromium can emit dom-ready for its internal error document after
-        // did-fail-load. That event is not a successful app load.
         if (loadFailureRef.current) return;
         if (deferDesktopWebviewLoad) {
           let currentUrl = "";
@@ -1487,8 +1392,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const errorCode = details.errorCode;
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
-        // Sub-resource failures (favicon, HMR websocket, etc.) should not
-        // trigger the error overlay — only main-frame load failures matter.
         if (details.isMainFrame === false) return;
         if (
           IS_DEV &&
@@ -1684,7 +1587,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       url,
     ]);
 
-    // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);
     useEffect(() => {
       const previousRefreshKey = prevRefreshKey.current;
@@ -1699,9 +1601,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return;
       }
 
-      // Keep a refresh pending while this webview is hidden. The shell sends
-      // one shared key to all mounted apps, so an inactive app must consume it
-      // only when it can actually apply the reload.
       prevRefreshKey.current = refreshKey;
 
       const wv = webviewRef.current;
@@ -1714,8 +1613,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
     }, [refreshKey, isActive, app.placeholder]);
 
-    // React does not update an imperatively-created <webview>'s src for us.
-    // Keep mode toggles, edited prod URLs, and custom dev URLs in sync.
     useEffect(() => {
       const wv = webviewRef.current;
       if (!wv || app.placeholder) {
@@ -1780,9 +1677,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       executeGuestScript,
     ]);
 
-    // If the webview hasn't fired dom-ready within a few seconds, surface
-    // a "still loading" hint. If it's still not ready after a bit longer,
-    // assume the dev server isn't running and show the error screen.
     useEffect(() => {
       if (app.placeholder || error || !isLoading || deferDesktopWebviewLoad) {
         return;
@@ -1791,12 +1685,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const failT = setTimeout(
         () => {
           if (isLoading) {
-            // Deliberately not `loadFailureRef`: Chromium never reported a
-            // failure here, we only stopped waiting. The navigation is still in
-            // flight, so a later dom-ready is the real app arriving rather than
-            // the error document that flag exists to suppress — latching it
-            // would strand the user on this screen with the app loaded and
-            // hidden behind it.
             authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);
@@ -1820,15 +1708,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       url,
     ]);
 
-    // Auto-focus the webview when it becomes active so keyboard events
-    // (e.g. Tab to cycle mail filters) go to the app, not the shell. The
-    // explicit nonce also handles shortcuts that reopen the active app.
     useEffect(() => {
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
         if (wv) {
-          // Focus once after the slot becomes visible. Repeated focus calls
-          // trigger focus-aware data refreshes in embedded apps.
           const frame = requestAnimationFrame(() => {
             if (focusNonce !== undefined || document.activeElement !== wv) {
               wv.focus();

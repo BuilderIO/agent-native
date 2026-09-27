@@ -7,12 +7,6 @@ import {
   type ApiEndpointData,
 } from "./api-endpoint.config.js";
 
-/**
- * Build a {@link BlockAttrReader} over a flat attribute bag — the resolved shape
- * the registry's real `createAttrReader` produces after MDX estree/JSON parsing.
- * Lets the round-trip test exercise `toAttrs` → `fromAttrs` without standing up
- * the whole MDX pipeline (the server registry specs cover the full path).
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -40,7 +34,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Drop keys whose value is `undefined`, mirroring the `prop()` encoder. */
 function compactAttrs(attrs: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(attrs).filter(([, value]) => value !== undefined),
@@ -140,7 +133,6 @@ describe("api-endpoint block — mdx round-trip", () => {
       "request",
       "responses",
     ]);
-    // `description` is the children field, never an attribute.
     expect(attrs).not.toHaveProperty("description");
   });
 
@@ -148,7 +140,6 @@ describe("api-endpoint block — mdx round-trip", () => {
     const attrs = compactAttrs(apiEndpointMdx.toAttrs(fullEndpoint));
     const back = apiEndpointMdx.fromAttrs(
       reader(attrs),
-      // `description` arrives as prose children, not an attribute.
       fullEndpoint.description ?? "",
     );
     const validated = apiEndpointSchema.parse(back);
@@ -188,10 +179,8 @@ describe("api-endpoint block — mdx round-trip", () => {
     const diffEndpoint: ApiEndpointData = {
       method: "POST",
       path: "/api/v2/widgets",
-      // Root: the whole route is new.
       change: "added",
       params: [
-        // Modified param carrying its prior value via `was`.
         {
           name: "kind",
           in: "query",
@@ -204,7 +193,6 @@ describe("api-endpoint block — mdx round-trip", () => {
       ],
       responses: [
         { status: "201", description: "Created", change: "added" },
-        // A newly-added conflict response.
         { status: "409", description: "Conflict", change: "added" },
       ],
     };
@@ -212,7 +200,6 @@ describe("api-endpoint block — mdx round-trip", () => {
     const back = apiEndpointMdx.fromAttrs(reader(attrs), "");
     const validated = apiEndpointSchema.parse(back);
     expect(validated).toEqual(diffEndpoint);
-    // Spot-check each level survived.
     expect(validated.change).toBe("added");
     expect(validated.params?.[0]).toMatchObject({
       change: "modified",

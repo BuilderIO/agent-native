@@ -26,8 +26,6 @@ export function DeckFilterMenu({
   onChange: (value: DeckFilter) => void;
 }) {
   const t = useT();
-  // "Mine" hides other people's decks, so the trigger has to say so even
-  // while the menu is closed.
   const filtered = value === "mine";
   const label = filtered ? t("home.showMineDecks") : t("home.showAllDecks");
   return (

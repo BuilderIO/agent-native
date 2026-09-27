@@ -14,8 +14,6 @@ export function isWithinSlidesCanvasEdgeMoveBand(
   clientX: number,
   clientY: number,
 ): boolean {
-  // Tiny labels still need a usable center click target. Cap the move band at
-  // one quarter of either dimension so its opposite edges never consume it.
   const edgeBand = Math.min(
     SLIDES_CANVAS_EDGE_MOVE_BAND,
     rect.width / 4,
@@ -37,11 +35,6 @@ export function isWithinSlidesCanvasEdgeMoveBand(
   );
 }
 
-/**
- * Slides owns its persistence adapter: it translates shared semantic commands
- * into mutations of the selected slide's HTML. Toolkit remains unaware of the
- * DOM, coordinate containers, and the one-write-per-gesture boundary.
- */
 export type SlidesCanvasHtmlMutationAdapter = CanvasInteractionAdapter<string>;
 export type SlidesCanvasGestureAdapter = CanvasGestureAdapter<string>;
 
@@ -76,10 +69,6 @@ export function createSlidesCanvasInteractionCore(
   return createCanvasInteractionCore(slidesCanvasInteractionConfig, adapter);
 }
 
-/**
- * Slides only nudges selected layers for plain arrows and Shift+arrows. Other
- * modifier chords stay native so browser and editing shortcuts keep working.
- */
 export function resolveSlidesCanvasNudge(
   input: Parameters<typeof slidesCanvasInteractionCore.nudge>[0],
 ) {
@@ -87,7 +76,6 @@ export function resolveSlidesCanvasNudge(
   return slidesCanvasInteractionCore.nudge(input);
 }
 
-/** Rotate a selected canvas object by the Google Slides keyboard increment. */
 export function resolveSlidesCanvasRotation(
   input: Pick<
     KeyboardEvent,
@@ -106,7 +94,6 @@ export function resolveSlidesCanvasRotation(
   return input.key === "ArrowLeft" ? -amount : amount;
 }
 
-/** Creates one shared controller per live Slides pointer gesture. */
 export function createSlidesCanvasGestureController(
   adapter: SlidesCanvasGestureAdapter,
 ) {
@@ -116,7 +103,6 @@ export function createSlidesCanvasGestureController(
   });
 }
 
-/** Shared Slides policy for callers that do not need an HTML command adapter. */
 export const slidesCanvasInteractionCore = createSlidesCanvasInteractionCore();
 
 export type SlidesCanvasPointerIntent =
@@ -125,9 +111,6 @@ export type SlidesCanvasPointerIntent =
   | "move-object-perimeter"
   | "none";
 
-/** Prefer the current selection when the pointer is inside it; otherwise the
- * object under the pointer becomes the drag candidate, including on the first
- * press before its click has updated selection state. */
 export function resolveSlidesCanvasDragTarget(
   selectedObject: HTMLElement | null,
   pointerObject: HTMLElement | null,
@@ -143,13 +126,6 @@ export function resolveSlidesCanvasDragTarget(
   return pointerObject ?? selectedObject;
 }
 
-/**
- * Slides supplies hit testing and this policy decision, while the shared
- * gesture controller owns threshold, coordinate, modifier, and resize math.
- * A selected object's body begins a thresholded move candidate. An unmoved
- * press still falls through to the click handler for text editing, while a
- * real drag consumes that trailing click.
- */
 export function resolveSlidesCanvasPointerIntent({
   hasSelectedObject,
   targetWithinSelectedObject,
@@ -174,8 +150,6 @@ export function resolveSlidesCanvasPointerIntent({
   ) {
     return "move-object-perimeter";
   }
-  // The interior of an editable text object belongs to native text selection.
-  // Only the measured outer edge is reserved for moving the selected object.
   if (targetIsEditableText && !duplicateModifierActive) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";

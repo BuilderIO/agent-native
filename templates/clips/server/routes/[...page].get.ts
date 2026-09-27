@@ -96,8 +96,6 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
 
-  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
-  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
     recording.archivedAt ||

@@ -573,7 +573,6 @@ const EMOJI_SEARCH_ALIASES: Record<string, string[]> = {
   "🏁": ["checkered flag", "finish"],
 };
 
-// Flattened for search
 const ALL_EMOJI_ENTRIES = EMOJI_CATEGORIES.flatMap((cat) =>
   cat.emojis.map((emoji) => ({
     emoji,
@@ -615,7 +614,6 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 
   if (matchingEmojis.length === 0) return [];
 
-  // Group back into categories
   const grouped = new Map<string, string[]>();
   for (const entry of matchingEmojis) {
     if (!grouped.has(entry.category)) grouped.set(entry.category, []);

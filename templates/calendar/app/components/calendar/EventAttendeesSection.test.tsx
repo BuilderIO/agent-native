@@ -299,7 +299,6 @@ describe("EventAttendeesSection attendee controls", () => {
     const attendeeRows = Array.from(
       document.querySelectorAll('[data-testid="attendee-details"]'),
     );
-    // Rows show the display name and keep the address in the accessible text.
     const organizerRow = attendeeRows.find((row) =>
       row.textContent?.includes("Sami"),
     );

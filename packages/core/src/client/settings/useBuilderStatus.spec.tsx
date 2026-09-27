@@ -21,8 +21,6 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-// The initial Builder status read is deferred past first paint; the fallback
-// timer bounds that wait at 250ms, so settling past it is deterministic.
 async function flushAfterPaint() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -48,16 +46,19 @@ function BuilderConnectProbe({
   popupUrl,
   provisionAccount = false,
   startProvisionAccount,
+  onConnected,
 }: {
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
   startProvisionAccount?: boolean;
+  onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }) {
   const flow = useBuilderConnectFlow({
     enabled,
     popupUrl,
     provisionAccount,
+    onConnected,
   });
   return (
     <div>
@@ -87,6 +88,9 @@ function BuilderConnectProbe({
         {flow.connecting ? "connecting" : "idle"}{" "}
         {flow.statusResolved ? "resolved" : "unresolved"}{" "}
         {flow.accountExists ? "account-exists" : "no-account-exists"}
+      </output>
+      <output data-testid="credential-source">
+        {flow.credentialSource ?? "none"}
       </output>
       <output>{flow.error ?? ""}</output>
     </div>
@@ -270,8 +274,6 @@ describe("useBuilderStatus", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    // The focus refresh stays immediate and the scheduled initial read is
-    // consumed, not stacked behind it.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await flushAfterPaint();
@@ -349,15 +351,11 @@ describe("useBuilderConnectFlow", () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
     });
-    // One read lands immediately; the scheduled initial read was consumed
-    // instead of stacking a duplicate when the window elapses.
     expect(pendingResponses).toHaveLength(1);
 
     await flushAfterPaint();
     expect(pendingResponses).toHaveLength(1);
 
-    // Overlapping refreshes supersede each other: the newest started wins
-    // even when the older response resolves last.
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
@@ -801,6 +799,43 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("account-exists");
   });
 
+  it("keeps existing-account mode when a login attempt is blocked", async () => {
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        connectError: {
+          message:
+            "A Builder account already exists for this email. Log in to connect it.",
+          code: "account_exists",
+          at: Date.now(),
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe provisionAccount startProvisionAccount={false} />,
+      );
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toContain("account-exists");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.textContent).toContain("account-exists");
+    expect(container.textContent).toContain("Allow popups and try again.");
+  });
+
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
@@ -878,6 +913,246 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured connecting resolved");
   });
 
+  it("settles an active connect when a lifecycle refresh confirms OAuth", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const disconnectedStatus = {
+      ...connectedBuilderStatus,
+      configured: false,
+      orgName: null,
+      credentialSource: null,
+    };
+    const onConnected = vi.fn();
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(jsonResponse(disconnectedStatus))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...connectedBuilderStatus, credentialSource: "user" }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).toHaveBeenCalledOnce();
+  });
+
+  it("waits for an OAuth credential when only deployment-managed Builder credentials exist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(deploymentManagedStatus));
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        ...deploymentManagedStatus,
+        credentialSource: "user",
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(onConnected).toHaveBeenCalledOnce();
+  });
+
+  it("syncs deployment-managed status from connect polling after an initial status failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("initial status unavailable"))
+      .mockRejectedValueOnce(new Error("click status unavailable"))
+      .mockResolvedValue(jsonResponse(deploymentManagedStatus));
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          popupUrl={signedConnectUrl}
+          onConnected={onConnected}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+    expect(onConnected).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late deployment-status poll after OAuth confirmation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const deploymentManagedStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "env",
+    };
+    const oauthStatus = {
+      ...connectedBuilderStatus,
+      envManaged: true,
+      credentialSource: "user",
+    };
+    let requestCount = 0;
+    let resolveLatePoll: (response: Response) => void = () => {};
+    vi.mocked(fetch).mockImplementation(() => {
+      requestCount += 1;
+      if (requestCount === 3) {
+        return new Promise<Response>((resolve) => {
+          resolveLatePoll = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse(requestCount >= 4 ? oauthStatus : deploymentManagedStatus),
+      );
+    });
+    const onConnected = vi.fn();
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe onConnected={onConnected} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(requestCount).toBe(3);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: popupAttemptId(popup),
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(
+      container.querySelector('[data-testid="credential-source"]')?.textContent,
+    ).toBe("user");
+    expect(onConnected).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveLatePoll(jsonResponse(deploymentManagedStatus));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="credential-source"]')?.textContent,
+    ).toBe("user");
+    expect(onConnected).toHaveBeenCalledOnce();
+  });
+
   it("does not probe Builder status when disabled", async () => {
     await act(async () => {
       root.render(<BuilderConnectProbe enabled={false} />);
@@ -910,9 +1185,6 @@ describe("useBuilderConnectFlow", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toContain("not-configured idle unresolved");
-    // A status we could not read must not render the same as a status we have
-    // not asked for yet: the connect CTA stays inert until this resolves, so
-    // the failure has to be visible rather than silently held.
     expect(container.textContent).toContain(
       "Couldn't reach Builder to check your account.",
     );
@@ -963,10 +1235,6 @@ describe("useBuilderConnectFlow", () => {
   });
 
   it("honors a connect click made while the first status read is still in flight", async () => {
-    // The cold-start shape: the status route is reachable but slow, so the
-    // trigger renders as a normal enabled button for seconds. A click there
-    // used to be discarded, which is what "Connect Builder.io doesn't work"
-    // looked like to a brand-new signup landing on a cold instance.
     const pending: Array<() => void> = [];
     vi.mocked(fetch).mockImplementation(
       () =>
@@ -1011,8 +1279,6 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    // Provisioning is available, so the queued click surfaces the consent
-    // choice rather than silently starting a connect.
     expect(
       document.querySelector("[data-radix-popper-content-wrapper]"),
     ).not.toBeNull();
@@ -1450,7 +1716,6 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
-    // Still within the confirmation grace window: a real success can still land.
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("couldn't confirm");
   });
@@ -1494,8 +1759,6 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(26_000);
     });
 
-    // No confirmation ever landed, so the button must stop spinning and become
-    // clickable again instead of hanging until the 5-minute overall timeout.
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
       "Didn't finish connecting to Builder.io",
@@ -1504,7 +1767,6 @@ describe("useBuilderConnectFlow", () => {
     const button = container.querySelector("button");
     expect(button?.disabled).toBe(false);
 
-    // A retry click must work without a page reload.
     openSpy.mockClear();
     await act(async () => {
       button?.click();
@@ -1831,9 +2093,6 @@ describe("useBuilderConnectFlow", () => {
     openSpy.mockReturnValue(popup);
 
     const startedAt = Date.now();
-    // Past the 20s popup-close grace window, but well within the
-    // callback-success handler's own ~5s retry budget once the success
-    // message lands at t=20s below.
     const configuredAfterMs = 24_200;
     vi.mocked(fetch).mockImplementation(async () => {
       const isConfigured = Date.now() - startedAt >= configuredAfterMs;
@@ -1877,10 +2136,7 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
-    // removed debug
 
-    // The success message lands right as the popup-close grace window would
-    // otherwise be about to fire the cancellation.
     await act(async () => {
       const attemptId = popupAttemptId(popup);
       window.dispatchEvent(
@@ -1891,10 +2147,7 @@ describe("useBuilderConnectFlow", () => {
       );
       await vi.advanceTimersByTimeAsync(6000);
     });
-    // removed debug
 
-    // The real connection must resolve, not get discarded by the popup-close
-    // branch racing ahead of the callback-success retry loop.
     expect(container.textContent).toContain("configured idle resolved");
     expect(container.textContent).not.toContain("Didn't finish connecting");
   });

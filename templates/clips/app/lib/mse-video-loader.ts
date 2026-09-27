@@ -1,31 +1,3 @@
-/**
- * Media Source Extensions loader for raw fragmented-MP4 recordings.
- *
- * Why this exists: the desktop custom recording pipeline live-streams captures
- * as fragmented MP4 with no up-front duration (`mvhd duration=0`, no `mehd`).
- * Chrome's progressive `<video src>` pipeline therefore scans the entire file
- * over the network before it can fire `loadedmetadata`, so CDN-served clips
- * spin forever. The bytes are valid and cannot be rewritten at rest (they were
- * committed to an append-only resumable upload), so instead we feed them to a
- * `MediaSource` ourselves and set the duration from the DB.
- *
- * The loader owns a `MediaSource` + one `SourceBuffer`, streams the asset with
- * sequential HTTP range requests, keeps a buffer-ahead window relative to
- * `currentTime`, realigns to fragment boundaries on seek, and evicts played
- * ranges under memory pressure. Any unrecoverable failure calls `onFatal` so
- * the caller can drop back to the plain `<video src>` path.
- *
- * Seeking reads each probed fragment's real `tfdt` timestamp rather than
- * trusting a byte-fraction estimate. These recordings are variable-bitrate, so
- * byte position and presentation time drift apart by tens of seconds over a
- * long clip; appending a fragment that starts *after* `currentTime` leaves the
- * element permanently unplayable, because MSE never jumps a forward gap on its
- * own. See `seekToTime`.
- *
- * The player component only ever sees a normal `HTMLVideoElement`; this class
- * drives it entirely through `video.src = objectUrl` + range fetches.
- */
-
 import {
   type Mp4Track,
   findMoofOffset,
@@ -34,32 +6,20 @@ import {
 } from "./fmp4";
 import { ByteTimeMap, resolveSeekFragment } from "./fmp4-seek";
 
-const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB sequential range reads
-const INIT_PROBE_SIZE = 512 * 1024; // enough to always contain ftyp+moov
-const SEEK_PROBE_SIZE = 1024 * 1024; // window scanned for a moof + its tfdt
-const BUFFER_AHEAD_SECONDS = 30; // download target ahead of currentTime
-const BUFFER_BEHIND_SECONDS = 10; // played media kept before evicting on quota
-/** Probe budget per seek. Bracketed interpolation converges in 2-3 in practice. */
+const CHUNK_SIZE = 2 * 1024 * 1024;
+const INIT_PROBE_SIZE = 512 * 1024;
+const SEEK_PROBE_SIZE = 1024 * 1024;
+const BUFFER_AHEAD_SECONDS = 30;
+const BUFFER_BEHIND_SECONDS = 10;
 const MAX_SEEK_PROBES = 6;
-/**
- * How far before the seek target we accept landing. The gap is downloaded and
- * decoded before playback can resume, so a small number keeps seeks responsive;
- * landing even slightly *past* the target is never acceptable.
- */
 const SEEK_ACCEPT_UNDERSHOOT_SECONDS = 4;
-/** Realign retries before nudging `currentTime` into the buffer we do have. */
 const MAX_REALIGN_ATTEMPTS = 3;
-/** Overlap between probe steps, so a `moof` on a window boundary is not skipped. */
 const PROBE_STEP_OVERLAP_BYTES = 4096;
 
 export interface MseVideoLoaderOptions {
-  /** Asset URL. Range requests go straight here (external/proxied media). */
   url: string;
-  /** Authoritative duration from the DB, in milliseconds. */
   durationMs: number;
-  /** The video element this loader drives. */
   video: HTMLVideoElement;
-  /** Called once on any unrecoverable failure so the caller can fall back. */
   onFatal: (err: unknown) => void;
 }
 
@@ -83,11 +43,6 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-/**
- * True when a ranged request came back as a whole-file `200` for a nonzero
- * start, meaning the origin ignored `Range`. A `200` to a request starting at
- * byte 0 is just the whole asset, which lines up fine.
- */
 export function rangeWasIgnored(
   status: number,
   requestedStart: number,
@@ -104,36 +59,18 @@ export class MseVideoLoader {
   private sourceBuffer: SourceBuffer | null = null;
 
   private totalBytes = 0;
-  /**
-   * Whether we know the asset's real length. Cross-origin responses hide the
-   * `Content-Range` header (it is not CORS-safelisted), so when playing a raw
-   * CDN asset we cannot read the total and instead detect the end via short
-   * reads. Same-origin proxied media exposes it and we use it directly.
-   */
   private totalKnown = false;
   private eofReached = false;
   private initLength = 0;
   private nextOffset = 0;
   private initAppended = false;
-  /** Duration (seconds) waiting to be written once the source buffer is idle. */
   private pendingDurationSec: number | null = null;
-  /** Track ids and timescales from the init segment, for reading `tfdt`. */
   private tracks: Mp4Track[] = [];
-  /** Observed byte<->time anchors, built as the asset is read. */
   private anchors: ByteTimeMap | null = null;
-  /** Seek target waiting to be resolved by the pump, in seconds. */
   private pendingSeek: number | null = null;
-  /**
-   * Bumped on every `seeking` event, including one whose target is already
-   * buffered. A resolve in flight for an older target must not be allowed to
-   * finish and repoint the download cursor: the playhead has moved on, so the
-   * cursor would end up filling a region the playhead never reaches.
-   */
   private seekGeneration = 0;
-  /** Target of the realigns counted by `realignAttempts`. */
   private realignTarget: number | null = null;
   private realignAttempts = 0;
-  /** Start time of the most recently appended fragment, for stall detection. */
   private lastAppendSec: number | null = null;
 
   private destroyed = false;
@@ -146,9 +83,6 @@ export class MseVideoLoader {
     this.video = opts.video;
     this.mediaSource = new MediaSource();
     this.objectUrl = URL.createObjectURL(this.mediaSource);
-    // Not `once`: after `endOfStream()` a seek into an evicted/unbuffered range
-    // transitions the source back to "open" and fires `sourceopen` again, which
-    // we use to resume fetching (see `onSourceOpen`).
     this.mediaSource.addEventListener("sourceopen", this.onSourceOpen);
     this.video.addEventListener("seeking", this.onSeeking);
     this.video.addEventListener("timeupdate", this.onTimeUpdate);
@@ -180,27 +114,15 @@ export class MseVideoLoader {
     }
   }
 
-  /**
-   * Update the authoritative duration after construction. Recording metadata
-   * polling can deliver a later/larger value while the same asset is playing;
-   * apply it to the live `MediaSource` (and the seek-estimation math) instead
-   * of forcing a loader rebuild, which would revoke the object URL and restart
-   * playback from byte zero.
-   */
   setDuration(durationMs: number): void {
     if (this.destroyed) return;
     if (!Number.isFinite(durationMs) || durationMs <= 0) return;
     if (durationMs === this.opts.durationMs) return;
     this.opts.durationMs = durationMs;
-    // Queue the timeline update and apply it as soon as the source buffer is
-    // idle. Writing `mediaSource.duration` throws while an append is in flight,
-    // so a value that lands mid-append must be retried on `updateend` — never
-    // dropped, or the timeline stays permanently shorter than the recording.
     this.pendingDurationSec = durationMs / 1000;
     this.flushPendingDuration();
   }
 
-  /** Apply a queued duration once the source is open and no append is running. */
   private flushPendingDuration(): void {
     if (this.destroyed || this.pendingDurationSec === null) return;
     if (this.mediaSource.readyState !== "open") return;
@@ -226,11 +148,6 @@ export class MseVideoLoader {
 
   private onSourceOpen = async (): Promise<void> => {
     if (this.destroyed) return;
-    // Reopened after `endOfStream()`: a seek into an evicted/unbuffered range
-    // transitions the "ended" source back to "open". The pipeline is already
-    // built, so just clear the EOF latch and resume fetching for the seek
-    // (`onSeeking` has set `pendingSeek`) instead of re-running init (which
-    // would try to add a second source buffer).
     if (this.initAppended) {
       this.eofReached = false;
       this.schedulePump();
@@ -239,8 +156,6 @@ export class MseVideoLoader {
     try {
       const durationSec = this.opts.durationMs / 1000;
       if (Number.isFinite(durationSec) && durationSec > 0) {
-        // The whole point: the timeline length comes from us, never from
-        // scanning the file.
         this.mediaSource.duration = durationSec;
       }
 
@@ -253,9 +168,6 @@ export class MseVideoLoader {
       this.tracks = parsed.tracks;
       this.anchors = new ByteTimeMap(parsed.initLength);
       if (this.tracks.length === 0) {
-        // Without timescales a fragment's tfdt cannot be converted to seconds,
-        // so seeking would be back to blind byte-fraction guessing. Fall back to
-        // the native pipeline rather than ship a player that cannot seek.
         throw new Error("fMP4 init segment declares no readable tracks");
       }
 
@@ -265,20 +177,13 @@ export class MseVideoLoader {
       }
 
       const sb = this.mediaSource.addSourceBuffer(mime);
-      // Flush any duration update that arrived (or was deferred) while an
-      // append was running.
       sb.addEventListener("updateend", this.onSourceBufferIdle);
-      // "segments" mode honors each fragment's baseMediaDecodeTime, which is
-      // what lets us append a later fragment after a seek without any manual
-      // timestampOffset bookkeeping.
       sb.mode = "segments";
       this.sourceBuffer = sb;
 
       await this.appendBuffer(first.bytes.subarray(0, this.initLength));
       this.initAppended = true;
 
-      // The 512KB probe usually also contains the first media fragments — append
-      // whatever came after the init segment so playback can start immediately.
       const fetchedEnd = first.bytes.byteLength;
       if (fetchedEnd > this.initLength) {
         const media = first.bytes.subarray(this.initLength);
@@ -297,25 +202,19 @@ export class MseVideoLoader {
 
   private onTimeUpdate = (): void => {
     if (this.destroyed) return;
-    // Re-pump when the buffer-ahead window has drained below target.
     this.schedulePump();
   };
 
   private onSeeking = (): void => {
     if (this.destroyed || !this.initAppended) return;
     const target = this.video.currentTime;
-    // Invalidate first, and for every seek: a target that is already buffered
-    // needs no resolve of its own, but it still has to cancel one in flight.
     this.seekGeneration++;
     if (this.isBuffered(target)) {
       this.pendingSeek = null;
-      // Let the pump re-check whether its download cursor still feeds this
-      // playhead; the buffered range it landed in may not be the one growing.
       this.schedulePump();
       return;
     }
 
-    // Abort any in-flight sequential fetch so we can jump.
     this.currentFetch?.abort();
     this.eofReached = false;
 
@@ -330,16 +229,6 @@ export class MseVideoLoader {
     this.schedulePump();
   };
 
-  /**
-   * Record a (byte -> fragment start time) anchor for the first `moof` at or
-   * after `searchFrom` within `bytes`, which was fetched from absolute offset
-   * `fetchStart`. Both offsets are required: defaulting either one silently
-   * files the anchor under the wrong byte position, which corrupts every later
-   * seek estimate rather than failing visibly.
-   *
-   * Returns that fragment's start time, or null when the chunk carries no
-   * readable fragment header.
-   */
   private recordAnchorAt(
     bytes: Uint8Array,
     fetchStart: number,
@@ -388,15 +277,11 @@ export class MseVideoLoader {
           break;
         }
 
-        // We are filling media the playhead cannot reach. Downloading further
-        // only widens the gap, so realign to the playhead instead of quietly
-        // streaming to EOF behind a spinner.
         if (this.downloadIsDisjoint()) {
           if (this.requestRealign(this.video.currentTime)) continue;
           break;
         }
 
-        // Stop downloading once we're comfortably ahead.
         if (this.bufferedAhead() >= BUFFER_AHEAD_SECONDS) break;
 
         const chunkStart = this.nextOffset;
@@ -408,7 +293,7 @@ export class MseVideoLoader {
         try {
           res = await this.fetchRange(chunkStart, chunkEnd);
         } catch (err) {
-          if (isAbortError(err)) break; // superseded by a seek
+          if (isAbortError(err)) break;
           throw err;
         }
         if (this.destroyed) break;
@@ -485,11 +370,6 @@ export class MseVideoLoader {
     );
   }
 
-  /**
-   * Fetch a window at `startByte` and return the first fragment in it whose
-   * timestamp is readable, walking forward a couple of windows when a fragment
-   * is larger than one probe. Records the (byte -> time) pair as an anchor.
-   */
   private async probeFragmentAt(startByte: number): Promise<{
     fetchStart: number;
     bytes: Uint8Array;
@@ -520,21 +400,11 @@ export class MseVideoLoader {
         }
       }
       if (res.eof) return null;
-      // Overlap the step: a `moof` header straddling the window boundary is
-      // unreadable in this window, and stepping the full width would skip past
-      // that fragment entirely.
       start += Math.max(1, res.bytes.byteLength - PROBE_STEP_OVERLAP_BYTES);
     }
     return null;
   }
 
-  /**
-   * Resolve a seek by reading real fragment timestamps (see `fmp4-seek`),
-   * append from the fragment it picks, and leave the sequential pump to fill
-   * forward from there.
-   *
-   * Returns false when the pump should stop (destroyed, or reported fatal).
-   */
   private async seekToTime(target: number): Promise<boolean> {
     const generation = this.seekGeneration;
     let resolution;
@@ -553,14 +423,10 @@ export class MseVideoLoader {
           this.seekGeneration !== generation,
       });
     } catch (err) {
-      if (isAbortError(err)) return !this.destroyed; // superseded by a new seek
+      if (isAbortError(err)) return !this.destroyed;
       throw err;
     }
     if (this.destroyed) return false;
-    // A newer seek arrived; the pump loop picks it up on the next iteration.
-    // Checked again here because the resolve may have completed in the same
-    // tick the new seek arrived — appending now would aim the download cursor
-    // at a target the viewer has already left.
     if (resolution.superseded || this.seekGeneration !== generation)
       return true;
 
@@ -573,50 +439,29 @@ export class MseVideoLoader {
     }
 
     this.eofReached = false;
-    // Reset the segment parser so it drops any partial fragment left over from
-    // the aborted sequential append and treats these bytes as a fresh media
-    // segment. Without this, appending a fragment from a new byte position
-    // fails with CHUNK_DEMUXER_ERROR_APPEND_FAILED.
     this.abortParser();
     await this.appendWithQuota(chosen.bytes.subarray(chosen.moof));
     this.lastAppendSec = chosen.sec;
     this.nextOffset = chosen.fetchStart + chosen.bytes.byteLength;
 
     if (resolution.overshot) {
-      // Every probe landed past the target — a target beyond the last fragment,
-      // or a tail we cannot parse. Move the playhead onto media we actually
-      // hold instead of leaving it on a position that will never arrive.
       this.nudgeCurrentTimeTo(chosen.sec);
       return true;
     }
 
-    // A resolved seek clears the realign budget: the next stall, if any, is a
-    // new problem and deserves its own retries.
     this.realignTarget = null;
     this.realignAttempts = 0;
     return true;
   }
 
-  /**
-   * True when the download cursor is filling media the playhead cannot reach:
-   * either the playhead has nothing buffered at all, or it sits in a range that
-   * we are not extending, so that range will run out with nothing behind it.
-   *
-   * Checking only "playhead unbuffered" is not enough. After a seek back into
-   * an already-buffered stretch, the playhead is buffered while the cursor is
-   * still filling somewhere else entirely — playback then runs to the end of
-   * its own range and stops, which looks exactly like the stall this loader
-   * exists to prevent.
-   */
   private downloadIsDisjoint(): boolean {
     if (this.lastAppendSec === null) return false;
     const t = this.video.currentTime;
     const end = this.bufferedEndAt(t);
-    if (end === null) return true; // nothing buffered at the playhead
+    if (end === null) return true;
     return this.lastAppendSec > end + 1;
   }
 
-  /** End of the buffered range containing `time`, or null when unbuffered. */
   private bufferedEndAt(time: number): number | null {
     const buffered = this.sourceBuffer?.buffered;
     if (!buffered) return null;
@@ -628,12 +473,6 @@ export class MseVideoLoader {
     return null;
   }
 
-  /**
-   * Queue another seek resolution for `target`. Returns false once the retry
-   * budget is spent, having either moved the playhead onto media we hold or
-   * reported a fatal — never leaving the pump stopped with the playhead parked
-   * on an unreachable position and no pending work to fix it.
-   */
   private requestRealign(target: number): boolean {
     if (
       this.realignTarget === null ||
@@ -669,11 +508,6 @@ export class MseVideoLoader {
     return null;
   }
 
-  /**
-   * Move the playhead onto buffered media. The resulting `seeking` event finds
-   * the position already buffered and returns early, so this cannot re-enter
-   * the seek resolver.
-   */
   private nudgeCurrentTimeTo(sec: number): void {
     if (!Number.isFinite(sec) || sec < 0) {
       this.fail(new Error(`Cannot nudge the playhead to ${sec}`));
@@ -682,9 +516,6 @@ export class MseVideoLoader {
     try {
       this.video.currentTime = sec + 0.05;
     } catch (err) {
-      // Terminal safety net: without the nudge the element stays parked on an
-      // unreachable time, which is the stall this path exists to prevent.
-      // Report so the caller drops back to the native `<video src>` pipeline.
       this.fail(err);
     }
   }
@@ -789,11 +620,6 @@ export class MseVideoLoader {
       signal: controller.signal,
     });
     if (res.status === 416) {
-      // A 416 at an offset before the known file total means the backing object
-      // was replaced with a smaller compressed version while we were streaming.
-      // Throw so runPump's catch calls fail() -> onFatal -> native path recovery.
-      // When totalKnown is false (cross-origin CDN hides Content-Range), we
-      // cannot tell premature from real EOF so we keep the old safe-EOF behaviour.
       if (this.totalKnown && start < this.totalBytes) {
         throw new Error("Range 416 before known EOF: backing file replaced");
       }
@@ -803,22 +629,11 @@ export class MseVideoLoader {
       throw new Error(`Range request failed: ${res.status}`);
     }
     if (rangeWasIgnored(res.status, start)) {
-      // A 200 to a ranged request is the whole file, so its bytes start at 0 —
-      // not at `start`. Reading it as though they lined up files every anchor
-      // and the resume offset under the wrong byte position, poisoning later
-      // seeks. An origin that ignores Range also defeats the point of this
-      // loader (each 2MB window would pull the entire asset), so hand back to
-      // the native pipeline instead of trying to compensate.
       throw new Error("Origin ignored the Range header; cannot stream windows");
     }
-    // If the backing file shrank mid-response (ERR_CONTENT_LENGTH_MISMATCH),
-    // arrayBuffer() throws here, which also routes through fail() -> onFatal.
     const buffer = await res.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
-    // Learn the real total when the header is readable (same-origin proxied
-    // media). Cross-origin CDN responses hide Content-Range, so we fall back to
-    // short-read detection below.
     const total = parseTotalFromContentRange(res.headers.get("content-range"));
     if (total != null && total > 0) {
       this.totalBytes = total;
@@ -826,8 +641,6 @@ export class MseVideoLoader {
     }
 
     const requested = end - start + 1;
-    // A 200 (only reachable from a start of 0, per the guard above, so it is
-    // the whole asset) or a short 206 both mean this response ran to the end.
     const eof =
       res.status === 200 ||
       bytes.byteLength < requested ||

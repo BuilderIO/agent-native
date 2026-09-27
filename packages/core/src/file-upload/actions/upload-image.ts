@@ -294,7 +294,6 @@ function receiptBelongsToRequest(receipt: UploadReceipt): boolean {
   );
 }
 
-/** Commit every image receipt for a completed browser import batch. */
 export async function commitUploadReceiptsForImport(
   importId: string,
 ): Promise<void> {
@@ -502,10 +501,6 @@ async function fetchRemote(url: string): Promise<{
     throw new Error("url must use http(s)");
   }
 
-  // SSRF guard: this URL is agent/user-controlled and the fetched bytes are
-  // re-hosted and returned, so an unguarded fetch is a full-read SSRF (cloud
-  // metadata, localhost, internal services). ssrfSafeFetch blocks private
-  // targets, re-checks at connect time, and re-validates every redirect hop.
   const response = await ssrfSafeFetch(url, {}, { maxRedirects: 3 });
   if (!response.ok) {
     throw new Error(
@@ -517,8 +512,6 @@ async function fetchRemote(url: string): Promise<{
     contentType.split(";")[0].trim().toLowerCase() ||
     "application/octet-stream";
 
-  // Reject up front when the server advertises a size over the cap so we never
-  // allocate the body at all.
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_REMOTE_FETCH_BYTES) {
     throw new Error(
@@ -528,8 +521,6 @@ async function fetchRemote(url: string): Promise<{
 
   const reader = response.body?.getReader?.();
   if (!reader) {
-    // Runtimes (or test mocks) without a readable body stream: fall back to a
-    // full read, still enforcing the cap before returning.
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > MAX_REMOTE_FETCH_BYTES) {
       throw new Error(
@@ -539,8 +530,6 @@ async function fetchRemote(url: string): Promise<{
     return { bytes: new Uint8Array(buffer), mimeType };
   }
 
-  // Stream the body and abort the moment the accumulated size exceeds the cap,
-  // so an unbounded or mislabeled response can never be fully buffered.
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {

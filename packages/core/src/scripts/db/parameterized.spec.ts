@@ -85,10 +85,6 @@ describe("db scripts parameterized SQL", () => {
     const { default: dbQuery } = await import("./query.js");
     await dbQuery(["--sql", "SELECT 1"]);
 
-    // getRuntimeDatabaseUrl resolves DATABASE_URL_UNPOOLED; getDatabaseUrl
-    // ignores it entirely — running against the latter here would mean the
-    // same command reads a different database once a dev server (which
-    // hashes getRuntimeDatabaseUrl) is running to forward to.
     expect(capturedUrls).toEqual(["pglite:./data/pglite-unpooled"]);
   });
 
@@ -119,9 +115,6 @@ describe("db scripts parameterized SQL", () => {
 
   it("executes db-exec statement batches in one PostgreSQL transaction", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
-    // Return no columns so scoping introspection doesn't generate setup views.
-    // This keeps the test focused on transaction ordering. The first call is
-    // the introspection SELECT that returns [].
     const unsafe = vi.fn(async (sql: string) => {
       if (sql.includes("information_schema.columns")) return [];
       return Object.assign([], { count: 1 });

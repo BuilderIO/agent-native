@@ -482,8 +482,17 @@ export default {
     confirmBooking: "確認預訂",
     confirmation: "確認",
     confirmationSent: "你已完成！確認郵件已傳送到你的信箱。",
+    meetingDetailsPending: "您的時段已保留。主持人會再提供會議詳細資訊。",
     confirmed: "已確認",
     confirmedCount: "已確認（{{count}}）",
+    zoomNeedsReview: "重試前請先檢查 Zoom",
+    zoomCancellationNeedsReview: "取消前先檢查 Zoom",
+    zoomCancellationRequiresHostReview:
+      "主辦人必須先檢查 Zoom 會議，才能取消此預約。",
+    zoomCancelTitle: "取消前先檢查 Zoom",
+    zoomCancelDescription:
+      "Zoom 可能已為此預約建立會議。請檢查你的 Zoom 帳戶；如果會議存在，請先在 Zoom 中取消。只有在會議已取消或確認不存在後才能繼續。",
+    zoomCancelConfirm: "我已檢查 Zoom",
     confirming: "確認中",
     conferencing: "會議",
     connectZoom: "連線Zoom",

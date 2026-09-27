@@ -17,10 +17,13 @@ import type {
   FeedbackEntry,
   HumanReviewArtifactRef,
   InstructionUpdate,
+  ObservabilityReviewScope,
+  ObservabilityReviewThreadScope,
   OutputReviewDetail,
   OutputReviewListRow,
   TraceSummary,
 } from "./types.js";
+import { observabilityReviewThreadKey } from "./types.js";
 
 const MAX_INLINE_APP_TITLE_LENGTH = 120;
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/;
@@ -478,6 +481,7 @@ export async function getOutputReviewDetailForRun(opts: {
     return {
       found: true,
       runId: summary.runId,
+      orgId: opts.orgId,
       app: null,
       messages: [],
       artifacts: [],
@@ -488,10 +492,15 @@ export async function getOutputReviewDetailForRun(opts: {
   }
 
   if (!summary.userId) return { found: false };
-  const threads = await getOrgScopedReviewThreads(opts.orgId, [
-    { ownerEmail: summary.userId, threadId: summary.threadId },
+  const threadKey = observabilityReviewThreadKey(opts.orgId, summary.threadId);
+  const threads = await getOrgScopedReviewThreads([
+    {
+      orgId: opts.orgId,
+      ownerEmail: summary.userId,
+      threadId: summary.threadId,
+    },
   ]);
-  const thread = threads.get(summary.threadId);
+  const thread = threads.get(threadKey);
   if (!thread) return { found: false };
   const threadData = thread.threadData;
 
@@ -508,14 +517,15 @@ export async function getOutputReviewDetailForRun(opts: {
     threadScopeArtifact(thread),
     ...toolOutputArtifacts(runMessages.flatMap((message) => message.toolCalls)),
   ].filter((artifact): artifact is HumanReviewArtifactRef => Boolean(artifact));
-  const savedSummaries = await getHumanReviewSummariesForThreads(opts.orgId, [
-    summary.threadId,
+  const savedSummaries = await getHumanReviewSummariesForThreads([
+    { orgId: opts.orgId, threadId: summary.threadId },
   ]);
-  const savedSummary = savedSummaries.get(summary.threadId);
+  const savedSummary = savedSummaries.get(threadKey);
   const { ask, answer } = askAndAnswer(summary, threadData);
   return {
     found: true,
     runId: summary.runId,
+    orgId: opts.orgId,
     app: getInlineAppForRun(summary, threadData),
     artifacts: [...artifacts, ...(savedSummary?.artifacts ?? [])].filter(
       (artifact, index, all) =>
@@ -551,90 +561,101 @@ export async function getOutputReviewDetailForRun(opts: {
 export async function listOutputReviews(opts: {
   sinceMs: number;
   limit: number;
-  orgId: string;
+  scope?: ObservabilityReviewScope;
+  orgId?: string;
 }): Promise<OutputReviewListRow[]> {
+  const scope =
+    opts.scope ??
+    (opts.orgId ? { kind: "organization" as const, orgId: opts.orgId } : null);
+  if (!scope) throw new Error("An authorized review scope is required.");
+  const orgId = scope.kind === "organization" ? scope.orgId : undefined;
   const summaries = await getTraceSummaries({
     sinceMs: opts.sinceMs,
     limit: opts.limit,
-    orgId: opts.orgId,
+    orgId,
     excludeSpanName: "agent_run:observability:human-review-summary",
     requireReviewContext: true,
   });
-  const threadIds = summaries.flatMap((summary) =>
-    summary.threadId ? [summary.threadId] : [],
+  const threadScopes: ObservabilityReviewThreadScope[] = summaries.flatMap(
+    (summary) =>
+      summary.orgId && summary.threadId
+        ? [{ orgId: summary.orgId, threadId: summary.threadId }]
+        : [],
+  );
+  const threadScopesWithOwner = summaries.flatMap((summary) =>
+    summary.orgId && summary.userId && summary.threadId
+      ? [
+          {
+            orgId: summary.orgId,
+            ownerEmail: summary.userId,
+            threadId: summary.threadId,
+          },
+        ]
+      : [],
   );
   const [feedback, updates] = await Promise.all([
     getFeedback({
       sinceMs: opts.sinceMs,
       limit: opts.limit * 4,
-      orgId: opts.orgId,
-      threadIds,
+      ...(orgId ? { orgId } : {}),
+      threadScopes,
     }),
     getInstructionUpdates({
       sinceMs: opts.sinceMs,
       perThreadLimit: 1,
-      orgId: opts.orgId,
-      threadIds,
+      ...(orgId ? { orgId } : {}),
+      threadScopes,
     }),
   ]);
   const updateByThread = new Map<string, InstructionUpdate>();
   for (const update of updates) {
-    if (update.threadId && !updateByThread.has(update.threadId)) {
-      updateByThread.set(update.threadId, update);
+    if (update.orgId && update.threadId) {
+      const key = observabilityReviewThreadKey(update.orgId, update.threadId);
+      if (!updateByThread.has(key)) updateByThread.set(key, update);
     }
   }
 
   const [threadRows, humanSummaries] = await Promise.all([
-    getOrgScopedReviewThreads(
-      opts.orgId,
-      summaries.flatMap((summary) =>
-        summary.userId && summary.threadId
-          ? [{ ownerEmail: summary.userId, threadId: summary.threadId }]
-          : [],
-      ),
-    ),
-    getHumanReviewSummariesForThreads(opts.orgId, threadIds),
+    getOrgScopedReviewThreads(threadScopesWithOwner),
+    getHumanReviewSummariesForThreads(threadScopes),
   ]);
   const reviewRuns = await getRecentReviewRunsForThreads({
-    orgId: opts.orgId,
-    threadIds,
+    threadScopes,
     sinceMs: opts.sinceMs,
     perThreadLimit: 6,
   });
   const runsByThread = new Map<string, TraceSummary[]>();
   for (const run of reviewRuns) {
-    if (!run.threadId) continue;
-    const runs = runsByThread.get(run.threadId) ?? [];
+    if (!run.orgId || !run.threadId) continue;
+    const key = observabilityReviewThreadKey(run.orgId, run.threadId);
+    const runs = runsByThread.get(key) ?? [];
     runs.push(run);
-    runsByThread.set(run.threadId, runs);
+    runsByThread.set(key, runs);
   }
   const threads = new Map(
-    [...threadRows].map(([id, thread]) => [id, thread.threadData]),
+    [...threadRows].map(([key, thread]) => [key, thread.threadData]),
   );
   const profiles = await getUserProfiles(
     [...threadRows.values()].map((thread) => thread.ownerEmail),
   );
   const titles = new Map(
-    [...threadRows].flatMap(([id, thread]) =>
-      thread.title?.trim() ? [[id, thread.title]] : [],
+    [...threadRows].flatMap(([key, thread]) =>
+      thread.title?.trim() ? [[key, thread.title]] : [],
     ),
   );
   const feedbackByThread = groupByThread(feedback);
 
   return summaries
     .map((summary): OutputReviewListRow | null => {
-      if (!summary.threadId) return null;
-      if (!threadRows.has(summary.threadId)) return null;
-      const savedSummary = humanSummaries.get(summary.threadId) ?? null;
-      const threadData = summary.threadId
-        ? (threads.get(summary.threadId) ?? undefined)
-        : null;
+      if (!summary.orgId || !summary.threadId) return null;
+      const key = observabilityReviewThreadKey(summary.orgId, summary.threadId);
+      if (!threadRows.has(key)) return null;
+      const savedSummary = humanSummaries.get(key) ?? null;
+      const threadData = threads.get(key) ?? undefined;
       if (threadData === undefined && !savedSummary) return null;
       const { answer, inlineApp } = askAndAnswer(summary, threadData ?? null);
       const messages = threadData ? readThreadMessages(threadData) : [];
-      const threadTitle = summary.threadId
-        ? titles.get(summary.threadId)
-        : undefined;
+      const threadTitle = titles.get(key);
       const reviewSummary = savedSummary
         ? {
             ask: savedSummary.ask,
@@ -650,13 +671,13 @@ export async function listOutputReviews(opts: {
         .flatMap((message) => message.inlineApps)
         .map(inlineAppTitle)
         .find((value): value is string => Boolean(value));
-      const author = threadRows.get(summary.threadId)?.ownerEmail;
+      const author = threadRows.get(key)?.ownerEmail;
       const profile = author ? profiles.get(author.toLowerCase()) : undefined;
       const authorName =
         profile && !isEmailDerivedName(profile.name, profile.email)
           ? profile.name.trim().split(/\s+/)[0]
           : undefined;
-      const thread = threadRows.get(summary.threadId);
+      const thread = threadRows.get(key);
       const messageRunIds = new Set(
         messages.flatMap((message) => (message.runId ? [message.runId] : [])),
       );
@@ -683,6 +704,8 @@ export async function listOutputReviews(opts: {
       });
       return {
         runId: summary.runId,
+        orgId: summary.orgId,
+        readOnly: scope.kind === "all" && summary.orgId !== scope.activeOrgId,
         threadId: summary.threadId,
         ask,
         answer: resolvedAnswer,
@@ -690,7 +713,7 @@ export async function listOutputReviews(opts: {
         threadTitle: threadTitle ?? "",
         summary: reviewSummary,
         artifacts,
-        runs: (runsByThread.get(summary.threadId) ?? [summary]).map((run) => ({
+        runs: (runsByThread.get(key) ?? [summary]).map((run) => ({
           runId: run.runId,
           model: run.model,
           createdAt: run.createdAt,
@@ -701,8 +724,8 @@ export async function listOutputReviews(opts: {
         ...(title ? { inlineAppTitle: title } : {}),
         model: summary.model,
         createdAt: summary.createdAt,
-        feedback: feedbackByThread.get(summary.threadId) ?? [],
-        instructionUpdate: updateByThread.get(summary.threadId) ?? null,
+        feedback: feedbackByThread.get(key) ?? [],
+        instructionUpdate: updateByThread.get(key) ?? null,
       } satisfies OutputReviewListRow;
     })
     .filter((row): row is OutputReviewListRow => row !== null);
@@ -901,10 +924,18 @@ export async function getOutputReviewSummarySource(opts: {
   }> = [];
   let malformedThreadToolOutput = false;
   if (summary.threadId && summary.userId) {
-    const threads = await getOrgScopedReviewThreads(opts.orgId, [
-      { ownerEmail: summary.userId, threadId: summary.threadId },
+    const threadKey = observabilityReviewThreadKey(
+      opts.orgId,
+      summary.threadId,
+    );
+    const threads = await getOrgScopedReviewThreads([
+      {
+        orgId: opts.orgId,
+        ownerEmail: summary.userId,
+        threadId: summary.threadId,
+      },
     ]);
-    const thread = threads.get(summary.threadId);
+    const thread = threads.get(threadKey);
     const title = thread?.title ?? null;
     threadTitle = title ? redactEvidenceString(title) : null;
     attachedArtifacts = thread
@@ -1035,10 +1066,11 @@ export async function getOutputReviewSummarySource(opts: {
 function groupByThread(entries: FeedbackEntry[]): Map<string, FeedbackEntry[]> {
   const grouped = new Map<string, FeedbackEntry[]>();
   for (const entry of entries) {
-    if (!entry.threadId) continue;
-    const current = grouped.get(entry.threadId) ?? [];
+    if (!entry.orgId || !entry.threadId) continue;
+    const key = observabilityReviewThreadKey(entry.orgId, entry.threadId);
+    const current = grouped.get(key) ?? [];
     current.push(entry);
-    grouped.set(entry.threadId, current);
+    grouped.set(key, current);
   }
   return grouped;
 }

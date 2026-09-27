@@ -5,12 +5,9 @@ import { cn } from "../utils.js";
 
 export interface AgentSuggestionItem {
   id: string;
-  /** Concise, single-line action label. Put the full instruction in `prompt`. */
   label: string;
-  /** Prompt submitted when the suggestion is chosen. Defaults to `label`. */
   prompt?: string;
   disabled?: boolean;
-  /** Provider- or app-owned data preserved for custom selection handlers. */
   metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -44,11 +41,6 @@ export function agentSuggestionPrompt(
     : (suggestion.prompt ?? suggestion.label);
 }
 
-/**
- * Horizontally scrollable next actions anchored to the base of an agent thread.
- * Suggestions are serializable so hosts and agent transports can replace them
- * as the conversation evolves; presentation remains independently composable.
- */
 export function AgentSuggestionBar({
   suggestions,
   ariaLabel,

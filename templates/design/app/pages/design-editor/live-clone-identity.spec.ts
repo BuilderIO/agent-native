@@ -24,8 +24,6 @@ import type { DesignFile } from "@/pages/design-editor/types";
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 const ORIGINAL_NODE_ID = "an-aside-original";
-// editor-chrome.bridge.ts's resetRuntimeStableIds stamps the live alt-drag
-// clone with these before the host ever sees it.
 const CLONE_NODE_ID = "an-copy-dmhhtd51h4jy";
 const MAIN_NODE_ID = "main-button";
 const MAIN_LABEL_ID = "main-label";

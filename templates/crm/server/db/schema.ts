@@ -31,8 +31,6 @@ export const crmConnections = table("crm_connections", {
   workspaceConnectionId: text("workspace_connection_id"),
   label: text("label").notNull(),
   accountId: text("account_id"),
-  // `hybrid` is deprecated — kept so existing rows stay valid, treated as
-  // `mirrored`. Per-attribute `authority` replaced it. See shared/crm-contract.ts.
   mode: text("mode", { enum: ["connected", "hybrid", "native"] })
     .notNull()
     .default("connected"),
@@ -106,16 +104,12 @@ export const crmFieldPolicies = table("crm_field_policies", {
   updateable: booleanColumn("updateable").notNull().default(false),
   required: booleanColumn("required").notNull().default(false),
   metadataJson: text("metadata_json").notNull().default("{}"),
-  // --- typed attribute surface (additive; `crm_field_policies` IS the attribute table) ---
   attributeType: text("attribute_type", { enum: CRM_ATTRIBUTE_TYPES })
     .notNull()
     .default("text"),
   target: text("target", { enum: ["object", "list"] })
     .notNull()
     .default("object"),
-  // `object_type` deliberately mirrors `target_id` for list attributes too, so
-  // the legacy unique index (connection_id, object_type, field_name) keeps
-  // guarding one attribute per target without a second unique index.
   targetId: text("target_id"),
   apiSlug: text("api_slug"),
   description: text("description"),
@@ -152,9 +146,7 @@ export const crmAttributeOptions = table("crm_attribute_options", {
   color: text("color"),
   position: integer("position").notNull().default(0),
   archived: booleanColumn("archived").notNull().default(false),
-  /** `status` attributes only: stage SLA in days. */
   targetDays: integer("target_days"),
-  /** `status` attributes only. */
   celebrate: booleanColumn("celebrate").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -201,21 +193,9 @@ export const crmRecords = table("crm_records", {
 
 export const crmRecordShares = createSharesTable("crm_record_shares");
 
-/**
- * Bitemporal attribute values. The current value of an attribute is the row
- * with `activeUntil IS NULL`; every superseded value keeps its own row with the
- * instant it stopped being current. All writes go through
- * `server/lib/record-fields.ts` — a direct insert here bypasses the equality
- * check that keeps mirror syncs from writing a new history row every pass.
- */
 export const crmRecordFields = table("crm_record_fields", {
   id: text("id").primaryKey(),
   recordId: text("record_id").notNull(),
-  /**
-   * Set when this row holds a LIST-ENTRY attribute value rather than a record
-   * attribute value. `recordId` stays populated either way (it is NOT NULL and
-   * cannot be loosened additively), so the discriminator is `entryId IS NULL`.
-   */
   entryId: text("entry_id"),
   fieldPolicyId: text("field_policy_id"),
   attributeId: text("attribute_id"),
@@ -228,13 +208,9 @@ export const crmRecordFields = table("crm_record_fields", {
   numberValue: real("number_value"),
   booleanValue: booleanColumn("boolean_value"),
   jsonValue: text("json_value"),
-  // ISO 8601, not the `CURRENT_TIMESTAMP` SQL default the older timestamp columns
-  // use: this column is ordered against `activeUntil` in history queries, and
-  // `"… 20:56:04"` sorts before `"…T20:56:04Z"` for the same instant.
   activeFrom: text("active_from")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-  /** Null means this row is the current value. */
   activeUntil: text("active_until"),
   actorType: text("actor_type", {
     enum: ["user", "agent", "automation", "provider", "system"],
@@ -242,7 +218,6 @@ export const crmRecordFields = table("crm_record_fields", {
     .notNull()
     .default("system"),
   actorId: text("actor_id"),
-  // Sparse composite sub-fields keep the grid filters indexable.
   emailLocal: text("email_local"),
   emailDomain: text("email_domain"),
   emailRootDomain: text("email_root_domain"),
@@ -264,11 +239,6 @@ export const crmRecordFieldShares = createSharesTable(
   "crm_record_field_shares",
 );
 
-/**
- * Lists are local-authoritative on every backend, including HubSpot and
- * Salesforce. `source: "imported"` records where a list came from; it never
- * makes the provider authoritative for its membership.
- */
 export const crmLists = table("crm_lists", {
   id: text("id").primaryKey(),
   connectionId: text("connection_id").notNull(),
@@ -291,10 +261,6 @@ export const crmLists = table("crm_lists", {
 
 export const crmListShares = createSharesTable("crm_list_shares");
 
-/**
- * A record may hold more than one entry in the same list (two open renewals for
- * one account, say), so there is deliberately no unique `(list_id, record_id)`.
- */
 export const crmListEntries = table("crm_list_entries", {
   id: text("id").primaryKey(),
   listId: text("list_id").notNull(),
@@ -488,9 +454,6 @@ export const crmSavedViews = table("crm_saved_views", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  // `kind` predates typed views and holds the RECORD kind (account/person/
-  // opportunity) that crm-store.ts validates. The table-vs-board discriminator
-  // is `viewKind`; do not repurpose `kind`.
   kind: text("kind"),
   viewKind: text("view_kind", { enum: ["table", "board"] })
     .notNull()
@@ -499,10 +462,7 @@ export const crmSavedViews = table("crm_saved_views", {
     .notNull()
     .default("object"),
   targetId: text("target_id"),
-  /** Board views only; must reference a `status` attribute. */
   groupByAttributeId: text("group_by_attribute_id"),
-  // personal-vs-shared is the framework `visibility` column from
-  // ownableColumns(): "private" is personal, "org" is shared. No second column.
   filtersJson: text("filters_json").notNull().default("{}"),
   columnsJson: text("columns_json").notNull().default("[]"),
   sortJson: text("sort_json").notNull().default("[]"),
@@ -603,15 +563,12 @@ export const crmEnrichmentRuns = table("crm_enrichment_runs", {
   })
     .notNull()
     .default("queued"),
-  /** `spend` only: the verify run whose approved evidence built this input set. */
   sourceRunId: text("source_run_id"),
   slotsJson: text("slots_json").notNull().default("[]"),
   inputRecordIdsJson: text("input_record_ids_json").notNull().default("[]"),
-  /** Per-record slot outcomes. Bounded facts and errors only — never payloads. */
   outcomesJson: text("outcomes_json").notNull().default("[]"),
   estimateJson: text("estimate_json").notNull().default("{}"),
   costUnits: real("cost_units"),
-  /** Atomic claim: write a unique nonce, read it back, only the winner proceeds. */
   claimNonce: text("claim_nonce"),
   claimedAt: text("claimed_at"),
   error: text("error"),

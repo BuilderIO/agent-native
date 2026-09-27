@@ -502,8 +502,18 @@ export default {
     confirmBooking: "예약 확인",
     confirmation: "확인",
     confirmationSent: "완료되었습니다. 확인 이메일을 보냈습니다.",
+    meetingDetailsPending:
+      "시간이 예약되었습니다. 호스트가 회의 정보를 안내해 드립니다.",
     confirmed: "확정됨",
     confirmedCount: "확정됨 ({{count}})",
+    zoomNeedsReview: "다시 시도하기 전에 Zoom 확인",
+    zoomCancellationNeedsReview: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancellationRequiresHostReview:
+      "예약을 취소하려면 먼저 주최자가 Zoom 회의를 확인해야 합니다.",
+    zoomCancelTitle: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancelDescription:
+      "Zoom이 이 예약의 회의를 만들었을 수 있습니다. Zoom 계정을 확인하고 회의가 있으면 Zoom에서 취소하세요. 회의가 취소되었거나 없는 것을 확인한 뒤에만 계속하세요.",
+    zoomCancelConfirm: "Zoom을 확인했습니다",
     confirming: "확인 중",
     conferencing: "회의",
     connectZoom: "Zoom 연결",

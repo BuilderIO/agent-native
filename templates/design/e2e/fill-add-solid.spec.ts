@@ -191,7 +191,7 @@ test("clicking an empty Fill heading adds the first fill", async ({
       .poll(() =>
         shape.evaluate((node) => getComputedStyle(node).backgroundColor),
       )
-      .toBe("rgb(255, 255, 255)");
+      .toBe("rgb(217, 217, 217)");
     await expect(
       fill.locator('[data-inspector-layout="paint-row"]'),
     ).toBeVisible();

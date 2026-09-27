@@ -2501,7 +2501,6 @@ describe("stream integrity reports", () => {
       }),
       protocolEvent(3, { type: "run.completed" }),
     ]);
-    // No steerQueuedMessage: the queued message is stranded, not waiting.
     delete transport.steerQueuedMessage;
     const client = new AgentKitClient({
       transport,

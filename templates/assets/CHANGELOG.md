@@ -3,6 +3,24 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Improved
+
+- Brand-kit and template uploads show how to connect file storage when it is not configured
+- Public asset library links show their title and description in previews.
+
+### Fixed
+
+- Reference-image uploads stay disabled until object storage is connected.
+- Public previews no longer show archived asset library details
+
 ## 2026-09-24
 
 ### Added

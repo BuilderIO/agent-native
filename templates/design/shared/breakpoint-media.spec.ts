@@ -58,12 +58,10 @@ describe("CSS body parse / serialize round-trip", () => {
       "809": { "node-a": { left: "12px" }, "node-b": { opacity: "0.5" } },
     };
     const css = serializeBreakpointMediaModel(model);
-    // Wider bucket first so narrower ranges win by source order.
     expect(css.indexOf("max-width: 1279px")).toBeLessThan(
       css.indexOf("max-width: 809px"),
     );
     expect(parseBreakpointMediaCss(css)).toEqual(model);
-    // Deterministic: serialize(parse(serialize(m))) === serialize(m).
     expect(serializeBreakpointMediaModel(parseBreakpointMediaCss(css))).toBe(
       css,
     );
@@ -86,12 +84,6 @@ describe("CSS body parse / serialize round-trip", () => {
 describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
   const attr = (id: string) => `[data-agent-native-node-id="${id}"]`;
 
-  /**
-   * Rule-opener lines of a serialized block (node-id selector lines ending
-   * in `{`). Counting attribute occurrences per line avoids false-positives
-   * from substring checks — the single form is a substring of the doubled
-   * form.
-   */
   const nodeSelectorLines = (css: string) =>
     css
       .split("\n")
@@ -106,9 +98,6 @@ describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
       "809": { hero: { left: "12px" } },
     });
     expect(css).toContain(`${attr("hero")}${attr("hero")} {`);
-    // Exactly two attribute occurrences on the one rule opener. A single
-    // occurrence would regress specificity to (0,1,0) and lose to the
-    // runtime-injected Tailwind CDN utility sheet by source order.
     const lines = nodeSelectorLines(css);
     expect(lines).toHaveLength(1);
     expect(
@@ -141,8 +130,6 @@ describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
       "1279": { hero: { left: "137px" } },
       "809": { hero: { left: "12px", top: "24px" }, side: { opacity: "0.5" } },
     });
-    // Each property counted exactly once — the doubled selector must not
-    // produce duplicate or extra rule matches.
     expect(Object.keys(doubledModel["809"].hero)).toHaveLength(2);
     expect(Object.keys(doubledModel["809"].side)).toHaveLength(1);
   });
@@ -171,15 +158,12 @@ describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
 
     const css = extractManagedBreakpointCss(updated);
     expect(css).not.toBeNull();
-    // Every rule — including the untouched legacy "side" rule — now uses
-    // the doubled selector.
     const lines = nodeSelectorLines(css!);
     expect(lines).toHaveLength(2);
     for (const line of lines) {
       expect(line.match(/\[data-agent-native-node-id="/g)).toHaveLength(2);
     }
     expect(css).toContain(`${attr("side")}${attr("side")} {`);
-    // All previous declarations survived alongside the new one.
     expect(parseBreakpointMediaCss(css!)).toEqual({
       "809": {
         hero: { left: "12px", top: "24px" },
@@ -210,8 +194,6 @@ describe("doubled attribute selector (specificity vs runtime Tailwind)", () => {
     expect(getBreakpointMediaDeclarations(updated, "hero")).toEqual([
       { maxWidthPx: 809, nodeId: "hero", property: "top", value: "24px" },
     ]);
-    // The parse-mutate-serialize round trip also upgrades the surviving
-    // rule to the doubled form.
     expect(extractManagedBreakpointCss(updated)).toContain(
       `${attr("hero")}${attr("hero")} {`,
     );
@@ -247,7 +229,6 @@ describe("set / remove declarations on a document", () => {
       property: "left",
     });
     expect(getBreakpointMediaDeclarations(html, "hero")).toEqual([]);
-    // Empty model prunes the whole managed block.
     expect(html).not.toContain("data-agent-native-breakpoints");
   });
 
@@ -307,7 +288,6 @@ describe("getBreakpointOverrideState (EditPanel indicator contract)", () => {
       { maxWidthPx: 1279, source: "class", value: "left-8" },
       { maxWidthPx: 809, source: "media", value: "12px" },
     ]);
-    // Active 390 → bound 809 → the media override matches the active scope.
     expect(state.activeUpperBoundPx).toBe(809);
     expect(state.overriddenAtActive).toBe(true);
   });

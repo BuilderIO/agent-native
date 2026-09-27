@@ -15,8 +15,6 @@ type TextRun = {
   to: number;
   sourceFrom: number;
   sourceTo: number;
-  // A code fence emits its body verbatim, so this run's source form is only
-  // known once the indentation of the line its placeholder landed on is.
   verbatim?: boolean;
 };
 type TextRange = { from: number; to: number };
@@ -65,9 +63,6 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
   let offset = 0;
   let unmappable = false;
   const withMarkers = (node: PMNode): PMNode => {
-    // A code fence emits its body unescaped, so the inline serialization the
-    // other runs restore from would introduce escapes the source never had,
-    // and the fence length itself follows the body's longest backtick run.
     if (node.type === "codeBlock") {
       const text = (node.content ?? [])
         .map((child) => child.text ?? "")
@@ -144,8 +139,6 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
   return { runs };
 }
 
-// Every body line of an indented code fence repeats the block's indentation,
-// which a one-line placeholder only reveals through the line it landed on.
 function resolveVerbatimRun(
   run: TextRun,
   withPlaceholders: string,
@@ -365,7 +358,6 @@ export function suggestionFormattingChanges(
   const markedRuns = [...previous.runs, ...next.runs].filter(
     (run) => run.marks !== "[]",
   );
-  // Shared delimiters make an existing marked run the smallest stable source unit.
   let expanded: boolean;
   do {
     expanded = false;

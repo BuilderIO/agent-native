@@ -1,11 +1,13 @@
 import { toast } from "sonner";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { runModeChange } from "./mode-change";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
+beforeEach(() => vi.mocked(toast.error).mockClear());
 
 const activeFile: DesignFile = {
   id: "home",
@@ -24,6 +26,8 @@ function makeArgs(
   return {
     activeFile,
     canEditDesign: true,
+    hasPendingVisualEdits: false,
+    onPendingVisualEditsBlocked: vi.fn(),
     clearPendingLiveEditState: vi.fn(),
     enterOverviewFromZoom: vi.fn(),
     enterSingleScreen: vi.fn(),
@@ -49,6 +53,7 @@ describe("runModeChange Interact navigation", () => {
   it("blocks a screen change while a structure edit is pending", () => {
     const args = makeArgs();
     args.pendingLiveNonStyleEdits = [{}] as never;
+    args.hasPendingVisualEdits = true;
 
     runModeChange(args, "interact", { targetFileId: targetFile.id });
 
@@ -56,6 +61,7 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "designEditor.pendingVisualStyles.interactBlocked",
     );
+    expect(args.onPendingVisualEditsBlocked).toHaveBeenCalledOnce();
     expect(args.enterSingleScreen).not.toHaveBeenCalled();
   });
 
@@ -67,6 +73,31 @@ describe("runModeChange Interact navigation", () => {
     expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
     expect(args.setOverviewInteractScreenId).toHaveBeenCalledWith(
       targetFile.id,
+    );
+  });
+
+  it("allows a signed-out visual-edit viewer to interact without visible pending edits", () => {
+    const args = makeArgs();
+    args.canEditDesign = false;
+    args.hasPendingVisualEdits = false;
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("still blocks a signed-out viewer when this session has pending edits", () => {
+    const args = makeArgs();
+    args.canEditDesign = false;
+    args.pendingLiveNonStyleEdits = [{}] as never;
+    args.hasPendingVisualEdits = true;
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(args.enterSingleScreen).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.pendingVisualStyles.interactBlocked",
     );
   });
 
@@ -93,10 +124,10 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("blocks Interact while a shared visual edit is waiting for source apply", () => {
+  it("reveals the recovery control when shared edits block a fresh session", () => {
     const args = {
       ...makeArgs(),
-      blockInteraction: true,
+      hasPendingVisualEdits: true,
     } as unknown as Parameters<typeof runModeChange>[0];
 
     runModeChange(args, "interact", { targetFileId: targetFile.id });
@@ -104,6 +135,18 @@ describe("runModeChange Interact navigation", () => {
     expect(toast.error).toHaveBeenCalledWith(
       "designEditor.pendingVisualStyles.interactBlocked",
     );
+    expect(args.onPendingVisualEditsBlocked).toHaveBeenCalledOnce();
     expect(args.enterSingleScreen).not.toHaveBeenCalled();
+  });
+
+  it("does not block when pending data is not available in this session", () => {
+    const args = makeArgs();
+    args.pendingLiveNonStyleEdits = [{}] as never;
+    args.hasPendingVisualEdits = false;
+
+    runModeChange(args, "interact", { targetFileId: targetFile.id });
+
+    expect(args.enterSingleScreen).toHaveBeenCalledWith(targetFile.id);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

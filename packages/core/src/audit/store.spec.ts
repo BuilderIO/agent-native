@@ -96,7 +96,6 @@ describe("audit store scoping", () => {
         visibility: "org",
       }),
     );
-    // Same org member sees it; outsider does not.
     const member = await queryAuditEvents({
       userEmail: "alice@x.com",
       orgId: "org-1",
@@ -118,14 +117,12 @@ describe("audit store scoping", () => {
       makeEvent({ id: "legacy", ownerEmail: "alice@x.com", orgId: null }),
     );
 
-    // While acting in org-B, Alice does NOT see her own org-A row…
     const inB = await queryAuditEvents({
       userEmail: "alice@x.com",
       orgId: "org-B",
     });
-    expect(inB.map((r) => r.id)).toEqual(["legacy"]); // …but legacy/no-org rows stay visible
+    expect(inB.map((r) => r.id)).toEqual(["legacy"]);
 
-    // In org-A she sees both.
     const inA = await queryAuditEvents({
       userEmail: "alice@x.com",
       orgId: "org-A",
@@ -226,12 +223,12 @@ describe("input payload projection", () => {
 
     const list = await queryAuditEvents({ userEmail: "alice@x.com" });
     expect(list).toHaveLength(1);
-    expect(list[0].input).toBeNull(); // not streamed in bulk
+    expect(list[0].input).toBeNull();
 
     const detail = await getAuditEventById("with-input", {
       userEmail: "alice@x.com",
     });
-    expect(detail?.input).toBe('{"title":"hi"}'); // available on demand
+    expect(detail?.input).toBe('{"title":"hi"}');
   });
 });
 

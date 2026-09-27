@@ -12,7 +12,7 @@ import {
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -49,7 +49,11 @@ export default defineAction({
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
 
-    const html = buildStandaloneHtml({ title: row.title, files: exportFiles });
+    const html = buildStandaloneHtml({
+      title: row.title,
+      files: exportFiles,
+      screenLayout: "merged",
+    });
     const svg = buildSvgForeignObject({
       html,
       width,

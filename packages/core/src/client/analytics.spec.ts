@@ -236,8 +236,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The enrichment budget starts when the deferred refresh actually
-    // begins, not when the pageview is scheduled.
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect(analyticsCalls).toHaveLength(0);
 
@@ -285,9 +283,6 @@ describe("browser analytics pageviews", () => {
       }),
     });
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the enriched properties.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     expect(analyticsCalls).toHaveLength(2);
@@ -826,6 +821,74 @@ describe("browser analytics pageviews", () => {
     expect(gtagEvent?.[2]).not.toHaveProperty("auth_user_id");
   });
 
+  it("preserves the validated canonical id when the session hook publishes identity", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.test",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("recording_started");
+    await tick();
+
+    const event = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((entry) => entry.event === "recording_started");
+    expect(event?.properties).toMatchObject({
+      user_id: "person@example.test",
+      auth_user_id: "canonical-user-1",
+    });
+  });
+
+  it("clears the canonical id when the current session no longer supplies one", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setSentryUser, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setSentryUser({
+      id: "provider-subject-1",
+      email: "person@example.test",
+      authUserId: "canonical-user-1",
+    });
+    trackEvent("before_session_refresh");
+    setSentryUser({ id: "provider-subject-1", email: "person@example.test" });
+    trackEvent("after_session_refresh");
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(
+      events.find((entry) => entry.event === "before_session_refresh")
+        ?.properties.auth_user_id,
+    ).toBe("canonical-user-1");
+    expect(
+      events.find((entry) => entry.event === "after_session_refresh")
+        ?.properties,
+    ).not.toHaveProperty("auth_user_id");
+  });
+
   it("sends explicitly anonymous events without resolved user identity", async () => {
     installBrowser("https://app.agent-native.com/plans");
     const { analyticsCalls } = installFetch();
@@ -1307,9 +1370,6 @@ describe("browser analytics pageviews", () => {
 
     configureTracking({});
     await tick();
-    // The boot LLM connection read is deferred past first paint; the pageview
-    // waits for the self-bounded boot refresh, so settle past
-    // the deferral before asserting the normalized engine labels.
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const body = JSON.parse(String(analyticsCalls[0][1].body));

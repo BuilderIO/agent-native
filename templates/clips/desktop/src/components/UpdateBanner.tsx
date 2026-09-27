@@ -9,10 +9,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 
-/**
- * An explicit shadcn alert keeps update state discoverable in the compact
- * popover. Settings no longer carries a detached dot that users have to infer.
- */
 export function UpdateBanner() {
   const status = useUpdateStatus();
   const [dismissedErrorMessage, setDismissedErrorMessage] = useState<

@@ -1,12 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { MailProductMock } from "../components/template-landing/MailProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { usePrefersReducedMotion } from "../components/use-prefers-reduced-motion";
 import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import { Button } from "../components/website-redesign/ds/button";
 import { ContentCard } from "../components/website-redesign/ds/content-card";
@@ -52,7 +53,7 @@ const template = templates.find((t) => t.slug === "mail")!;
 const USE_CASES = [
   {
     id: "priority-sorting",
-    variant: "priorities",
+    variant: "jev",
     titleKey: "useCase1Title",
     bodyKey: "useCase1Body",
     textLeft: true,
@@ -100,7 +101,7 @@ const KEY_FEATURES = [
     bodyKey: "feature5Body",
   },
   {
-    id: "scheduled-sends-and-snooze",
+    id: "ai-spam-filter",
     titleKey: "feature6Title",
     bodyKey: "feature6Body",
   },
@@ -114,20 +115,27 @@ const FAQ_ITEMS = [
   { id: "teammate-prepare-email", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
 export default function MailTemplate() {
   const t = useT();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { current, initial, autoplayStopped } =
+    usePrefersReducedMotion(videoRef);
+  const shouldAutoplay = current === false && !autoplayStopped;
+  const shouldMute = initial !== true;
+
+  useEffect(() => {
+    if (!shouldAutoplay) return;
+    void videoRef.current?.play().catch((error: unknown) => {
+      console.error("Mail story video could not autoplay", error);
+    });
+  }, [shouldAutoplay]);
 
   return (
     <div className="builder-brand-tokens">
-      {/* Hero — recreate the inbox, open thread, and contextual agent together. */}
+      {/* Lead with Jev's inbox cleanup story, then show the recreated app below. */}
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={t("templateLanding.mail.heroTitle")}
@@ -164,11 +172,19 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="mx-6 sm:mx-10">
-              <MailProductMock
-                variant="agent"
-                label={t("templateLanding.mail.s001")}
-                className="h-[420px] sm:h-[620px] lg:h-[760px]"
+            <div className="mx-4 aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black sm:mx-0">
+              <video
+                ref={videoRef}
+                src="/videos/mail-jev-story.mp4"
+                poster="/videos/mail-jev-story-poster.jpg"
+                aria-label={t("templateLanding.mail.heroDescription")}
+                autoPlay={shouldAutoplay}
+                muted={shouldMute}
+                loop
+                playsInline
+                controls
+                preload="metadata"
+                className="block h-full w-full object-cover"
               />
             </div>
           }
@@ -210,8 +226,15 @@ export default function MailTemplate() {
                 >
                   <MailProductMock
                     variant={useCase.variant}
-                    className="h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    className={
+                      useCase.variant === "jev"
+                        ? "h-[380px] w-full max-w-[540px] lg:h-[480px] lg:max-w-none"
+                        : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
+                    }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
+                    mobileArchiveToast={t(
+                      "templateLanding.mail.mobileArchiveToast",
+                    )}
                   />
                 </div>
               );
@@ -219,7 +242,11 @@ export default function MailTemplate() {
               return (
                 <div
                   key={useCase.id}
-                  className="grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 lg:grid-cols-[1fr_1.25fr]"
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[0.9fr_1.4fr]"
+                      : "lg:grid-cols-[1.4fr_0.9fr]"
+                  }`}
                 >
                   {useCase.textLeft ? (
                     <>
@@ -301,11 +328,6 @@ export default function MailTemplate() {
             href={firstPartyAppUrl("https://mail.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // The shared cta variant renders at 14px in sentence case, but
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page
-            // read as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);

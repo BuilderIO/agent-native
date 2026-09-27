@@ -261,7 +261,6 @@ describe("slide text targets", () => {
     const value = first.querySelector<HTMLElement>(".value")!;
 
     expect(findSmartBlock(value, root)).toBe(value);
-    // A press in the gap between the cards, or on a card's padding.
     expect(findSmartBlock(cards, root)).toBeNull();
     const block = findSmartBlock(first, root);
     expect(block === null || first.contains(block)).toBe(true);

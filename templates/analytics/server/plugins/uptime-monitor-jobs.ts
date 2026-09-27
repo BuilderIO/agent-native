@@ -1,12 +1,3 @@
-/**
- * Background uptime-monitor sweep registration. Mirrors
- * server/plugins/analytics-alert-jobs.ts for gating (env flags, platform
- * scheduler ownership, prod default on) and interval scheduling.
- *
- * The monitor tables are created by the app migration list (server/plugins/
- * db.ts, versions 92+), which runs at boot regardless of this cron gate — so
- * the actions/UI have their schema even when in-process sweeps are disabled.
- */
 import { runDueMonitorsOnce } from "../jobs/uptime-monitors";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 

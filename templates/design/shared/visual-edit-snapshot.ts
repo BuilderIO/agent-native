@@ -95,8 +95,6 @@ const RESOURCE_FUNCTIONS = new Set([
 
 function isSafeSnapshotResourceUrl(value: string): boolean {
   const normalized = value.trim();
-  // A remote viewer's browser resolves these URLs later, so publish-time DNS
-  // checks cannot prevent a hostname from rebinding to a private address.
   return /^data:image\//i.test(normalized);
 }
 
@@ -390,7 +388,6 @@ function sanitizeNode(node: DefaultTreeAdapterTypes.ChildNode): boolean {
   return true;
 }
 
-/** Remove executable content, navigation controls, and owner-local resources. */
 export function sanitizeVisualEditSnapshotHtml(html: string): string {
   const document = parse(html);
   document.childNodes = document.childNodes.filter(sanitizeNode);

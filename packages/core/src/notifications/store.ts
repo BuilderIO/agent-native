@@ -34,9 +34,6 @@ export async function ensureTable(): Promise<void> {
         `;
 
       {
-        // PG-guard: probe information_schema / pg_indexes first (no lock) and
-        // only issue DDL when the table/index is actually missing, wrapped in
-        // a transaction-scoped lock_timeout so a contended lock fails fast.
         await ensureTableExists("notifications", createSql);
         await ensureIndexExists(
           "idx_notifications_owner_unread",
@@ -45,9 +42,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Reset on failure so a transient DB outage doesn't poison the cached
-      // promise and reject every future insert/list call for the lifetime of
-      // the process.
       _initPromise = undefined;
       throw err;
     });
@@ -133,11 +127,8 @@ export async function updateDeliveredChannels(
 }
 
 export interface ListNotificationsOptions {
-  /** When true, only return unread (read_at IS NULL). */
   unreadOnly?: boolean;
-  /** Max rows to return. Default 50. */
   limit?: number;
-  /** ISO timestamp cursor — returns rows with created_at < cursor. */
   before?: string;
 }
 

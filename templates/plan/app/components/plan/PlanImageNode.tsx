@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,
@@ -11,17 +12,6 @@ import { toast } from "sonner";
 
 import { PlanImageViewer } from "./PlanImageViewer";
 
-/**
- * The plan editor's image node. It extends the shared Toolkit `SharedImage` node —
- * inheriting its byte-stable GFM `![alt](src)` serializer and the paste / drop /
- * `/image` upload plugin — and adds a React node view so editor images get the
- * same hover zoom button, lightbox, and three-dots menu (swap / download / copy)
- * as the read-only reader and structured image blocks.
- *
- * Plans inject this via `extraExtensions` with `features.image` off, so the shared
- * default image node never coexists with it. Content keeps its own richer image
- * node and is unaffected.
- */
 function PlanImageNodeView({
   node,
   editor,
@@ -29,6 +19,10 @@ function PlanImageNodeView({
   selected,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    import.meta.env.DEV ||
+    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
@@ -38,7 +32,7 @@ function PlanImageNodeView({
   async function handleReplaceFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file) return;
+    if (!file || !canUploadImages) return;
 
     const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
@@ -58,6 +52,7 @@ function PlanImageNodeView({
         type="file"
         accept="image/*"
         className="hidden"
+        disabled={!canUploadImages}
         tabIndex={-1}
         aria-hidden="true"
         onChange={handleReplaceFile}
@@ -68,7 +63,11 @@ function PlanImageNodeView({
         uploading={uploading}
         showControls={selected}
         imgClassName="an-rich-md-image"
-        onReplace={isEditable ? () => fileInputRef.current?.click() : undefined}
+        onReplace={
+          isEditable && canUploadImages
+            ? () => fileInputRef.current?.click()
+            : undefined
+        }
       />
     </NodeViewWrapper>
   );
@@ -78,12 +77,6 @@ export const PlanImageNode = SharedImage.extend({
   atom: true,
   draggable: true,
 
-  // `SharedImage.addProseMirrorPlugins` appends a plugin keyed
-  // `an-shared-image-upload` via `this.parent?.()`. Extending the node WITHOUT
-  // redefining this method makes Tiptap thread `this.parent` back to the very
-  // same inherited method, so the keyed plugin is appended twice and
-  // ProseMirror throws "Adding different instances of a keyed plugin". Delegate
-  // to the parent exactly once so the upload plugin is registered a single time.
   addProseMirrorPlugins() {
     return this.parent?.() ?? [];
   },

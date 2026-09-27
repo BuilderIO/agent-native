@@ -4,11 +4,6 @@ import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 
-/**
- * The irreversible-looking corner of CRM settings. It is deliberately thin:
- * CRM has no delete path. Archiving an attribute, an option, or a list keeps
- * every stored value, which is the one thing worth stating here.
- */
 export function AdvancedSettings() {
   const t = useT();
   return (

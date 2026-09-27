@@ -1,12 +1,5 @@
-/**
- * Node-side scoring for the edit-fidelity harness: pixel diffs, computed-style
- * deltas, saved-HTML checks and the baseline ratchet. Pure functions except
- * the lazily-loaded pixelmatch/pngjs, so the spec can cover the logic.
- */
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
 import type { Rect, SnapRecord, Snapshot } from "./in-page.ts";
-
-// ---------------------------------------------------------------- pixels ---
 
 let codecs: { pixelmatch: any; PNG: any } | null = null;
 async function loadCodecs() {
@@ -22,19 +15,12 @@ async function loadCodecs() {
 }
 
 export interface PixelDiff {
-  /** Percent of compared pixels that differ. */
   pct: number;
   diffPixels: number;
   comparedPixels: number;
   sizeMismatch: boolean;
 }
 
-/**
- * pixelmatch at threshold 0.1 over the overlap of two PNGs. Excluded rects are
- * blanked in both images and left out of the denominator, so a larger
- * exclusion can never read as a better score. A size mismatch is reported,
- * never resized away.
- */
 export async function diffPngs(
   a: Buffer,
   b: Buffer,
@@ -90,7 +76,6 @@ export async function diffPngs(
   };
 }
 
-/** Padding around exclusion rects: anti-aliasing and focus rings bleed. */
 export function padRect(r: Rect, pad = 4): Rect {
   return {
     x: r.x - pad,
@@ -99,8 +84,6 @@ export function padRect(r: Rect, pad = 4): Rect {
     height: r.height + pad * 2,
   };
 }
-
-// ---------------------------------------------------------------- styles ---
 
 export interface StyleDelta {
   key: string;
@@ -111,9 +94,7 @@ export interface StyleDelta {
 }
 
 export interface StyleDiff {
-  /** Non-geometry property changes on records present on both sides. */
   deltas: StyleDelta[];
-  /** Position/size changes beyond 1px. */
   geometry: StyleDelta[];
   missing: Array<{ key: string; inside: boolean }>;
   added: Array<{ key: string; inside: boolean }>;
@@ -126,10 +107,6 @@ function textOf(key: string): string | null {
   return m ? m[1].replace(/\s+/g, "") : null;
 }
 
-/**
- * Pairs records by key, then pairs leftover text records whose text only grew
- * or shrank at the end (append / enter3 change the edited run's own key).
- */
 export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   const bByKey = new Map(b.records.map((r) => [r.key, r]));
   const pairs: Array<[SnapRecord, SnapRecord]> = [];
@@ -196,8 +173,6 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   };
 }
 
-// ------------------------------------------------------------------ html ---
-
 export const HARD_FAIL_PATTERNS: Record<string, RegExp> = {
   "data-slide-content-scope": /data-slide-content-scope/g,
   "visibility:hidden": /visibility\s*:\s*hidden/gi,
@@ -214,7 +189,6 @@ const styleTexts = (s: string) =>
     m[1].replace(/\s+/g, " ").trim(),
   );
 
-/** Markers of editor/renderer state leaking into the stored source. */
 export function hardFailures(stored: string, saved: string): string[] {
   const out: string[] = [];
   for (const [name, re] of Object.entries(HARD_FAIL_PATTERNS)) {
@@ -234,7 +208,6 @@ export function hardFailures(stored: string, saved: string): string[] {
   return out;
 }
 
-/** Minimal line diff (LCS) for canonical HTML; `-` stored, `+` saved. */
 export function lineDiff(a: string[], b: string[], max = 120): string[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
@@ -279,7 +252,57 @@ export function lineDiff(a: string[], b: string[], max = 120): string[] {
     : out;
 }
 
-// -------------------------------------------------------------- baseline ---
+const collapse = (s: string) =>
+  s
+    .replace(/[\u200b\ufeff]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+export function isSplicedOnce(
+  before: string,
+  token: string,
+  after: string,
+): boolean {
+  const b = collapse(before);
+  const t = collapse(token);
+  const a = collapse(after);
+  const spaced = /^\s/.test(token);
+  for (let i = 0; i <= b.length; i++) {
+    const tail = b.length - i;
+    if (a.length - tail < i + t.length) break;
+    if (!a.startsWith(b.slice(0, i)) || !a.endsWith(b.slice(i))) continue;
+    const inserted = a.slice(i, a.length - tail).split(t);
+    if (inserted.length !== 2 || /[\p{L}\p{N}]/u.test(inserted.join("")))
+      continue;
+    const lead = a.slice(0, i) + inserted[0];
+    if (!spaced || lead === "" || lead.endsWith(" ")) return true;
+  }
+  return false;
+}
+
+/**
+ * Keys of text records `b` adds inside the edited element whose style no
+ * text of that element had in `a`: typing that lands in a new node outside
+ * the run it continued, so it loses the run's color or weight. `diffSnapshots`
+ * lists such records as added, which alone is no violation.
+ */
+export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
+  const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
+  const known = new Set(
+    a.records
+      .filter((r) => r.kind === "text" && r.inside)
+      .map((r) => JSON.stringify(r.props)),
+  );
+  return b.records
+    .filter(
+      (r) =>
+        r.kind === "text" &&
+        r.inside &&
+        added.has(r.key) &&
+        !known.has(JSON.stringify(r.props)),
+    )
+    .map((r) => r.key);
+}
 
 export type Status = "pass" | "fail" | "no-edit" | "error";
 const STATUS_RANK: Record<Status, number> = {
@@ -289,12 +312,12 @@ const STATUS_RANK: Record<Status, number> = {
   error: 3,
 };
 
-/** Ratcheted numbers per case/slide/target/scenario. */
 export interface ScenarioMetrics {
   status: Status;
   editingPct: number;
   afterPct: number;
   reloadPct: number;
+  typedPct: number;
   outsideEditingPct: number;
   outsideAfterPct: number;
   styleDeltasEditing: number;
@@ -309,6 +332,7 @@ const PCT_FIELDS = [
   "editingPct",
   "afterPct",
   "reloadPct",
+  "typedPct",
   "outsideEditingPct",
   "outsideAfterPct",
 ] as const;
@@ -323,7 +347,6 @@ const COUNT_FIELDS = [
 
 export type BaselineEntry = ScenarioMetrics;
 
-/** Same slack as the Design harness: d + max(0.1, 15% of d). */
 export function ceilingFor(pct: number): number {
   return Number((pct + Math.max(0.1, pct * 0.15)).toFixed(3));
 }
@@ -332,6 +355,11 @@ export function toBaselineEntry(m: ScenarioMetrics): BaselineEntry {
   const entry = { ...m };
   for (const f of PCT_FIELDS) entry[f] = ceilingFor(m[f]);
   return entry;
+}
+
+/** An entry recorded before a field existed holds it to the invariant. */
+function pctCeiling(entry: BaselineEntry, f: (typeof PCT_FIELDS)[number]) {
+  return entry[f] ?? ceilingFor(0);
 }
 
 /**
@@ -348,17 +376,12 @@ export function ratchetBaselineEntry(
   if (STATUS_RANK[existing.status] < STATUS_RANK[next.status]) {
     next.status = existing.status;
   }
-  for (const f of PCT_FIELDS) next[f] = Math.min(existing[f], next[f]);
+  for (const f of PCT_FIELDS)
+    next[f] = Math.min(pctCeiling(existing, f), next[f]);
   for (const f of COUNT_FIELDS) next[f] = Math.min(existing[f], next[f]);
   return next;
 }
 
-/**
- * Regressions against the ratchet. `expected` lists keys that should have run
- * this time (within the run's filters and limits); a baselined key among them
- * that produced no result is a problem, because a harness that silently runs
- * less can never fail.
- */
 export function findBaselineProblems(
   results: Map<string, ScenarioMetrics>,
   baseline: Record<string, BaselineEntry>,
@@ -366,7 +389,6 @@ export function findBaselineProblems(
 ): string[] {
   const problems: string[] = [];
   for (const [key, m] of results) {
-    // An error measured nothing, so no baseline can make it a pass.
     if (m.status === "error") {
       problems.push(`${key}: errored`);
       continue;
@@ -382,8 +404,9 @@ export function findBaselineProblems(
       problems.push(`${key}: status ${b.status} -> ${m.status}`);
     }
     for (const f of PCT_FIELDS) {
-      if (m[f] > b[f])
-        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${b[f]}%`);
+      const ceiling = pctCeiling(b, f);
+      if (m[f] > ceiling)
+        problems.push(`${key}: ${f} ${m[f]}% exceeds ceiling ${ceiling}%`);
     }
     for (const f of COUNT_FIELDS) {
       if (m[f] > b[f])
@@ -396,6 +419,17 @@ export function findBaselineProblems(
     }
   }
   return problems;
+}
+
+export function orphanedBaselineKeys(
+  keys: string[],
+  slideCounts: Map<string, number>,
+): string[] {
+  return keys.filter((key) => {
+    const [caseId, slide] = key.split("/");
+    const count = slideCounts.get(caseId);
+    return count === undefined || Number(slide.slice(1)) > count;
+  });
 }
 
 function round3(n: number): number {

@@ -1,6 +1,7 @@
 import type { FocusEventHandler, KeyboardEventHandler } from "react";
 
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 export function AiRulePromptField({
   value,
@@ -8,6 +9,7 @@ export function AiRulePromptField({
   label,
   placeholder,
   className,
+  disabled,
   onKeyDown,
   onBlur,
   defaultValue,
@@ -18,6 +20,7 @@ export function AiRulePromptField({
   label: string;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
   onKeyDown?: KeyboardEventHandler<HTMLTextAreaElement>;
   onBlur?: FocusEventHandler<HTMLTextAreaElement>;
 }) {
@@ -27,10 +30,14 @@ export function AiRulePromptField({
       defaultValue={defaultValue}
       onChange={(event) => onChange?.(event.target.value)}
       placeholder={placeholder}
+      disabled={disabled}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
       aria-label={label}
-      className={className ?? "min-h-28 resize-none text-sm"}
+      className={cn(
+        "placeholder:text-muted-foreground",
+        className ?? "min-h-28 resize-none text-sm",
+      )}
       maxLength={2_000}
     />
   );

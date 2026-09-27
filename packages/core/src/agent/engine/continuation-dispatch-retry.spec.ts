@@ -36,10 +36,6 @@ function makeParams(overrides: Record<string, unknown> = {}) {
 
 describe("attemptContinuationDispatch", () => {
   it("treats a claimed successor as delivered even on the durable-background path", async () => {
-    // Prod: the dispatch response was lost to a connection-level `fetch
-    // failed` while the successor had already started 8s earlier. Gating the
-    // claim check on the foreground path made that indistinguishable from a
-    // dead handoff, so the parent re-dispatched and then reported `deferred`.
     const { params, deps } = makeParams();
     deps.readBackgroundRunClaim.mockResolvedValue({
       dispatchMode: "foreground",

@@ -4,20 +4,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { zoomBridgeScript } from "../../../../.generated/bridge/zoom.generated";
 
-/**
- * The parent classifies device and scales travel from this payload alone, so
- * anything the bridge drops is unrecoverable on the other side.
- */
 describe("zoom bridge payload", () => {
   let posted: Record<string, unknown>[] = [];
 
-  // Installed once: the bridge binds to documentElement, so re-running it per
-  // test would stack listeners and post each payload several times.
   beforeAll(() => {
     vi.stubGlobal("parent", {
       postMessage: (message: Record<string, unknown>) => posted.push(message),
     });
-    // The generated module is an IIFE string meant for an iframe's <script>.
     new Function(zoomBridgeScript)();
   });
 
@@ -37,7 +30,6 @@ describe("zoom bridge payload", () => {
       deltaY: init.deltaY,
       deltaMode: init.deltaMode,
     });
-    // happy-dom drops WheelEvent's MouseEventInit fields.
     Object.defineProperty(event, "ctrlKey", { value: init.ctrlKey ?? true });
     Object.defineProperty(event, "metaKey", { value: init.metaKey ?? false });
     Object.defineProperty(event, "clientX", { value: 40 });
@@ -47,8 +39,6 @@ describe("zoom bridge payload", () => {
   }
 
   it("forwards the delta mode so a line tick is not read as 3px of travel", () => {
-    // Firefox reports a notch as deltaY 3 in line mode; without the mode the
-    // parent scales it as 3 pixels and classifies it as finger separation.
     dispatchWheel({ deltaY: -3, deltaMode: 1 });
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({

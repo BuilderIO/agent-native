@@ -173,7 +173,13 @@ export function AssetsLandingMock({
               <div className="as-library-grid">
                 {LIBRARY_ITEMS.map((item) => (
                   <article className="as-library-card" key={item.title}>
-                    <img src={item.image} alt="" draggable={false} />
+                    <img
+                      src={item.image}
+                      alt=""
+                      draggable={false}
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <div>
                       <strong>{item.title}</strong>
                       <span>{item.kind}</span>
@@ -188,7 +194,12 @@ export function AssetsLandingMock({
                 <div className="as-user-message">
                   {mode === "refine" ? (
                     <span className="as-reference-attachment">
-                      <img src={ARTWORK_BY_MODE.refine[0]} alt="" />
+                      <img
+                        src={ARTWORK_BY_MODE.refine[0]}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
                       Product hero · reference
                     </span>
                   ) : null}
@@ -212,10 +223,23 @@ export function AssetsLandingMock({
                         src={artwork[0]}
                         alt=""
                         draggable={false}
+                        decoding="async"
                       />
                       <div className="as-generated-secondary">
-                        <img src={artwork[1]} alt="" draggable={false} />
-                        <img src={artwork[2]} alt="" draggable={false} />
+                        <img
+                          src={artwork[1]}
+                          alt=""
+                          draggable={false}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <img
+                          src={artwork[2]}
+                          alt=""
+                          draggable={false}
+                          loading="lazy"
+                          decoding="async"
+                        />
                       </div>
                     </div>
                     <div className="as-image-actions">

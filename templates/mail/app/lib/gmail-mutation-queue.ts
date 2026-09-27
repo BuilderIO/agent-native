@@ -6,9 +6,7 @@ export interface GmailMutationTarget {
   id: string;
   threadId?: string;
   accountEmail?: string;
-  /** Archive-from-label view: also remove this label. */
   removeLabel?: string;
-  /** mark-read: true = read, false = unread. star: true = star. */
   flag?: boolean;
 }
 
@@ -39,8 +37,6 @@ function targetKey(
   kind: GmailMutationKind,
   target: GmailMutationTarget,
 ): string {
-  // Coalesce by message id + kind + removeLabel so re-pressing `e` on the
-  // same thread replaces the pending op instead of stacking duplicates.
   return `${kind}:${target.id}:${target.removeLabel ?? ""}:${target.flag ?? ""}`;
 }
 
@@ -103,7 +99,6 @@ class GmailMutationQueue {
   private listeners = new Set<FlushListener>();
   private installedUnload = false;
 
-  /** Test-only: override debounce. */
   setDebounceMs(ms: number) {
     this.debounceMs = ms;
   }
@@ -113,7 +108,6 @@ class GmailMutationQueue {
     return () => this.listeners.delete(listener);
   }
 
-  /** Pending op count — useful in tests. */
   size(): number {
     return this.pending.size;
   }
@@ -152,10 +146,6 @@ class GmailMutationQueue {
     });
   }
 
-  /**
-   * Drop a pending op without sending it (e.g. user undid an archive before
-   * the debounce window closed). Resolves waiters so callers don't hang.
-   */
   cancel(kind: GmailMutationKind, id: string, removeLabel?: string): boolean {
     let cancelled = false;
     for (const [key, op] of this.pending) {
@@ -169,7 +159,6 @@ class GmailMutationQueue {
     return cancelled;
   }
 
-  /** Cancel a pending archive or wait for its in-flight flush before undoing. */
   async cancelOrWait(
     kind: GmailMutationKind,
     id: string,
@@ -201,7 +190,6 @@ class GmailMutationQueue {
     return cancelled ? "cancelled" : "none";
   }
 
-  /** Force-send everything now. Safe to call while a flush is already running. */
   async flush(): Promise<void> {
     this.clearTimers();
     if (this.flushing) {
@@ -261,8 +249,6 @@ class GmailMutationQueue {
     }
 
     for (const [kind, ops] of byKind) {
-      // Group archives that share the same removeLabel so label-view archives
-      // stay correct without blocking the default bulk INBOX path.
       if (kind === "archive") {
         const byLabel = new Map<string, QueuedMutation[]>();
         for (const op of ops) {
@@ -446,9 +432,6 @@ class GmailMutationQueue {
     send: (op: QueuedMutation) => Promise<unknown>,
   ): Promise<unknown> {
     let firstError: unknown;
-    // A failed bulk modify may have partially committed. Idempotent per-item
-    // retries settle each waiter independently and make the remaining result
-    // visible instead of rolling every item back together.
     for (const op of ops) {
       try {
         await send(op);
@@ -481,14 +464,12 @@ class GmailMutationQueue {
     if (this.installedUnload || typeof window === "undefined") return;
     this.installedUnload = true;
     const flushSync = () => {
-      // Best-effort: kick flush; can't reliably await on unload.
       void this.flush();
     };
     window.addEventListener("pagehide", flushSync);
     window.addEventListener("beforeunload", flushSync);
   }
 
-  /** Test helper: wipe pending state. */
   resetForTests() {
     this.clearTimers();
     for (const op of this.pending.values()) {

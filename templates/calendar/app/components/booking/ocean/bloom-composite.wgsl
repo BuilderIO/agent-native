@@ -27,7 +27,7 @@ fn lerpBloomFactor(f: f32) -> f32 {
 }
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  // UnrealBloomPass._getCompositeMaterial @ three 0.184.0. Tint colors are all white.
+
   let bloom = 3.0 * uniforms.bloomStrength * (
     lerpBloomFactor(factor(0u)) * textureSample(blurTexture1, linearSampler, uv).rgb +
     lerpBloomFactor(factor(1u)) * textureSample(blurTexture2, linearSampler, uv).rgb +

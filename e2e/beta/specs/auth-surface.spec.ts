@@ -1,17 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 import { renderedText, settleAuthGate } from "../lib/app";
-import { originFor, productionHostFor, selectedSites } from "../lib/fleet";
+import {
+  isGoogleOnly,
+  originFor,
+  productionHostFor,
+  selectedSites,
+} from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
-
-/**
- * The signed-out auth surface, in the shapes users actually hit it.
- *
- * Everything here is reachable without a credential, which is what makes it
- * worth running on every promotion: the most-reported beta failures were all
- * visible before anyone finished signing in.
- */
 
 const sites = selectedSites();
 
@@ -28,8 +25,6 @@ for (const site of sites) {
     test("carries a continuation for the route the visitor asked for", async ({
       page,
     }) => {
-      // Landing on the app root after signing in — instead of the page you
-      // asked for — is the return-path regression this catches.
       const target = "/settings/general";
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",
@@ -58,8 +53,6 @@ for (const site of sites) {
         `${site.host} sent an anonymous visitor from ${target} to ${gate.url} with no continuation, so signing in would drop them on the app root`,
       ).toBeTruthy();
 
-      // The continuation is opaque (base64); it must still decode to the route
-      // that was asked for, or the user lands somewhere they never requested.
       const decoded = (() => {
         const raw = decodeURIComponent(continuation![1]);
         try {
@@ -75,10 +68,6 @@ for (const site of sites) {
         `${site.host} carried continuation "${continuation![1]}", which does not resolve to ${target}`,
       ).toContain(target);
 
-      // Same visit, second fact: having settled on sign-in it must stay there.
-      // Checked here rather than in its own test because the page load is the
-      // expensive part — against these hosts from CI it dominates everything
-      // else the assertion does.
       const settled = page.url();
       await page.waitForTimeout(2_500);
       expect(
@@ -90,16 +79,11 @@ for (const site of sites) {
     test("holds still on sign-in and refuses an off-origin continuation", async ({
       page,
     }) => {
-      // Two facts, one page load each previously. The hostile-continuation
-      // visit has to be its own navigation (it carries a different URL), but
-      // the plain visit and the settle check share one.
       await page.goto(`${origin}/sign-in`, {
         waitUntil: "domcontentloaded",
       });
       await settleAuthGate(page);
       const settled = page.url();
-      // A short confirmation window rather than a long sleep: a redirect loop
-      // fires immediately, so waiting longer only adds dead time per host.
       await page.waitForTimeout(2_500);
       expect
         .soft(
@@ -108,10 +92,6 @@ for (const site of sites) {
         )
         .toBe(settled);
 
-      // The continuation the app mints is opaque, so a raw URL here is not the
-      // format it would normally consume. That is the point: whatever the app
-      // does with an unrecognised value, it must not navigate off its own
-      // origin.
       const hostile = "https://example.com/phish";
       await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
         waitUntil: "domcontentloaded",
@@ -131,7 +111,7 @@ for (const site of sites) {
         .toBe(0);
     });
 
-    test("centers the AuthPage card in each rendered layout variant", async ({
+    test("renders the shared auth surface without a separate marketing layout", async ({
       page,
     }) => {
       await page.goto(`${origin}/sign-in?cb=${Date.now()}`, {
@@ -139,52 +119,29 @@ for (const site of sites) {
       });
       await renderedText(page, `${site.host} auth layout`);
 
-      const geometry = await page.evaluate(() => {
-        const home = document.querySelector<HTMLElement>(
-          '[data-agent-native-marketing-home="true"]',
-        );
-        const panel = home?.querySelector<HTMLElement>(".form-panel");
-        const card = panel?.querySelector<HTMLElement>(":scope > .card");
-        if (!home || !panel || !card) return null;
+      await expect(page.locator(".auth-centered > .card")).toBeVisible();
+      await expect(page.locator("#heading")).toBeVisible();
+      await expect(page.locator("#google-btn")).toBeVisible();
 
-        const panelRect = panel.getBoundingClientRect();
-        const cardRect = card.getBoundingClientRect();
-        return {
-          cardCenterX: cardRect.left + cardRect.width / 2,
-          cardCenterY: cardRect.top + cardRect.height / 2,
-          panelCenterX: panelRect.left + panelRect.width / 2,
-          panelCenterY: panelRect.top + panelRect.height / 2,
-          viewportCenterX: window.innerWidth / 2,
-          viewportCenterY: window.innerHeight / 2,
-          hasProductScreenshot: home.classList.contains(
-            "has-product-screenshot",
-          ),
-        };
-      });
-
-      expect(
-        geometry,
-        `${site.host} did not render the AuthPage marketing/form layout`,
-      ).not.toBeNull();
-      expect(
-        Math.abs(geometry!.cardCenterX - geometry!.panelCenterX),
-        `${site.host} AuthPage card is not centered in its form panel`,
-      ).toBeLessThan(8);
-      expect(
-        Math.abs(geometry!.cardCenterY - geometry!.panelCenterY),
-        `${site.host} AuthPage card is not centered vertically in its form panel`,
-      ).toBeLessThan(8);
-
-      if (geometry!.hasProductScreenshot) {
-        expect(
-          Math.abs(geometry!.cardCenterX - geometry!.viewportCenterX),
-          `${site.host} screenshot AuthPage variant is not centered in the viewport`,
-        ).toBeLessThan(8);
-        expect(
-          Math.abs(geometry!.cardCenterY - geometry!.viewportCenterY),
-          `${site.host} screenshot AuthPage variant is not vertically centered in the viewport`,
-        ).toBeLessThan(8);
+      if (isGoogleOnly(site)) {
+        await expect(page.locator("#auth-tabs")).toBeHidden();
+        return;
       }
+
+      const usePasswordLink = page.locator("#use-password-link");
+      if (await usePasswordLink.isVisible()) await usePasswordLink.click();
+
+      const tabs = page.locator("#auth-tabs");
+      await expect(tabs).toBeVisible();
+      await tabs.locator('[data-tab="signup"]').click();
+      await expect(page.locator("#signup-form")).toBeVisible();
+      await expect(page.locator("#s-email")).toBeVisible();
+      await expect(page.locator("#login-form")).toBeHidden();
+
+      await tabs.locator('[data-tab="login"]').click();
+      await expect(page.locator("#login-form")).toBeVisible();
+      await expect(page.locator("#l-email")).toBeVisible();
+      await expect(page.locator("#signup-form")).toBeHidden();
     });
 
     test("keeps OAuth popups navigable from every document that opens them", async ({
@@ -264,15 +221,10 @@ for (const site of sites) {
     });
 
     test("serves an impersonal, cacheable shell", async () => {
-      // Every SSR response is one public shell shared by all visitors. A
-      // Set-Cookie or a private cache directive here means the CDN is caching
-      // per-visitor state, or refusing to cache at all.
       const outcome = await mustRespond(`${origin}/`, { redirect: "manual" });
       const cacheControl =
         outcome.headers["cache-control"] ??
         outcome.headers["cdn-cache-control"];
-      // A missing header is its own failure, not a pass: without one the CDN
-      // falls back to its default and the shell may not be shared at all.
       expect(
         cacheControl,
         `${site.host} served its SSR shell with no cache-control or cdn-cache-control header`,

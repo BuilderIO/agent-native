@@ -1,7 +1,3 @@
-// Capture/permission messaging shared between the device pickers and the
-// recording flow. Centralized so the "is this a hard system block?" heuristic
-// and the user-facing copy stay in sync wherever a getUserMedia call can fail.
-
 export const MACOS_CAPTURE_PERMISSION_MESSAGE =
   "Grant the required macOS permissions below, then try again. If you just changed access, restart Clips before retrying.";
 export const MACOS_SCREEN_PERMISSION_MESSAGE =
