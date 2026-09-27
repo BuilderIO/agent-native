@@ -114,32 +114,57 @@ function computeSimpleQueries(groups: readonly SearchQueryGroup[]): string[] {
   return [];
 }
 
-/** Optimal string alignment distance, stopping early once it exceeds `max`. */
-function editDistanceWithin(a: string[], b: string[], max: number): number {
-  if (Math.abs(a.length - b.length) > max) return max + 1;
-  let previousPrevious: number[] = [];
-  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+// Reused across calls: the typo tier runs this for thousands of words per
+// keystroke, so it must not allocate per comparison.
+let rowBefore = new Int32Array(0);
+let rowPrevious = new Int32Array(0);
+let rowCurrent = new Int32Array(0);
+
+/**
+ * Optimal string alignment distance between `a` and the first `bLength`
+ * characters of `b`, stopping early once it exceeds `max`.
+ */
+function editDistanceWithin(
+  a: readonly string[],
+  b: readonly string[],
+  bLength: number,
+  max: number,
+): number {
+  if (Math.abs(a.length - bLength) > max) return max + 1;
+  if (rowPrevious.length < bLength + 1) {
+    rowBefore = new Int32Array(bLength + 1);
+    rowPrevious = new Int32Array(bLength + 1);
+    rowCurrent = new Int32Array(bLength + 1);
+  }
+  let before = rowBefore;
+  let previous = rowPrevious;
+  let current = rowCurrent;
+  for (let j = 0; j <= bLength; j += 1) previous[j] = j;
   for (let i = 1; i <= a.length; i += 1) {
-    const current = [i];
+    current[0] = i;
     let rowMin = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let value = Math.min(
-        previous[j]! + 1,
-        current[j - 1]! + 1,
-        previous[j - 1]! + cost,
-      );
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-        value = Math.min(value, previousPrevious[j - 2]! + 1);
+    const ai = a[i - 1];
+    for (let j = 1; j <= bLength; j += 1) {
+      const cost = ai === b[j - 1] ? 0 : 1;
+      let value = previous[j]! + 1;
+      const insertion = current[j - 1]! + 1;
+      if (insertion < value) value = insertion;
+      const substitution = previous[j - 1]! + cost;
+      if (substitution < value) value = substitution;
+      if (i > 1 && j > 1 && ai === b[j - 2] && a[i - 2] === b[j - 1]) {
+        const transposition = before[j - 2]! + 1;
+        if (transposition < value) value = transposition;
       }
-      current.push(value);
-      rowMin = Math.min(rowMin, value);
+      current[j] = value;
+      if (value < rowMin) rowMin = value;
     }
     if (rowMin > max) return max + 1;
-    previousPrevious = previous;
+    const recycled = before;
+    before = previous;
     previous = current;
+    current = recycled;
   }
-  return previous[b.length]!;
+  return previous[bLength]!;
 }
 
 /**
@@ -152,27 +177,36 @@ function typoTolerantWordScore(
   words: readonly string[][],
   needleChars: readonly string[],
 ): number | null {
-  const maxDistance = needleChars.length >= 8 ? 2 : 1;
+  const needleLength = needleChars.length;
+  const maxDistance = needleLength >= 8 ? 2 : 1;
   let best: number | null = null;
   for (const wordChars of words) {
     // A word shorter than the needle by more than the allowed distance can't
     // match in either form; skip the edit-distance work entirely.
-    if (wordChars.length + maxDistance < needleChars.length) continue;
-    const forms =
-      wordChars.length > needleChars.length
-        ? [wordChars, wordChars.slice(0, needleChars.length)]
-        : [wordChars];
-    forms.forEach((form, formIndex) => {
-      const distance = editDistanceWithin(
-        needleChars as string[],
-        form,
+    if (wordChars.length + maxDistance < needleLength) continue;
+    const whole = editDistanceWithin(
+      needleChars,
+      wordChars,
+      wordChars.length,
+      maxDistance,
+    );
+    if (whole <= maxDistance) {
+      const score = (maxDistance - whole + 1) * 10 + 1;
+      if (best === null || score > best) best = score;
+    }
+    if (wordChars.length > needleLength) {
+      // The start of a longer word, while the person is still typing.
+      const start = editDistanceWithin(
+        needleChars,
+        wordChars,
+        needleLength,
         maxDistance,
       );
-      if (distance > maxDistance) return;
-      const score =
-        (maxDistance - distance + 1) * 10 + (formIndex === 0 ? 1 : 0);
-      if (best === null || score > best) best = score;
-    });
+      if (start <= maxDistance) {
+        const score = (maxDistance - start + 1) * 10;
+        if (best === null || score > best) best = score;
+      }
+    }
   }
   return best;
 }
