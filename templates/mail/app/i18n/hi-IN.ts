@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
       aiSetupSave: "सेटअप सहेजें",
       aiSetupSkip: "अभी छोड़ें",
+      aiSetupSkipSetup: "इनबॉक्स सेटअप छोड़ें",
       aiSetupImportantHeadline: "क्या ज़रूरी है",
       aiSetupSkipInboxHeadline: "क्या इनबॉक्स को छोड़ सकता है",
       aiSetupTagsHeadline: "अपने टैब चुनें",

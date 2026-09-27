@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
       aiSetupSave: "Enregistrer la configuration",
       aiSetupSkip: "Ignorer pour le moment",
+      aiSetupSkipSetup: "Ignorer la configuration de la boîte de réception",
       aiSetupImportantHeadline: "Ce qui est important",
       aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
       aiSetupTagsHeadline: "Choisissez vos onglets",

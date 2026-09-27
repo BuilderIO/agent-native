@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
+      aiSetupSkipSetup: "Postfacheinrichtung überspringen",
       aiSetupImportantHeadline: "Was ist wichtig?",
       aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
       aiSetupTagsHeadline: "Tabs auswählen",

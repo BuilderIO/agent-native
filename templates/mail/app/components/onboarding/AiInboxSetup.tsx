@@ -131,6 +131,31 @@ function SetupRuleRow({
   );
 }
 
+function SetupSurface({
+  embedded,
+  visible,
+  onClose,
+  children,
+}: {
+  embedded: boolean;
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!visible) return null;
+  if (embedded) return children;
+  return (
+    <Dialog
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-3xl">{children}</DialogContent>
+    </Dialog>
+  );
+}
+
 function SetupResults({
   status,
   loading,
@@ -362,10 +387,16 @@ function SetupResults({
 
 export function AiInboxSetup({
   forceOpen = false,
+  embedded = false,
   onOpenChange,
+  onComplete,
+  onSkipSetup,
 }: {
   forceOpen?: boolean;
+  embedded?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onComplete?: () => void;
+  onSkipSetup?: () => void;
 }) {
   const t = useT();
   const { data: settings } = useSettings();
@@ -455,6 +486,16 @@ export function AiInboxSetup({
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
       onOpenChange?.(false);
+      onComplete?.();
+    } catch {
+      toast.error(t("mail.aiFilter.settingsFailed"));
+    }
+  };
+
+  const skipSetup = async () => {
+    try {
+      await updateSettings.mutateAsync({ aiSetupCompleted: true });
+      onSkipSetup?.();
     } catch {
       toast.error(t("mail.aiFilter.settingsFailed"));
     }
@@ -602,20 +643,34 @@ export function AiInboxSetup({
     (!customTagName.trim() || !customTagPrompt.trim());
 
   return (
-    <Dialog
-      open={visible}
-      onOpenChange={(open) => {
-        if (!open) {
-          onOpenChange?.(false);
-          void complete();
-        }
+    <SetupSurface
+      embedded={embedded}
+      visible={visible}
+      onClose={() => {
+        onOpenChange?.(false);
+        void complete();
       }}
     >
-      <DialogContent className="max-w-3xl">
+      <>
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center overflow-y-auto">
-          <DialogHeader className="mb-6">
-            <DialogTitle>{headline}</DialogTitle>
-          </DialogHeader>
+          <div className="mb-6 flex items-center justify-between gap-3">
+            {embedded ? (
+              <h1 className="text-lg font-semibold">{headline}</h1>
+            ) : (
+              <DialogHeader>
+                <DialogTitle>{headline}</DialogTitle>
+              </DialogHeader>
+            )}
+            {embedded && step < 3 && onSkipSetup ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void skipSetup()}
+              >
+                {t("mail.sort.aiSetupSkipSetup")}
+              </Button>
+            ) : null}
+          </div>
           <div
             className="mb-8 flex items-center gap-2"
             role="progressbar"
@@ -866,7 +921,7 @@ export function AiInboxSetup({
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </>
+    </SetupSurface>
   );
 }

@@ -200,6 +200,36 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("runs inline in first-run onboarding and skips without changing mail", async () => {
+    const onComplete = vi.fn();
+    const onSkipSetup = vi.fn();
+    render(
+      <AiInboxSetup
+        forceOpen
+        embedded
+        onComplete={onComplete}
+        onSkipSetup={onSkipSetup}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    expect(onSkipSetup).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
   it("uses the shared Skip inbox label on the cleanup step", () => {
     render(<AiInboxSetup forceOpen />);
 

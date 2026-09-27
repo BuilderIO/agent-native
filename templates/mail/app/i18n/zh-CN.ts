@@ -43,6 +43,7 @@ const messages = {
       aiSetupArchiveLabel: "跳过收件箱",
       aiSetupSave: "保存设置",
       aiSetupSkip: "暂时跳过",
+      aiSetupSkipSetup: "跳过收件箱设置",
       aiSetupImportantHeadline: "哪些内容重要",
       aiSetupSkipInboxHeadline: "哪些内容可以跳过收件箱",
       aiSetupTagsHeadline: "选择标签页",

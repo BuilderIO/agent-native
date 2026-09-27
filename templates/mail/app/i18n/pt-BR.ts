@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
+      aiSetupSkipSetup: "Pular configuração da caixa de entrada",
       aiSetupImportantHeadline: "O que é importante",
       aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
       aiSetupTagsHeadline: "Escolha suas abas",

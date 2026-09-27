@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
+      aiSetupSkipSetup: "Omitir configuración de la bandeja",
       aiSetupImportantHeadline: "Qué es importante",
       aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
       aiSetupTagsHeadline: "Elige tus pestañas",

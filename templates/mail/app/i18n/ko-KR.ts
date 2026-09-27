@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "받은편지함 건너뛰기",
       aiSetupSave: "설정 저장",
       aiSetupSkip: "나중에 하기",
+      aiSetupSkipSetup: "받은편지함 설정 건너뛰기",
       aiSetupImportantHeadline: "중요한 항목",
       aiSetupSkipInboxHeadline: "받은편지함을 건너뛸 항목",
       aiSetupTagsHeadline: "탭 선택",

@@ -43,6 +43,7 @@ const messages = {
       aiSetupArchiveLabel: "略過收件匣",
       aiSetupSave: "儲存設定",
       aiSetupSkip: "暫時略過",
+      aiSetupSkipSetup: "略過收件匣設定",
       aiSetupImportantHeadline: "哪些內容重要",
       aiSetupSkipInboxHeadline: "哪些內容可以略過收件匣",
       aiSetupTagsHeadline: "選擇標籤",

@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Skip inbox",
       aiSetupSave: "Save setup",
       aiSetupSkip: "Skip for now",
+      aiSetupSkipSetup: "Skip inbox setup",
       aiSetupImportantHeadline: "What’s important",
       aiSetupSkipInboxHeadline: "What can skip your inbox",
       aiSetupTagsHeadline: "Pick your tabs",

@@ -44,6 +44,7 @@ const messages = {
       aiSetupArchiveLabel: "تجاوز البريد الوارد",
       aiSetupSave: "حفظ الإعداد",
       aiSetupSkip: "تخط الآن",
+      aiSetupSkipSetup: "تخطي إعداد البريد الوارد",
       aiSetupImportantHeadline: "ما المهم؟",
       aiSetupSkipInboxHeadline: "ما الذي يمكنه تجاوز صندوق الوارد؟",
       aiSetupTagsHeadline: "اختر علامات التبويب",

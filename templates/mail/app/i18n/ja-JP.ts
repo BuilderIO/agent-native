@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "受信トレイをスキップ",
       aiSetupSave: "設定を保存",
       aiSetupSkip: "今回はスキップ",
+      aiSetupSkipSetup: "受信トレイの設定をスキップ",
       aiSetupImportantHeadline: "重要なもの",
       aiSetupSkipInboxHeadline: "受信トレイをスキップできるもの",
       aiSetupTagsHeadline: "タブを選ぶ",
