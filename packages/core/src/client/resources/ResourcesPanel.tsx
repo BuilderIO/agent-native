@@ -89,6 +89,20 @@ type PendingResourceUpload = {
   targetScope: ResourceScope;
 };
 
+export function mergePendingResourceUploads(
+  pending: PendingResourceUpload[],
+  next: PendingResourceUpload[],
+): PendingResourceUpload[] {
+  const byResourcePath = new Map<string, PendingResourceUpload>();
+  for (const upload of [...pending, ...next]) {
+    byResourcePath.set(
+      JSON.stringify([upload.targetScope, upload.file.name]),
+      upload,
+    );
+  }
+  return [...byResourcePath.values()];
+}
+
 export function normalizeResourceFileName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed || trimmed.endsWith("/")) return "";
@@ -1438,7 +1452,10 @@ export function ResourcesPanel({
         uploadResourceFile(formData);
       }
       if (needsStorage.length) {
-        pendingResourceUploadsRef.current.push(...needsStorage);
+        pendingResourceUploadsRef.current = mergePendingResourceUploads(
+          pendingResourceUploadsRef.current,
+          needsStorage,
+        );
         if (showStoragePrompt) setFileStorageSetupOpen(true);
       }
     },
@@ -1624,7 +1641,10 @@ export function ResourcesPanel({
         );
         return;
       }
-      pendingResourceUploadsRef.current.push(...selected);
+      pendingResourceUploadsRef.current = mergePendingResourceUploads(
+        pendingResourceUploadsRef.current,
+        selected,
+      );
       void fileUploadStatus
         .refetch()
         .then((result) => {

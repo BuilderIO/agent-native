@@ -43,8 +43,10 @@ export function usePlanImageUpload() {
   );
 
   useEffect(() => {
-    if (uploadAttempted && (storageMissing || isError)) setSetupOpen(true);
-  }, [isError, storageMissing, uploadAttempted]);
+    if (uploadAttempted && (storageMissing || isError || !isSuccess)) {
+      setSetupOpen(true);
+    }
+  }, [isError, isSuccess, storageMissing, uploadAttempted]);
 
   const requestUpload = useCallback(() => {
     if (canUploadImages) return true;

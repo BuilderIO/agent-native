@@ -62,10 +62,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
     onAttachmentRequest?: () => void;
   }) => (
     <>
-      <button
-        type="button"
-        onClick={() => onSubmit("a slide about trees", [])}
-      >
+      <button type="button" onClick={() => onSubmit("a slide about trees", [])}>
         submit-prompt
       </button>
       <button type="button" onClick={onAttachmentRequest}>
