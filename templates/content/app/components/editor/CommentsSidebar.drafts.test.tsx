@@ -509,15 +509,19 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
   try {
     await act(async () => root.render(<Harness />));
-    expect(container.querySelector("strong")?.textContent).toBe("Across");
+    expect(
+      [...container.querySelectorAll("strong")]
+        .map((element) => element.textContent)
+        .join(""),
+    ).toBe("Across");
     await act(async () =>
       controller.setOpenReply(suggestion.threadId, suggestion.id, false),
     );
     expect(
-      [...container.querySelectorAll("strong")].map(
-        (element) => element.textContent,
-      ),
-    ).toEqual(["Across", "Upper", "Lower"]);
+      [...container.querySelectorAll("strong")]
+        .map((element) => element.textContent)
+        .join(""),
+    ).toBe("AcrossUpperLower");
     expect(container.textContent).toContain("Upper↵Lower");
     expect(container.textContent).not.toContain("**");
     expect(container.textContent).not.toContain("<br>");
@@ -1102,6 +1106,56 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
         (line) => line.textContent === "Replace: “workflow”",
       )?.className,
     ).toContain("text-muted-foreground");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("highlights only changed text beside unchanged markdown formatting", async () => {
+  const saved = suggestionFixture({
+    id: "formatted-replacement",
+    revision: 1,
+    threadId: "thread-formatted-replacement",
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { markdown: "**bold** cat", changedText: "**bold** cat" },
+        after: { markdown: "**bold** dog", changedText: "**bold** dog" },
+        anchor: { from: 0, to: 12, prefix: "", suffix: "" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-formatted-replacement");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-formatted-replacement"
+        suggestions={[saved]}
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const card = container.querySelector(
+      '[data-suggestion-id="formatted-replacement"]',
+    );
+    expect(card?.querySelector("strong")?.textContent).toBe("bold");
+    const changed = [...(card?.querySelectorAll("span") ?? [])].find((span) =>
+      span.className.includes("decoration-[hsl(var(--suggestion))]"),
+    );
+    expect(changed?.textContent).toBe("dog");
+    expect(card?.textContent).toContain("with: “bold dog”");
   } finally {
     await act(async () => root.unmount());
   }

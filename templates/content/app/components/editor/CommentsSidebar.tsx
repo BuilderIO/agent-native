@@ -2198,9 +2198,41 @@ function SuggestionOperationSummary({
         operation.kind === "replace_text"
           ? suggestionDiffParts(previousText, nextText)
           : null;
-      const hasSharedContext =
-        diff?.some((part) => part.type === "equal") &&
-        !/[<>*_`\[\]]/.test(previousText + nextText);
+      const hasSharedContext = diff?.some((part) => part.type === "equal");
+      const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const renderDiff = (side: "before" | "after") => {
+        let offset = 0;
+        const presentation =
+          side === "before" ? previousPresentation : nextPresentation;
+        return diff?.map((part, partIndex) => {
+          if (part.type === (side === "before" ? "insert" : "delete"))
+            return null;
+          const from = (presentation?.from ?? 0) + offset;
+          offset += part.text.length;
+          return (
+            <span
+              key={partIndex}
+              className={cn(
+                side === "after" &&
+                  part.type === "insert" &&
+                  "text-[hsl(var(--suggestion))] underline decoration-[hsl(var(--suggestion))]",
+                side === "before" && part.type === "delete" && "line-through",
+              )}
+            >
+              {richText
+                ? renderSuggestionText(
+                    part.text,
+                    presentation && {
+                      source: presentation.source,
+                      from,
+                      to: from + part.text.length,
+                    },
+                  )
+                : part.text}
+            </span>
+          );
+        });
+      };
       return (
         <div key={key} className="break-words">
           <div
@@ -2210,19 +2242,7 @@ function SuggestionOperationSummary({
           >
             {t("comments.suggestionWith")}: {"“"}
             {diff && hasSharedContext
-              ? diff.map((part, partIndex) =>
-                  part.type === "delete" ? null : (
-                    <span
-                      key={partIndex}
-                      className={cn(
-                        part.type === "insert" &&
-                          "text-[hsl(var(--suggestion))] underline decoration-[hsl(var(--suggestion))]",
-                      )}
-                    >
-                      {part.text}
-                    </span>
-                  ),
-                )
+              ? renderDiff("after")
               : renderSuggestionText(nextText, nextPresentation)}
             {"”"}
           </div>
@@ -2230,16 +2250,7 @@ function SuggestionOperationSummary({
             <div className="text-muted-foreground">
               {t("comments.suggestionReplace")}: {"“"}
               {diff && hasSharedContext
-                ? diff.map((part, partIndex) =>
-                    part.type === "insert" ? null : (
-                      <span
-                        key={partIndex}
-                        className={cn(part.type === "delete" && "line-through")}
-                      >
-                        {part.text}
-                      </span>
-                    ),
-                  )
+                ? renderDiff("before")
                 : renderSuggestionText(previousText, previousPresentation)}
               {"”"}
             </div>

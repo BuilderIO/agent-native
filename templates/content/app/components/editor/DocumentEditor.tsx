@@ -1832,6 +1832,12 @@ function PageEditorSessionBody({
     new Map<string, { id: string; summary: string }>(),
   );
   const suggestionProposalCreationKeysRef = useRef(new Map<string, string>());
+  const unresolvedProposalCreationRef = useRef<{
+    baseId: string;
+    request: Parameters<typeof createSuggestionProposal.mutateAsync>[0];
+    pendingKeys: string[];
+    operations: ReturnType<typeof suggestionDraftOperations>;
+  } | null>(null);
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
   const [suggestionPersistenceRevision, setSuggestionPersistenceRevision] =
     useState(0);
@@ -4140,6 +4146,46 @@ function PageEditorSessionBody({
       }
       setIsSubmittingSuggestions(true);
       try {
+        const recordCreated = (
+          created: Awaited<
+            ReturnType<typeof createSuggestionProposal.mutateAsync>
+          >,
+          pendingKeys: string[],
+          operations: ReturnType<typeof suggestionDraftOperations>,
+          idempotencyKey: string,
+          baseId: string,
+        ) => {
+          if (created.suggestions.length !== operations.length)
+            throw new Error(
+              "Proposal creation returned an incomplete edit set",
+            );
+          suggestionProposalsRef.current.set(baseId, {
+            id: created.proposal.id,
+            summary: created.proposal.summary,
+          });
+          operations.forEach((operation, index) => {
+            const suggestion = created.suggestions[index]!;
+            createdSuggestionOperationsRef.current.set(pendingKeys[index]!, {
+              idempotencyKey,
+              operation,
+              suggestion,
+            });
+          });
+        };
+        const unresolved = unresolvedProposalCreationRef.current;
+        if (unresolved) {
+          const recovered = await createSuggestionProposal.mutateAsync(
+            unresolved.request,
+          );
+          recordCreated(
+            recovered,
+            unresolved.pendingKeys,
+            unresolved.operations,
+            unresolved.request.idempotencyKey,
+            unresolved.baseId,
+          );
+          unresolvedProposalCreationRef.current = null;
+        }
         const operations = suggestionDraftOperations(base, suggestionDraft);
         if (operations.length === 0) {
           if (base.existingSuggestion) {
@@ -4210,7 +4256,7 @@ function PageEditorSessionBody({
             );
             const proposalSummary =
               existingProposal?.summary ?? t("editor.toolbar.suggestEdits");
-            const created = await createSuggestionProposal.mutateAsync({
+            const request = {
               resourceType: "document",
               resourceId: documentId,
               adapterKind: "content.document-markdown",
@@ -4222,24 +4268,26 @@ function PageEditorSessionBody({
                 summary: proposalSummary,
                 operations: [operation],
               })),
-            });
-            if (created.suggestions.length !== pending.length)
-              throw new Error(
-                "Proposal creation returned an incomplete edit set",
-              );
-            suggestionProposalsRef.current.set(base.id, {
-              id: created.proposal.id,
-              summary: created.proposal.summary,
-            });
-            pending.forEach((operation, index) => {
-              const suggestion = created.suggestions[index]!;
-              const operationKey = pendingKeys[index]!;
-              createdSuggestionOperationsRef.current.set(operationKey, {
-                idempotencyKey,
-                operation,
-                suggestion,
-              });
-              persisted.set(operationKey, suggestion);
+            } satisfies Parameters<
+              typeof createSuggestionProposal.mutateAsync
+            >[0];
+            unresolvedProposalCreationRef.current = {
+              baseId: base.id,
+              request,
+              pendingKeys,
+              operations: pending,
+            };
+            const created = await createSuggestionProposal.mutateAsync(request);
+            recordCreated(
+              created,
+              pendingKeys,
+              pending,
+              idempotencyKey,
+              base.id,
+            );
+            unresolvedProposalCreationRef.current = null;
+            pendingKeys.forEach((operationKey, index) => {
+              persisted.set(operationKey, created.suggestions[index]!);
             });
           }
           adoptConfirmedSuggestions();
@@ -4255,6 +4303,16 @@ function PageEditorSessionBody({
         }
         return persisted;
       } catch (error) {
+        const status = (error as { status?: unknown } | null)?.status;
+        if (
+          typeof status === "number" &&
+          status >= 400 &&
+          status < 500 &&
+          status !== 408 &&
+          status !== 429
+        ) {
+          unresolvedProposalCreationRef.current = null;
+        }
         adoptConfirmedSuggestions();
         if (error instanceof SuggestionFormattingMappingError) {
           toast.error(t("editor.suggestionFormattingUnsupported"));
@@ -4589,7 +4647,9 @@ function PageEditorSessionBody({
     setEditingSuggestionId(null);
     setSuggestionInitialSelection(null);
     setSuggestionAmendmentConflict(false);
+    unresolvedProposalCreationRef.current = null;
     setPendingSuggestionDecision(null);
+    setPendingProposalDecision(null);
     setDecisionRefreshFailed(false);
     setPreserveInlineReviewSpace(false);
   }, [documentId]);
@@ -5802,11 +5862,22 @@ function PageEditorSessionBody({
         setPendingProposalDecision({ continueSuggesting });
         let awaitingReadback = false;
         try {
+          let currentMembers = members;
           if (continueSuggesting) {
             const persisted = await flushSuggestionDraft({ keepMode: true });
             if (!persisted) return;
+            const refreshed = await suggestionsQuery.refetch();
+            if (refreshed.isError || !refreshed.data)
+              throw (
+                refreshed.error ?? new Error("Could not refresh proposal edits")
+              );
+            currentMembers = refreshed.data.suggestions.filter(
+              (suggestion) =>
+                suggestion.proposalId === proposalId &&
+                suggestion.status === "pending",
+            );
           }
-          const observed = members.map((member) => ({
+          const observed = currentMembers.map((member) => ({
             id: member.id,
             observedRevision: member.revision,
             observedBase: member.baseRevision,
@@ -5833,6 +5904,7 @@ function PageEditorSessionBody({
           awaitingReadback = true;
           if (await refreshSuggestionDecisionDocument(continueSuggesting)) {
             awaitingReadback = false;
+            setPendingProposalDecision(null);
           }
         } catch (error) {
           void suggestionsQuery.refetch();
