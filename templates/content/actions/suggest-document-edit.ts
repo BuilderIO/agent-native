@@ -306,6 +306,7 @@ export default defineAction({
           groupedReceipt.proposal.summary === effectiveSummary &&
           (first?.metadata?.sourceProposalId ?? null) ===
             (args.proposalId ?? null) &&
+          (!args.baseRevision || first?.baseRevision === args.baseRevision) &&
           first?.metadata?.sourceFind === args.find &&
           first?.metadata?.sourceReplace === (args.replace ?? "");
         if (!first || !sameEdit) {

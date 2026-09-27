@@ -919,12 +919,16 @@ export function CommentsSidebar({
     const groups = new Map<string, ResourceSuggestion[]>();
     for (const suggestion of inlineSuggestions) {
       if (!suggestion.proposalId) continue;
-      const members = groups.get(suggestion.proposalId) ?? [];
-      members.push(suggestion);
-      groups.set(suggestion.proposalId, members);
+      if (groups.has(suggestion.proposalId)) continue;
+      groups.set(
+        suggestion.proposalId,
+        suggestions.filter(
+          (member) => member.proposalId === suggestion.proposalId,
+        ),
+      );
     }
     return groups;
-  }, [inlineSuggestions]);
+  }, [inlineSuggestions, suggestions]);
   const proposalMemberCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const suggestion of suggestions) {
@@ -1238,17 +1242,24 @@ export function CommentsSidebar({
     const leaders = new Map<string, string>();
     for (const [proposalId, members] of inlineProposalMembers) {
       if ((proposalMemberCounts.get(proposalId) ?? 0) < 2) continue;
-      const first = [...members].sort(
-        (left, right) =>
-          (threadPositions.get(left.threadId)?.documentTop ?? Infinity) -
-            (threadPositions.get(right.threadId)?.documentTop ?? Infinity) ||
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
-      )[0];
+      const first = inlineSuggestions
+        .filter((suggestion) => suggestion.proposalId === proposalId)
+        .sort(
+          (left, right) =>
+            (threadPositions.get(left.threadId)?.documentTop ?? Infinity) -
+              (threadPositions.get(right.threadId)?.documentTop ?? Infinity) ||
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )[0];
       if (first) leaders.set(proposalId, first.threadId);
     }
     return leaders;
-  }, [inlineProposalMembers, proposalMemberCounts, threadPositions]);
+  }, [
+    inlineProposalMembers,
+    inlineSuggestions,
+    proposalMemberCounts,
+    threadPositions,
+  ]);
   const layoutThreads = useMemo(
     () =>
       inlineThreads.filter(

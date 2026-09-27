@@ -147,6 +147,12 @@ describe("suggest-document-edit", () => {
           ctx,
         )) as typeof result;
         expect(staleReplay.suggestionIds).toEqual(result.suggestionIds);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -391,15 +397,16 @@ describe("suggest-document-edit", () => {
           { id, content: "The page changed underneath the proposal." },
           ctx,
         );
-        const retry = (await suggestDocumentEdit.run(
-          {
-            ...args,
-            baseRevision:
-              "body:0:sha256:0000000000000000000000000000000000000000000000000000000000000000",
-          },
-          ctx,
-        )) as { suggestionId: string };
+        const retry = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+        };
         expect(retry.suggestionId).toBe(first.suggestionId);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });

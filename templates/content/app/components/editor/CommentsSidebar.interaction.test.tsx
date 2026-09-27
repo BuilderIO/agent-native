@@ -304,7 +304,7 @@ describe("comment review interactions", () => {
       ).not.toBeNull();
     },
   );
-  it("decides every pending proposal member from a focused inline card", () => {
+  it("shows every pending proposal member before deciding from a focused inline card", () => {
     const onDecideSuggestionProposal = vi.fn();
     render(null, [], "inline", {
       suggestions: [proposalSuggestion("one"), proposalSuggestion("two")],
@@ -312,7 +312,13 @@ describe("comment review interactions", () => {
       alignToAnchors: false,
       onDecideSuggestionProposal,
     });
-    expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(1);
+    expect(
+      container.querySelector("[data-suggestion-id='one']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-suggestion-id='two']"),
+    ).not.toBeNull();
+    expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(2);
     const accept = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("comments.acceptRemaining"),
     );
