@@ -34,6 +34,8 @@ const messages = {
     recents: "हाल की",
     retryPreviousRequest:
       "मेरा पिछला अनुरोध फिर से आज़माएँ, अब जबकि मॉडल प्रदाता कनेक्ट हो गया है।",
+    retryAttachmentUnavailable:
+      "Chat इस अटैचमेंट को फिर से खोलकर दोबारा नहीं भेज सकता। सुलभ फ़ाइल URL जोड़ें और फिर कोशिश करें।",
     renameChat: "चैट का नाम बदलें",
     renameFailed: "नाम बदलना विफल",
     renameThread: "थ्रेड का नाम बदलें",

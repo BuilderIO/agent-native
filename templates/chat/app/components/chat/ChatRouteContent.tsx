@@ -176,6 +176,11 @@ function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
   return <AgentMessageView value={value} threadId={threadId} />;
 }
 
+type ChatRetryError = {
+  code: "attachment_id_unavailable";
+  runId: string;
+};
+
 function ChatRunFailure({
   error,
   runId,
@@ -184,6 +189,7 @@ function ChatRunFailure({
   const thread = useAgentThread(threadId);
   const { controller } = useAgentKit();
   const t = useT();
+  const [retryError, setRetryError] = useState<ChatRetryError | null>(null);
   const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
     (
       message.metadata as
@@ -207,13 +213,18 @@ function ChatRunFailure({
       recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
   );
   const retryFirstMessage = useCallback(() => {
+    const attachments =
+      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
+    if (attachments.some((part) => part.fileId && !part.url)) {
+      setRetryError({ code: "attachment_id_unavailable", runId });
+      return;
+    }
+    setRetryError(null);
     const prompt =
       originalRequest?.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n") ?? "";
-    const attachments =
-      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     void controller.sendMessage({
       threadId,
       text: prompt || t("chat.retryPreviousRequest"),
@@ -236,11 +247,19 @@ function ChatRunFailure({
     })
   ) {
     return (
-      <BuilderSetupCard
-        fullWidth
-        layout="sidebar"
-        onRetry={retryFirstMessage}
-      />
+      <>
+        <BuilderSetupCard
+          fullWidth
+          layout="sidebar"
+          onRetry={retryFirstMessage}
+        />
+        {retryError?.runId === runId &&
+        retryError.code === "attachment_id_unavailable" ? (
+          <p role="alert" className="mt-2 px-3 text-sm text-destructive">
+            {t("chat.retryAttachmentUnavailable")}
+          </p>
+        ) : null}
+      </>
     );
   }
   return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;

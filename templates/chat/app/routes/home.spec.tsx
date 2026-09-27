@@ -452,6 +452,53 @@ describe("ChatRoute AgentKit surface", () => {
     ).not.toBeNull();
   });
 
+  it("does not retry a file-ID-only attachment and shows a typed error", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "Summarize this file" },
+          { type: "file", name: "brief.pdf", fileId: "file-1" },
+        ],
+      },
+    ];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    const failure = slots.runFailure;
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        ?.click(),
+    );
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(container.querySelector("[role='alert']")?.textContent).toBe(
+      "chat.retryAttachmentUnavailable",
+    );
+  });
+
   it("keeps one owned transport across routed threads", () => {
     routeState.threadId = "thread-one";
     act(() => root.render(<ChatRoute />));

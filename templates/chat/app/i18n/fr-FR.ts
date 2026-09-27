@@ -36,6 +36,8 @@ const messages = {
     recents: "Récents",
     retryPreviousRequest:
       "Réessaie ma demande précédente maintenant que le fournisseur du modèle est connecté.",
+    retryAttachmentUnavailable:
+      "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",
     renameFailed: "Échec du renommage",
     renameThread: "Renommer le fil",
