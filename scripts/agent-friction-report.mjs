@@ -1309,7 +1309,7 @@ const PATTERNS = [
     key: "beta-oververification",
     label: "Had to stop routine beta behavior checks",
     fixedBy: ".agents/skills/verifying-changes + ship-and-monitor (2026-09-27)",
-    re: /\b(?:stop|don['’]?t|do not|no need to|skip)\b[^.!?]{0,100}\b(?:beta|staging)\b[^.!?]{0,80}\b(?:test|check|verify|smoke|e2e)\b[^.!?]{0,80}\b(?:every|each|all|routine|always|by default)\b|\b(?:stop|don['’]?t|do not|no need to|skip)\b[^.!?]{0,100}\b(?:test|check|verify|smoke|e2e)\b[^.!?]{0,80}\b(?:beta|staging)\b[^.!?]{0,80}\b(?:every|each|all|routine|always|by default)\b|\b(?:all|every)\s+(?:the\s+)?(?:threads?|tasks?)\b[^.!?]{0,120}\b(?:test|check|verify|smoke)\w*\b[^.!?]{0,60}\b(?:beta|staging)\b[^.!?]{0,80}\b(?:extensive|too much|routine|every|always|unnecessary|overboard)\b|\b(?:beta|staging)\b[^.!?]{0,80}\b(?:test|check|verify|smoke|e2e)\b[^.!?]{0,80}\b(?:every|each|all|routine)\b[^.!?]{0,80}\b(?:unnecessary|not needed|too much|extensive|excessive|overboard|needlessly)\b|\b(?:beta|staging)\b[^.!?]{0,80}\b(?:test|check|verify|smoke|e2e)\b[^.!?]{0,80}\b(?:unnecessary|not needed|too much|extensive|excessive|overboard|needlessly)\b/i,
+    re: /(?=[^.!?]{0,240}\b(?:beta|staging)\b)(?=[^.!?]{0,240}\b(?:test|check|verify|smoke|e2e)\w*\b)(?=[^.!?]{0,240}\b(?:every|each|all|routine|always|by default|repeatedly|too many|too much|extensive|excessive|overkill|unnecessary|no need|not needed)\b)(?=[^.!?]{0,240}\b(?:too many|too much|excessive|extensive|overkill|unnecessary|needlessly|no need|not needed|a lot)\b|[^.!?]{0,240}\b(?:don['’]?t|do not|stop|no need to)\s+(?:test|check|verify|smoke|run)\w*\b)[^.!?]{0,240}/i,
   },
   {
     key: "beta-publisher-run-interference",
