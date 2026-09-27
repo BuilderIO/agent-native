@@ -19,6 +19,7 @@ export interface AgentShareSectionProps {
   resourceId: string;
   enabled?: boolean;
   className?: string;
+  label?: string;
 }
 
 export function AgentShareSection({
@@ -26,6 +27,7 @@ export function AgentShareSection({
   resourceId,
   enabled = false,
   className,
+  label,
 }: AgentShareSectionProps) {
   const t = useT();
   const createAgentLink = useActionMutation<
@@ -77,9 +79,12 @@ export function AgentShareSection({
 
   return (
     <ShareAgentsSection
-      label={t("agentChat.share.shareWithAgents", {
-        defaultValue: "Share with agents",
-      })}
+      label={
+        label ??
+        t("agentChat.share.shareWithAgents", {
+          defaultValue: "Share with agents",
+        })
+      }
       open={open}
       onOpenChange={handleOpenChange}
       className={className}

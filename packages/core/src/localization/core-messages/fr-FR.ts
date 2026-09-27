@@ -892,6 +892,8 @@ const messages: AgentChatTranslation = {
     "Tous les membres de votre organisation peuvent consulter",
   "share.owner": "Propriétaire",
   "share.peopleWithAccess": "Personnes ayant accès",
+  "share.people": "Personnes",
+  "share.agents": "Agents",
   "share.private": "Privé",
   "share.privateDescription":
     "Seules les personnes disposant d’un accès peuvent consulter",

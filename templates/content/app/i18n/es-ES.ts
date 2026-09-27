@@ -1339,6 +1339,26 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Información",
+      copyLink: "Copiar enlace",
+      copyForPeople: "Copiar para personas",
+      copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quién tiene acceso",
+      sharePeople: "Personas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instrucciones para el agente",
+      openInClaude: "Abrir en Claude",
+      openInClaudeCode: "Abrir en Claude Code",
+      openInCodex: "Abrir en Codex",
+      agentCopyAccessNote:
+        "Los agentes pueden usar Content MCP con tus permisos actuales",
+      temporaryAgentLink: "Enlace temporal para agentes",
+      privateLinkCanView: "Solo las personas con acceso pueden verlo",
+      publicLinkCanView: "Cualquiera con el enlace puede verlo",
+      copiedAgentPrompt: "Instrucciones para el agente copiadas",
+      couldNotCopyAgentPrompt:
+        "No se pudieron copiar las instrucciones para el agente",
+      agentPrompt:
+        'Lee este documento de Content: {{documentUrl}}\n\nUsa una conexión disponible de Content MCP para {{mcpUrl}} y llama a get-document con el ID "{{documentId}}". También puedes leer directamente una página de acceso público.\n\nSi se necesita acceso autenticado y Content MCP no está disponible o la sesión está cerrada, pídeme que lo conecte e inicie sesión. Configuración de la conexión: {{connectUrl}}. Guía oficial: {{docsUrl}}\n\nCuando confirme que la conexión está lista, vuelve a intentar la lectura con los permisos existentes de mi cuenta. Si se deniega la lectura autenticada, comunícame ese resultado.',
       closeUtilityPanel: "Cerrar panel",
       exportCsv: "Exportar CSV",
       exportDatabase: "Exportar colección",
@@ -1362,6 +1382,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Enlace de página copiado",
       copyPageLink: "Copiar enlace de página",
+      createShareableCopy: "Crear copia para compartir",
       couldNotCopyLink: "No se pudo copiar el enlace",
       clipboardAccessUnavailable:
         "El acceso al portapapeles no está disponible en este navegador.",

@@ -778,6 +778,8 @@ const messages = {
   "share.organizationDescription": "Anyone in your organization can view",
   "share.owner": "Owner",
   "share.peopleWithAccess": "People with access",
+  "share.people": "People",
+  "share.agents": "Agents",
   "share.private": "Private",
   "share.privateDescription": "Only people with access can view",
   "share.public": "Public",

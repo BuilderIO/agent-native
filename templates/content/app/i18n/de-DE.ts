@@ -1094,6 +1094,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informationen",
+      copyLink: "Link kopieren",
+      copyForPeople: "Für Personen kopieren",
+      copyForAgents: "Für Agenten kopieren",
+      whoHasAccess: "Wer Zugriff hat",
+      sharePeople: "Personen",
+      shareAgents: "Agenten",
+      copyAgentPrompt: "Agenten-Anweisung kopieren",
+      openInClaude: "In Claude öffnen",
+      openInClaudeCode: "In Claude Code öffnen",
+      openInCodex: "In Codex öffnen",
+      agentCopyAccessNote:
+        "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
+      temporaryAgentLink: "Temporärer Agentenlink",
+      privateLinkCanView: "Nur Personen mit Zugriff können ihn ansehen",
+      publicLinkCanView: "Jede Person mit dem Link kann ihn ansehen",
+      copiedAgentPrompt: "Agenten-Anweisung kopiert",
+      couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
+      agentPrompt:
+        'Lies dieses Content-Dokument: {{documentUrl}}\n\nNutze eine verfügbare Content-MCP-Verbindung für {{mcpUrl}}, um get-document mit der ID "{{documentId}}" aufzurufen. Eine öffentlich lesbare Seite kann auch direkt gelesen werden.\n\nFalls authentifizierter Zugriff nötig ist und Content MCP nicht verfügbar oder abgemeldet ist, bitte mich, die Verbindung herzustellen und mich anzumelden. Verbindung einrichten: {{connectUrl}}. Offizielle Anleitung: {{docsUrl}}\n\nNachdem ich bestätigt habe, dass die Verbindung bereit ist, versuche erneut, das Dokument mit den bestehenden Berechtigungen meines Kontos zu lesen. Wenn der authentifizierte Lesezugriff verweigert wird, teile mir dieses Ergebnis mit.',
       closeUtilityPanel: "Bereich schließen",
       exportCsv: "Als CSV exportieren",
       exportDatabase: "Sammlung exportieren",
@@ -1117,6 +1136,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportiert",
       copiedPageLink: "Seitenlink kopiert",
       copyPageLink: "Seitenlink kopieren",
+      createShareableCopy: "Teilbare Kopie erstellen",
       couldNotCopyLink: "Link konnte nicht kopiert werden",
       clipboardAccessUnavailable:
         "Der Zugriff auf die Zwischenablage ist in diesem Browser nicht verfügbar.",
