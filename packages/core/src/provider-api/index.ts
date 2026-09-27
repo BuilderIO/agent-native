@@ -5115,20 +5115,36 @@ async function refreshGoogleOAuthToken(
       }),
     });
     lastStatusText = res.statusText;
-    data = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-      token_type?: string;
-      scope?: string;
-      error?: string;
-      error_description?: string;
-    };
-    if (res.ok && data.access_token) break;
-    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+    try {
+      data = (await res.json()) as {
+        access_token?: string;
+        expires_in?: number;
+        token_type?: string;
+        scope?: string;
+        error?: string;
+        error_description?: string;
+      };
+    } catch (error) {
+      if (res.ok) throw error;
+      data = null;
+    }
+    const retryable =
+      res.status === 408 || res.status === 429 || res.status >= 500;
+    if (res.ok && data?.access_token) break;
+    if (
+      !retryable &&
+      data?.error &&
+      PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)
+    ) {
       continue;
     }
-    const detail = data.error_description ?? data.error ?? lastStatusText;
-    throw new Error(`Google OAuth refresh failed: ${detail}`);
+    const detail = data?.error_description ?? data?.error ?? lastStatusText;
+    const error = new Error(`Google OAuth refresh failed: ${detail}`);
+    Object.assign(error, {
+      status: res.status,
+      ...(retryable ? { retryable: true } : {}),
+    });
+    throw error;
   }
 
   if (!data?.access_token) {

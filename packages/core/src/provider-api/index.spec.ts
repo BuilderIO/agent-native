@@ -2280,12 +2280,19 @@ describe("provider API runtime", () => {
       },
     });
 
-    await expect(
-      runtime.executeRequest({
+    const error = await runtime
+      .executeRequest({
         provider: "google_drive",
         path: "/files",
-      }),
-    ).rejects.toThrow(/Google OAuth refresh failed: invalid_grant/);
+      })
+      .catch((error: unknown) => error);
+
+    expect(error).toMatchObject({
+      message: expect.stringMatching(
+        /Google OAuth refresh failed: invalid_grant/,
+      ),
+    });
+    expect(error).not.toHaveProperty("retryable");
 
     expect(deleteOAuthTokens).toHaveBeenCalledWith(
       "google-docs",
@@ -2296,6 +2303,62 @@ describe("provider API runtime", () => {
     ).toContain("client_id=vault-google-client-id");
     expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
+
+  it.each([408, 429, 503])(
+    "marks Google OAuth refresh HTTP %i failures as retryable",
+    async (status) => {
+      resolveSecret.mockImplementation(async (key: string) =>
+        key === "GOOGLE_CLIENT_ID"
+          ? "vault-google-client-id"
+          : key === "GOOGLE_CLIENT_SECRET"
+            ? "vault-google-client-secret"
+            : null,
+      );
+      listOAuthAccountsByOwner.mockResolvedValue([
+        {
+          accountId: "docs@example.com",
+          displayName: "Docs Account",
+          tokens: {
+            access_token: "expired-docs-access-token",
+            refresh_token: "refresh-token",
+            expiry_date: Date.now() - 60_000,
+          },
+        },
+      ]);
+      resolveWorkspaceConnectionForApp.mockResolvedValue({
+        available: true,
+        connection: {
+          id: "drive-connection-1",
+          label: "Work Google",
+          accountId: "docs@example.com",
+          ownerEmail: "ada@example.com",
+        },
+        appAccess: { available: true },
+        reason: "Available.",
+      });
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("upstream unavailable", {
+          status,
+          statusText: "Upstream unavailable",
+        }),
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "slides",
+        providerIds: ["google_drive"],
+        getCredentialContext: () => credentialContext,
+        oauthProviderOverrides: {
+          google_drive: "google-docs",
+        },
+      });
+
+      await expect(
+        runtime.resolveOAuthAccessToken({
+          provider: "google_drive",
+          connectionId: "drive-connection-1",
+        }),
+      ).rejects.toMatchObject({ status, retryable: true });
+    },
+  );
 
   it("tries legacy Google OAuth credentials before deleting grants after a client rotation", async () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "new-google-client-id");
