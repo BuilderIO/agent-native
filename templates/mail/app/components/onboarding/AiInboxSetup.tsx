@@ -405,8 +405,10 @@ export function AiInboxSetup({
   const [importantPrompt, setImportantPrompt] = useState("");
   const [archivePrompt, setArchivePrompt] = useState("");
   const [archiveEnabled, setArchiveEnabled] = useState(false);
+  const [archiveUserOptedOut, setArchiveUserOptedOut] = useState(false);
   const [spamPrompt, setSpamPrompt] = useState("");
   const [spamEnabled, setSpamEnabled] = useState(false);
+  const [spamUserOptedOut, setSpamUserOptedOut] = useState(false);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
   const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
   const [customCleanupMode, setCustomCleanupMode] = useState<
@@ -708,12 +710,12 @@ export function AiInboxSetup({
                 enabled={archiveEnabled}
                 onConditionChange={(value) => {
                   setArchivePrompt(value);
-                  if (!archivePrompt.trim() && value.trim()) {
-                    setArchiveEnabled(true);
-                  }
-                  if (!value.trim()) setArchiveEnabled(false);
+                  if (!archiveUserOptedOut) setArchiveEnabled(!!value.trim());
                 }}
-                onEnabledChange={setArchiveEnabled}
+                onEnabledChange={(enabled) => {
+                  setArchiveEnabled(enabled);
+                  setArchiveUserOptedOut(!enabled);
+                }}
               />
               <SetupRuleRow
                 icon={<IconFilter className="size-4" />}
@@ -723,12 +725,12 @@ export function AiInboxSetup({
                 enabled={spamEnabled}
                 onConditionChange={(value) => {
                   setSpamPrompt(value);
-                  if (!spamPrompt.trim() && value.trim()) {
-                    setSpamEnabled(true);
-                  }
-                  if (!value.trim()) setSpamEnabled(false);
+                  if (!spamUserOptedOut) setSpamEnabled(!!value.trim());
                 }}
-                onEnabledChange={setSpamEnabled}
+                onEnabledChange={(enabled) => {
+                  setSpamEnabled(enabled);
+                  setSpamUserOptedOut(!enabled);
+                }}
               />
               {customCleanupOpen ? (
                 <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 sm:flex-nowrap">

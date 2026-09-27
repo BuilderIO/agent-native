@@ -267,6 +267,63 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("keeps cleanup rules off when their prompt is cleared and rewritten", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
+    const archiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    });
+    const spamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    });
+
+    fireEvent.change(archiveInput, {
+      target: { value: "Archive newsletters" },
+    });
+    fireEvent.change(spamInput, {
+      target: { value: "Skip bot notifications" },
+    });
+    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("true");
+    expect(spamSwitch?.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(archiveSwitch!);
+    fireEvent.click(spamSwitch!);
+    fireEvent.change(archiveInput, { target: { value: "" } });
+    fireEvent.change(spamInput, { target: { value: "" } });
+    fireEvent.change(archiveInput, {
+      target: { value: "Archive vendor newsletters" },
+    });
+    fireEvent.change(spamInput, {
+      target: { value: "Skip automated bot notifications" },
+    });
+
+    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("false");
+    expect(spamSwitch?.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
   it("keeps account and Jev loading gates when setup is force-opened", () => {
     const { rerender } = render(<AiInboxSetup forceOpen />);
     mocks.googleStatus.isLoading = true;
