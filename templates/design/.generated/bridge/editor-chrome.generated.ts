@@ -12640,7 +12640,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var exitedContainer = el.parentElement;
       var receivingContainer = exitedContainer && exitedContainer.parentElement;
       var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && target.anchor?.parentElement !== document.body && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && !unnestPromotedBoardRootTarget && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
         target = {
           ...target,
           anchor: exitedContainer,
