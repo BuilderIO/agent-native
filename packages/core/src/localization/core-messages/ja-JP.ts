@@ -125,6 +125,8 @@ const messages: AgentChatTranslation = {
     "接続するにはログインしてください。",
   "onboarding.builderActivationDescription":
     "ワンクリックで Builder.io アカウントを自動的に作成します。",
+  "onboarding.builderOrgActivationDescription":
+    "ワンクリックで Builder.io アカウントを作成し、組織用に接続します。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
   "onboarding.builderConsentPrefix":
     "Builder.io アカウントを作成すると、当社の",

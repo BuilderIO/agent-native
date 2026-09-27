@@ -118,6 +118,8 @@ const messages = {
   "onboarding.builderAccountExistsDescription": "Log in to connect it.",
   "onboarding.builderActivationDescription":
     "We'll automatically create your Builder.io account for you in one click.",
+  "onboarding.builderOrgActivationDescription":
+    "We'll create your Builder.io account in one click and connect it for your organization.",
   "onboarding.builderCreateAndActivate": "Create and activate",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",

@@ -119,6 +119,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
   "onboarding.builderActivationDescription":
     "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
+  "onboarding.builderOrgActivationDescription":
+    "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ونربطه لمؤسستك.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
   "onboarding.builderConsentPrefix": "بإنشاء حساب Builder.io، فإنك توافق على",
   "onboarding.builderTerms": "شروط الخدمة",

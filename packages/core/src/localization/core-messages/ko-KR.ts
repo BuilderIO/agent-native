@@ -120,6 +120,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "연결하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
+  "onboarding.builderOrgActivationDescription":
+    "한 번의 클릭으로 Builder.io 계정을 만들고 조직용으로 연결합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
   "onboarding.builderConsentPrefix": "Builder.io 계정을 만들면 당사의",
   "onboarding.builderTerms": "서비스 약관",

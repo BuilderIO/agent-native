@@ -25,6 +25,7 @@ export interface BuilderConnectPopoverProps {
     retry?: () => boolean | void;
     statusResolved?: boolean;
     statusReadSettledCount?: number;
+    canConnect?: BuilderConnectFlow["canConnect"];
   };
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
@@ -164,7 +165,9 @@ export function BuilderConnectPopover({
           <p className="text-xs leading-5 text-muted-foreground">
             {accountExists
               ? t("agentChat.onboarding.builderAccountExistsDescription")
-              : t("agentChat.onboarding.builderActivationDescription")}
+              : flow.canConnect?.org
+                ? t("agentChat.onboarding.builderOrgActivationDescription")
+                : t("agentChat.onboarding.builderActivationDescription")}
           </p>
           <Button
             type="button"

@@ -664,6 +664,43 @@ describe("useBuilderConnectFlow", () => {
     ).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it("activates an account for the organization's connection", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        canConnect: { org: true, personal: false },
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount startScope="org" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const params = new URL(popup.location.href).searchParams;
+    expect(params.get("scope")).toBe("org");
+    expect(params.get("_an_mode")).toBe("agent-native");
+    expect(params.get("_an_provision")).toBe(provisioningToken);
+  });
+
   it("uses the click-time provisioning capability instead of a stale closure", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();

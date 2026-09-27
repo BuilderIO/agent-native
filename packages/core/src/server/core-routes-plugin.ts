@@ -675,6 +675,24 @@ export function resolveBuilderCallbackWrite(input: {
     : { role: null };
 }
 
+/**
+ * Where a new Builder.io account from account activation is stored. An owner
+ * or admin activates for the organization, as they connect for it, so a
+ * first-run owner's account powers the workspace instead of becoming a
+ * personal grant that shadows the org's connection. Anyone else activates
+ * personally. Authorization for a named connection is checked before this.
+ */
+export function resolveBuilderActivationWrite(input: {
+  requestedScope: BuilderConnectionScope | null;
+  orgId: string | null;
+  role: string | null;
+}): { orgId: string; role: string } | null {
+  if (input.requestedScope === "personal") return null;
+  return input.orgId && isBuilderOrgManagerRole(input.role)
+    ? { orgId: input.orgId, role: input.role as string }
+    : null;
+}
+
 export type BuilderEffectiveConnection =
   | "personal"
   | "org"
@@ -4036,7 +4054,7 @@ export function createCoreRoutesPlugin(
             BUILDER_AGENT_NATIVE_PROVISION_MODE;
 
           // A named connection is authorized before anything is written,
-          // including account activation, which saves a personal connection.
+          // including account activation.
           const requestedConnectionScope = parseBuilderConnectionScope(
             requestUrl.searchParams.get(BUILDER_CONNECTION_SCOPE_PARAM),
           );
@@ -4074,17 +4092,6 @@ export function createCoreRoutesPlugin(
               PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
             );
           }
-          if (
-            requestedConnectionScope === "org" &&
-            shouldProvisionAgentNativeAccount
-          ) {
-            return denyConnect(
-              400,
-              "Account activation creates a personal Builder.io account. Connect an existing account for the organization.",
-              "provision_org_scope",
-            );
-          }
-
           if (shouldProvisionAgentNativeAccount) {
             const failProvisioning = async (
               status: number,
@@ -4150,13 +4157,27 @@ export function createCoreRoutesPlugin(
             }
 
             try {
+              const activationMember =
+                scopedConnectAuthorization ??
+                (await resolveBuilderOrgMutation(event, {
+                  allowMemberInitiation: true,
+                }));
+              const activationOrg = resolveBuilderActivationWrite({
+                requestedScope: requestedConnectionScope,
+                orgId: activationMember.orgId,
+                role: activationMember.role,
+              });
               const credentials = await provisionBuilderAccount({
                 email: ownerEmail,
                 name: ownerContext.session.name,
               });
               const { writeBuilderCredentials } =
                 await import("./credential-provider.js");
-              await writeBuilderCredentials(ownerEmail, credentials);
+              const written = await writeBuilderCredentials(
+                ownerEmail,
+                credentials,
+                activationOrg ?? undefined,
+              );
               await Promise.all([
                 deleteSetting("builder-disconnected").catch(
                   () => false, // coercion-ok: best-effort cleanup after successful provisioning
@@ -4177,15 +4198,15 @@ export function createCoreRoutesPlugin(
                 {
                   ...builderConnectTrackingProperties(connectTracking),
                   stage: "provision",
-                  credential_scope: "user",
+                  credential_scope: written.scope,
                   account_provisioned: true,
                 },
               );
               await recordBuilderConnectionAudit({
                 connected: true,
                 ownerEmail,
-                orgId: null,
-                scope: "user",
+                orgId: activationOrg?.orgId ?? null,
+                scope: written.scope,
               });
               const parentOrigin = getBuilderBrowserOriginForEvent(event);
               setResponseHeader(event, "Cache-Control", "no-store");

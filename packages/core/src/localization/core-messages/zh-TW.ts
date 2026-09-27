@@ -116,6 +116,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "登入以連接該帳戶。",
   "onboarding.builderActivationDescription":
     "我們會按一下自動為您建立 Builder.io 帳戶。",
+  "onboarding.builderOrgActivationDescription":
+    "我們會一鍵為您建立 Builder.io 帳戶，並為您的組織連接它。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
   "onboarding.builderConsentPrefix": "建立 Builder.io 帳戶即表示您同意我們的",
   "onboarding.builderTerms": "服務條款",

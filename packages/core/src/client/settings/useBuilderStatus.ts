@@ -1044,11 +1044,8 @@ export function useBuilderConnectFlow(
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       const scopeForStart = startOptions?.scope ?? null;
-      // Account activation creates a personal Builder account, so it never
-      // runs for the organization's connection.
       const provisionAccountForStart =
-        scopeForStart !== "org" &&
-        (startOptions?.provisionAccount ?? provisionAccount);
+        startOptions?.provisionAccount ?? provisionAccount;
       const targetGrantAtStart = scopeForStart
         ? connectionsRef.current.grants?.[scopeForStart]
         : undefined;

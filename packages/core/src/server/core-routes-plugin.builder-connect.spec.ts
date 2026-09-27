@@ -24,6 +24,7 @@ import {
 import {
   disconnectBuilderConnectionAtScope,
   parseBuilderConnectionScope,
+  resolveBuilderActivationWrite,
   resolveBuilderCallbackWrite,
   resolveBuilderConnectAuthorization,
   resolveBuilderOrgMutation,
@@ -556,5 +557,33 @@ describe("selectLiveBuilderConnectStates", () => {
     expect(
       resolveBuilderConnectCallbackState(null, (states ?? []).join(",")),
     ).toEqual({ state: null, resetStateCookie: true });
+  });
+});
+
+describe("resolveBuilderActivationWrite", () => {
+  const activate = (
+    requestedScope: "org" | "personal" | null,
+    role: string | null,
+    orgId: string | null = "org-123",
+  ) => resolveBuilderActivationWrite({ requestedScope, orgId, role });
+
+  it("stores an owner or admin's new account as the organization's connection", () => {
+    expect(activate(null, "owner")).toEqual({
+      orgId: "org-123",
+      role: "owner",
+    });
+    expect(activate("org", "admin")).toEqual({
+      orgId: "org-123",
+      role: "admin",
+    });
+  });
+
+  it("stores a member's new account personally", () => {
+    expect(activate(null, "member")).toBeNull();
+    expect(activate("personal", "member")).toBeNull();
+  });
+
+  it("stores the account personally without an organization", () => {
+    expect(activate(null, "owner", null)).toBeNull();
   });
 });

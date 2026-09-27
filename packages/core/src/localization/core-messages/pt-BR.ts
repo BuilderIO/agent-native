@@ -120,6 +120,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "Faça login para conectá-la.",
   "onboarding.builderActivationDescription":
     "Criaremos automaticamente sua conta do Builder.io com um clique.",
+  "onboarding.builderOrgActivationDescription":
+    "Criaremos sua conta do Builder.io com um clique e a conectaremos para sua organização.",
   "onboarding.builderCreateAndActivate": "Criar e ativar",
   "onboarding.builderConsentPrefix":
     "Ao criar uma conta Builder.io, você concorda com nossos",
