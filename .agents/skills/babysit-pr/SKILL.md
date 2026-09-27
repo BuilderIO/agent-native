@@ -210,9 +210,9 @@ active/evidence-limited disposition or a reply without one of those outcomes
 blocks merge; the eye remains on every claimed item. Reactions are append-only;
 newer thread evidence controls the current disposition.
 Evidence-limited or active dispositions retain the workflow's eye; it remains
-after resolution. Silent terminal
-states need no reply. If a connector is unavailable, record it as unavailable
-in the recap rather than treating it as no findings.
+after resolution. Keep active and terminal state in thread text or linked
+work; do not repeat a status already recorded. If a connector is unavailable,
+record it as unavailable in the recap rather than treating it as no findings.
 
 **Then proceed with PR checks:**
 

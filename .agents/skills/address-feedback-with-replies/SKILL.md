@@ -41,10 +41,9 @@ questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
 If this workflow earlier added `👀` before recognizing an item was out of
-scope, keep our eye and add no other reaction. Do not investigate it as a
-compensating question or post a new reply. If this workflow already posted a
-mistaken reply, delete that reply when safe; otherwise edit it to one brief
-`Skipped` disposition.
+scope, keep our eye and add no other reaction. Record **Skipped** with one
+brief status reply if the thread lacks it, not a question. If this workflow
+already posted a mistaken reply, edit it to that disposition.
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific reaction contract from `review-latest-feedback`:
@@ -135,30 +134,29 @@ progress** retain `👀` after the report has been claimed.
 **Asked**, **Clarification needed**, and **Blocked on reporter** retain `👀`
 after the report has been claimed.
 Terminal dispositions: **Fixed**, **Shipped**,
-**Live verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
+**Live verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
 **Clustered**, and **Abandoned - no answer in 4 days**, each with required
 evidence and `👀`; add `✅` only for verified fixes. An already-eyed
-out-of-scope item keeps our eye and gets no new reply; if
-this workflow already replied, delete that reply when safe or edit it to one
-concise **Skipped** disposition. **Fixed** closes the issue after a verified
+out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
+thread lacks that status.
+**Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
-**In progress** is
-an open ownership state for a thread
-where `@agent-native` or another participant already found the cause, linked a
-fix, or said the work is being fixed; use it to acknowledge the existing work,
-never to replace verification or to create a vague status update. The next run
-must revisit **In progress** and resolve it to **Fixed**, **Clarification
-needed**, or evidence-backed **Open - no reply** when no safe fix or
+**In progress** is an open ownership state. If work will continue beyond this
+run, post one concrete status naming what is being checked if the thread lacks
+it; acknowledge an existing owner when there is one. Never use a vague update
+or replace verification. The next run must revisit **In progress** and resolve
+it to **Fixed**, **Clarification
+needed**, or evidence-backed **Open - no question** when no safe fix or
 reproduction remains. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. **Open - no
-reply** is terminal with our eye retained and no checkmark. If a
-reply does not say the fix is complete, acknowledge concrete existing
-ownership, or ask what is needed to fix it, do not post it. These are ledger states, not
-mandatory headings: keep the reporter-facing wording natural instead of
-opening with the robotic phrase “Clarification needed”. A substantive
-diagnosis, fix, or in-progress ownership statement from someone in the thread
-is not a reason to ask for clarification; verify it or continue the existing
-handoff first.
+question** is terminal with our eye retained and no checkmark. A reply must
+state a verified resolution, concrete active work, a needed question, or one
+terminal disposition with its reason; never send a vague status alone. These are
+ledger states, not mandatory headings: keep the reporter-facing wording
+natural instead of opening with the robotic phrase “Clarification needed”. A
+substantive diagnosis, fix, or in-progress ownership statement from someone in
+the thread is not a reason to ask for clarification; verify it or continue the
+existing handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
@@ -169,9 +167,8 @@ before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
 That obligation expires after four days, standalone runs included: keep our
-`👀`, add no reaction, post nothing, and record the terminal **Abandoned - no
-answer in 4 days**. The thread keeps its eye and owes no reply. Carry the
-underlying bug forward with no reporter dependency.
+`👀`, add no reaction, and post **Abandoned - no answer in 4 days** once if the
+thread lacks that status. Ask nothing further; carry any active bug forward.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -241,10 +238,10 @@ non-repeating question only if one specific required detail still blocks it.
      be on beta later today; never send a bare “Fixed”.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
-   - **In progress** - only when the thread already contains a substantive
-     ownership or active-fix signal; thank the reporter, acknowledge that the
-     team is already working on it, and do not ask a duplicate question. This
-     is an open handoff, not a terminal fix.
+   - **In progress** - when work will continue beyond this run and the thread
+     lacks this status, thank the reporter and name what is being checked;
+     acknowledge existing ownership
+     and do not ask a duplicate question. This is an open handoff, not a fix.
    - **Clarification needed** - ask one concrete plain-language question only
      when missing reporter input or an inaccessible needed artifact blocks a
      safe clear-bug fix. Re-read immediately before posting and confirm the
@@ -258,13 +255,15 @@ non-repeating question only if one specific required detail still blocks it.
    afterward to confirm the reply landed under the intended parent. Use the
    exact parent timestamp as `thread_ts`; never reply to a search-result
    timestamp or an adjacent thread. Before ending the run, mechanically
-   audit the reply ledger: for every claimed parent, record the optional
-   invoking-user reply timestamp, disposition, and eye state. Use the states in
-   the contract above, with a reason; silent terminal states have no timestamp.
+   audit the reply ledger: for every claimed parent, record its latest status
+   reply timestamp, disposition, and eye state. Use the states in the contract
+   above, with a reason; a terminal state already stated in the thread needs no
+   duplicate reply.
    Record **Owned elsewhere** only when the latest thread update or linked work
    confirms another active owner; preserve foreign eyes. Record
-   out-of-scope and non-owning **Clustered** rows with our eye retained and no
-   added reaction or reply. Do not create questions for out-of-scope items.
+   out-of-scope and non-owning **Clustered** rows with our eye retained and one
+   status reply if the thread lacks that disposition. Do not ask questions for
+   out-of-scope items.
    If any participant replies after the post, re-read the entire thread again
    before deciding whether to fix, close, or ask anything else.
 7. If any participant supplies the requested detail or an explicit resolution,
@@ -292,9 +291,8 @@ identity:
 - Every reply from this workflow also ends with `this was sent from a bot.` so
   future sweeps can rediscover it; historical replies may not contain the
   marker and must still be found by the companion clarification search.
-- An **In progress** reply must still start with that thank-you and then say
-  that the team is already looking into or fixing the issue. Do not use that
-  state to ask for clarification that the thread already answered.
+- An **In progress** reply starts with that thank-you and names the active
+  work. Do not use it to ask for clarification the thread already answered.
 - Use lowercase and a short conversational paragraph. Natural phrases such as
   `ah`, `yeah`, and `good find` can follow the thank-you when they fit; do not
   force them into every reply. Prefer ` - ` over em dashes.
@@ -320,8 +318,9 @@ identity:
   verified. Say “this should be live after the final ship later today” only
   when the code is complete, included in that ship, and the expected ship
   window is actually known.
-- If it is not fixed, do not post a status-only update. Continue the fix, or
-  ask one concrete question only when reporter or product information is
+- If it is not fixed, continue the work or post a concrete **In progress**
+  status when it continues beyond this run. Ask one concrete question only when
+  reporter or product information is
   genuinely missing, or a needed linked artifact is inaccessible, after
   exhausting the Slack thread, linked files/transcript/video, app state, run
   ID, sessions, and history. Internal
@@ -333,7 +332,8 @@ identity:
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
   reporter detail would unblock the work, keep our `👀`, add no reaction,
-  record **Open - no reply**, and post nothing.
+  record **Open - no question**, and post that status once if the thread lacks
+  it.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -341,10 +341,9 @@ identity:
   established.
 - Before finishing the sweep, search every reply authored in that sweep for
   vague unresolved wording and edit or remove it. Re-read the affected threads
-  after each edit. Check that skipped subjective/product/policy items still
-  were not claimed and have no reply from the invoking identity. If an item was
-  already claimed before being skipped, preserve its eye. Add `✅` only for a
-  verified fix.
+  after each edit. Unclaimed subjective/product/policy items get no reply. If
+  an item was claimed before being skipped, preserve its eye and ensure one
+  concise **Skipped** status reply. Add `✅` only for a verified fix.
 
 A useful reply shape is:
 

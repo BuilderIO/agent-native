@@ -28,9 +28,9 @@ beats thirty replies.
 
 ## Phase 0: claim what you are taking
 
-Other agents work concurrently. `👀` is the durable marker that this workflow
-has claimed a report. Add it before investigation and never remove it, including
-while waiting for reporter input or after a non-fixed terminal disposition.
+Other agents work concurrently. `👀` is permanent claim history, not a lock.
+Add it before investigation and never remove it, including after a terminal
+disposition. Determine current ownership from thread status and linked work.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -47,27 +47,29 @@ every actionable defect in that parent has a verified fix.
 ### Checkmark gate
 
 Add `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
-Phase 2's four bars. It records a verified fix at that time; newer thread
-evidence controls the current disposition. A read, claim, review, assignment,
-code change, test, or PR queue is not closure.
+Phase 2's four bars. It records a fix verified at that time; newer thread
+evidence controls the current disposition. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
 **Abandoned - no answer in 4 days**.
 
-Use **Skipped** only for non-defects, never breakage. **Open - no reply** means
-you worked the defect and found neither a fix nor a useful question; document
-why.
+Use **Skipped** only for non-defects, never breakage. **Open - no question**
+means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
 Use exactly one disposition per ledger row; keep the same wording in recap and
 Slack reply:
 
+For work continuing beyond this run, post **In progress** once. Record each
+terminal disposition in thread text or linked work; if neither states it, post
+one concise status reply. Current status comes from text or work, never the eye.
+
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
-  verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Add `✅` only for
-  verified fixes.
+  verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
+  **Clustered**, or **Abandoned - no answer in 4 days**. Record an unstated
+  terminal disposition in the thread; add `✅` only for verified fixes.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -82,35 +84,29 @@ release/runtime, owner, and verification command or URL. Do not rediscover or
 reopen closed fixes through open-issue scans. **Clustered** closes one row but
 retains it.
 
-Preserve foreign eyes. Do not treat them as an active-work lock without a
-current thread update or linked work confirming the other owner.
-
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
-parent is older than 5 days. Use its oldest timestamp as the recap cursor.
-Classify from parent text, attachments, and reactions; do not open threads yet.
+parent is older than 5 days. Record the oldest in-range parent as the scan
+boundary. Classify parent text, attachments, and reactions before opening
+threads.
 
-**`slack_search` is not a scan.** It ranks and truncates. Use channel reads for
-enumeration and put their count in the recap; use search for known things such
-as prior replies, eyes, and repeat symptoms.
+**`slack_search` can rank and truncate.** Use channel reads to enumerate parents
+and put their count in the recap. Sort targeted searches oldest-first and follow
+`next_cursor` until exhausted.
 
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Add `👀` to every intended item and read reactions back before investigation.
-Claim all actionable reports, including carried-over parents, without adding a
-second reaction.
+Read back each `👀` before investigating; add it once. Post **In progress** if
+work continues beyond the run.
 
-Reactions are append-only: add `👀` when claiming and `✅` only after a verified
-fix. Newer thread evidence can reopen a checked item; update its disposition
-without removing either reaction.
-
-Claiming only marks work; it does not investigate or reply. Search-discovered
-work gets the same eye-first read-back. Do not claim items that are already
+Claiming does not investigate. Search-discovered work gets the same eye-first
+read-back. Do not claim items that are already
 classified as out of scope. If an item is later found out of scope after being
-claimed, keep `👀`, record **Skipped**, and add no reaction or message. New
+claimed, keep `👀`, record **Skipped**, and post one concise status reply, no
+question. New
 evidence or a current `:upvote:` can restore scope after any non-fixed terminal
-disposition; continue on the existing eye. Preserve foreign eyes and verify
-reaction ownership before any change.
+disposition; continue on the existing eye. Preserve foreign eyes. Confirm an
+active owner from current thread status or linked work, not the eye alone.
 
 Give each claim a disposition and recap row; reply only with informative
 outcomes. Cluster fresh repeats for Phase 2.
@@ -140,22 +136,19 @@ slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Keep `include_context=true` on every page. Its `Context after` block identifies
-human replies; do not filter to replies ending in `?`, because a clarification
-may not use a question mark. Open only threads with a human reply.
+Keep `include_context=true` on every page and follow `next_cursor` until
+exhausted. Its `Context after` block identifies human replies; do not filter to
+replies ending in `?`. Open only threads with a human reply.
 
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
 
-Also search for the invoking identity's eye-marked parents before applying the
-disclosure filter:
-
-```
-slack_search: hasmy::eyes: in:<#CHANNEL>
-```
-
-This includes checked claims so newer thread evidence can reopen them. Do not
-replace the emoji-delimited modifier with an emoji text search.
+Find new replies even when their parent is older than the five-day scan. Search
+all channel messages after the last completed recap cursor, sorted oldest-first,
+and paginate until exhausted. Resolve each hit to its parent's `thread_ts` and
+read the full thread. Use Slack search's `after` timestamp, ascending sort, and
+`next_cursor` arguments. Record the last processed timestamp as the next recap
+cursor only after every page is handled. This catches replies on older parents.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
@@ -163,11 +156,11 @@ workflow's disclosure marker. Open the thread: a partial, unrelated, or
 message re-enters the set. Enumerate answered threads before new work and put
 the count in the recap. Keep unanswered **Clarification needed** threads
 pending until answered, resolved, or aged out at four days; **Fixed**,
-**Shipped**, **In progress**, and **Open - no reply** are not substitutes.
+**Shipped**, **In progress**, and **Open - no question** are not substitutes.
 Reapply the Phase 0 eye and checkmark rules to terminal states.
 
 Only an unanswered **Clarification needed** thread enters the age branches
-below. If an older thread was marked **Open - no reply** despite one, restore it
+below. If an older thread was marked **Open - no question** despite one, restore it
 to pending.
 
 - **Someone answered** → highest priority in the run, ahead of every newer
@@ -177,17 +170,14 @@ to pending.
   An answer that the issue is already resolved, fixed elsewhere, or not ours —
   a linked PR, "not a Clips issue" — is still an answer. Close it as
   **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
-  out of scope): keep our `👀`, record who resolved it and where, and post
-  nothing. Do not add `✅` for this terminal status.
+  out of scope): keep our `👀` and record who resolved it and where. The
+  participant's reply is the status; do not add `✅`.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
-- **No answer, posted over 4 days ago** → the question failed. Drop it
-  silently: no reminder, no re-ask, no new reaction. Keep the `👀` and record
-  **Abandoned - no answer in 4 days**, which is a
-  terminal non-fixed ledger disposition - an expired thread keeps its eye and
-  owes no reply, in this workflow or a standalone companion run. If the bug
-  still matters, carry it forward as an internal investigation with no
-  reporter dependency - dropping the question is not dropping the bug.
+- **No answer, posted over 4 days ago** → the question failed. Do not remind or
+  re-ask. Keep the `👀`, record **Abandoned - no answer in 4 days** once in the
+  thread without a new question, and carry any still-relevant bug forward as an
+  internal investigation.
 
 Search without an `after` filter, then apply the four-day expiry; disclosure is
 the primary cross-identity cursor. For legacy replies
@@ -206,8 +196,7 @@ disclosure string, not a display name, and never omit it from a reply.
 ## Classification rules
 
 Phase 0 applies these from parent-level evidence to decide what to claim.
-Phase 2 reapplies these rules after full-thread review; keep the eye and follow
-Phase 0's checkmark rule.
+Phase 2 reapplies these rules after full-thread review.
 
 Use the workspace's product feedback channel; here that is
 `#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
@@ -229,9 +218,9 @@ product signoff. Discoverability complaints and preferences do not authorize
 adding, promoting, moving, or duplicating buttons or other persistent chrome.
 Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
 promoting chrome requires the invoking user's explicit current-task request or
-:upvote:` below. Otherwise mark **Skipped**. If already claimed, keep our `👀`;
-add no other reaction and do not ask the reporter to decide. Measure failures with
-`text-heavy-ui`.
+  :upvote:` below. Otherwise mark **Skipped**. If already claimed, keep our `👀`
+  and post **Skipped** once if the thread does not state it; do not ask the
+  reporter to decide. Measure failures with `text-heavy-ui`.
 
 Requests for a new capability still follow the invoking identity's `:upvote:`
 gate. Content remains Alice's area unless the invocation claims it.
@@ -273,10 +262,10 @@ slack_search: has:reaction in:<#CHANNEL>
 ```
 
 Read matching parents and reaction metadata. An eye from another identity is
-claim history; mark **Owned elsewhere** only when a recent thread update or
-linked work confirms active ownership. The `hasmy::eyes:` cursor finds all
-claims, not an active-work queue. Resume a terminal item when newer evidence
-changes its scope.
+claim history; mark **Owned elsewhere** only when current thread status or
+linked work confirms active ownership. If a legacy eye has no status, check
+active work before proceeding. New evidence after a terminal status reopens the
+report; keep the old reactions.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
@@ -471,8 +460,8 @@ the status or ask a question. Follow `address-feedback-with-replies` for the
 remaining Slack reply voice and wording. Every reply ends with
 `this was sent from a bot.` after the plain-language status.
 
-Reply only where the reply carries information the thread does not already
-have. Three kinds qualify:
+Reply with a new status or useful information; do not repeat a status already
+in the thread.
 
 - **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
   A live-verified row may be silent if its observation is recorded. For
@@ -481,14 +470,14 @@ have. Three kinds qualify:
   claiming the published package is fixed. Name beta URL/runtime only when
   exercised; never substitute a future beta promise for release or live proof.
   Use **Shipped** for upvoted improvements.
-- **In progress** — the thread already has real, concrete ownership (a named
-  PR, a person actively working it). Acknowledge it; ask nothing.
+- **In progress** — name the active work when it will continue beyond this run;
+  acknowledge existing concrete ownership. Ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an internal recap row and **no message**. An unverified
-defect earns a targeted question when one answer would unblock it; use **Open -
-no reply** only when none can. Keep our eye and do not add `✅` for this
-terminal disposition. Cluster duplicate causes.
+Unclaimed scope and noise get only an internal recap row. An unverified defect
+earns a targeted question when one answer would unblock it; otherwise record
+**Open - no question** once in the thread. Keep our eye and do not add `✅` for
+this terminal disposition. Cluster duplicate causes.
 Re-read the full thread before replying and stay out of active human work.
 
 ### The question budget
@@ -575,9 +564,9 @@ Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complet
 Unavailable or unverified: ...
 ```
 
-`Open - no reply` is a last resort, not a success state. It requires that you
-worked the defect, could not fix it, and could not form a question that would
-unblock it; a run whose ledger is mostly `Open - no reply` has under-asked, not
+`Open - no question` is a last resort, not a success state. It requires that
+you worked the defect, could not fix it, and could not form a question that would
+unblock it; a run whose ledger is mostly `Open - no question` has under-asked, not
 finished. It keeps our eye and has no checkmark. "Nothing
 matched" is valid only after each source was queried successfully, with the
 cursor stated.
