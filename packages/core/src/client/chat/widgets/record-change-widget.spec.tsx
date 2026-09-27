@@ -87,6 +87,36 @@ describe("core.record-change", () => {
     ).toBeNull();
   });
 
+  it("preserves only a boolean fallback-title marker", () => {
+    expect(
+      normalizeActionChangeResult({
+        change: {
+          verb: "created",
+          kind: "booking-link",
+          title: "Booking link",
+          titleIsFallback: true,
+        },
+      }),
+    ).toEqual({
+      change: {
+        verb: "created",
+        kind: "booking-link",
+        title: "Booking link",
+        titleIsFallback: true,
+      },
+    });
+    expect(
+      normalizeActionChangeResult({
+        change: {
+          verb: "created",
+          kind: "booking-link",
+          title: "Booking link",
+          titleIsFallback: "true",
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("does not dispatch result-supplied undo actions", async () => {
     const context = {
       toolName: "untrusted-action",
@@ -265,6 +295,7 @@ describe("core.record-change", () => {
                   verb: "scheduled",
                   kind: "scheduled-email",
                   title: "Scheduled email",
+                  titleIsFallback: true,
                   detail: scheduledAt,
                   url: "/_agent-native/open?app=mail&view=scheduled",
                 },
@@ -296,6 +327,7 @@ describe("core.record-change", () => {
                   verb: "created",
                   kind: "booking-link",
                   title: "Booking link",
+                  titleIsFallback: true,
                   detail: "30",
                   url: "/_agent-native/open?app=calendar&view=booking-links",
                 },
@@ -311,5 +343,40 @@ describe("core.record-change", () => {
     expect(container.textContent).toContain("Booking link");
     expect(container.textContent).toContain("30 min");
     expect(container.querySelector("a")?.textContent).toBe("Open");
+  });
+
+  it("preserves a user booking-link title that matches the fallback wording", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="es-ES"
+          initialPreference="es-ES"
+          persistPreference={false}
+        >
+          <RecordChangeWidget
+            context={{
+              toolName: "create-booking-link",
+              args: {},
+              resultJson: {
+                change: {
+                  verb: "created",
+                  kind: "booking-link",
+                  title: "Booking link",
+                  detail: "30",
+                  url: "/_agent-native/open?app=calendar&view=booking-links",
+                },
+              },
+              isRunning: false,
+              chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Booking link");
+      expect(container.textContent).not.toContain("Enlace de reserva");
+    });
   });
 });

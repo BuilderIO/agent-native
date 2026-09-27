@@ -152,12 +152,14 @@ export default defineAction({
       actionContext,
     );
     const bookingLink = rowToBookingLink(created[0]);
+    const title = bookingLink.title.trim().slice(0, 180);
     return {
       ...bookingLink,
       change: {
         verb: "created",
         kind: "booking-link",
-        title: bookingLink.title.trim().slice(0, 180) || "Booking link",
+        title: title || "Booking link",
+        ...(title ? {} : { titleIsFallback: true }),
         detail: String(durationInput.duration),
         url: buildDeepLink({
           app: "calendar",

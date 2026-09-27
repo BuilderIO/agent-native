@@ -156,12 +156,14 @@ export default defineAction({
       payload: persistedPayload,
       runAt: args.runAt,
     });
+    const title = payload.subject.trim().slice(0, 180);
     return {
       ...job,
       change: {
         verb: "scheduled",
         kind: "scheduled-email",
-        title: payload.subject.trim().slice(0, 180) || "Scheduled email",
+        title: title || "Scheduled email",
+        ...(title ? {} : { titleIsFallback: true }),
         detail: new Date(job.runAt).toISOString(),
         url: buildDeepLink({ app: "mail", view: "scheduled" }),
       },

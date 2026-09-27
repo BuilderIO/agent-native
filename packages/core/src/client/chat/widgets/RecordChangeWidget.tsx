@@ -117,10 +117,9 @@ function ActionChangeCard({
   const title =
     change.kind === "calendar-time-choice"
       ? t("agentChat.widget.actionBestSharedTime")
-      : change.kind === "booking-link" && change.title === "Booking link"
+      : change.kind === "booking-link" && change.titleIsFallback
         ? t("agentChat.widget.actionBookingLink")
-        : change.kind === "scheduled-email" &&
-            change.title === "Scheduled email"
+        : change.kind === "scheduled-email" && change.titleIsFallback
           ? t("agentChat.widget.actionScheduledEmail")
           : change.title;
   const detail =

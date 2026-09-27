@@ -168,13 +168,15 @@ export default defineAction({
 
     if (!updated) throw new Error("Booking link not found");
     const bookingLink = rowToBookingLink(updated);
+    const title = bookingLink.title.trim().slice(0, 180);
     return {
       ...bookingLink,
       accessRole: access.role,
       change: {
         verb: "updated",
         kind: "booking-link",
-        title: bookingLink.title.trim().slice(0, 180) || "Booking link",
+        title: title || "Booking link",
+        ...(title ? {} : { titleIsFallback: true }),
         detail: String(durationInput.duration),
         url: buildDeepLink({
           app: "calendar",

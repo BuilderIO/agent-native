@@ -11,12 +11,14 @@ export default defineAction({
   toolCallable: false,
   run: async ({ id }) => {
     const result = await deleteBookingLinkById(id);
+    const title = result.title?.trim().slice(0, 180);
     return {
       ok: result.ok,
       change: {
         verb: "deleted",
         kind: "booking-link",
-        title: result.title?.trim().slice(0, 180) || "Booking link",
+        title: title || "Booking link",
+        ...(title ? {} : { titleIsFallback: true }),
         ...(typeof result.duration === "number"
           ? { detail: String(result.duration) }
           : {}),

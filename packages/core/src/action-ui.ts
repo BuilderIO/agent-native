@@ -27,6 +27,7 @@ export interface ActionChange {
   verb: ActionChangeVerb;
   kind: string;
   title: string;
+  titleIsFallback?: boolean;
   detail?: string;
   url?: string;
   undo?: ActionChangeUndo;
@@ -65,7 +66,9 @@ export function normalizeActionChangeResult(
     !/^[a-z][a-z0-9-]*$/.test(record.kind) ||
     typeof record.title !== "string" ||
     !record.title.trim() ||
-    record.title.length > 180
+    record.title.length > 180 ||
+    (record.titleIsFallback !== undefined &&
+      typeof record.titleIsFallback !== "boolean")
   ) {
     return null;
   }
@@ -108,6 +111,7 @@ export function normalizeActionChangeResult(
       verb: record.verb as ActionChangeVerb,
       kind: record.kind.trim(),
       title: record.title.trim(),
+      ...(record.titleIsFallback === true ? { titleIsFallback: true } : {}),
       ...(typeof record.detail === "string" && record.detail.trim()
         ? { detail: record.detail.trim() }
         : {}),
