@@ -2,6 +2,12 @@
 
 All notable user-facing changes to this app are documented here.
 
+## 2026-09-27
+
+### Fixed
+
+- Chat retries the original request with its attachments after model setup.
+
 ## 2026-08-27
 
 ### Fixed

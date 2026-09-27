@@ -272,7 +272,16 @@ describe("AgentKit composer context submission", () => {
     });
     expect(beforeSend.mock.calls[0][0].intent).toBe("queued");
     expect(runtime.queueMessage.mock.calls[0][0].text).toBe("Legacy");
-    expect(runtime.queueMessage.mock.calls[0][0].metadata).toBeUndefined();
+    expect(runtime.queueMessage.mock.calls[0][0].metadata).toEqual({
+      mode: "act",
+      requestMode: "act",
+    });
+    expect(runtime.queueMessage.mock.calls[0][0].metadata).not.toHaveProperty(
+      "contextItems",
+    );
+    expect(runtime.queueMessage.mock.calls[0][0].metadata).not.toHaveProperty(
+      "references",
+    );
   });
 
   it.each(["pending", "error"] as const)(

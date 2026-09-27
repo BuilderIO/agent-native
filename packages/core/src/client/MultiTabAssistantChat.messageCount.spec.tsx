@@ -14,7 +14,7 @@ describe("MultiTabAssistantChat message count", () => {
 
   it("keeps the explicit handler after the spread it must override", () => {
     const spreadAt = MultiTabSource.indexOf(
-      "<AssistantChat\n                  {...props}",
+      "<AgentKitAssistantChat\n                  {...props}",
     );
     const handlerAt = MultiTabSource.indexOf(
       "onMessageCountChange={(count) => {",

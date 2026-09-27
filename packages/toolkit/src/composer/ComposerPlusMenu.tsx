@@ -595,7 +595,7 @@ function ComposerPlusMenuFull({
     icon: React.ReactNode;
     label: string;
     desc: string;
-    action: () => void;
+    action: (anchor?: HTMLElement) => void;
     hoverAction?: () => void;
     isSkill?: boolean;
   }[] = [
@@ -805,7 +805,7 @@ function ComposerPlusMenuFull({
                   >
                     <button
                       type="button"
-                      onClick={item.action}
+                      onClick={(event) => item.action(event.currentTarget)}
                       className={cn(
                         "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start",
                       )}

@@ -7,10 +7,22 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- AI triage explains how prompts handle matching mail, including how filtered mail is labeled and archived.
+- Drafts and Gmail filter rules appear as compact cards in chat
+- Loading screens now reflect the app's home layout.
+- Mail chat suggestions start with examples for filtering, priority, and auto-archive.
+- See how many conversations Mail filtered or kept in chat
 - AI inbox rules now apply to recent mail, appear as inbox tabs, and can be refined in chat.
 
 ### Fixed
 
+- Chat-created inbox rules appear immediately while recent mail is processed in the background.
+- Chat-created Mail rules save and queue recent-mail processing before background model checks run.
+- Fixed AI rule setup progress and chat updates
+- Fixed an inbox crash when the sidebar is pinned
+- Mail AI rules now use the configured OpenRouter provider and rank new mail by its score.
+- Setup examples no longer become archive or spam rules unless you edit them.
+- The Filtered inbox view stays available when Gmail labels are migrated.
 - Fixed importance actions, label display, and triage loading feedback.
 - Inbox setup now keeps result counts and undo available while rules refresh.
 - Mail cancels stale thread-read cooldown retries after a newer unread action

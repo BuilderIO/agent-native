@@ -38,30 +38,23 @@ export {
   type UseAgentChatHomeHandoffOptions,
 } from "../use-agent-chat-home-handoff.js";
 export {
-  AssistantChat,
-  clearChatStorage,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-  type AssistantChatAdapterContext,
-} from "../AssistantChat.js";
+  AgentKitAssistantChat,
+  AgentKitAssistantChat as AssistantChat,
+  type AgentKitAssistantChatProps,
+} from "../AgentKitAssistantChat.js";
+export { clearChatStorage } from "./storage.js";
+export type {
+  AssistantChatProps,
+  AssistantChatHandle,
+  AssistantChatAdapterContext,
+  AssistantChatSendOptions,
+  AssistantChatSubmitResult,
+  AgentChatSurfaceKind,
+} from "./surface-types.js";
 export type {
   MultiTabAssistantChatProps,
   MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
-export {
-  createAgentChatAdapter,
-  type AgentChatSurfaceKind,
-  type CreateAgentChatAdapterOptions,
-} from "../agent-chat-adapter.js";
-export {
-  codeAgentTranscriptEventsToContent,
-  createCodeAgentChatAdapter,
-  type CodeAgentChatController,
-  type CodeAgentChatControlResult,
-  type CodeAgentChatFollowUpMode,
-  type CodeAgentChatTranscriptEvent,
-  type CreateCodeAgentChatAdapterOptions,
-} from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
 export {
   AgentApprovalCard,
@@ -97,11 +90,6 @@ export {
   type ToolChipTone,
   type ToolChipsProps,
 } from "./tool-chips.js";
-export {
-  AssistantMessageActionBar,
-  type AssistantMessageActionBarProps,
-  type FormattedMessageTimestamp,
-} from "./message-components.js";
 export * from "./runtime.js";
 export {
   createAgentKitProtocolAdapter,

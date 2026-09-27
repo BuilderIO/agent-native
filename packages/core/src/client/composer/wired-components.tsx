@@ -29,6 +29,9 @@ export function PromptComposer(props: PromptComposerProps) {
     props.attachmentsEnabled !== false && fileStorageConfigured;
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const openStoragePrompt = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setStoragePromptOpen(true);
   }, []);
   const onAttachmentRequest =
@@ -59,6 +62,7 @@ export function PromptComposer(props: PromptComposerProps) {
         <ToolkitPromptComposer
           {...props}
           attachmentsEnabled={attachmentsEnabled}
+          contextButtonTooltipDisabled={storagePromptOpen}
           onAttachmentRequest={onAttachmentRequest}
         />
       </CoreComposerRuntimeProvider>

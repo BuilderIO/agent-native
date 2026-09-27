@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
-  getCodeAgentExternalStreamingMessageId,
+  getProviderGate,
   getCodeAgentPickerOptions,
   getCodeAgentSelection,
   getCodeAgentWorktreeRecoveryState,
@@ -86,6 +86,29 @@ describe("CodeAgentsApp worktree recovery", () => {
 });
 
 describe("CodeAgentsApp credential recovery", () => {
+  it("blocks only a confirmed missing provider and exempts local terminal and Portal targets", () => {
+    const missingProvider = {
+      status: "ok" as const,
+      llmProvider: { configured: false },
+    };
+
+    expect(getProviderGate(missingProvider).blocked).toBe(true);
+    expect(getProviderGate({ status: "ok" }).blocked).toBe(false);
+    expect(getProviderGate({ status: "unavailable" }).blocked).toBe(false);
+    expect(
+      getProviderGate(missingProvider, { terminalMode: true }).blocked,
+    ).toBe(false);
+    expect(
+      getProviderGate(missingProvider, { portalTarget: true }).blocked,
+    ).toBe(false);
+    expect(
+      getProviderGate({
+        status: "ok",
+        llmProvider: { configured: true },
+      }).blocked,
+    ).toBe(false);
+  });
+
   it("shows setup when the selected run reports missing credentials", () => {
     expect(
       shouldShowCodeAgentCredentialCallout({
@@ -104,6 +127,45 @@ describe("CodeAgentsApp credential recovery", () => {
         phase: "completed",
       }),
     ).toBe(false);
+  });
+
+  it("shows the connection gate before a run has recorded credential errors", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: true,
+        hasCredentialHistory: false,
+        phase: "running",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not show app-key recovery for Portal runs", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: false,
+        hasCredentialHistory: true,
+        phase: "missing-credentials",
+        providerExempt: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("CodeAgentsApp AgentKit host controls", () => {
+  it("keeps local-code approval and stop controls host-owned", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const runtime = readFileSync("src/code-agent-agentkit-runtime.ts", "utf8");
+
+    expect(source).toContain('onStop={() => controlRun("stop")}');
+    expect(source).toContain(
+      'onApproveAlways={() => controlRun("approve-always")}',
+    );
+    expect(source).toContain("always allow this exact command");
+    expect(source).toContain("disabled={chat.chatBlocked}");
+    expect(source).toContain("<CodeAgentExternalTranscriptBridge");
+    expect(source).toContain("control.load().catch");
+    expect(source).toContain("onDisabledClick={chat.onDisabledClick}");
+    expect(runtime).toContain('status: "unsupported"');
   });
 });
 
@@ -214,99 +276,6 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
 });
 
 describe("CodeAgentsApp transcript selection", () => {
-  it("does not replay the prior assistant before a follow-up assistant arrives", () => {
-    const previousEvents: CodeAgentTranscriptEvent[] = [
-      {
-        id: "user-1",
-        runId: "run-1",
-        type: "user",
-        text: "first",
-        createdAt: "2026-08-27T20:00:00.000Z",
-      },
-      {
-        id: "assistant-1",
-        runId: "run-1",
-        type: "system",
-        text: "first answer",
-        createdAt: "2026-08-27T20:00:01.000Z",
-        metadata: { role: "assistant" },
-      },
-    ];
-    const baselineEventIds = new Set(previousEvents.map((event) => event.id));
-    const followUpEvents: CodeAgentTranscriptEvent[] = [
-      ...previousEvents,
-      {
-        id: "user-2",
-        runId: "run-1",
-        type: "user",
-        text: "follow up",
-        createdAt: "2026-08-27T20:01:00.000Z",
-      },
-    ];
-    expect(
-      getCodeAgentExternalStreamingMessageId(
-        followUpEvents,
-        "run-1",
-        baselineEventIds,
-      ),
-    ).toBeNull();
-
-    const liveEvents: CodeAgentTranscriptEvent[] = [
-      ...followUpEvents,
-      {
-        id: "assistant-2",
-        runId: "run-1",
-        type: "system",
-        text: "second answer",
-        createdAt: "2026-08-27T20:01:01.000Z",
-        metadata: { role: "assistant" },
-      },
-    ];
-    expect(
-      getCodeAgentExternalStreamingMessageId(
-        liveEvents,
-        "run-1",
-        baselineEventIds,
-      ),
-    ).toBe("code-assistant-1-assistant-2");
-  });
-
-  it("propagates an external stop into the shared chat footer state", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-
-    expect(source).toContain(
-      "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
-    );
-    expect(source).toContain("if (!wasRunActiveRef.current) {");
-    expect(source).toContain("setUserStoppedRunId(runId);");
-    expect(source).toContain(
-      "externalUserStopped={userStoppedRunId === run.id}",
-    );
-    expect(source).toContain("externalUserStopped={externalUserStopped}");
-    expect(source).toContain("const stopInFlightRef = useRef(false);");
-    expect(source).toContain(
-      "if (!runId || stopInFlightRef.current) return false;",
-    );
-    expect(source).toContain("const stopSucceeded = await onStop();");
-    expect(source).toContain("stopSucceededRef.current = true;");
-    expect(source).toContain("else if (!stopSucceededRef.current) {");
-    expect(source).toContain("return result.ok;");
-    expect(source).toContain("externalStreamingBaselineEventIdsRef");
-    expect(source).toContain("externalStreamingBaselineInitializedRef");
-    expect(source).toContain("!runIsActive || !transcriptLoading");
-    expect(source).toContain(
-      "!externalStreamingBaselineInitializedRef.current",
-    );
-    expect(source).toContain("externalStreamingMessageId");
-    expect(source).toContain(
-      "externalStreamingMessageId={externalStreamingMessageId}",
-    );
-    expect(source).toContain(
-      "externalStreaming={Boolean(externalStreamingMessageId)}",
-    );
-    expect(source).toContain("onStop={onStop}");
-  });
-
   it("does not let an older transcript read replace a newly selected chat", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
     const loadTranscriptStart = source.indexOf("const loadTranscript =");

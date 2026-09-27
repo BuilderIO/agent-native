@@ -10,8 +10,16 @@ import {
 } from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  subscribeChatFirstOpenApp,
+  subscribeChatFirstOpenBrowser,
+} from "../chat-first.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
-import type { AgentChatRuntime, AgentChatRuntimeEvent } from "./runtime.js";
+import type {
+  AgentChatRuntime,
+  AgentChatRuntimeEvent,
+  AgentChatRuntimeTurnInput,
+} from "./runtime.js";
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
@@ -127,6 +135,254 @@ function createRuntime(
 }
 
 describe("createAgentKitProtocolAdapter", () => {
+  it("forwards retry attachments as hidden internal continuations", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-retry",
+      runId: "run-retry",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("Retry the uploaded deck"),
+          metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+          parts: [
+            { type: "text", text: "Retry the uploaded deck" },
+            {
+              type: "file",
+              name: "portfolio.pptx",
+              fileId: "file-1",
+              mediaType:
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(startTurn.mock.calls[0][0]).toMatchObject({
+      attachments: [
+        {
+          name: "portfolio.pptx",
+          id: "file-1",
+          mediaType:
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        },
+      ],
+      metadata: { agentNativeInternalContinuation: true },
+    });
+  });
+
+  it("dispatches completed app and browser tools through the AgentKit transport", async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>();
+    const fakeWindow = {
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        const current = listeners.get(type) ?? new Set();
+        current.add(listener);
+        listeners.set(type, current);
+      },
+      removeEventListener(type: string, listener: (event: unknown) => void) {
+        listeners.get(type)?.delete(listener);
+      },
+      dispatchEvent(event: { type: string }) {
+        for (const listener of listeners.get(event.type) ?? []) listener(event);
+        return true;
+      },
+    };
+    class FakeCustomEvent {
+      readonly type: string;
+      readonly detail: unknown;
+
+      constructor(type: string, init: { detail: unknown }) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    }
+    vi.stubGlobal("window", fakeWindow);
+    vi.stubGlobal("CustomEvent", FakeCustomEvent);
+    const appDetails: unknown[] = [];
+    const browserDetails: unknown[] = [];
+    const unsubscribeApp = subscribeChatFirstOpenApp((detail) =>
+      appDetails.push(detail),
+    );
+    const unsubscribeBrowser = subscribeChatFirstOpenBrowser((detail) =>
+      browserDetails.push(detail),
+    );
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-done",
+        toolCallId: "app-1",
+        toolName: "open_app",
+        status: "completed",
+        resultText: JSON.stringify({ app: "mail", path: "/inbox" }),
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "browser-1",
+        toolName: "open_browser",
+        status: "completed",
+        resultText: JSON.stringify({
+          url: "https://example.test/docs",
+          title: "Docs",
+        }),
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    try {
+      const transport = createAgentKitProtocolAdapter(createRuntime(events));
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Open the mail app")],
+      });
+      await drain(transport.subscribeToRun({ threadId: "thread-1", runId }));
+      expect(appDetails).toEqual([{ app: "mail", path: "/inbox" }]);
+      expect(browserDetails).toEqual([
+        { url: "https://example.test/docs", title: "Docs" },
+      ]);
+    } finally {
+      unsubscribeApp();
+      unsubscribeBrowser();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("resumes a durable runtime stream from the last observed event cursor", async () => {
+    async function* disconnected(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "status",
+        message: "Connected to the runtime",
+        metadata: { seq: 4 },
+      };
+      throw new TypeError("The stream connection was interrupted.");
+    }
+    const resume = vi.fn(
+      async (
+        input: Parameters<NonNullable<AgentChatRuntime["resume"]>>[0],
+      ) => ({
+        id: input.turnId ?? "turn-1",
+        sessionId: input.sessionId ?? "thread-1",
+        runId: input.runId,
+        events: (async function* () {
+          yield {
+            type: "message-start",
+            metadata: { seq: 5 },
+            message: {
+              id: "assistant-resumed",
+              role: "assistant",
+              content: [],
+            },
+          } as const;
+          yield {
+            type: "message-delta",
+            metadata: { seq: 6 },
+            messageId: "assistant-resumed",
+            delta: { type: "text", text: "Resumed after reconnect." },
+          } as const;
+          yield {
+            type: "message-done",
+            metadata: { seq: 7 },
+            message: {
+              id: "assistant-resumed",
+              role: "assistant",
+              content: [{ type: "text", text: "Resumed after reconnect." }],
+            },
+          } as const;
+          yield {
+            type: "done",
+            reason: "complete",
+            metadata: { seq: 8 },
+          } as const;
+        })(),
+      }),
+    );
+    const runtime = createRuntime(disconnected, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        resumableRuns: true,
+      },
+      resume,
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    expect(transport.capabilities?.resumableRuns).toBe(true);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Continue after reconnect")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(resume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "thread-1",
+        runId,
+        after: 5,
+      }),
+    );
+    expect(
+      events.find((event) => event.type === "message.completed"),
+    ).toMatchObject({
+      type: "message.completed",
+      message: {
+        parts: [{ type: "text", text: "Resumed after reconnect." }],
+      },
+    });
+    expect(events.at(-1)?.type).toBe("run.completed");
+    await transport.dispose();
+  });
+
+  it("bounds retries when a durable resume endpoint keeps failing", async () => {
+    async function* disconnected(): AsyncIterable<AgentChatRuntimeEvent> {
+      throw new TypeError("The stream connection was interrupted.");
+    }
+    const resume = vi.fn(async () => {
+      throw new TypeError("The resume connection was interrupted.");
+    });
+    const transport = createAgentKitProtocolAdapter(
+      createRuntime(disconnected, {
+        capabilities: {
+          messages: { streaming: true, history: true, attachments: true },
+          resumableRuns: true,
+        },
+        resume,
+      }),
+    );
+
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Recover")],
+    });
+    const events = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(resume).toHaveBeenCalledTimes(3);
+    expect(events.at(-1)).toMatchObject({
+      type: "run.failed",
+      error: { message: "The resume connection was interrupted." },
+    });
+    await transport.dispose();
+  });
+
   it("rejects resume entries on ordinary Core run starts", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
@@ -2492,9 +2748,9 @@ describe("createAgentKitProtocolAdapter", () => {
       await expect(
         transport.getRun?.({ threadId: "thread-ttl", runId }),
       ).resolves.toBeNull();
-      expect(() =>
-        transport.subscribeToRun({ threadId: "thread-ttl", runId }),
-      ).toThrow("Unknown AgentKit run");
+      await expect(
+        drain(transport.subscribeToRun({ threadId: "thread-ttl", runId })),
+      ).rejects.toThrow("Unknown AgentKit run");
     } finally {
       await transport.dispose();
       vi.useRealTimers();

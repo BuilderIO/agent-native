@@ -2453,7 +2453,7 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await helloMessage.getByRole("button", { name: "Message actions" }).click();
-  await helloMessage.getByRole("button", { name: "Fork conversation" }).click();
+  await page.getByRole("menuitem", { name: "Fork conversation" }).click();
   await Promise.race([
     page.waitForURL(
       (url) => url.pathname !== threadPath && url.pathname.startsWith("/chat/"),
