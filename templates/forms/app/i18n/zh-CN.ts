@@ -41,6 +41,8 @@ const messages = {
     suggestionSurvey: "创建客户反馈调查",
     suggestionSubmissions: "按天显示提交",
     suggestionExport: "将回复导出为 CSV",
+    topSignal: "主要信号",
+    draftFollowUp: "起草后续问题",
   },
   sidebar: {
     collapseSidebar: "折叠侧边栏",

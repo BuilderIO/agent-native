@@ -576,6 +576,7 @@ const messages = {
     generating: "स्लाइड जनरेट हो रही हैं...",
     generate: "स्लाइड जनरेट करें",
   },
+  deckResult: { saved: "सहेजा गया" },
   history: {
     unknownTime: "अज्ञात समय",
     justNow: "अभी-अभी",

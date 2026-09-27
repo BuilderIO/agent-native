@@ -29,6 +29,7 @@ const messages: AgentChatTranslation = {
   "agent.messaged": "a envoyé un message",
   "agent.delegated": "a délégué le travail",
   "agent.paused": "a mis le travail en pause",
+  "agent.queued": "en attente",
   "agent.completed": "a terminé",
   "agent.failed": "nécessite une attention particulière",
   "agent.closed": "a fermé",

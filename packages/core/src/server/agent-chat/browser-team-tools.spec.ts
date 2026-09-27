@@ -220,3 +220,71 @@ describe("createTeamTools Plan-mode effects", () => {
     expect(effect({ action: "send" })).toBe("write");
   });
 });
+
+describe("createTeamTools progress cards", () => {
+  it("projects only task progress results from visible coordination actions", () => {
+    const entry = createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as any,
+      getModel: () => "test-model",
+      getParentThreadId: () => "thread-1",
+      getSend: () => null,
+    })["agent-teams"];
+    const result = JSON.stringify([
+      {
+        taskId: "task-1",
+        threadId: "thread-1",
+        description: "Compare signups",
+        status: "completed",
+      },
+      {
+        taskId: "task-2",
+        threadId: "thread-2",
+        name: "Find launch feedback",
+        description: "Review recent launch feedback",
+        status: "running",
+        currentStep: "Reading recent mail",
+      },
+      {
+        taskId: "task-3",
+        threadId: "thread-3",
+        description: "Draft Monday update",
+        status: "queued",
+      },
+    ]);
+    const chatUI = entry.chatUI;
+
+    expect(chatUI?.renderer).toBe("core.agent-team-progress");
+    expect(chatUI?.when?.({ action: "list" }, result)).toBe(true);
+    expect(chatUI?.when?.({ action: "spawn" }, result)).toBe(false);
+    expect(chatUI?.when?.({ action: "send" }, result)).toBe(false);
+    expect(chatUI?.when?.({ action: "list" }, "No background tasks.")).toBe(
+      false,
+    );
+    expect(chatUI?.projectResult?.({ action: "list" }, result)).toEqual({
+      tasks: [
+        {
+          taskId: "task-1",
+          threadId: "thread-1",
+          title: "Compare signups",
+          status: "completed",
+        },
+        {
+          taskId: "task-2",
+          threadId: "thread-2",
+          title: "Find launch feedback",
+          detail: "Reading recent mail",
+          status: "running",
+        },
+        {
+          taskId: "task-3",
+          threadId: "thread-3",
+          title: "Draft Monday update",
+          status: "queued",
+        },
+      ],
+    });
+  });
+});

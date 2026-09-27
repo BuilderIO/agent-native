@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 
+import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+  normalizeAgentTeamProgressResult,
+} from "../../action-ui.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
@@ -17,6 +21,22 @@ import { getRequestUserEmail } from "../request-context.js";
 import { getGlobalMcpManager } from "./mcp-glue.js";
 
 const MAX_EXTENSION_PROMOTION_CONTENT_CHARS = 200_000;
+
+async function agentTeamTaskStatus(
+  taskId: string,
+  status: string,
+): Promise<string> {
+  if (status !== "running") return status;
+  try {
+    const { getAgentTeamRunDispatchState } =
+      await import("../agent-teams-run-queue.js");
+    const dispatch = await getAgentTeamRunDispatchState(taskId);
+    if (dispatch?.status === "queued") return "queued";
+  } catch {
+    // coercion-ok: retain the task's known status if queue detail is unreadable.
+  }
+  return status;
+}
 
 interface ExtensionPromotionArtifact {
   id: string;
@@ -479,6 +499,15 @@ export function createTeamTools(deps: {
           required: ["action"],
         },
       },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+        // Spawn keeps the live task card with stop and thread controls.
+        when: (args, result) =>
+          ["status", "read-result", "list"].includes(String(args.action)) &&
+          normalizeAgentTeamProgressResult(result) !== null,
+        projectResult: (_args, result) =>
+          normalizeAgentTeamProgressResult(result),
+      },
       planMode: {
         effect: (args) =>
           args.action === "status" ||
@@ -545,7 +574,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             runId: task.runId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             parentThreadId: task.parentThreadId,
             state: "launched_pending_completion",
             message:
@@ -564,7 +593,7 @@ export function createTeamTools(deps: {
             taskId: task.taskId,
             threadId: task.threadId,
             parentThreadId: task.parentThreadId,
-            status: task.status,
+            status: await agentTeamTaskStatus(task.taskId, task.status),
             description: task.description,
             name: task.name,
             preview: task.preview,
@@ -581,7 +610,7 @@ export function createTeamTools(deps: {
           if (!task) return JSON.stringify({ error: "Task not found" });
           if (task.status === "running") {
             return JSON.stringify({
-              status: "running",
+              status: await agentTeamTaskStatus(task.taskId, task.status),
               taskId: task.taskId,
               threadId: task.threadId,
               parentThreadId: task.parentThreadId,
@@ -616,8 +645,17 @@ export function createTeamTools(deps: {
           if (tasks.length === 0) {
             return "No background tasks.";
           }
+          const visibleTasks =
+            tasks.length <= 3
+              ? await Promise.all(
+                  tasks.map(async (task) => ({
+                    ...task,
+                    status: await agentTeamTaskStatus(task.taskId, task.status),
+                  })),
+                )
+              : tasks;
           return JSON.stringify(
-            tasks.map((t) => ({
+            visibleTasks.map((t) => ({
               taskId: t.taskId,
               threadId: t.threadId,
               parentThreadId: t.parentThreadId,

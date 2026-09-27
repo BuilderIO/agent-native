@@ -306,30 +306,37 @@ describe("core.record-change", () => {
       /share/i,
     );
 
-    await act(async () => {
-      root.render(
-        <AgentNativeI18nProvider persistPreference={false}>
-          <RecordChangeWidget
-            context={{
-              toolName: "set-resource-visibility",
-              args: {},
-              resultJson: {
-                change: {
-                  verb: "updated",
-                  kind: "resource-share",
-                  title: "Product plan",
-                  detail: "org",
+    for (const [visibility, label] of [
+      ["private", "Private"],
+      ["org", "Organization"],
+      ["public", "Public"],
+    ]) {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider persistPreference={false}>
+            <RecordChangeWidget
+              context={{
+                toolName: "set-resource-visibility",
+                args: {},
+                resultJson: {
+                  change: {
+                    verb: "updated",
+                    kind: "resource-share",
+                    title: "Product plan",
+                    detail: visibility,
+                  },
                 },
-              },
-              isRunning: false,
-              chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
-            }}
-          />
-        </AgentNativeI18nProvider>,
-      );
-    });
+                isRunning: false,
+                chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
+              }}
+            />
+          </AgentNativeI18nProvider>,
+        );
+      });
 
-    expect(container.textContent).toContain("Organization");
+      expect(container.textContent).toContain(label);
+      expect(container.textContent).not.toContain(visibility);
+    }
   });
 
   it("renders an available Calendar time with a use-time action", async () => {

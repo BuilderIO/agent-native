@@ -27,6 +27,7 @@ const messages = {
   "agent.messaged": "sent a message",
   "agent.delegated": "delegated work",
   "agent.paused": "paused",
+  "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
   "agent.closed": "closed",

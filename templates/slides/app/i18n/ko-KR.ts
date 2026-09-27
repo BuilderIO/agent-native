@@ -576,6 +576,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "저장됨" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",

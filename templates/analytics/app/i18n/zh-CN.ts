@@ -907,6 +907,7 @@ export default {
     recentSales: "最近销售",
     recentSalesDescription: "你本月完成了 265 笔销售。",
   },
+  analysisResult: { title: "分析结果" },
   routeTitles: {
     notFound: "未找到 - Analytics",
     analysis: "分析 - Analytics",

@@ -29,6 +29,7 @@ const messages: AgentChatTranslation = {
   "agent.messaged": "메시지를 보냈습니다",
   "agent.delegated": "작업을 위임했습니다",
   "agent.paused": "작업을 일시 중지했습니다",
+  "agent.queued": "대기 중",
   "agent.completed": "작업을 완료했습니다",
   "agent.failed": "주의가 필요합니다",
   "agent.closed": "종료했습니다",

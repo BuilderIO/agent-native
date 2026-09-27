@@ -28,6 +28,7 @@ const messages: AgentChatTranslation = {
   "agent.messaged": "发送了消息",
   "agent.delegated": "委派了工作",
   "agent.paused": "暂停了工作",
+  "agent.queued": "排队中",
   "agent.completed": "已完成",
   "agent.failed": "需要关注",
   "agent.closed": "已关闭",

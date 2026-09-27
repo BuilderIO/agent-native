@@ -580,6 +580,7 @@ const messages = {
     generating: "Generating slides...",
     generate: "Generate Slides",
   },
+  deckResult: { saved: "Saved" },
   history: {
     unknownTime: "Unknown time",
     justNow: "Just now",

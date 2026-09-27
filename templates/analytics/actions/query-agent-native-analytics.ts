@@ -1,8 +1,4 @@
-import {
-  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
-  dataTableWidgetResultSchema,
-  defineAction,
-} from "@agent-native/core";
+import { dataTableWidgetResultSchema, defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { createDataTableWidgetResult } from "@agent-native/core/data-widgets";
 import {
@@ -13,6 +9,10 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { queryFirstPartyAnalytics } from "../server/lib/first-party-analytics.js";
+import {
+  ANALYTICS_ANALYSIS_RESULT_RENDERER,
+  getSingleNumericAnalysisResult,
+} from "../shared/analysis-result.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -57,12 +57,25 @@ export default defineAction({
       .describe(
         "Read-only SQL over analytics_events, analytics_event_daily_rollups, analytics_user_days, and session_recordings. Use literal values, not bind placeholders. Prefer the daily rollups for counts, active-user, and retention questions. On the Builder.io production organization after the explicit BigQuery cutover, event and rollup reads use partitioned BigQuery tables/views while session_recordings remains in the SQL store; cross-backend joins are not supported. Before a large or historical query, call get-first-party-analytics-health and use a configured external backend when recommended: BigQuery for warehouse SQL and complete history, or Amplitude for product analytics, funnels, and retention. Connecting one does not automatically reroute /track events or backfill existing Neon data; the migration action performs that explicit prepare, backfill, and cutover sequence. Aggregate or project only needed columns and add a LIMIT for raw or high-cardinality reads; do not issue an unbounded raw-event scan or paginate a large cohort. An explicit all-time or lifetime request remains all-time, so do not invent a default lower time bound. Example: SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups WHERE event_date >= '2026-05-01' AND event_date < '2026-06-01' GROUP BY event_date, event_name ORDER BY event_date, events DESC",
       ),
+    showTable: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only when the user explicitly asks to see the query rows as a table. Otherwise the agent uses the result to answer in prose, with a compact card for a single numeric value.",
+      ),
   }),
-  outputSchema: dataTableWidgetResultSchema,
+  outputSchema: z.union([
+    dataTableWidgetResultSchema,
+    z.object({
+      rows: z.array(z.record(z.string(), z.unknown())),
+      schema: z.array(z.object({ name: z.string(), type: z.string() })),
+    }),
+  ]),
   chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_TABLE_RENDERER,
-    title: "Analytics query result",
-    description: "Render query rows as a native table with CSV download.",
+    renderer: ANALYTICS_ANALYSIS_RESULT_RENDERER,
+    when: (args, result) =>
+      args.showTable === true ||
+      getSingleNumericAnalysisResult(result) !== null,
   },
   readOnly: true,
   http: false,
@@ -96,6 +109,6 @@ export default defineAction({
       },
       actionContext,
     );
-    return toDataTableResult(result);
+    return args.showTable ? toDataTableResult(result) : result;
   },
 });

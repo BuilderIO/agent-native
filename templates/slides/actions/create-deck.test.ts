@@ -163,6 +163,34 @@ beforeEach(() => {
   mockGetOrgId.mockReturnValue(null);
 });
 
+describe("create-deck chat result", () => {
+  it("keeps successful deck cards bounded and excludes slide content", () => {
+    const chatUI = action.chatUI;
+    const projected = chatUI?.projectResult?.(
+      {},
+      {
+        id: "deck-1",
+        title: "D".repeat(240),
+        slideCount: 4,
+        slides: [{ content: "<script>untrusted</script>" }],
+        designSystem: { agentContext: "private context" },
+      },
+    );
+
+    expect(chatUI?.renderer).toBe("slides.deck-result");
+    expect(projected).toEqual({
+      id: "deck-1",
+      title: "D".repeat(180),
+      slideCount: 4,
+    });
+    expect(chatUI?.when?.({}, projected)).toBe(true);
+    expect(chatUI?.when?.({}, { error: "Create failed" })).toBe(false);
+    expect(
+      chatUI?.projectResult?.({}, { id: "deck-1", title: "T", slideCount: -1 }),
+    ).toBeNull();
+  });
+});
+
 describe("create-deck — save boundary", () => {
   it("refuses slides that carry rendered editor markup", async () => {
     await expect(

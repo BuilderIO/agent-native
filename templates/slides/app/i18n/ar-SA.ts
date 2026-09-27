@@ -588,6 +588,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "تم الحفظ" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",

@@ -944,6 +944,7 @@ export default {
     recentSales: "최근 판매",
     recentSalesDescription: "이번 달에 265건의 판매가 발생했습니다.",
   },
+  analysisResult: { title: "분석 결과" },
   routeTitles: {
     notFound: "찾을 수 없음 - Analytics",
     analysis: "분석 - Analytics",

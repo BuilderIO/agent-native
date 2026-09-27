@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
 } from "../../action-ui.js";
@@ -19,6 +20,7 @@ export function ActionChatUiSurface({
   if (
     !context.chatUI ||
     isBuiltinDataWidget ||
+    context.chatUI.renderer === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER ||
     context.chatUI.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
   ) {
     return <>{children}</>;

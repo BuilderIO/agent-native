@@ -542,6 +542,7 @@ export default {
     untitledAnalysis: "Untitled analysis",
     untitledDashboard: "Untitled dashboard",
   },
+  analysisResult: { title: "Analysis result" },
   routeTitles: {
     notFound: "Not Found - Analytics",
     analysis: "Analysis - Analytics",

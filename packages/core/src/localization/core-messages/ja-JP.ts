@@ -30,6 +30,7 @@ const messages: AgentChatTranslation = {
   "agent.messaged": "メッセージを送信しました",
   "agent.delegated": "作業を委任しました",
   "agent.paused": "作業を一時停止しました",
+  "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
   "agent.closed": "終了しました",
