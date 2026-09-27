@@ -147,15 +147,22 @@ async function reconcileAiTagPins(
       }
     }
     const filteredAliases = aliasesFor(AI_FILTER_LABEL);
-    if (autoPinFilteredView) {
-      const existingPinIndex = pinned.findIndex((id) =>
-        filteredAliases.has(normalizedAiFilterLabelId(id)),
-      );
-      if (existingPinIndex === -1) {
-        pinned.push(AI_FILTER_LABEL);
-      } else {
-        pinned[existingPinIndex] = AI_FILTER_LABEL;
+    const existingPinIndex = pinned.findIndex((id) =>
+      filteredAliases.has(normalizedAiFilterLabelId(id)),
+    );
+    if (existingPinIndex !== -1) {
+      pinned[existingPinIndex] = AI_FILTER_LABEL;
+      for (
+        let index = pinned.length - 1;
+        index > existingPinIndex;
+        index -= 1
+      ) {
+        if (filteredAliases.has(normalizedAiFilterLabelId(pinned[index]))) {
+          pinned.splice(index, 1);
+        }
       }
+    } else if (autoPinFilteredView) {
+      pinned.push(AI_FILTER_LABEL);
     }
     return { ...settings, pinnedLabels: pinned } as unknown as Record<
       string,

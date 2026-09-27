@@ -339,9 +339,11 @@ describe("createAutomationRule AI tags", () => {
     });
   });
 
-  it("migrates a provider Filtered pin to the canonical system view", async () => {
+  it("migrates duplicate provider Filtered pins to one canonical system view", async () => {
     dbMock.calls.rootRows = [];
-    settingsMocks.values.set("mail-settings", { pinnedLabels: ["Label_123"] });
+    settingsMocks.values.set("mail-settings", {
+      pinnedLabels: ["Label_123", "agent-native-filtered"],
+    });
     providerMocks.isConnected.mockResolvedValue(true);
     providerMocks.readCachedLabels.mockResolvedValue({
       labels: [

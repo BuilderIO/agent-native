@@ -652,7 +652,7 @@ describe("EmailList keyboard navigation interactions", () => {
       <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
     );
     await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
-    expect(rows()[0].textContent).toContain("Subject first");
+    expect(rows()).toHaveLength(0);
 
     await act(async () => {
       resolveUpdatedScores({

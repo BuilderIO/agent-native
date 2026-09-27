@@ -2614,7 +2614,7 @@ export function EmailList({
 
   if (
     currentSortMode === "priority" &&
-    !priorityOrder &&
+    !activePriorityOrder &&
     priorityWindowEmails.length > cachedPriorityScores.size
   ) {
     return <MailLoadingState containerRef={containerRef} />;
