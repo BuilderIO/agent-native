@@ -110,8 +110,8 @@ const GEOMETRY_TOLERANCE = 1;
 export const resized = (a: Rect | null, b: Rect | null) =>
   !!a &&
   !!b &&
-  (Math.abs(a.width - b.width) > GEOMETRY_TOLERANCE ||
-    Math.abs(a.height - b.height) > GEOMETRY_TOLERANCE);
+  (Math.abs(a.width - b.width) >= GEOMETRY_TOLERANCE ||
+    Math.abs(a.height - b.height) >= GEOMETRY_TOLERANCE);
 
 export interface StyleDelta {
   key: string;
