@@ -51,6 +51,52 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.194.0
+
+### Minor Changes
+
+- d462819: Move framework chat surfaces to AgentKit while preserving chat history, recovery, context, attachments, model selection, runs, and message actions. This removes the old assistant-ui transcript and stream owners, the `AssistantChat.createAdapter` prop, the public `AssistantMessageActionBar` export, and the adapter APIs `createAgentChatAdapter`, `createCodeAgentChatAdapter`, `createAgentChatRuntimeAdapter`, `codeAgentTranscriptEventsToContent`, and `codeAgentTranscriptHasPendingApproval`, plus their adapter-only options and event types. Use AgentKit `runtime` or `createTransport` for custom chat implementations.
+- 21055c8: Add durable suggestion proposals with independently reviewable members and atomic decisions for an exact observed member set.
+
+### Patch Changes
+
+- 797b3e2: Commit one initial collaborative XmlFragment seed atomically and return the winning Yjs state to concurrent editors.
+- 7ecd4d7: Bound API key settings reads so stalled requests show an error with a retry option.
+- b863d1f: Use stable-ref router links in sidebar tooltips and menus.
+- a902062: Isolate first-party auth sessions and clear lingering embed identities on logout.
+- b0b63b4: Trace Undici in Node server builds so SSRF dispatchers load in deployed functions.
+- 214d5f3: Give human-review votes and summary actions immediate, accessible feedback.
+- fdb196d: Restore Chat's missing model provider recovery and attachment-preserving retry.
+- e76947b: Return safe, source-specific Figma errors and preserve composer feedback for failed context operations.
+- Release all public npm packages with a patch version bump.
+- adc7497: Anchor storage setup to upload controls and keep it hidden until an upload is requested.
+- 467eb06: Register a configured workspace app when its organization owner first opens it.
+- fce2dc1: Keep organization app-access recovery controls available when a workspace app is disabled.
+- b0760e2: Keep action widgets visible when transcript text is truncated, preserve full widget results through ledger recovery, add the missing release ledger columns, log framework request errors that escape Nitro's Vite middleware, and treat incoming read resets as client disconnects during development.
+- adc7497: Show storage setup only after a user requests a file upload.
+- b0760e2: Render action chat widgets in AgentKit history with their stored inputs and results. Let actions select successful calls and project the bounded result fields needed to restore each widget.
+- 57d1d39: Show Human Review thread owners' email addresses and open linked designs in the editor.
+- ed3801e: Remove nonessential source comments.
+- 9ec2f7e: Include the workspace app id in Google OAuth state so the root callback relay can return to the initiating app.
+- 8362ebb: Support app-shaped loading skeletons for built-in app layouts.
+- a17945a: Recover interrupted write tool results before retrying side effects.
+- a050521: Preserve queued resource uploads when checking storage availability fails.
+- 77acfd8: Keep organization-scoped observability previews from resolving user credentials.
+- e7b6fcc: Share a joined quick-copy control, People/Agents tabs, and agent destinations between Content and Clips.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/agentkit@0.4.0
+  - @agent-native/toolkit@0.22.2
+  - @agent-native/recap-cli@0.5.46
+
 ## 0.193.0
 
 ### Minor Changes
@@ -3238,11 +3284,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
-
-## 0.164.11
-
-### Patch Changes
-
-- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

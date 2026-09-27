@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const isConnectedMock = vi.hoisted(() => vi.fn());
 const getAuthStatusMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 const createGoogleEventMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const writeAppStateMock = vi.hoisted(() => vi.fn());
@@ -17,6 +18,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/event-bus", () => ({
   emit: vi.fn(),
   registerEvent: registerEventMock,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: getUserSettingMock,
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
@@ -37,6 +42,7 @@ describe("out-of-office action parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isConnectedMock.mockResolvedValue(true);
+    getUserSettingMock.mockResolvedValue(undefined);
     getAuthStatusMock.mockResolvedValue({
       accounts: [{ email: "owner@example.com" }],
     });
@@ -44,15 +50,17 @@ describe("out-of-office action parity", () => {
   });
 
   it("creates an inclusive full-day OOO through the shared action boundary", async () => {
-    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-      createEventAction.run({
-        eventType: "outOfOffice",
-        start: "2026-10-31",
-        end: "2026-11-01",
-        startTimeZone: "America/New_York",
-        fullDay: true,
-        accountEmail: "owner@example.com",
-      }),
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        createEventAction.run({
+          eventType: "outOfOffice",
+          start: "2026-10-31",
+          end: "2026-11-01",
+          startTimeZone: "America/New_York",
+          fullDay: true,
+          accountEmail: "owner@example.com",
+        }),
     );
 
     expect(createGoogleEventMock).toHaveBeenCalledWith(
@@ -77,6 +85,18 @@ describe("out-of-office action parity", () => {
         },
       }),
     );
+    expect(result.change).toMatchObject({
+      verb: "created",
+      kind: "calendar-event",
+      title: "Out of office",
+      detail: "Oct 31, 2026–Nov 1, 2026 America/New_York",
+    });
+    expect(
+      new URL(
+        result.change.url!,
+        "https://calendar.example.test",
+      ).searchParams.get("date"),
+    ).toBe("2026-10-31");
   });
 
   it("persists the same inclusive dates and defaults in an agent-created draft", async () => {

@@ -314,7 +314,11 @@ export default function Root() {
 
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        skeletonLayout="assistant"
+        i18n={{ catalog: i18nCatalog }}
+      >
         <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>

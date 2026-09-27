@@ -48,8 +48,10 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 
 export function FirstRunOnboardingStartupGate({
   children,
+  fallback = <AppShellSkeleton />,
 }: {
   children: React.ReactNode;
+  fallback?: React.ReactNode;
 }) {
   const previewMode = useOnboardingPreviewMode();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -122,9 +124,13 @@ export function FirstRunOnboardingStartupGate({
   return (
     <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
       {app}
-      {decision === "pending" && <FirstRunOnboardingStartupLoading />}
+      {decision === "pending" && (
+        <FirstRunOnboardingStartupLoading fallback={fallback} />
+      )}
       {ownsSurface && (
-        <Suspense fallback={<FirstRunOnboardingStartupLoading />}>
+        <Suspense
+          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
+        >
           <FirstRunOnboarding initialFirstRun />
         </Suspense>
       )}
@@ -132,14 +138,19 @@ export function FirstRunOnboardingStartupGate({
   );
 }
 
-function FirstRunOnboardingStartupLoading() {
+function FirstRunOnboardingStartupLoading({
+  fallback,
+}: {
+  fallback: React.ReactNode;
+}) {
   return (
     <div
+      role="status"
+      aria-label="Loading application"
       data-first-run-startup-loading="true"
-      aria-busy="true"
       className="fixed inset-0 z-[110] bg-background"
     >
-      <AppShellSkeleton />
+      <div inert>{fallback}</div>
     </div>
   );
 }

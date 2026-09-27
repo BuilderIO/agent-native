@@ -494,6 +494,10 @@ describe("manage-draft call-shape guidance", () => {
   it("accepts a create call with only action set", () => {
     expect(action.schema.safeParse({ action: "create" }).success).toBe(true);
   });
+
+  it("does not register a Mail-specific chat renderer", () => {
+    expect(action.chatUI).toBeUndefined();
+  });
 });
 
 describe("manage-draft create-then-reply flow", () => {
@@ -512,6 +516,13 @@ describe("manage-draft create-then-reply flow", () => {
       mode: "reply",
       replyToId: "msg-123",
     });
+    expect(created.change).toEqual({
+      verb: "created",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
 
     const updated = await action.run({
       action: "update",
@@ -521,5 +532,6 @@ describe("manage-draft create-then-reply flow", () => {
 
     expect(updated.id).toBe(created.id);
     expect(updated.draft.body).toContain("Quick follow-up");
+    expect(updated).not.toHaveProperty("change");
   });
 });

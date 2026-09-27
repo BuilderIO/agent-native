@@ -234,6 +234,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="list"
         sessionBypass={sessionBypass}
         documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}

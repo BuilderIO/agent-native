@@ -1,10 +1,18 @@
+import type { AgentMessage } from "@agent-native/agentkit/protocol";
 import {
-  AssistantChat,
+  AgentKitChat,
+  AgentKitRoot,
+  AgentMessageActions,
+  AgentMessageView,
+  useAgentKit,
+  useAgentKitControl,
+  useAgentThread,
+  type AgentKitRenderProps,
+  type AgentKitSlots,
+} from "@agent-native/agentkit/react";
+import {
   ChatHistoryList,
-  buildRepositoryFromCodeAgentTranscript,
-  codeAgentTranscriptHasPendingApproval,
   closeChatFirstSessionWatch,
-  createCodeAgentChatAdapter,
   emitChatFirstSessionWatch,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
@@ -12,8 +20,8 @@ import {
   useChatFirstSessionWatch,
   type ChatFirstSurfaceKind,
   type ChatHistoryItem,
-  type CodeAgentChatController,
 } from "@agent-native/core/client/agent-chat";
+import { createAgentKitProtocolAdapter } from "@agent-native/core/client/chat";
 import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
@@ -33,6 +41,10 @@ import {
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/core/client/composer";
+import {
+  AgentConversationMessageView,
+  type AgentConversationMessage,
+} from "@agent-native/core/client/conversation";
 import { usePollLoop } from "@agent-native/core/client/hooks";
 import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
@@ -73,10 +85,12 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import {
   useCallback,
+  createContext,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useContext,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -84,6 +98,13 @@ import { toast } from "sonner";
 
 const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
 
+import {
+  CODE_AGENT_CHAT_METADATA_KEY,
+  CODE_AGENT_CONVERSATION_MEDIA_TYPE,
+  createCodeAgentAgentKitRuntime,
+  startCodeAgentExternalTranscriptBridge,
+  type CodeAgentChatController,
+} from "./code-agent-agentkit-runtime.js";
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -286,11 +307,14 @@ export interface CodeAgentsNewSessionExtensionModeControlInput {
 }
 
 export interface CodeAgentsNewSessionExtension {
+  /** The extension always owns the new-session selector; active routes submits and detail. */
   active: boolean;
   disabled?: boolean;
+  /** Rendered in place of the standard Plan/Auto picker. */
   renderModeControl?(
     input: CodeAgentsNewSessionExtensionModeControlInput,
   ): React.ReactNode | undefined;
+  /** Opt in only when the extension needs the standard model picker. */
   showModelSelector?: boolean;
   submit(
     input: CodeAgentsNewSessionExtensionSubmitInput,
@@ -329,6 +353,10 @@ export function shouldCloseWatchedChatFirstSession(input: {
   return !input.watchedRunPresent;
 }
 
+/**
+ * Search owns the rail only while its panel owns the main area, so the tab
+ * highlight can never disagree with what is actually on screen.
+ */
 export function resolveCodeAgentsPrimaryTab(input: {
   chatFirstMainKind: "agent" | "code";
   searchPanelOpen: boolean;
@@ -343,26 +371,40 @@ export function resolveCodeAgentsPrimaryTab(input: {
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
+  /** Whether the host surface is currently visible to the user. */
   isActive?: boolean;
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
   onOpenSettings?: (tab?: string) => void;
+  /** Compact actions rendered above the primary surface. */
   mainToolbarSlot?: ReactNode;
+  /** App shortcuts rendered between navigation and the chat history. */
   railWorkspaceSlot?: ReactNode;
+  /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
+  /** Optional window controls mounted in the rail's title-bar area. */
   railWindowControlsSlot?: ReactNode;
+  /** Optional content shown below the empty new-chat composer. */
   overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
+  /** Active chat-first side surface; watch is rendered only when selected. */
   activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
+  /** Selected primary chat kind in the chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
+  /** Keep the chat-first navigation rail in its compact icon-only state. */
   railCollapsed?: boolean;
+  /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
+  /** Select the primary chat kind in the chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
+  /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
   renderChatFirstMainSurface?: ReactNode;
+  /** Host-rendered replacement for the chat stream and composer region. */
   renderChatFirstChatSurface?: ReactNode;
+  /** Local terminal mode replaces the new-chat run with a PTY prompt. */
   terminalMode?: {
     agentId: string;
     agentLabel: string;
@@ -371,7 +413,9 @@ export interface CodeAgentsAppProps {
       attachments: CodeAgentPromptAttachment[],
     ) => void | Promise<void>;
   };
+  /** Controls terminal mode from the new-chat composer plus menu. */
   terminalModeControl?: ComposerTerminalModeControl;
+  /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
     onNewChat?: () => void;
@@ -380,13 +424,18 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Desktop-native shortcuts for app and chat navigation. */
   keyboardNavigation?: ChatFirstKeyboardNavigation;
+  /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
+  /** Lets a host place the shared watch renderer in its side-surface slot. */
   onWatchedRunChange?: (
     run: CodeAgentRun | null,
     sourceRunId?: string | null,
   ) => void;
+  /** Exposes the already-loaded run list to a host-owned side surface. */
   onRunsChange?: (runs: CodeAgentRun[]) => void;
+  /** Exposes the selected primary chat to a host-owned surface controller. */
   onSelectedRunChange?: (runId: string | null) => void;
 }
 
@@ -737,6 +786,9 @@ export function getCodeAgentWorktreeRecoveryState(
   const worktreePath = firstRecordString(worktree?.path);
   const worktreeState = firstRecordString(worktree?.state);
   const cleanupError = firstRecordString(worktree?.lastCleanupError);
+  // Older run records do not have pathAvailable. Preserve their existing
+  // behavior while making current records explicit when cleanup removed the
+  // checkout but kept its branch for recovery.
   const pathAvailable = worktree?.pathAvailable !== false;
   const wasPreserved =
     worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
@@ -822,6 +874,9 @@ export default function CodeAgentsApp({
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const transcriptRequestRef = useRef(0);
   const selectRun = useCallback((runId: string | null) => {
+    // Do not mount a newly selected chat with the previous run's repository.
+    // The transcript fetch completes after this render, and the shared chat
+    // runtime correctly rejects a shorter same-length repository as stale.
     setTranscriptEvents([]);
     setTranscriptError(null);
     setSelectedRunId(runId);
@@ -1373,6 +1428,11 @@ export default function CodeAgentsApp({
     intervalMs: 5000,
     enabled: isActive && !!host.getHostMetadata,
   });
+  // Refresh outside the regular cadence when something else in this app
+  // bumps refreshKey (e.g. after a setup action completes) — the leading
+  // poll from usePollLoop above already covers the isActive-becomes-true
+  // case, so pollNow() here is a no-op on mount (an attempt is already
+  // in flight) and only does real work on a later refreshKey change.
   useEffect(() => {
     if (isActive) pollHostMetadataNow();
   }, [isActive, pollHostMetadataNow, refreshKey]);
@@ -1642,23 +1702,30 @@ export default function CodeAgentsApp({
   );
   const canOpenTerminal = false;
   const canChooseProjectFolder = Boolean(host.chooseProject);
+  const supportsExecutionTarget =
+    CODE_AGENT_LOCAL_ENGINES.has(selectedModelSelection.engine ?? "") ||
+    Boolean(host.createRun);
+  const portalSelected =
+    supportsExecutionTarget && newRunExecutionTarget === "portal";
   const providerGate = useMemo(
-    () => getProviderGate(hostMetadata),
-    [hostMetadata],
+    () =>
+      getProviderGate(hostMetadata, {
+        terminalMode: Boolean(terminalMode),
+        portalTarget: portalSelected,
+      }),
+    [hostMetadata, portalSelected, terminalMode],
   );
 
   const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
   const bounceProviderGate = useCallback(() => {
     setProviderGateBouncePulse((pulse) => pulse + 1);
   }, []);
+  // `listModels` only includes local runtimes when their CLI is installed.
+  // Keep sign-in hidden until the host has confirmed the capability.
   const localRuntimeOptions = useMemo(
     () => getLocalRuntimeOptions(modelOptions),
     [modelOptions],
   );
-  const supportsExecutionTarget =
-    CODE_AGENT_LOCAL_ENGINES.has(selectedModelSelection.engine ?? "") ||
-    Boolean(host.createRun);
-  const portalSelected = newRunExecutionTarget === "portal";
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1813,6 +1880,9 @@ export default function CodeAgentsApp({
         }
       },
     );
+    // When the push subscription is active it delivers events as they arrive.
+    // Keep a long-interval fallback poll so we reconcile any gaps (e.g. if the
+    // file watch fires before the write is fully flushed, or on first load).
     const pollMs = unsubscribe
       ? selectedRunIsActive
         ? 10_000
@@ -1839,6 +1909,8 @@ export default function CodeAgentsApp({
     selectedRunIsActive,
   ]);
 
+  // Cmd+N / Ctrl+N — start a new chat from anywhere in the workbench.
+  // Use a ref so the effect is stable and doesn't re-register on every render.
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
   useEffect(() => {
@@ -2259,7 +2331,7 @@ export default function CodeAgentsApp({
       }
       return;
     }
-    if (providerGate.blocked && newRunExecutionTarget !== "portal") {
+    if (providerGate.blocked && !activeNewSessionExtension) {
       toast("Connect a model provider first", {
         description: providerGate.description,
         duration: 3600,
@@ -2972,7 +3044,10 @@ export default function CodeAgentsApp({
                             onApprove={() => controlRun("approve")}
                             onApproveAlways={() => controlRun("approve-always")}
                             onDeny={() => controlRun("deny")}
-                            providerBlocked={providerGate.blocked}
+                            providerBlocked={
+                              providerGate.blocked &&
+                              !isPortalCodeAgentRun(selectedRun)
+                            }
                             builderConnecting={builderConnecting}
                             builderConnectMessage={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
@@ -2994,14 +3069,14 @@ export default function CodeAgentsApp({
                             }
                             onRestoreWorktree={restoreSelectedWorktree}
                             restoringWorktreeId={restoringWorktreeId}
+                            onProviderGateClick={bounceProviderGate}
                           />
                         ) : (
                           <div className="code-agents-start">
                             <h2>What should we do today?</h2>
                             {!terminalMode &&
                               !activeNewSessionExtension &&
-                              providerGate.blocked &&
-                              !portalSelected && (
+                              providerGate.blocked && (
                                 <ProviderGateNotice
                                   description={providerGate.description}
                                   connecting={builderConnecting}
@@ -3034,17 +3109,17 @@ export default function CodeAgentsApp({
                                   : slashCommands
                               }
                               disabled={
-                                terminalMode
-                                  ? false
-                                  : activeNewSessionExtension
-                                    ? activeNewSessionExtension.disabled
-                                    : providerGate.blocked && !portalSelected
+                                (!terminalMode &&
+                                  !portalSelected &&
+                                  !activeNewSessionExtension &&
+                                  providerGate.blocked) ||
+                                Boolean(activeNewSessionExtension?.disabled)
                               }
                               onDisabledClick={
                                 !terminalMode &&
+                                !portalSelected &&
                                 !activeNewSessionExtension &&
-                                providerGate.blocked &&
-                                !portalSelected
+                                providerGate.blocked
                                   ? bounceProviderGate
                                   : undefined
                               }
@@ -3900,6 +3975,8 @@ function CodeAgentComposer({
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
+  plusMenuModeOverride,
+  draftScopeOverride,
   terminalModeControl,
 }: {
   prompt: string;
@@ -3924,7 +4001,7 @@ function CodeAgentComposer({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
     followUpMode?: CodeAgentFollowUpMode,
-  ) => void;
+  ) => void | Promise<void>;
   onStop?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
@@ -3932,6 +4009,8 @@ function CodeAgentComposer({
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
+  plusMenuModeOverride?: "full" | "upload-only";
+  draftScopeOverride?: string;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
@@ -3990,9 +4069,10 @@ function CodeAgentComposer({
       disabled={submitting || disabled}
       placeholder={placeholder}
       draftScope={
-        variant === "hero"
+        draftScopeOverride ??
+        (variant === "hero"
           ? "agent-native-code:new-session"
-          : "agent-native-code:follow-up"
+          : "agent-native-code:follow-up")
       }
       initialText={
         promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
@@ -4048,7 +4128,7 @@ function CodeAgentComposer({
       onSlashCommand={onSlashCommand}
       onSubmit={async (text, files, _references, options) => {
         const attachments = await readPromptFiles(files);
-        onSubmit(
+        await onSubmit(
           text,
           attachments,
           options.intent === "queued" ? "queued" : "immediate",
@@ -4056,13 +4136,14 @@ function CodeAgentComposer({
       }}
       attachmentsEnabled
       plusMenuMode={
-        terminalModeControl
+        plusMenuModeOverride ??
+        (terminalModeControl
           ? terminalModeControl.enabled
             ? "terminal"
             : "full"
           : terminalAgent
             ? "upload-only"
-            : undefined
+            : undefined)
       }
       terminalModeControl={terminalModeControl}
       voiceEnabled
@@ -4104,11 +4185,18 @@ function buildCodeAgentSlashCommands(
   return commands;
 }
 
-function getProviderGate(metadata: CodeAgentHostMetadata | null): {
+export function getProviderGate(
+  metadata: CodeAgentHostMetadata | null,
+  exemptions: { terminalMode?: boolean; portalTarget?: boolean } = {},
+): {
   blocked: boolean;
   description: string;
 } {
-  if (metadata?.llmProvider?.configured === false) {
+  if (
+    !exemptions.terminalMode &&
+    !exemptions.portalTarget &&
+    metadata?.llmProvider?.configured === false
+  ) {
     return {
       blocked: true,
       description: "Connect Builder.io or add custom keys to start coding.",
@@ -4124,13 +4212,18 @@ export function shouldShowCodeAgentCredentialCallout({
   providerBlocked,
   hasCredentialHistory,
   phase,
+  providerExempt = false,
 }: {
   providerBlocked: boolean;
   hasCredentialHistory: boolean;
   phase?: string;
+  providerExempt?: boolean;
 }): boolean {
-  if (!hasCredentialHistory) return false;
-  return providerBlocked || phase === "missing-credentials";
+  return (
+    !providerExempt &&
+    (providerBlocked ||
+      (hasCredentialHistory && phase === "missing-credentials"))
+  );
 }
 
 function ProviderGateNotice({
@@ -4497,6 +4590,8 @@ function readStoredUnreadRunIds(): Set<string> {
         : [];
     return new Set(ids.filter((id): id is string => typeof id === "string"));
   } catch {
+    // An unread marker is advisory; unreadable local state must not create
+    // dozens of false-positive attention indicators.
     return new Set();
   }
 }
@@ -4642,46 +4737,6 @@ function normalizePromptForSelectedGoal(
 
 function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
-}
-
-export function getCodeAgentExternalStreamingMessageId(
-  events: readonly CodeAgentTranscriptEvent[],
-  runId: string,
-  baselineEventIds?: ReadonlySet<string>,
-): string | null {
-  const repo = buildRepositoryFromCodeAgentTranscript(events);
-  if (!Array.isArray(repo?.messages)) return null;
-  const lastEntry = repo.messages.at(-1);
-  const lastMessage = lastEntry?.message ?? lastEntry;
-  if (
-    !lastMessage ||
-    typeof lastMessage !== "object" ||
-    (lastMessage as { role?: unknown }).role !== "assistant"
-  ) {
-    return null;
-  }
-  const metadata = (lastMessage as { metadata?: unknown }).metadata;
-  if (!metadata || typeof metadata !== "object") return null;
-  const metadataRecord = metadata as Record<string, unknown>;
-  if (metadataRecord.runId !== runId) return null;
-  if (baselineEventIds) {
-    const custom =
-      metadataRecord.custom && typeof metadataRecord.custom === "object"
-        ? (metadataRecord.custom as Record<string, unknown>)
-        : {};
-    const eventIds = custom.codeAgentTranscriptEventIds;
-    if (
-      !Array.isArray(eventIds) ||
-      !eventIds.some(
-        (eventId) =>
-          typeof eventId === "string" && !baselineEventIds.has(eventId),
-      )
-    ) {
-      return null;
-    }
-  }
-  const messageId = (lastMessage as { id?: unknown }).id;
-  return typeof messageId === "string" && messageId ? messageId : null;
 }
 
 export function findRunsThatBecameUnread(
@@ -5298,6 +5353,7 @@ function RunDetailCard({
   onForkChat,
   onRestoreWorktree,
   restoringWorktreeId,
+  onProviderGateClick,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -5326,63 +5382,20 @@ function RunDetailCard({
   onForkChat?: () => void;
   onRestoreWorktree?: (worktreeId: string, runId: string) => void;
   restoringWorktreeId?: string | null;
+  onProviderGateClick?: () => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
   const runId = run?.id;
-  const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
-  const wasRunActiveRef = useRef(runIsActive);
-  const externalStreamingBaselineEventIdsRef = useRef<Set<string>>(
-    new Set(transcriptEvents.map((event) => event.id)),
-  );
-  const externalStreamingBaselineInitializedRef = useRef(
-    !runIsActive || !transcriptLoading,
-  );
   const stopInFlightRef = useRef(false);
-  const stopSucceededRef = useRef(false);
   const handleStop = useCallback(async () => {
     if (!runId || stopInFlightRef.current) return false;
     stopInFlightRef.current = true;
-    setUserStoppedRunId(runId);
     try {
-      const stopSucceeded = await onStop();
-      if (stopSucceeded) {
-        stopSucceededRef.current = true;
-      } else if (!stopSucceededRef.current) {
-        setUserStoppedRunId((stoppedRunId) =>
-          stoppedRunId === runId ? null : stoppedRunId,
-        );
-      }
-      return stopSucceeded;
+      return await onStop();
     } finally {
       stopInFlightRef.current = false;
     }
   }, [onStop, runId]);
-
-  useEffect(() => {
-    if (!runIsActive) {
-      externalStreamingBaselineEventIdsRef.current = new Set(
-        transcriptEvents.map((event) => event.id),
-      );
-      externalStreamingBaselineInitializedRef.current = true;
-      wasRunActiveRef.current = false;
-      return;
-    }
-
-    if (!wasRunActiveRef.current) {
-      stopSucceededRef.current = false;
-      setUserStoppedRunId(null);
-    }
-    if (
-      !externalStreamingBaselineInitializedRef.current &&
-      !transcriptLoading
-    ) {
-      externalStreamingBaselineEventIdsRef.current = new Set(
-        transcriptEvents.map((event) => event.id),
-      );
-      externalStreamingBaselineInitializedRef.current = true;
-    }
-    wasRunActiveRef.current = true;
-  }, [runIsActive, transcriptEvents, transcriptLoading]);
 
   useEffect(() => {
     if (!runIsActive) return;
@@ -5409,15 +5422,6 @@ function RunDetailCard({
     );
   }
 
-  const externalStreamingMessageId =
-    runIsActive && runId
-      ? getCodeAgentExternalStreamingMessageId(
-          transcriptEvents,
-          runId,
-          externalStreamingBaselineEventIdsRef.current,
-        )
-      : null;
-
   const hasCredentialHistory = hasMissingCredentialSignal(
     run,
     transcriptEvents,
@@ -5426,13 +5430,11 @@ function RunDetailCard({
     providerBlocked,
     hasCredentialHistory,
     phase: run.phase,
+    providerExempt: isPortalCodeAgentRun(run),
   });
-  const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
-  const hasInlineApprovalAffordance = pendingApproval
-    ? codeAgentTranscriptHasPendingApproval(transcriptEvents)
-    : false;
-  const showApprovalBanner =
-    Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const pendingApproval = getPendingApproval(run);
+  // The host-owned banner preserves Code Agents' approve, deny, and exact-command allow actions.
+  const showApprovalBanner = Boolean(pendingApproval);
   const runWorktree = isObjectRecord(run.metadata?.worktree)
     ? run.metadata.worktree
     : undefined;
@@ -5550,17 +5552,15 @@ function RunDetailCard({
         modelSelection={modelSelection}
         modelOptions={modelOptions}
         hideCredentialMessages={hasCredentialHistory}
-        externalStreamingMessageId={externalStreamingMessageId}
-        externalUserStopped={userStoppedRunId === run.id}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
         onStop={handleStop}
-        onDeny={onDeny}
-        onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
         onOpenRun={onOpenRun}
         onForkChat={onForkChat}
+        chatBlocked={hasCredentialGap}
+        onDisabledClick={onProviderGateClick}
       />
     </div>
   );
@@ -5578,17 +5578,15 @@ function TranscriptPanel({
   modelSelection,
   modelOptions,
   hideCredentialMessages = false,
-  externalStreamingMessageId,
-  externalUserStopped,
   onPermissionModeChange,
   onModelSelectionChange,
   onStop,
-  onDeny,
-  onApproveAlways,
   onConnectProvider,
   onConnectLocalRuntime,
   onOpenRun,
   onForkChat,
+  chatBlocked,
+  onDisabledClick,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -5601,94 +5599,66 @@ function TranscriptPanel({
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
   hideCredentialMessages?: boolean;
-  externalStreamingMessageId: string | null;
-  externalUserStopped: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onStop: () => Promise<boolean>;
-  onDeny?: () => void;
-  onApproveAlways?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   onOpenRun?: (runId: string) => void;
   onForkChat?: () => void;
+  chatBlocked: boolean;
+  onDisabledClick?: () => void;
 }) {
-  const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel =
-    normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model;
-  const selectedEngine =
-    normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
-  const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "high",
-  );
-  const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const availableAgents = getCodeAgentPickerOptions(modelOptions);
-  const selectedAgent = getCodeAgentIdForEngine(selectedEngine);
-  const handleAgentChange = useCallback(
-    (agent: string) => {
-      onModelSelectionChange(
-        getCodeAgentSelection(agent, normalizedModel, modelOptions),
-      );
-    },
-    [modelOptions, normalizedModel, onModelSelectionChange],
-  );
-  const eventsRef = useRef(events);
-  eventsRef.current = events;
-  const hideCredentialMessagesRef = useRef(hideCredentialMessages);
-  hideCredentialMessagesRef.current = hideCredentialMessages;
-  const runIdRef = useRef<string | null>(run.id);
-  runIdRef.current = run.id;
+  const chatBlockedRef = useRef(chatBlocked);
+  chatBlockedRef.current = chatBlocked;
   const permissionModeRef = useRef<string | undefined>(permissionMode);
   permissionModeRef.current = permissionMode;
-  const modelRef = useRef<string | undefined>(selectedModel);
-  modelRef.current = selectedModel;
-  const engineRef = useRef<string | undefined>(selectedEngine);
-  engineRef.current = selectedEngine;
-  const effortRef = useRef<CodeAgentReasoningEffort | undefined>(
-    selectedEffort,
-  );
-  effortRef.current = selectedEffort;
-  const followUpModeRef = useRef<CodeAgentFollowUpMode | undefined>(undefined);
-  const attachOnlyRef = useRef(false);
-  attachOnlyRef.current = false;
 
   const controller = useMemo(
     () => createHostCodeAgentChatController(host, goal.id, permissionModeRef),
     [goal.id, host],
   );
-  const createAdapter = useCallback(
+  const transport = useMemo(
     () =>
-      createCodeAgentChatAdapter({
-        controller,
-        runIdRef,
-        permissionModeRef,
-        modelRef,
-        engineRef,
-        effortRef,
-        followUpModeRef,
-        attachOnlyRef,
-        tabId: `code-agent:${run.id}`,
-      }),
-    [controller, run.id],
+      createAgentKitProtocolAdapter(
+        createCodeAgentAgentKitRuntime({
+          controller,
+          isChatBlocked: () => chatBlockedRef.current,
+          hideCredentialMessages,
+        }),
+      ),
+    [controller, hideCredentialMessages],
   );
-  const loadHistoryRepository = useCallback(async () => {
-    const eventsToRender = hideCredentialMessagesRef.current
-      ? eventsRef.current.filter((event) => !isCredentialTranscriptEvent(event))
-      : eventsRef.current;
-    return buildRepositoryFromCodeAgentTranscript(eventsToRender, {
-      hideCredentialMessages: hideCredentialMessagesRef.current,
-    });
-  }, []);
-  const historyReloadKey = useMemo(() => {
-    const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
-    return [
-      run.id,
-      events.length,
-      lastEvent?.id ?? "",
-      lastEvent?.createdAt ?? "",
-      hideCredentialMessages ? "hide" : "show",
-    ].join(":");
-  }, [events, hideCredentialMessages, run.id]);
+  const chatContextValue = useMemo<CodeAgentChatContextValue>(
+    () => ({
+      permissionMode,
+      modelSelection,
+      modelOptions,
+      runIsActive,
+      onPermissionModeChange,
+      onModelSelectionChange,
+      onStop,
+      onConnectProvider,
+      onConnectLocalRuntime,
+      onForkChat,
+      chatBlocked,
+      onDisabledClick,
+    }),
+    [
+      modelOptions,
+      modelSelection,
+      onConnectLocalRuntime,
+      onConnectProvider,
+      onForkChat,
+      onDisabledClick,
+      onModelSelectionChange,
+      onPermissionModeChange,
+      onStop,
+      permissionMode,
+      chatBlocked,
+      runIsActive,
+    ],
+  );
   return (
     <div className="code-agents-transcript">
       {error && (
@@ -5704,69 +5674,57 @@ function TranscriptPanel({
       ) : (
         <>
           <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
-          <AssistantChat
-            key={run.id}
-            className="code-agents-transcript__assistant"
-            tabId={`code-agent:${run.id}`}
-            showHeader={false}
-            emptyStateText="No messages yet."
-            suggestions={[]}
-            dynamicSuggestions={false}
-            plusMenuMode="upload-only"
-            createAdapter={createAdapter}
-            adapterReloadKey={controller}
-            loadHistoryRepository={loadHistoryRepository}
-            historyReloadKey={historyReloadKey}
-            externalStreaming={Boolean(externalStreamingMessageId)}
-            externalUserStopped={externalUserStopped}
-            onStop={onStop}
-            approvalActions={
-              onDeny || onApproveAlways
-                ? {
-                    onDeny,
-                    onAlwaysAllow: onApproveAlways,
-                    alwaysAllowScope: "exact-command",
-                  }
-                : undefined
-            }
-            availableModels={availableModels}
-            availableAgents={availableAgents}
-            selectedAgent={selectedAgent}
-            selectedModel={selectedModel}
-            selectedEngine={selectedEngine}
-            selectedEffort={selectedEffort}
-            onModelChange={(model, engine) =>
-              onModelSelectionChange({
-                engine,
-                model,
-                effort: selectedEffort,
-              })
-            }
-            onAgentChange={handleAgentChange}
-            onEffortChange={(effort) =>
-              onModelSelectionChange({ ...normalizedModel, effort })
-            }
-            composerAreaClassName="code-agents-standard-composer"
-            composerToolbarSlot={
-              <div className="code-agents-chat-composer-slot">
-                <RunModeSelect
-                  value={permissionMode}
-                  onChange={onPermissionModeChange}
-                  compact
-                />
-              </div>
-            }
-            composerExtraActionButton={
-              runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
-            }
-            onConnectProvider={onConnectProvider}
-            onConnectLocalRuntime={onConnectLocalRuntime}
-            onForkChat={onForkChat}
-          />
+          <CodeAgentChatContext.Provider value={chatContextValue}>
+            <AgentKitRoot
+              key={run.id}
+              threadId={run.id}
+              transport={transport}
+              clientOptions={{
+                transportOwnership: "owned",
+                retainActiveRunsOnThreadRelease: true,
+              }}
+              slots={CODE_AGENTKIT_CHAT_SLOTS}
+            >
+              <CodeAgentExternalTranscriptBridge runIsActive={runIsActive} />
+              <AgentKitChat
+                className="code-agents-transcript__assistant"
+                emptyComposerPlacement="bottom"
+                toolbar={
+                  onForkChat ? (
+                    <CodeAgentKitForkToolbar onFork={onForkChat} />
+                  ) : undefined
+                }
+              />
+            </AgentKitRoot>
+          </CodeAgentChatContext.Provider>
         </>
       )}
     </div>
   );
+}
+
+function CodeAgentExternalTranscriptBridge({
+  runIsActive,
+}: {
+  runIsActive: boolean;
+}) {
+  const control = useAgentKitControl();
+  const thread = useAgentThread();
+  const activeRunIdsRef = useRef(thread.activeRunIds);
+  activeRunIdsRef.current = thread.activeRunIds;
+
+  useEffect(() => {
+    if (!runIsActive) return;
+    return startCodeAgentExternalTranscriptBridge({
+      hasAgentKitRun: () => activeRunIdsRef.current.length > 0,
+      refresh: () =>
+        control.load().catch(() => {
+          // AgentKit records the load failure; the next poll retries it.
+        }),
+    });
+  }, [control, runIsActive]);
+
+  return null;
 }
 
 function TranscriptSourceBanner({
@@ -5825,19 +5783,192 @@ function TranscriptSourceBanner({
   );
 }
 
-function CodeAgentStopButton({ onStop }: { onStop: () => Promise<boolean> }) {
+interface CodeAgentChatContextValue {
+  permissionMode: CodeAgentPermissionMode;
+  modelSelection: CodeAgentModelSelection;
+  modelOptions: CodeAgentModelOption[];
+  runIsActive: boolean;
+  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onStop: () => Promise<boolean>;
+  onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
+  chatBlocked: boolean;
+  onDisabledClick?: () => void;
+  onForkChat?: () => void;
+}
+
+const CodeAgentChatContext = createContext<CodeAgentChatContextValue | null>(
+  null,
+);
+
+function CodeAgentKitComposerSlot({ threadId }: { threadId: string }) {
+  const chat = useContext(CodeAgentChatContext);
+  const control = useAgentKitControl(threadId);
+  const [submitting, setSubmitting] = useState(false);
+  if (!chat) throw new Error("Code Agent chat context is missing.");
+
+  const normalizedModel = normalizeModelSelection(
+    chat.modelSelection,
+    chat.modelOptions,
+  );
+  const selectedModel =
+    normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model;
+  const selectedEngine =
+    normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
+  const selectedEffort = normalizeReasoningEffort(
+    normalizedModel.effort ?? "high",
+  );
+
+  return (
+    <CodeAgentComposer
+      prompt=""
+      submitting={submitting}
+      permissionMode={chat.permissionMode}
+      modelSelection={chat.modelSelection}
+      modelOptions={chat.modelOptions}
+      placeholder="Describe a task or ask a question"
+      variant="compact"
+      stopActive={chat.runIsActive}
+      disabled={chat.chatBlocked}
+      onPromptChange={() => undefined}
+      onPermissionModeChange={chat.onPermissionModeChange}
+      onModelSelectionChange={chat.onModelSelectionChange}
+      onSubmit={async (prompt, attachments, followUpMode) => {
+        setSubmitting(true);
+        try {
+          await control.sendMessage({
+            text: prompt,
+            options: {
+              agentId: getCodeAgentIdForEngine(selectedEngine),
+              model: selectedModel,
+              mode: chat.permissionMode,
+            },
+            metadata: {
+              [CODE_AGENT_CHAT_METADATA_KEY]: {
+                engine: selectedEngine,
+                followUpMode,
+                permissionMode: chat.permissionMode,
+                reasoningEffort: selectedEffort,
+                attachments,
+              },
+            },
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      }}
+      onStop={chat.onStop}
+      onConnectProvider={chat.onConnectProvider}
+      onConnectLocalRuntime={chat.onConnectLocalRuntime}
+      onDisabledClick={chat.onDisabledClick}
+      plusMenuModeOverride="upload-only"
+      draftScopeOverride={`agent-native-code:follow-up:${threadId}`}
+    />
+  );
+}
+
+function CodeAgentKitMessage({
+  value,
+  threadId,
+}: AgentKitRenderProps<AgentMessage>) {
+  const storedConversationMessage = value.parts.find(
+    (part) =>
+      part.type === "data" &&
+      part.mediaType === CODE_AGENT_CONVERSATION_MEDIA_TYPE,
+  );
+  if (storedConversationMessage?.type === "data") {
+    const data = storedConversationMessage.data;
+    if (isObjectRecord(data) && isObjectRecord(data.message)) {
+      return (
+        <>
+          <AgentConversationMessageView
+            message={data.message as unknown as AgentConversationMessage}
+          />
+          {value.role === "assistant" ? (
+            <AgentMessageActions value={value} threadId={threadId} />
+          ) : null}
+        </>
+      );
+    }
+  }
+
+  const chatMetadata = isObjectRecord(
+    value.metadata?.[CODE_AGENT_CHAT_METADATA_KEY],
+  )
+    ? value.metadata[CODE_AGENT_CHAT_METADATA_KEY]
+    : null;
+  if (value.role === "user" && chatMetadata) {
+    const text = value.parts
+      .filter(
+        (part): part is Extract<typeof part, { type: "text" }> =>
+          part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("\n");
+    const attachments = Array.isArray(chatMetadata.attachments)
+      ? chatMetadata.attachments.flatMap((attachment) => {
+          if (
+            !isObjectRecord(attachment) ||
+            typeof attachment.name !== "string"
+          )
+            return [];
+          return [
+            {
+              name: attachment.name,
+              ...(typeof attachment.type === "string"
+                ? { type: attachment.type }
+                : {}),
+              ...(typeof attachment.size === "number"
+                ? { size: attachment.size }
+                : {}),
+              ...(typeof attachment.dataUrl === "string"
+                ? { dataUrl: attachment.dataUrl }
+                : {}),
+            },
+          ];
+        })
+      : [];
+    return (
+      <AgentConversationMessageView
+        message={{
+          id: value.id,
+          role: "user",
+          text,
+          createdAt: value.createdAt,
+          ...(attachments.length ? { attachments } : {}),
+        }}
+      />
+    );
+  }
+
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
+function CodeAgentKitForkToolbar({ onFork }: { onFork: () => void }) {
+  const { labels } = useAgentKit();
   return (
     <button
       type="button"
-      onClick={onStop}
-      className="code-agents-composer-stop-button"
-      aria-label="Stop response"
-      title="Stop response (Esc)"
+      className="code-agents-button code-agents-button--ghost"
+      aria-label={labels.fork}
+      title={labels.fork}
+      onClick={onFork}
     >
-      <IconPlayerStop size={14} strokeWidth={1.9} />
+      <IconGitFork size={14} strokeWidth={1.8} />
     </button>
   );
 }
+
+function CodeAgentKitEmptyState() {
+  return <div className="code-agents-transcript__empty">No messages yet.</div>;
+}
+
+const CODE_AGENTKIT_CHAT_SLOTS: AgentKitSlots = {
+  composer: CodeAgentKitComposerSlot,
+  emptyState: CodeAgentKitEmptyState,
+  message: CodeAgentKitMessage,
+};
 
 function createHostCodeAgentChatController(
   host: CodeAgentsHost,
@@ -5936,6 +6067,11 @@ function hasMissingCredentialSignal(
   return transcriptEvents.some(isCredentialTranscriptEvent);
 }
 
+// Delegates to the shared core helper so this surface and the server-side
+// transcript builders (thread-data-builder.ts, code-agent-transcript.ts)
+// agree on one definition instead of each keeping its own regex. The helper
+// prefers the structured `signal` field and only falls back to matching the
+// legacy hint text for transcripts persisted before that field existed.
 function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
   return isCredentialGapCodeAgentEvent(event);
 }

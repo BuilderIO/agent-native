@@ -72,6 +72,7 @@ const messages = {
       aiSetupFilteredExample:
         "अनचाहे बिक्री संदेश और वे रिक्रूटर जिन्हें मैंने जवाब नहीं दिया",
       aiSetupSortingHeadline: "आपका इनबॉक्स व्यवस्थित हो रहा है",
+      aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
@@ -164,6 +165,7 @@ const messages = {
       deleteDraft: "ड्राफ़्ट हटाएँ",
       deleteDrafts: "ड्राफ़्ट हटाएँ",
       reopenDraft: "फिर से खोलें",
+      openInMail: "Mail में खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",
@@ -571,6 +573,7 @@ const messages = {
       settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
       automationRulesLoadFailed: "ट्रायेज नियम लोड नहीं हो सके।",
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
+      autoArchiveMode: "अपने आप संग्रहित करें",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
       tagMode: "टैग",
@@ -590,6 +593,9 @@ const messages = {
       askJevPrompt:
         "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
       composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      chatSuggestionFilter: "ऐसे संदेश फ़िल्टर करें",
+      chatSuggestionPriority: "इनसे आने वाले ईमेल को प्राथमिकता दें…",
+      chatSuggestionArchive: "बॉट सूचनाओं को अपने-आप संग्रहित करें",
       ruleBackfillStarting: "यह नियम हाल के मेल पर लागू हो रहा है…",
       ruleBackfillProgress:
         "हाल के मेल पर लागू हो रहा है: {{total}} में से {{processed}}",
@@ -701,6 +707,9 @@ const messages = {
     suggestionSummarize: "मेरे unread emails का सारांश दें",
     suggestionReplies: "आज किन चीजों पर मेरा reply चाहिए?",
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
+    ruleSuggestionFilter: "इस तरह के संदेश फ़िल्टर करें",
+    ruleSuggestionImportant: "मेरे बॉस के ईमेल को प्राथमिकता दें",
+    ruleSuggestionArchive: "बॉट सूचनाएँ अपने-आप संग्रहित करें",
   },
   settings: {
     openAgentSettings: "एजेंट प्रबंधित करें",

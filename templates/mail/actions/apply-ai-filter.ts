@@ -301,10 +301,17 @@ export default defineAction({
     );
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const changed = succeededTargets.length;
     return {
-      changed: succeededTargets.length,
+      changed,
       failures,
       state: await getAiFilterState(ownerEmail),
+      change: {
+        verb: "updated",
+        kind: "mail-filter",
+        title: action === "filter" ? "Filtered email" : "Kept email",
+        detail: String(changed),
+      },
     };
   },
 });

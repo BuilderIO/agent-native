@@ -222,9 +222,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 160px;
 }
 
+/* Keep the timestamp fixed while actions overlay the preview. */
 .email-list-row .row-action-rail {
   position: relative;
   display: flex;
@@ -254,27 +255,10 @@
   overflow: hidden;
   transition: opacity 120ms ease;
 }
-.email-list-row .row-time,
-.email-list-row .email-importance-score {
+.email-list-row .row-time {
   position: relative;
   z-index: 3;
   flex: none;
-}
-.email-importance-score {
-  color: oklch(0.62 0.17 var(--mail-importance-hue, 85deg));
-}
-.dark .email-importance-score {
-  color: oklch(0.76 0.15 var(--mail-importance-hue, 85deg));
-}
-.mail-importance-ramp {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(
-    to right in oklch,
-    oklch(0.7 0.15 25),
-    oklch(0.8 0.14 85),
-    oklch(0.74 0.15 150)
-  );
 }
 .email-list-row.focused .hover-actions,
 .email-list-row:hover .hover-actions {

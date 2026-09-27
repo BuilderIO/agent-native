@@ -19,8 +19,9 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  useCreateResourceSuggestion,
+  useCreateResourceSuggestionProposal,
   useDecideResourceSuggestion,
+  useDecideResourceSuggestionProposal,
   useResourceSuggestions,
   useUpdateResourceSuggestion,
 } from "@agent-native/core/client/review";
@@ -31,6 +32,7 @@ import type {
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { Document, DocumentSyncStatus } from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
+import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
   SuggestionFormattingMappingError,
   suggestionMarkedSourceRanges,
@@ -204,7 +206,6 @@ import {
   previewSuggestionDraft,
   editableSuggestionDraft,
   freshestSavedSuggestions,
-  persistSuggestionDraftOperations,
   recordSuggestionReplacementIntent,
   suggestionDraftOperations,
   suggestionOperationKey,
@@ -469,6 +470,56 @@ export function suggestionPresentation(
     },
     presentation: "canonical",
   };
+}
+
+export function suggestionPresentations(
+  suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">,
+  currentMarkdown: string,
+): VisualEditorSuggestion[] {
+  const original = suggestionPresentation(suggestion, currentMarkdown);
+  if (!original || suggestion.operations.length !== 1)
+    return original ? [original] : [];
+  const saved = suggestion.operations[0]!;
+  if (saved.kind !== "replace_text") return [original];
+  const before = saved.before as { markdown?: unknown } | null;
+  const after = saved.after as { markdown?: unknown } | null;
+  const anchor = saved.anchor as { from?: unknown; to?: unknown } | null;
+  if (
+    typeof before?.markdown !== "string" ||
+    typeof after?.markdown !== "string" ||
+    typeof anchor?.from !== "number" ||
+    typeof anchor.to !== "number"
+  )
+    return [original];
+  const anchorFrom = anchor.from;
+  const anchorTo = anchor.to;
+  try {
+    const operations = markdownSuggestionOperations(
+      before.markdown,
+      after.markdown,
+    );
+    if (
+      operations.length === 0 ||
+      !operations.every(
+        (operation) =>
+          operation.anchor.from >= anchorFrom &&
+          operation.anchor.to <= anchorTo,
+      )
+    )
+      return [original];
+    const precise = operations.map((operation) =>
+      suggestionPresentation(
+        { ...suggestion, operations: [operation] },
+        currentMarkdown,
+      ),
+    );
+    return precise.every((presentation) => presentation !== null)
+      ? (precise as VisualEditorSuggestion[])
+      : [original];
+  } catch (error) {
+    if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+    return [original];
+  }
 }
 
 export function metadataUpdatesWithPendingTitle<
@@ -881,6 +932,7 @@ function DocumentCommentDraftProvider({
     <CommentDraftProvider
       documentId={documentId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
     >
       {children}
     </CommentDraftProvider>
@@ -1722,9 +1774,10 @@ function PageEditorSessionBody({
         document.accessRole === "admin" ||
         document.accessRole === "editor" ||
         document.accessRole === "commenter"));
-  const createSuggestion = useCreateResourceSuggestion();
+  const createSuggestionProposal = useCreateResourceSuggestionProposal();
   const updateSuggestion = useUpdateResourceSuggestion();
   const decideSuggestion = useDecideResourceSuggestion();
+  const decideSuggestionProposal = useDecideResourceSuggestionProposal();
   const suggestionsQuery = useResourceSuggestions(
     { resourceType: "document", resourceId: documentId },
     { enabled: !isLocalFileDocument },
@@ -1738,6 +1791,11 @@ function PageEditorSessionBody({
     continueSuggesting: boolean;
     optimistic: boolean;
   } | null>(null);
+  const [pendingProposalDecision, setPendingProposalDecision] = useState<{
+    continueSuggesting: boolean;
+  } | null>(null);
+  const proposalDecisionInFlightRef = useRef(false);
+  const proposalDecisionKeysRef = useRef(new Map<string, string>());
   const [decisionRefreshFailed, setDecisionRefreshFailed] = useState(false);
   const decisionRefreshInFlightRef = useRef(false);
   const suggestionDecisionInFlightRef = useRef(false);
@@ -1785,6 +1843,16 @@ function PageEditorSessionBody({
   >(null);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(new Map());
+  const suggestionProposalsRef = useRef(
+    new Map<string, { id: string; summary: string }>(),
+  );
+  const suggestionProposalCreationKeysRef = useRef(new Map<string, string>());
+  const unresolvedProposalCreationRef = useRef<{
+    baseId: string;
+    request: Parameters<typeof createSuggestionProposal.mutateAsync>[0];
+    pendingKeys: string[];
+    operations: ReturnType<typeof suggestionDraftOperations>;
+  } | null>(null);
   const suggestionAmendmentKeysRef = useRef(new Map<string, string>());
   const [suggestionPersistenceRevision, setSuggestionPersistenceRevision] =
     useState(0);
@@ -1833,7 +1901,6 @@ function PageEditorSessionBody({
   const canSuggest = suggestionCapability.canStart;
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
-  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -4128,6 +4195,47 @@ function PageEditorSessionBody({
       }
       setIsSubmittingSuggestions(true);
       try {
+        type CreatedProposal = Awaited<
+          ReturnType<typeof createSuggestionProposal.mutateAsync>
+        >;
+        const recordCreated = (
+          created: CreatedProposal,
+          pendingKeys: string[],
+          operations: ReturnType<typeof suggestionDraftOperations>,
+          idempotencyKey: string,
+          baseId: string,
+        ) => {
+          if (created.suggestions.length !== operations.length)
+            throw new Error(
+              "Proposal creation returned an incomplete edit set",
+            );
+          suggestionProposalsRef.current.set(baseId, {
+            id: created.proposal.id,
+            summary: created.proposal.summary,
+          });
+          operations.forEach((operation, index) => {
+            const suggestion = created.suggestions[index]!;
+            createdSuggestionOperationsRef.current.set(pendingKeys[index]!, {
+              idempotencyKey,
+              operation,
+              suggestion,
+            });
+          });
+        };
+        const unresolved = unresolvedProposalCreationRef.current;
+        if (unresolved) {
+          const recovered = await createSuggestionProposal.mutateAsync(
+            unresolved.request,
+          );
+          recordCreated(
+            recovered,
+            unresolved.pendingKeys,
+            unresolved.operations,
+            unresolved.request.idempotencyKey,
+            unresolved.baseId,
+          );
+          unresolvedProposalCreationRef.current = null;
+        }
         const operations = suggestionDraftOperations(base, suggestionDraft);
         if (operations.length === 0) {
           if (base.existingSuggestion) {
@@ -4169,20 +4277,69 @@ function PageEditorSessionBody({
             [suggestionOperationKey(operations[0]!), amended],
           ]);
         } else {
-          persisted = await persistSuggestionDraftOperations(
-            operations,
-            createdSuggestionOperationsRef.current,
-            (operation, idempotencyKey) =>
-              createSuggestion.mutateAsync({
-                resourceType: "document",
-                resourceId: documentId,
-                adapterKind: "content.document-markdown",
-                baseRevision: base.baseRevision,
-                summary: t("editor.toolbar.suggestEdits"),
-                idempotencyKey,
+          persisted = new Map<string, ResourceSuggestion>();
+          const pending = operations.filter((operation) => {
+            const existing = createdSuggestionOperationsRef.current.get(
+              suggestionOperationKey(operation),
+            );
+            if (existing?.suggestion) {
+              persisted.set(
+                suggestionOperationKey(operation),
+                existing.suggestion,
+              );
+              return false;
+            }
+            return true;
+          });
+          if (pending.length > 0) {
+            const pendingKeys = pending.map(suggestionOperationKey);
+            const requestKey = JSON.stringify([base.id, pendingKeys]);
+            const idempotencyKey =
+              suggestionProposalCreationKeysRef.current.get(requestKey) ??
+              globalThis.crypto.randomUUID();
+            suggestionProposalCreationKeysRef.current.set(
+              requestKey,
+              idempotencyKey,
+            );
+            const existingProposal = suggestionProposalsRef.current.get(
+              base.id,
+            );
+            const proposalSummary =
+              existingProposal?.summary ?? t("editor.toolbar.suggestEdits");
+            const request = {
+              resourceType: "document",
+              resourceId: documentId,
+              adapterKind: "content.document-markdown",
+              baseRevision: base.baseRevision,
+              summary: proposalSummary,
+              proposalId: existingProposal?.id,
+              idempotencyKey,
+              suggestions: pending.map((operation) => ({
+                summary: proposalSummary,
                 operations: [operation],
-              }),
-          );
+              })),
+            } satisfies Parameters<
+              typeof createSuggestionProposal.mutateAsync
+            >[0];
+            unresolvedProposalCreationRef.current = {
+              baseId: base.id,
+              request,
+              pendingKeys,
+              operations: pending,
+            };
+            const created = await createSuggestionProposal.mutateAsync(request);
+            recordCreated(
+              created,
+              pendingKeys,
+              pending,
+              idempotencyKey,
+              base.id,
+            );
+            unresolvedProposalCreationRef.current = null;
+            pendingKeys.forEach((operationKey, index) => {
+              persisted.set(operationKey, created.suggestions[index]!);
+            });
+          }
           adoptConfirmedSuggestions();
         }
         if (!keepMode) {
@@ -4196,6 +4353,16 @@ function PageEditorSessionBody({
         }
         return persisted;
       } catch (error) {
+        const status = (error as { status?: unknown } | null)?.status;
+        if (
+          typeof status === "number" &&
+          status >= 400 &&
+          status < 500 &&
+          status !== 408 &&
+          status !== 429
+        ) {
+          unresolvedProposalCreationRef.current = null;
+        }
         adoptConfirmedSuggestions();
         if (error instanceof SuggestionFormattingMappingError) {
           toast.error(t("editor.suggestionFormattingUnsupported"));
@@ -4224,7 +4391,7 @@ function PageEditorSessionBody({
       }
     },
     [
-      createSuggestion,
+      createSuggestionProposal,
       updateSuggestion,
       adoptConfirmedSuggestions,
       documentId,
@@ -4372,7 +4539,7 @@ function PageEditorSessionBody({
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (continueSuggesting: boolean) => {
-      if (decisionRefreshInFlightRef.current) return;
+      if (decisionRefreshInFlightRef.current) return false;
       decisionRefreshInFlightRef.current = true;
       setDecisionRefreshFailed(false);
       try {
@@ -4389,6 +4556,7 @@ function PageEditorSessionBody({
         if (continueSuggesting) continueSuggestionModeFrom(refreshedDocument);
         setPendingSuggestionDecision(null);
         suggestionDecisionInFlightRef.current = false;
+        return true;
       } catch (error) {
         setDecisionRefreshFailed(true);
         void queryClient.invalidateQueries(documentQueryFilter(documentId));
@@ -4396,6 +4564,7 @@ function PageEditorSessionBody({
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
+        return false;
       } finally {
         decisionRefreshInFlightRef.current = false;
       }
@@ -4552,7 +4721,9 @@ function PageEditorSessionBody({
     setEditingSuggestionId(null);
     setSuggestionInitialSelection(null);
     setSuggestionAmendmentConflict(false);
+    unresolvedProposalCreationRef.current = null;
     setPendingSuggestionDecision(null);
+    setPendingProposalDecision(null);
     setDecisionRefreshFailed(false);
     setPreserveInlineReviewSpace(false);
   }, [documentId]);
@@ -4610,8 +4781,12 @@ function PageEditorSessionBody({
     const byId = new Map<string, VisualEditorSuggestion>();
     for (const suggestion of presentedSuggestions) {
       if (suggestion.id === editingSuggestionId) continue;
-      const presentation = suggestionPresentation(suggestion, currentMarkdown);
-      if (presentation) byId.set(presentation.id, presentation);
+      for (const [index, presentation] of suggestionPresentations(
+        suggestion,
+        currentMarkdown,
+      ).entries()) {
+        byId.set(`${presentation.id}:${index}`, presentation);
+      }
     }
     for (const suggestion of suggestionSessionVisuals(
       sessionDraftSuggestions,
@@ -5016,6 +5191,10 @@ function PageEditorSessionBody({
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
+  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelFocusGenerationRef = useRef(0);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -5067,6 +5246,27 @@ function PageEditorSessionBody({
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
+  const commentAi = useCommentAiRequests(documentId, {
+    enabled: !isLocalFileDocument && canComment,
+  });
+  // While AI's result is on screen, a thread it just resolved highlights the
+  // text it wrote, so the card sits beside the change it describes.
+  const editorCommentThreads = useMemo(() => {
+    const fresh = commentAi.freshResolutions;
+    if (!threads || fresh.size === 0) return threads ?? [];
+    return threads.map((thread) => {
+      const change = fresh.get(thread.threadId)?.result?.changes?.[0];
+      if (!thread.resolved || !change?.after || change.truncated) return thread;
+      return {
+        ...thread,
+        resolved: false,
+        quotedText: change.after,
+        prefix: null,
+        suffix: null,
+        startOffset: null,
+      };
+    });
+  }, [commentAi.freshResolutions, threads]);
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -5081,9 +5281,14 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  // A suggestion whose text is gone lives in the comments panel only, so it
+  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) => suggestion.status === "pending",
+      (suggestion) =>
+        suggestion.status === "pending" &&
+        (!anchoredSuggestionIds ||
+          anchoredSuggestionIds.includes(suggestion.id)),
     ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
@@ -5263,6 +5468,15 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
+      ++utilityPanelFocusGenerationRef.current;
+      const activeElement = globalThis.document.activeElement;
+      if (
+        nextPanel &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body
+      ) {
+        utilityPanelSheetTriggerRef.current = activeElement;
+      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -5694,6 +5908,7 @@ function PageEditorSessionBody({
     visibleThreadId?: string | null,
     alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
+    surface?: "rail" | "popover" | "panel",
   ) => (
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
@@ -5727,6 +5942,7 @@ function PageEditorSessionBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
       canComment={canComment}
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
@@ -5743,14 +5959,90 @@ function PageEditorSessionBody({
       canDecideSuggestions={canEdit}
       decidingSuggestion={() =>
         decideSuggestion.isPending ||
+        decideSuggestionProposal.isPending ||
         isSubmittingSuggestions ||
-        !!pendingSuggestionDecision
+        !!pendingSuggestionDecision ||
+        !!pendingProposalDecision
       }
+      onDecideSuggestionProposal={async (proposalId, decision, members) => {
+        if (
+          proposalDecisionInFlightRef.current ||
+          suggestionDecisionInFlightRef.current ||
+          pendingSuggestionDecision ||
+          pendingProposalDecision ||
+          decideSuggestion.isPending ||
+          decideSuggestionProposal.isPending ||
+          isSubmittingSuggestions ||
+          members.length === 0
+        )
+          return;
+        proposalDecisionInFlightRef.current = true;
+        const continueSuggesting = isSuggesting;
+        setPendingProposalDecision({ continueSuggesting });
+        let awaitingReadback = false;
+        try {
+          let currentMembers = members;
+          if (continueSuggesting) {
+            const persisted = await flushSuggestionDraft({ keepMode: true });
+            if (!persisted) return;
+            const refreshed = await suggestionsQuery.refetch();
+            if (refreshed.isError || !refreshed.data)
+              throw (
+                refreshed.error ?? new Error("Could not refresh proposal edits")
+              );
+            currentMembers = refreshed.data.suggestions.filter(
+              (suggestion) =>
+                suggestion.proposalId === proposalId &&
+                suggestion.status === "pending",
+            );
+          }
+          const observed = currentMembers.map((member) => ({
+            id: member.id,
+            observedRevision: member.revision,
+            observedBase: member.baseRevision,
+          }));
+          const decisionKey = JSON.stringify([proposalId, decision, observed]);
+          const idempotencyKey =
+            proposalDecisionKeysRef.current.get(decisionKey) ??
+            globalThis.crypto.randomUUID();
+          proposalDecisionKeysRef.current.set(decisionKey, idempotencyKey);
+          if (showInlineComments) setPreserveInlineReviewSpace(true);
+          const result = await decideSuggestionProposal.mutateAsync({
+            proposalId,
+            decision,
+            idempotencyKey,
+            members: observed,
+          });
+          setLocallyCreatedSuggestions((current) => {
+            const byId = new Map(current.map((item) => [item.id, item]));
+            for (const suggestion of result.suggestions)
+              byId.set(suggestion.id, suggestion);
+            return [...byId.values()];
+          });
+          void suggestionsQuery.refetch();
+          awaitingReadback = true;
+          if (await refreshSuggestionDecisionDocument(continueSuggesting)) {
+            awaitingReadback = false;
+            setPendingProposalDecision(null);
+          }
+        } catch (error) {
+          void suggestionsQuery.refetch();
+          toast.error(t("empty.genericError"), {
+            description: actionErrorMessage(error) ?? t("empty.genericError"),
+          });
+        } finally {
+          if (!awaitingReadback) setPendingProposalDecision(null);
+          proposalDecisionInFlightRef.current = false;
+        }
+      }}
       onDecideSuggestion={async (suggestion, decision) => {
         if (
           suggestionDecisionInFlightRef.current ||
+          proposalDecisionInFlightRef.current ||
           pendingSuggestionDecision ||
+          pendingProposalDecision ||
           decideSuggestion.isPending ||
+          decideSuggestionProposal.isPending ||
           isSubmittingSuggestions
         )
           return;
@@ -5821,6 +6113,8 @@ function PageEditorSessionBody({
       commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
+      surface={surface}
+      onClose={surface === "popover" ? handleEditorEscape : undefined}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -5883,11 +6177,38 @@ function PageEditorSessionBody({
       >
         <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
           <h2
-            className="text-sm font-semibold"
+            className="sr-only"
             aria-hidden={!hasUtilityRailSpace || undefined}
           >
             {utilityPanelTitle}
           </h2>
+          <div
+            role="tablist"
+            aria-label={t("comments.panelTabs")}
+            className="flex h-full items-stretch gap-5"
+            data-utility-panel-tabs
+          >
+            {(["comments", "info"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panel === tab}
+                onClick={() => {
+                  if (panel !== tab) handleUtilityPanelChange(tab);
+                }}
+                className={cn(
+                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
+                  panel === tab && "text-foreground after:bg-foreground",
+                )}
+              >
+                {tab === "comments"
+                  ? t("comments.title")
+                  : t("editor.toolbar.info")}
+              </button>
+            ))}
+          </div>
           {panel === "comments" ? (
             <button
               type="button"
@@ -5909,6 +6230,7 @@ function PageEditorSessionBody({
           ) : null}
           {hasUtilityRailSpace || inSheet ? (
             <button
+              ref={inSheet ? utilityPanelSheetCloseRef : undefined}
               type="button"
               className={cn(
                 "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -5963,6 +6285,10 @@ function PageEditorSessionBody({
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
+          // React bubbles portal clicks (the @ menu, emoji picker, model menu)
+          // through this tree even though they render outside it. Those are
+          // interactions with an open comment, not clicks on the page.
+          if (target && !event.currentTarget.contains(target)) return;
           const commentHighlight = target?.closest("[data-comment-thread]");
           const threadId = commentHighlight?.getAttribute(
             "data-comment-thread",
@@ -6045,6 +6371,7 @@ function PageEditorSessionBody({
             commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
+            commentsTriggerRef={commentsHistoryTriggerRef}
             onOpenBreadcrumbItem={
               host === "page" ? handleOpenToolbarBreadcrumb : undefined
             }
@@ -6428,15 +6755,23 @@ function PageEditorSessionBody({
                             </div>
                           ) : null}
                           {decisionRefreshFailed &&
-                          pendingSuggestionDecision ? (
+                          (pendingSuggestionDecision ||
+                            pendingProposalDecision) ? (
                             <div role="alert">
                               <QueryErrorState
                                 compact
-                                onRetry={() =>
+                                onRetry={() => {
+                                  const continueSuggesting =
+                                    pendingSuggestionDecision?.continueSuggesting ??
+                                    pendingProposalDecision?.continueSuggesting ??
+                                    false;
                                   void refreshSuggestionDecisionDocument(
-                                    pendingSuggestionDecision.continueSuggesting,
-                                  )
-                                }
+                                    continueSuggesting,
+                                  ).then((recovered) => {
+                                    if (recovered)
+                                      setPendingProposalDecision(null);
+                                  });
+                                }}
                               />
                             </div>
                           ) : null}
@@ -6520,7 +6855,8 @@ function PageEditorSessionBody({
                               suggestionEditorIsolation.editable &&
                               !isStartingSuggestion &&
                               !isSubmittingSuggestions &&
-                              !pendingSuggestionDecision
+                              !pendingSuggestionDecision &&
+                              !pendingProposalDecision
                             }
                             suggesting={isSuggesting}
                             localFileMode={isLocalFileDocument}
@@ -6528,7 +6864,7 @@ function PageEditorSessionBody({
                               isLocalFileDocument ? document.source?.path : null
                             }
                             onComment={canComment ? handleComment : undefined}
-                            commentThreads={threads ?? []}
+                            commentThreads={editorCommentThreads}
                             activeThreadId={selectedThreadId}
                             hoveredThreadId={hoveredThreadId}
                             pendingHighlight={pendingComment?.range ?? null}
@@ -6684,6 +7020,8 @@ function PageEditorSessionBody({
                     {renderCommentsSidebar(
                       pendingComment ? "__pending-only__" : selectedThreadId,
                       false,
+                      "inline",
+                      "popover",
                     )}
                   </div>
                 </aside>
@@ -6716,11 +7054,10 @@ function PageEditorSessionBody({
         </aside>
 
         <Sheet
+          modal
           open={showUtilityPanelSheet}
           onOpenChange={(open) => {
-            if (!open) {
-              handleUtilityPanelChange(null);
-            }
+            if (!open) handleUtilityPanelChange(null);
           }}
         >
           <SheetContent
@@ -6728,12 +7065,38 @@ function PageEditorSessionBody({
             side="right"
             inert={!showUtilityPanelSheet || undefined}
             onOpenAutoFocus={(event) => {
-              if (hasFocusedCommentReply) event.preventDefault();
+              const activeElement = globalThis.document.activeElement;
+              if (
+                !utilityPanelSheetTriggerRef.current &&
+                activeElement instanceof HTMLElement &&
+                activeElement !== globalThis.document.body &&
+                !utilityPanelSheetContainer?.contains(activeElement)
+              ) {
+                utilityPanelSheetTriggerRef.current = activeElement;
+              }
+              event.preventDefault();
+              const focusedReply = hasFocusedCommentReply
+                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
+                    "[data-comment-reply-composer] [contenteditable=true]",
+                  )
+                : null;
+              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
             }}
             onCloseAutoFocus={(event) => {
-              if (hasInlineCommentSpace && hasFocusedCommentReply) {
-                event.preventDefault();
-              }
+              event.preventDefault();
+              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
+              const focusGeneration = utilityPanelFocusGenerationRef.current;
+              const restoreTarget = utilityPanelSheetTriggerRef.current;
+              const fallbackTarget = commentsHistoryTriggerRef.current;
+              globalThis.setTimeout(() => {
+                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
+                  return;
+                (restoreTarget?.isConnected
+                  ? restoreTarget
+                  : fallbackTarget
+                )?.focus();
+                utilityPanelSheetTriggerRef.current = null;
+              }, 0);
             }}
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}

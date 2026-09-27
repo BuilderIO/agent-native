@@ -71,6 +71,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub, Vercel, Dependabot의 봇 및 CI 알림",
       aiSetupFilteredExample: "답장하지 않은 영업 메일과 채용 담당자 메시지",
       aiSetupSortingHeadline: "받은편지함을 정리하고 있어요",
+      aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
@@ -163,6 +164,7 @@ const messages = {
       deleteDraft: "초안 삭제",
       deleteDrafts: "초안 삭제",
       reopenDraft: "다시 열기",
+      openInMail: "Mail에서 열기",
       discardDraft: "초안 버리기",
       enterLinkUrl: "링크 URL을 입력하세요.",
       forward: "Forward",
@@ -572,6 +574,7 @@ const messages = {
       settingsFailed: "AI 필터 설정을 저장하지 못했습니다.",
       automationRulesLoadFailed: "분류 규칙을 불러오지 못했습니다.",
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
+      autoArchiveMode: "자동 보관",
       skipInboxMode: "받은편지함 건너뛰기",
       spamMode: "스팸",
       tagMode: "태그",
@@ -591,6 +594,9 @@ const messages = {
       askJevPrompt:
         "이 Mail 규칙을 다듬어 주세요: {{condition}}. 무엇을 바꾸고 싶은지 물어본 다음 업데이트해 주세요.",
       composerPlaceholder: "Jev에게 받은편지함 정리를 요청하세요…",
+      chatSuggestionFilter: "이런 메시지 필터링",
+      chatSuggestionPriority: "다음 발신자의 이메일 우선순위 지정…",
+      chatSuggestionArchive: "봇 알림 자동 보관",
       ruleBackfillStarting: "이 규칙을 최근 메일에 적용하고 있어요…",
       ruleBackfillProgress:
         "최근 메일에 적용 중: {{total}}개 중 {{processed}}개",
@@ -703,6 +709,9 @@ const messages = {
     suggestionSummarize: "읽지 않은 이메일 요약하기",
     suggestionReplies: "오늘 답장해야 할 것은 무엇인가요?",
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
+    ruleSuggestionFilter: "이런 메시지 필터링하기",
+    ruleSuggestionImportant: "상사의 이메일 우선 처리하기",
+    ruleSuggestionArchive: "봇 알림 자동 보관하기",
   },
   settings: {
     openAgentSettings: "에이전트 관리",

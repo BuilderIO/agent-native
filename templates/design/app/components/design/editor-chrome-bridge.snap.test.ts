@@ -146,6 +146,36 @@ function loadPureBridgeFn<T>(name: string, dependencies: string[] = []): T {
   return factory() as T;
 }
 
+function loadRememberUserFocusedElement() {
+  const source = extractFunction(
+    loadEditorChromeBridgeScript(),
+    "rememberUserFocusedElement",
+  );
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(`
+    var userFocusedElement = null;
+    var trustedFocusIntent = null;
+    function getCanvasFocusTarget(event) { return event.target; }
+    ${source}
+    return {
+      remember: rememberUserFocusedElement,
+      setFocused: function (element) { userFocusedElement = element; },
+      focused: function () { return userFocusedElement; },
+      setIntent: function (intent) { trustedFocusIntent = intent; },
+    };
+  `);
+  return factory() as {
+    remember: (event: Pick<FocusEvent, "target" | "composedPath">) => void;
+    setFocused: (element: Element | null) => void;
+    focused: () => Element | null;
+    setIntent: (intent: {
+      target: Element | null;
+      kind: "pointer" | "tab" | "activation";
+      expiresAt: number;
+    }) => void;
+  };
+}
+
 interface DragTargetArgs {
   selectedEl: unknown;
   selectedAlive: boolean;
@@ -192,6 +222,36 @@ const radiusDragMaximums =
       height: number,
     ) => { x: number; y: number }
   >("radiusDragMaximums");
+
+describe("editor-chrome bridge — focus ownership", () => {
+  it("does not treat programmatic refocus as user intent", () => {
+    const input = {} as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setFocused(input);
+
+    focusTracker.remember({ target: input, composedPath: () => [input] });
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("matches trusted pointer focus through shadow-DOM retargeting", () => {
+    const shadowInput = {} as Element;
+    const shadowHost = {} as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: shadowInput,
+      kind: "pointer",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: shadowHost,
+      composedPath: () => [shadowInput, shadowHost],
+    });
+
+    expect(focusTracker.focused()).toBe(shadowHost);
+  });
+});
 
 describe("editor-chrome bridge — resize transform preservation", () => {
   it("preserves authored transforms until a relative mirror is required", () => {

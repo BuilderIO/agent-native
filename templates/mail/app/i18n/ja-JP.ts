@@ -72,6 +72,7 @@ const messages = {
         "GitHub、Vercel、Dependabot のボット通知と CI 通知",
       aiSetupFilteredExample: "返信していない営業メールや採用担当者からの連絡",
       aiSetupSortingHeadline: "受信トレイを整理しています",
+      aiSetupFindingRecentMail: "最近のメールを検索しています…",
       aiSetupSortingProgress:
         "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
       aiSetupUndoing: "受信トレイの変更を取り消しています…",
@@ -167,6 +168,7 @@ const messages = {
       deleteDraft: "下書きを削除",
       deleteDrafts: "下書きを削除",
       reopenDraft: "再度開く",
+      openInMail: "Mailで開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",
@@ -577,6 +579,7 @@ const messages = {
       settingsFailed: "AI フィルターの設定を保存できませんでした。",
       automationRulesLoadFailed: "トリアージルールを読み込めませんでした。",
       instructionFailed: "AI フィルターの指示を保存できませんでした。",
+      autoArchiveMode: "自動アーカイブ",
       skipInboxMode: "受信トレイをスキップ",
       spamMode: "スパム",
       tagMode: "タグ",
@@ -596,6 +599,9 @@ const messages = {
       askJevPrompt:
         "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
       composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      chatSuggestionFilter: "このようなメッセージをフィルタする",
+      chatSuggestionPriority: "次の差出人のメールを優先…",
+      chatSuggestionArchive: "ボット通知を自動でアーカイブ",
       ruleBackfillStarting: "このルールを最近のメールに適用しています…",
       ruleBackfillProgress:
         "最近のメールに適用中：{{total}} 件中 {{processed}} 件",
@@ -710,6 +716,9 @@ const messages = {
     suggestionSummarize: "未読メールを要約して",
     suggestionReplies: "今日返信が必要なものは？",
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
+    ruleSuggestionFilter: "このようなメールを除外する",
+    ruleSuggestionImportant: "上司からのメールを優先する",
+    ruleSuggestionArchive: "ボット通知を自動でアーカイブする",
   },
   settings: {
     openAgentSettings: "エージェントを管理",

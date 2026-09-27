@@ -1,8 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
-import {
-  availableEmbeddingFamilies,
-  defaultEmbeddingFamily,
-} from "@agent-native/core/embeddings";
+import { readEmbeddingFamilyAvailability } from "@agent-native/core/embeddings";
 import {
   queryPgVectorIndex,
   queryPostgresFts,
@@ -17,7 +14,10 @@ import type {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
-import { BRAIN_SEARCH_INDEX_VERSION } from "./search-index-contracts.js";
+import {
+  BRAIN_SEARCH_INDEX_VERSION,
+  selectBrainEmbeddingFamily,
+} from "./search-index-contracts.js";
 
 export interface HybridCandidate {
   id: string;
@@ -205,7 +205,10 @@ export async function hybridSearchArtifacts(input: {
       ftsRanks = new Map();
     }
     try {
-      const family = defaultEmbeddingFamily(await availableEmbeddingFamilies());
+      const availability = await readEmbeddingFamilyAvailability();
+      const family = availability.unavailableProviders.includes("builder")
+        ? null
+        : selectBrainEmbeddingFamily(availability.families);
       if (family) {
         const [queryVector] = await family.embed(
           [{ text: input.query }],

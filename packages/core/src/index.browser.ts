@@ -136,7 +136,12 @@ export {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  type ActionChange,
+  type ActionChangeResult,
+  type ActionChangeUndo,
+  type ActionChangeVerb,
   type ActionChatUIConfig,
 } from "./action-ui.js";
 export {

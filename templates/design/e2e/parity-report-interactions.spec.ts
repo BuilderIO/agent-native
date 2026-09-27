@@ -23,7 +23,7 @@ const SCREEN_HTML = `<!doctype html>
     <div data-agent-native-node-id="nested-frame" data-agent-native-layer-name="Nested frame" data-an-primitive="frame"
          style="position:absolute;left:120px;top:90px;width:280px;height:220px;box-sizing:border-box;background:#bfdbfe">
       <div data-agent-native-node-id="nested-anchor" data-agent-native-layer-name="Existing child"
-         style="position:absolute;left:16px;top:16px;width:80px;height:40px;background:#2563eb"></div>
+         style="position:absolute;left:16px;top:140px;width:80px;height:40px;background:#2563eb"></div>
     </div>
     <div data-agent-native-node-id="auto-frame" data-agent-native-layer-name="Auto frame"
          style="position:absolute;left:120px;top:330px;width:280px;height:70px;box-sizing:border-box;display:flex;flex-direction:row;gap:12px;padding:12px;background:#bfdbfe">
@@ -366,7 +366,7 @@ test("report path: board frame drops directly into a nested screen frame and sur
           timeout: 20_000,
         },
       )
-      .toContain("board-source");
+      .toEqual(["nested-anchor", "board-source"]);
     await expect
       .poll(() => fileContent(request, designId, "__board__.html"), {
         timeout: 20_000,
@@ -407,10 +407,15 @@ test("report path: board frame drops directly into a nested screen frame and sur
       })
       .toContain('data-agent-native-node-id="board-source"');
     await expect
-      .poll(() => fileContent(request, designId, "index.html"), {
-        timeout: 20_000,
-      })
-      .not.toContain('data-agent-native-node-id="board-source"');
+      .poll(
+        async () =>
+          childNodeIds(
+            await fileContent(request, designId, "index.html"),
+            "nested-frame",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["nested-anchor"]);
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
@@ -424,7 +429,7 @@ test("report path: board frame drops directly into a nested screen frame and sur
           timeout: 20_000,
         },
       )
-      .toContain("board-source");
+      .toEqual(["nested-anchor", "board-source"]);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect
       .poll(
@@ -435,7 +440,7 @@ test("report path: board frame drops directly into a nested screen frame and sur
           ),
         { timeout: 20_000 },
       )
-      .toContain("board-source");
+      .toEqual(["nested-anchor", "board-source"]);
     await expect(
       page
         .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")

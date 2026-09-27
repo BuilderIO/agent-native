@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   agentChat: {
     setup: {
       checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
@@ -561,6 +562,9 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
+    redactionsPendingBody:
+      "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
     publicDescription:
       "लिंक वाला कोई भी व्यक्ति देख सकता है - टिप्पणी करने या प्रतिक्रिया देने के लिए साइन इन करें",
     shareRecording: "रिकॉर्डिंग साझा करें",
@@ -616,9 +620,6 @@ const messages = {
     customizeEmbed: "एम्बेड अनुकूलित करें",
     more: "अधिक",
     sharePlainTitle: "{{title}} साझा करें",
-    redactionsPendingBody:
-      "इस रिकॉर्डिंग पर {{count}} रिडैक्शन खींचे गए हैं पर वीडियो में लागू नहीं हुए हैं, इसलिए फ़ाइल में उनके नीचे का सब कुछ अब भी दिखता है। संपादक खोलें, उन्हें लागू करें, और साझा करना फिर से चालू हो जाएगा।",
-    redactionsPendingTitle: "पहले रिडैक्शन पूरे करें",
   },
   shareUi: {
     owner: "स्वामी: {{email}}",

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.193.0",
+  "version": "0.194.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -117,6 +117,7 @@
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./db/drizzle-migrations": "./dist/db/drizzle-migrations.js",
     "./client": "./dist/client/index.js",
+    "./client/chat-errors": "./dist/client/chat-errors.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/assistant-chat-history-version": "./dist/client/chat/assistant-chat-history-version.js",
     "./client/agentkit-chat": "./dist/client/agentkit-chat/index.js",
@@ -307,6 +308,9 @@
     "./review/actions/set-review-threads-unread": "./dist/review/actions/set-review-threads-unread.js",
     "./review/actions/set-review-thread-muted": "./dist/review/actions/set-review-thread-muted.js",
     "./review/suggestions/actions/create-resource-suggestion": "./dist/review/suggestions/actions/create-resource-suggestion.js",
+    "./review/suggestions/actions/create-resource-suggestion-proposal": "./dist/review/suggestions/actions/create-resource-suggestion-proposal.js",
+    "./review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key": "./dist/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key.js",
+    "./review/suggestions/actions/decide-resource-suggestion-proposal": "./dist/review/suggestions/actions/decide-resource-suggestion-proposal.js",
     "./review/suggestions/actions/update-resource-suggestion": "./dist/review/suggestions/actions/update-resource-suggestion.js",
     "./review/suggestions/actions/list-resource-suggestions": "./dist/review/suggestions/actions/list-resource-suggestions.js",
     "./review/suggestions/actions/get-resource-suggestion": "./dist/review/suggestions/actions/get-resource-suggestion.js",

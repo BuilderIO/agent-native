@@ -73,6 +73,7 @@ const messages = {
       aiSetupFilteredExample:
         "رسائل المبيعات غير المرغوبة والمجندون الذين لم أرد عليهم",
       aiSetupSortingHeadline: "جارٍ تنظيم صندوق الوارد",
+      aiSetupFindingRecentMail: "جارٍ العثور على الرسائل الحديثة…",
       aiSetupSortingProgress:
         "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
       aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
@@ -165,6 +166,7 @@ const messages = {
       deleteDraft: "حذف المسودة",
       deleteDrafts: "حذف المسودات",
       reopenDraft: "إعادة فتح",
+      openInMail: "فتح في Mail",
       discardDraft: "تجاهل المسودة",
       enterLinkUrl: "أدخل عنوان URL للرابط.",
       forward: "Forward",
@@ -572,6 +574,7 @@ const messages = {
       settingsFailed: "تعذّر حفظ إعدادات فلتر الذكاء الاصطناعي.",
       automationRulesLoadFailed: "تعذّر تحميل قواعد الفرز.",
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
+      autoArchiveMode: "أرشفة تلقائية",
       skipInboxMode: "تجاوز صندوق الوارد",
       spamMode: "مزعج",
       tagMode: "وسم",
@@ -591,6 +594,9 @@ const messages = {
       askJevPrompt:
         "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
       composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      chatSuggestionFilter: "صفِّ الرسائل المشابهة لهذه",
+      chatSuggestionPriority: "أعطِ الأولوية لرسائل من…",
+      chatSuggestionArchive: "أرشف إشعارات الروبوتات تلقائيًا",
       ruleBackfillStarting: "جارٍ تطبيق هذه القاعدة على البريد الحديث…",
       ruleBackfillProgress:
         "جارٍ التطبيق على البريد الحديث: {{processed}} من {{total}}",
@@ -702,6 +708,9 @@ const messages = {
     suggestionSummarize: "لخص رسائلي غير المقروءة",
     suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
+    ruleSuggestionFilter: "تصفية الرسائل المشابهة لهذه",
+    ruleSuggestionImportant: "إعطاء الأولوية لرسائل مديري",
+    ruleSuggestionArchive: "أرشفة إشعارات الروبوتات تلقائيًا",
   },
   settings: {
     openAgentSettings: "إدارة الوكيل",

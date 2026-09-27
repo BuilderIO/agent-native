@@ -21,6 +21,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
+  "activity.groupLabel": "에이전트 활동",
+  "activity.agents": "에이전트 협업",
+  "activity.tasks": "에이전트 작업",
+  "agent.started": "작업을 시작했습니다",
+  "agent.resumed": "작업을 재개했습니다",
+  "agent.messaged": "메시지를 보냈습니다",
+  "agent.delegated": "작업을 위임했습니다",
+  "agent.paused": "작업을 일시 중지했습니다",
+  "agent.completed": "작업을 완료했습니다",
+  "agent.failed": "주의가 필요합니다",
+  "agent.closed": "종료했습니다",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
     "이 명령과 정확히 일치하는 명령을 승인하고 항상 허용합니다",
@@ -30,8 +41,16 @@ const messages: AgentChatTranslation = {
   "approval.approved": "승인했습니다. {{tool}}을(를) 다시 실행하는 중...",
   "approval.denied": "거부했습니다. {{tool}}이(가) 실행되지 않았습니다.",
   "approval.deny": "거부",
+  "approval.action": "요청한 작업",
   "approval.moreOptions": "추가 승인 옵션",
   "approval.question": "{{tool}} 실행을 승인하시겠습니까?",
+  "approval.edit": "수정",
+  "approval.editPrompt":
+    "다시 시도하기 전에 이 작업을 어떻게 바꾸고 싶은지 물어봐 주세요.",
+  "approval.pending": "승인 필요",
+  "approval.submit": "제출",
+  "approval.other": "기타",
+  "approval.otherPlaceholder": "답변을 입력하세요",
   "auth.expiredDescription":
     "세션이 만료되었을 수 있습니다. 다시 연결하려면 로그아웃한 후 다시 로그인하세요.",
   "auth.expiredTitle": "세션이 만료되었습니다",
@@ -61,6 +80,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "캡처되지 않음",
   "observability.openFullConversation": "전체 대화 열기",
   "observability.learnAboutTab": "이 탭 알아보기",
+  "observability.summarizeWithAgent": "에이전트로 요약",
+  "observability.regenerateSummary": "요약 다시 생성",
+  "observability.summarizeWithAgentHelp":
+    "에이전트가 이 스레드를 읽고 요청과 결과를 요약하며 검증된 아티팩트만 링크하도록 요청합니다.",
+  "observability.regenerateSummaryHelp":
+    "최신 스레드와 검증된 아티팩트를 바탕으로 에이전트에게 이 요약을 새로 작성하도록 요청합니다.",
+  "observability.summarySending": "에이전트에 요청을 보내는 중…",
+  "observability.summaryQueued":
+    "요청이 대기열에 추가되었습니다. 에이전트가 요약을 저장하면 여기에 표시됩니다.",
+  "observability.summaryFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
+  "observability.summaryExpired":
+    "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",
@@ -150,6 +181,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
   "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
+  "common.you": "사용자",
   "agentPanel.mode": "모드",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "키 범위",
@@ -474,6 +506,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "무엇을 도와드릴까요?",
   "error.afterDuration": "{{duration}} 후 {{headline}}",
   "error.failed": "에이전트에서 오류가 발생했습니다",
+  "error.render": "이 콘텐츠를 표시할 수 없습니다.",
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
     "에이전트 연결이 중단되었습니다. 연결을 확인한 후 다시 시도하세요.",
@@ -545,6 +578,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "관리",
   "integrations.recommended": "추천",
   "integrations.subtitle": "에이전트가 사용할 수 있는 도구를 연결하세요.",
+  "connection.connecting": "연결 중…",
+  "connection.notNow": "지금은 안 함",
+  "connection.failed": "연결 실패",
+  "connection.adminRequired":
+    "이 서비스를 연결하려면 워크스페이스 관리자에게 요청하세요.",
   "limit.account": "계정",
   "limit.descriptionAll":
     "에이전트가 사용 가능한 모든 단계를 소진했습니다. 새 차례에서 계속하거나 먼저 {{scope}} 한도를 높이세요.",
@@ -563,8 +601,14 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "메시지 복사",
   "message.copyRequestId": "요청 ID 복사",
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
+  "message.unavailable":
+    "이 대화에서 해당 메시지를 더 이상 사용할 수 없습니다.",
+  "message.navigationUnavailable": "대화 탐색을 사용할 수 없습니다.",
   "message.edit": "메시지 편집",
   "message.forkChat": "채팅 분기",
+  "message.mobileInteractiveTitle": "인터랙티브 콘텐츠",
+  "message.mobileInteractiveDescription":
+    "이 인터랙티브 뷰는 웹 채팅에서 사용할 수 있지만, 아직 네이티브 채팅에서는 사용할 수 없습니다.",
   "message.missingFinal":
     "에이전트가 최종 메시지를 보내지 않고 중지되었습니다. 계속하도록 요청하거나 다시 시도하세요.",
   "message.messages": "메시지",
@@ -648,6 +692,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "계획 준비 완료",
   "plan.switchToAct": "실행 모드로 전환",
   "queue.count": "{{count}}개 대기 중",
+  "queue.label": "대기 중인 메시지",
   "queue.followUp": "후속 메시지 보내기...",
   "queue.followUpWithCount": "{{count}}개 대기 중 — 후속 메시지 보내기...",
   "queue.remove": "대기열에서 제거",
@@ -660,6 +705,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io에 연결 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.deferredSubmissionFailed":
+    "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":
     "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
   "codeRequired.builderAgentNotConnected":
@@ -675,6 +722,12 @@ const messages: AgentChatTranslation = {
     "이전 백그라운드 에이전트 실행이 완료 전에 시간 제한에 도달했습니다. 부분 작업은 보존되었습니다. 여기서 계속하거나 다시 시도하세요.",
   "recovery.noProgress":
     "이전 에이전트 실행이 복구 중 진행 상황을 더 이상 표시하지 않아 반복 실행을 계속하기 전에 중지되었습니다.",
+  "recovery.stuckTitle": "이 채팅이 멈춘 것 같습니다.",
+  "recovery.stuckNoProgress":
+    "진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
+  "recovery.stuckWithDuration":
+    "{{seconds}}초 동안 진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
+  "recovery.stuckRetrying": "자동으로 다시 시도하는 중입니다.",
   "recovery.statusCheckFailed":
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
@@ -773,6 +826,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "조직 내 모든 사용자가 볼 수 있음",
   "share.owner": "소유자",
   "share.peopleWithAccess": "접근 권한이 있는 사용자",
+  "share.people": "사람",
+  "share.agents": "에이전트",
   "share.private": "비공개",
   "share.privateDescription": "접근 권한이 있는 사용자만 볼 수 있음",
   "share.public": "공개",
@@ -794,6 +849,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
   "status.working": "작업 중",
+  "status.workingFor": "{{duration}} 동안 작업 중",
   "shell.chat": "채팅",
   "shell.loadingTerminal": "터미널 불러오는 중...",
   "shell.toggleAgent": "에이전트 표시 전환",
@@ -840,6 +896,24 @@ const messages: AgentChatTranslation = {
   "widget.downloadCsv": "CSV 다운로드",
   "widget.connectProvider": "{{provider}} 연결",
   "widget.loadingToolResult": "도구 결과를 불러오는 중",
+  "widget.actionOpen": "열기",
+  "widget.actionReview": "검토",
+  "widget.actionUndo": "실행 취소",
+  "widget.actionUndoing": "실행 취소 중…",
+  "widget.actionUndoFailed": "실행 취소 실패",
+  "widget.actionUndoUnknown": "실행 취소 상태를 확인할 수 없음",
+  "widget.actionChanges": "{{count}}개 변경사항",
+  "widget.actionChanges_one": "{{count}}개 변경사항",
+  "widget.actionChanges_other": "{{count}}개 변경사항",
+  "widget.actionStatus.created": "생성됨",
+  "widget.actionStatus.draft": "초안",
+  "widget.actionStatus.updated": "업데이트됨",
+  "widget.actionStatus.deleted": "삭제됨",
+  "widget.actionStatus.sent": "전송됨",
+  "widget.actionStatus.scheduled": "예약됨",
+  "widget.actionStatus.enabled": "사용 설정됨",
+  "widget.actionStatus.disabled": "사용 중지됨",
+  "widget.actionStatus.undone": "실행 취소됨",
   "widget.noRows": "행 없음",
   "widget.points": "포인트 {{formattedCount}}개",
   "widget.points_other": "포인트 {{formattedCount}}개",

@@ -19,7 +19,13 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import type { APIResponse, Browser, Page } from "playwright";
+import type {
+  APIResponse,
+  Browser,
+  Locator,
+  Page,
+  Request as PlaywrightRequest,
+} from "playwright";
 
 import {
   MISSING_BROWSER_HINT,
@@ -67,6 +73,22 @@ const approvalActionFixture = path.join(
   repoRoot,
   "scripts/fixtures/agentkit-acceptance/accept-agentkit-release.ts",
 );
+const acceptanceActionFixtures = [
+  { name: "accept-agentkit-release", source: approvalActionFixture },
+  ...[
+    "manage-draft",
+    "manage-gmail-filters",
+    "response-insights",
+    "query-agent-native-analytics",
+    "create-event",
+  ].map((name) => ({
+    name,
+    source: path.join(
+      repoRoot,
+      `scripts/fixtures/agentkit-acceptance/${name}.ts`,
+    ),
+  })),
+];
 const acceptanceTransportFixture = path.join(
   repoRoot,
   "scripts/fixtures/agentkit-acceptance/transport.ts",
@@ -213,17 +235,16 @@ function scaffoldStandaloneChat(): void {
   assert.equal(fs.existsSync(path.join(appDir, "package.json")), true);
 }
 
-function installApprovalActionFixture(): void {
-  assert.equal(fs.existsSync(approvalActionFixture), true);
-  fs.copyFileSync(
-    approvalActionFixture,
-    path.join(appDir, "actions/accept-agentkit-release.ts"),
-  );
-
+function installAgentKitActionFixtures(): void {
+  for (const fixture of acceptanceActionFixtures) {
+    assert.equal(fs.existsSync(fixture.source), true);
+    fs.copyFileSync(
+      fixture.source,
+      path.join(appDir, "actions", `${fixture.name}.ts`),
+    );
+  }
   const agentChatPluginPath = path.join(appDir, "server/plugins/agent-chat.ts");
-  const source = fs.readFileSync(agentChatPluginPath, "utf8");
-  if (source.includes('"accept-agentkit-release"')) return;
-
+  let source = fs.readFileSync(agentChatPluginPath, "utf8");
   const initialToolsPattern = /const INITIAL_TOOL_NAMES = \[([\s\S]*?)\n\];/g;
   const initialToolsDeclarations = [...source.matchAll(initialToolsPattern)];
   assert.equal(
@@ -232,16 +253,21 @@ function installApprovalActionFixture(): void {
     "generated Chat app must expose the expected initial-tool declaration",
   );
   const initialToolsDeclaration = initialToolsDeclarations[0]![0];
-  fs.writeFileSync(
-    agentChatPluginPath,
-    source.replace(
-      initialToolsDeclaration,
-      initialToolsDeclaration.replace(
-        /\n\];$/,
-        '\n  "accept-agentkit-release",\n];',
-      ),
+  const declaredNames = new Set(
+    [...initialToolsDeclarations[0]![1].matchAll(/"([^"]+)"/gu)].map(
+      (match) => match[1],
     ),
   );
+  const missingNames = acceptanceActionFixtures
+    .map((fixture) => fixture.name)
+    .filter((name) => !declaredNames.has(name));
+  if (!missingNames.length) return;
+  const updatedDeclaration = initialToolsDeclaration.replace(
+    /\n\];$/u,
+    `${missingNames.map((name) => `\n  "${name}",`).join("")}\n];`,
+  );
+  source = source.replace(initialToolsDeclaration, updatedDeclaration);
+  fs.writeFileSync(agentChatPluginPath, source);
 }
 
 function installViteDiagnosticsFixture(): void {
@@ -935,6 +961,8 @@ interface BrowserNetworkState {
   allowInitialEphemeralThread404: boolean;
   allowExpectedIncompleteStreamFailure: boolean;
   navigationCancellationUntil: number;
+  inFlightRequests: Set<PlaywrightRequest>;
+  requestsInFlightAtPersistenceReload: Set<PlaywrightRequest>;
 }
 
 function isBenignHttpError(
@@ -1276,6 +1304,8 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
+const widgetPrompt =
+  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, and Calendar event in that order, then summarize them.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
 const rejectedSteerPrompt =
@@ -1288,6 +1318,51 @@ const incompleteRetryPrompt =
   "Fail this stream once, then recover cleanly when I retry.";
 const helloToolCallId = "call_agentkit_hello";
 const approvalToolCallId = "call_agentkit_approval";
+const widgetToolCalls: Array<{
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}> = [
+  {
+    id: "call_agentkit_widget_mail_draft",
+    name: "manage-draft",
+    arguments: {
+      action: "create",
+      subject: "AgentKit acceptance draft",
+      to: "agentkit-recipient@example.test",
+    },
+  },
+  {
+    id: "call_agentkit_widget_gmail_filter",
+    name: "manage-gmail-filters",
+    arguments: {
+      operation: "create",
+      sender: "digest@example.test",
+      label: "AgentKit Sample",
+    },
+  },
+  {
+    id: "call_agentkit_widget_forms_insights",
+    name: "response-insights",
+    arguments: { formId: "agentkit-sample-form" },
+  },
+  {
+    id: "call_agentkit_widget_analytics_table",
+    name: "query-agent-native-analytics",
+    arguments: { sql: "SELECT '/agentkit-acceptance' AS page, 12 AS views" },
+  },
+  {
+    id: "call_agentkit_widget_calendar_event",
+    name: "create-event",
+    arguments: {
+      title: "AgentKit acceptance event",
+      start: "2026-10-01T09:00:00-07:00",
+      end: "2026-10-01T09:30:00-07:00",
+      startTimeZone: "America/Los_Angeles",
+      location: "Conference room 4A",
+    },
+  },
+];
 
 interface LoopbackRequestRecord {
   prompt: string;
@@ -1299,6 +1374,9 @@ interface LoopbackProviderState {
   requests: LoopbackRequestRecord[];
   helloActionResults: string[];
   approvalActionResults: string[];
+  widgetToolCallIds: string[];
+  widgetActionResults: string[];
+  widgetRunCompleted: boolean;
   markdownChunks: number;
   markdownPartialReady: boolean;
   releaseMarkdownPartial: (() => void) | null;
@@ -1559,6 +1637,49 @@ async function handleLoopbackCompletion(
     return;
   }
 
+  if (prompt === widgetPrompt) {
+    for (const call of widgetToolCalls) {
+      assert.ok(
+        toolNames.includes(call.name),
+        `generated app must expose ${call.name}`,
+      );
+    }
+    const completedCallIds = toolResultIds.filter((id) =>
+      widgetToolCalls.some((call) => call.id === id),
+    );
+    assert.deepEqual(
+      completedCallIds,
+      widgetToolCalls.slice(0, completedCallIds.length).map((call) => call.id),
+      "sample widget actions must complete in the requested order",
+    );
+    const nextCall = widgetToolCalls[completedCallIds.length];
+    if (nextCall) {
+      state.widgetToolCallIds.push(nextCall.id);
+      await streamToolCallResponse(response, requestNumber, nextCall);
+      return;
+    }
+
+    state.widgetActionResults.push(
+      ...widgetToolCalls.map((call) => {
+        const result = toolResults.find(
+          (item) => item.tool_call_id === call.id,
+        );
+        assert.ok(result, `${call.name} must return a tool result`);
+        const text = contentText(result.content);
+        assert.ok(text, `${call.name} must return sample data`);
+        return text;
+      }),
+    );
+    await streamTextResponse(
+      response,
+      requestNumber,
+      ["All five local sample widgets are ready."],
+      state,
+    );
+    state.widgetRunCompleted = true;
+    return;
+  }
+
   if (prompt === queuedPrompt) {
     state.queuedPromptSeen = true;
     await streamTextResponse(
@@ -1621,6 +1742,9 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     requests: [],
     helloActionResults: [],
     approvalActionResults: [],
+    widgetToolCallIds: [],
+    widgetActionResults: [],
+    widgetRunCompleted: false,
     markdownChunks: 0,
     markdownPartialReady: false,
     releaseMarkdownPartial: null,
@@ -2052,6 +2176,135 @@ async function readPersistedFeedback(
   });
 }
 
+async function assertActionWidgetOutsideActivity(
+  page: Page,
+  text: string,
+): Promise<Locator> {
+  const target = page.getByText(text, { exact: true }).first();
+  await target.waitFor({ state: "visible" });
+  assert.equal(
+    await target.evaluate((element) =>
+      element.closest(".agentkit-message")?.getAttribute("data-role"),
+    ),
+    "assistant",
+    `${text} must remain attached to its assistant message`,
+  );
+  assert.equal(
+    await target.evaluate((element) =>
+      Boolean(element.closest(".agentkit-activities")),
+    ),
+    false,
+    `${text} must render outside the activity rollup`,
+  );
+  return target;
+}
+
+async function assertActivitiesCollapsed(
+  page: Page,
+  requireActivity = true,
+): Promise<void> {
+  const activities = page.locator(".agentkit-activities");
+  const count = await activities.count();
+  if (requireActivity) {
+    assert.ok(count, "completed tool activity must be visible");
+  }
+  if (count === 0) return;
+  assert.equal(
+    await activities.evaluateAll((items) =>
+      items.some((item) => (item as HTMLDetailsElement).open),
+    ),
+    false,
+    "completed activity rollups must stay collapsed while widgets are visible",
+  );
+}
+
+async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
+  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
+  const draftCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "AgentKit acceptance draft" });
+  await draftCard.waitFor({ state: "visible" });
+  await draftCard
+    .getByText("agentkit-recipient@example.test", { exact: false })
+    .waitFor({ state: "visible" });
+  const draftLink = draftCard.getByRole("link", {
+    name: "Review",
+    exact: true,
+  });
+  await draftLink.waitFor({ state: "visible" });
+  assert.equal(
+    new URL((await draftLink.getAttribute("href")) ?? "", page.url()).pathname,
+    "/_agent-native/open",
+    "the draft widget must keep its Review link",
+  );
+  await draftCard.getByText("Draft", { exact: true }).waitFor({
+    state: "visible",
+  });
+
+  await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
+  const filterCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "From: digest@example.test" });
+  await filterCard
+    .getByText("Apply label: AgentKit Sample", { exact: false })
+    .waitFor({ state: "visible" });
+  const filtersLink = page.locator('a[href^="https://mail.google.com/mail/"]');
+  await filtersLink.waitFor({ state: "visible" });
+  const filtersUrl = new URL((await filtersLink.getAttribute("href")) ?? "");
+  assert.equal(filtersUrl.hash, "#settings/filters");
+
+  await assertActionWidgetOutsideActivity(
+    page,
+    "AgentKit sample form insights",
+  );
+  await page
+    .getByRole("cell", { name: "AgentKit acceptance", exact: true })
+    .waitFor({ state: "visible" });
+
+  await assertActionWidgetOutsideActivity(page, "Sample analytics table");
+  await page
+    .getByRole("cell", { name: "/agentkit-acceptance", exact: true })
+    .waitFor({ state: "visible" });
+
+  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
+  const eventCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "AgentKit acceptance event" });
+  await eventCard.getByText("Created", { exact: true }).waitFor({
+    state: "visible",
+  });
+  await eventCard.getByText("Conference room 4A", { exact: false }).waitFor({
+    state: "visible",
+  });
+}
+
+async function screenshotActionWidget(
+  page: Page,
+  text: string,
+  outputPath: string,
+): Promise<void> {
+  const target = page.getByText(text, { exact: true }).first();
+  await target.waitFor({ state: "visible" });
+  await target.scrollIntoViewIfNeeded();
+  const rootHandle = await target.evaluateHandle((element) => {
+    const actionCard = element.closest("[data-action-card]");
+    if (actionCard) return actionCard;
+    const customSurface = element.closest("[data-agent-native-custom-ui]");
+    if (customSurface) return customSurface;
+    const messageContent = element.closest(".agentkit-message-content");
+    if (!messageContent) return element;
+    let root = element as HTMLElement;
+    while (root.parentElement && root.parentElement !== messageContent) {
+      root = root.parentElement;
+    }
+    return root;
+  });
+  const root = rootHandle.asElement();
+  assert.ok(root, `${text} must have a screenshot target`);
+  await root.screenshot({ path: outputPath });
+  await rootHandle.dispose();
+}
+
 async function assertAgentKitChatAcceptance(
   page: Page,
   provider: LoopbackProviderState,
@@ -2153,6 +2406,7 @@ async function assertAgentKitChatAcceptance(
     .locator(".agentkit-activity-label")
     .filter({ hasText: /^Hello$/u })
     .waitFor({ state: "visible" });
+  await helloActivity.click();
   await waitForLoopbackState(
     "the real hello action result",
     () => provider.helloActionResults.length === 1,
@@ -2199,7 +2453,7 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await helloMessage.getByRole("button", { name: "Message actions" }).click();
-  await helloMessage.getByRole("button", { name: "Fork conversation" }).click();
+  await page.getByRole("menuitem", { name: "Fork conversation" }).click();
   await Promise.race([
     page.waitForURL(
       (url) => url.pathname !== threadPath && url.pathname.startsWith("/chat/"),
@@ -2273,6 +2527,33 @@ async function assertAgentKitChatAcceptance(
     .last()
     .waitFor({ state: "visible" });
   await approval.waitFor({ state: "detached" });
+  const releaseCard = page.getByText("Release accepted", { exact: true });
+  await releaseCard.waitFor({ state: "visible" });
+  assert.equal(
+    await releaseCard.evaluate((element) =>
+      element.closest(".agentkit-message")?.getAttribute("data-role"),
+    ),
+    "assistant",
+    "the action widget must remain attached to its assistant message",
+  );
+  assert.equal(
+    await releaseCard.evaluate((element) =>
+      Boolean(element.closest(".agentkit-activities")),
+    ),
+    false,
+    "the action widget must render outside the activity rollup",
+  );
+  assert.ok(
+    await page
+      .locator(".agentkit-activities")
+      .evaluateAll((items) =>
+        items.some((item) => !(item as HTMLDetailsElement).open),
+      ),
+    "completed activity rollups must stay collapsed while the card is visible",
+  );
+  await assertViewportContract(page, "narrow dark action widget", {
+    dark: true,
+  });
   await page
     .getByText("Queued follow-up completed through the production queue.", {
       exact: true,
@@ -2371,6 +2652,24 @@ async function assertAgentKitChatAcceptance(
   await page.setViewportSize({ width: 1280, height: 900 });
   await setDarkMode(page, false);
 
+  await fillAndSubmitComposer(page, widgetPrompt);
+  await waitForLoopbackState(
+    "sequential completion of all five sample widget actions",
+    () => provider.widgetRunCompleted,
+    30_000,
+  );
+  assert.deepEqual(
+    provider.widgetToolCallIds,
+    widgetToolCalls.map((call) => call.id),
+    "one AgentKit run must call each sample action sequentially",
+  );
+  assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
+  await page
+    .getByText("All five local sample widgets are ready.", { exact: true })
+    .waitFor({ state: "visible" });
+  await assertAgentKitWidgetSamples(page);
+  await assertActivitiesCollapsed(page);
+
   const transcriptBox = await transcript.boundingBox();
   const footerBox = await footer.boundingBox();
   assert.ok(
@@ -2388,6 +2687,10 @@ async function assertAgentKitChatAcceptance(
     "streamed assistant messages must retain rich markdown parts",
   );
 
+  network.requestsInFlightAtPersistenceReload.clear();
+  for (const request of network.inFlightRequests) {
+    network.requestsInFlightAtPersistenceReload.add(request);
+  }
   await page.reload({ waitUntil: "domcontentloaded" });
   await chat.waitFor({ state: "visible" });
   await composer.waitFor({ state: "visible" });
@@ -2419,6 +2722,15 @@ async function assertAgentKitChatAcceptance(
       exact: true,
     })
     .waitFor({ state: "visible" });
+  const historyReleaseCard = page.getByText("Release accepted", {
+    exact: true,
+  });
+  await historyReleaseCard.waitFor({ state: "visible" });
+  await page
+    .getByText("Accepted", { exact: true })
+    .waitFor({ state: "visible" });
+  await assertAgentKitWidgetSamples(page);
+  await assertActivitiesCollapsed(page, false);
   assert.ok(
     (await page
       .locator('.agentkit-message-content [data-format="markdown"]')
@@ -2431,6 +2743,24 @@ async function assertAgentKitChatAcceptance(
   });
 
   fs.mkdirSync(path.join(repoRoot, ".tmp"), { recursive: true });
+  await historyReleaseCard.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(repoRoot, ".tmp", "agentkit-action-widget-history.png"),
+    fullPage: false,
+  });
+  for (const [text, filename] of [
+    ["AgentKit acceptance draft", "agentkit-mail-draft-widget-history.png"],
+    ["From: digest@example.test", "agentkit-gmail-filter-widget-history.png"],
+    ["AgentKit sample form insights", "agentkit-forms-data-widget-history.png"],
+    ["Sample analytics table", "agentkit-analytics-table-widget-history.png"],
+    ["AgentKit acceptance event", "agentkit-calendar-event-widget-history.png"],
+  ]) {
+    await screenshotActionWidget(
+      page,
+      text,
+      path.join(repoRoot, ".tmp", filename),
+    );
+  }
   await page.screenshot({
     path: path.join(repoRoot, ".tmp", "agentkit-chat-acceptance.png"),
     fullPage: false,
@@ -2444,6 +2774,7 @@ async function runBrowserSmoke(
   network: BrowserNetworkState,
   browserErrors: string[],
   httpErrors: string[],
+  pendingHttpErrorDetails: Promise<void>[],
 ): Promise<void> {
   const baseUrl = running.baseUrl;
   log("warmup: auto-login, Vite dep quiet, authenticated /home");
@@ -2468,15 +2799,21 @@ async function runBrowserSmoke(
     httpErrors,
   );
 
-  log("acceptance: real AgentKit loopback lifecycle");
+  log("acceptance: real AgentKit chat and action widget lifecycle");
   await assertAgentKitChatAcceptance(page, provider, network);
-  log("acceptance pass: real AgentKit loopback lifecycle");
+  log("acceptance pass: real AgentKit chat and action widget lifecycle");
   assert.ok(
     provider.requests.length >= 10,
     "acceptance must exercise tools, rich streaming, suggestions, approval, queue promotion, steering, and recovery",
   );
   assert.equal(provider.helloActionResults.length, 1);
   assert.equal(provider.approvalActionResults.length, 1);
+  assert.equal(provider.widgetRunCompleted, true);
+  assert.deepEqual(
+    provider.widgetToolCallIds,
+    widgetToolCalls.map((call) => call.id),
+  );
+  assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   assert.ok(
     provider.markdownChunks >= 7,
     "loopback provider must stream multiple markdown chunks per response",
@@ -2489,6 +2826,7 @@ async function runBrowserSmoke(
 
   assert.deepEqual(browserErrors, [], "browser console/page errors on Chat");
   discardSettledNavigationAborts(httpErrors);
+  await Promise.all(pendingHttpErrorDetails);
   assert.deepEqual(httpErrors, [], "browser HTTP errors on Chat");
 }
 
@@ -2535,7 +2873,7 @@ function assertCleanServerLogs(logs: string[]): void {
 async function main(): Promise<void> {
   if (!skipScaffold) {
     scaffoldStandaloneChat();
-    installApprovalActionFixture();
+    installAgentKitActionFixtures();
     installAcceptanceTransportFixture();
     await installApp();
     assertStandalonePackageJson();
@@ -2545,7 +2883,7 @@ async function main(): Promise<void> {
       true,
       `STANDALONE_CHAT_DEV_SMOKE_SKIP_CREATE=1 requires ${appDir}/package.json`,
     );
-    installApprovalActionFixture();
+    installAgentKitActionFixtures();
     installAcceptanceTransportFixture();
   }
 
@@ -2558,18 +2896,22 @@ async function main(): Promise<void> {
     await provider.close();
     throw error;
   }
+  const runningOrigin = new URL(running.baseUrl).origin;
   let browser: Browser | null = null;
   let page: Page | null = null;
   let primaryError: Error | null = null;
   let cleanupError: unknown;
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
+  const pendingHttpErrorDetails: Promise<void>[] = [];
   const browserDiagnostics: string[] = [];
   const network: BrowserNetworkState = {
     allowInitialHomeWarmupErrors: true,
     allowInitialEphemeralThread404: true,
     allowExpectedIncompleteStreamFailure: false,
     navigationCancellationUntil: 0,
+    inFlightRequests: new Set(),
+    requestsInFlightAtPersistenceReload: new Set(),
   };
 
   const captureCleanupError = (error: unknown) => {
@@ -2652,6 +2994,14 @@ async function main(): Promise<void> {
     });
 
     page.on("request", (request) => {
+      const requestUrl = new URL(request.url());
+      if (
+        requestUrl.origin === runningOrigin &&
+        request.method() === "GET" &&
+        requestUrl.pathname.startsWith("/_agent-native/")
+      ) {
+        network.inFlightRequests.add(request);
+      }
       if (request.frame() !== page.mainFrame()) return;
       if (request.resourceType() !== "document") return;
       browserDiagnostics.push(
@@ -2681,9 +3031,25 @@ async function main(): Promise<void> {
       }
       browserErrors.push(text);
     });
+    page.on("requestfinished", (request) => {
+      network.inFlightRequests.delete(request);
+      network.requestsInFlightAtPersistenceReload.delete(request);
+    });
     page.on("requestfailed", (request) => {
+      network.inFlightRequests.delete(request);
+      const wasInFlightAtPersistenceReload =
+        network.requestsInFlightAtPersistenceReload.delete(request);
       const url = request.url();
-      if (!url.startsWith(running.baseUrl)) return;
+      if (new URL(url).origin !== runningOrigin) return;
+      if (
+        wasInFlightAtPersistenceReload &&
+        request.failure()?.errorText === "net::ERR_ABORTED"
+      ) {
+        recordSuppressedNoise(
+          `persistence reload canceled ${request.method()} ${url}`,
+        );
+        return;
+      }
       if (
         new URL(url).pathname === "/_agent-native/agent-chat/runs/active" &&
         request.method() === "GET" &&
@@ -2730,12 +3096,35 @@ async function main(): Promise<void> {
       const status = response.status();
       if (status < 400) return;
       const url = response.url();
-      if (!url.startsWith(running.baseUrl)) return;
+      if (new URL(url).origin !== runningOrigin) return;
       if (isBenignHttpError(status, url, network)) {
         recordSuppressedNoise(`${status} ${url}`);
         return;
       }
-      httpErrors.push(`${status} ${url}`);
+      const error = `${status} ${url}`;
+      const request = response.request();
+      if (status >= 500 && request.method() === "GET") {
+        pendingHttpErrorDetails.push(
+          response
+            .text()
+            .then((detail) => {
+              httpErrors.push(
+                `${error}${detail ? `: ${detail.slice(0, 500)}` : ""}`,
+              );
+            })
+            .catch((bodyError) => {
+              const message =
+                bodyError instanceof Error
+                  ? bodyError.message
+                  : String(bodyError);
+              httpErrors.push(
+                `${error}: response body unavailable: ${message}`,
+              );
+            }),
+        );
+        return;
+      }
+      httpErrors.push(error);
     });
 
     await runBrowserSmoke(
@@ -2745,6 +3134,7 @@ async function main(): Promise<void> {
       network,
       browserErrors,
       httpErrors,
+      pendingHttpErrorDetails,
     );
     assertCleanServerLogs(running.logs);
 

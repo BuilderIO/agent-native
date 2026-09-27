@@ -21,6 +21,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "El contexto es demasiado grande. Quita un elemento o adjunta una selección más pequeña.",
   "activity.reasoning": "Razonamiento",
+  "activity.groupLabel": "Actividad del agente",
+  "activity.agents": "Colaboración entre agentes",
+  "activity.tasks": "Tareas de los agentes",
+  "agent.started": "empezó a trabajar",
+  "agent.resumed": "retomó el trabajo",
+  "agent.messaged": "envió un mensaje",
+  "agent.delegated": "delegó trabajo",
+  "agent.paused": "puso el trabajo en pausa",
+  "agent.completed": "terminó",
+  "agent.failed": "necesita atención",
+  "agent.closed": "cerró",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
   "approval.alwaysAllowAction": "Permitir siempre esta acción",
@@ -29,8 +40,16 @@ const messages: AgentChatTranslation = {
   "approval.approved": "Aprobado. Ejecutando {{tool}} de nuevo...",
   "approval.denied": "Denegado. {{tool}} no se ejecutó.",
   "approval.deny": "Denegar",
+  "approval.action": "la acción solicitada",
   "approval.moreOptions": "Más opciones de aprobación",
   "approval.question": "¿Aprobar la ejecución de {{tool}}?",
+  "approval.edit": "Editar",
+  "approval.editPrompt":
+    "Pregúntame cómo quiero cambiar esta acción antes de volver a intentarlo.",
+  "approval.pending": "Requiere aprobación",
+  "approval.submit": "Enviar",
+  "approval.other": "Otro",
+  "approval.otherPlaceholder": "Escribe tu respuesta",
   "auth.expiredDescription":
     "Es posible que tu sesión haya caducado. Cierra sesión y vuelve a iniciarla para reconectarte.",
   "auth.expiredTitle": "Sesión caducada",
@@ -61,6 +80,19 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "No capturado",
   "observability.openFullConversation": "Abrir conversación completa",
   "observability.learnAboutTab": "Más información sobre esta pestaña",
+  "observability.summarizeWithAgent": "Resumir con el agente",
+  "observability.regenerateSummary": "Regenerar resumen",
+  "observability.summarizeWithAgentHelp":
+    "Pide al agente que lea este hilo, resuma la solicitud y el resultado, y enlace solo artefactos verificados.",
+  "observability.regenerateSummaryHelp":
+    "Pide al agente que actualice este resumen a partir del hilo más reciente y de artefactos verificados.",
+  "observability.summarySending": "Enviando solicitud al agente…",
+  "observability.summaryQueued":
+    "Solicitud en cola. El resumen aparecerá aquí cuando el agente lo guarde.",
+  "observability.summaryFailed":
+    "No se pudo enviar la solicitud. Inténtalo de nuevo.",
+  "observability.summaryExpired":
+    "Aún no hay ningún resumen. Puedes volver a intentarlo, aunque el agente podría seguir trabajando.",
   "onboarding.back": "Atrás",
   "onboarding.chooseRole": "Elige tu rol",
   "onboarding.customizeRole": "Personalicemos esto para ti.",
@@ -160,6 +192,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnóstico",
   "aboutAgentNative.unknown": "Desconocida",
   "common.agent": "Agente",
+  "common.you": "Tú",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interfaz de usuario",
   "agentPanel.keyScope": "Ámbito de la clave",
@@ -284,6 +317,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "¿En qué puedo ayudarte?",
   "error.afterDuration": "{{headline}} después de {{duration}}",
   "error.failed": "El agente ha encontrado un error",
+  "error.render": "No se ha podido mostrar este contenido.",
   "error.stopped": "El agente se detuvo antes de terminar",
   "header.switchToCli": "Cambiar a la CLI",
   "history.active": "Activo",
@@ -305,6 +339,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Administrar",
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
+  "connection.connecting": "Conectando…",
+  "connection.notNow": "Ahora no",
+  "connection.failed": "Error de conexión",
+  "connection.adminRequired":
+    "Pide a un administrador del espacio de trabajo que conecte este servicio.",
   "limit.account": "tu cuenta",
   "limit.descriptionAll":
     "El agente ha utilizado todos los pasos disponibles. Continúa en una interacción nueva o aumenta primero el límite de {{scope}}.",
@@ -322,8 +361,15 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "Copiar mensaje",
   "message.copyRequestId": "Copiar ID de solicitud",
   "message.requestIdUnavailable": "ID de solicitud no disponible",
+  "message.unavailable":
+    "El mensaje ya no está disponible en esta conversación.",
+  "message.navigationUnavailable":
+    "La navegación de la conversación no está disponible.",
   "message.edit": "Editar mensaje",
   "message.forkChat": "Bifurcar chat",
+  "message.mobileInteractiveTitle": "Contenido interactivo",
+  "message.mobileInteractiveDescription":
+    "Esta vista interactiva está disponible en el chat web, pero todavía no en el chat nativo.",
   "message.missingFinal":
     "El agente se detuvo sin enviar un mensaje final. Pídele que continúe o vuelve a intentarlo.",
   "message.messages": "Mensajes",
@@ -349,6 +395,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "Plan listo",
   "plan.switchToAct": "Cambiar al modo Actuar",
   "queue.count": "{{count}} en cola",
+  "queue.label": "Mensajes en cola",
   "queue.followUp": "Enviar un mensaje de seguimiento...",
   "queue.followUpWithCount":
     "{{count}} en cola — enviar un mensaje de seguimiento...",
@@ -362,6 +409,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Conectando con Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
+  "recovery.deferredSubmissionFailed":
+    "No se pudo enviar este mensaje. Comprueba tu conexión o la configuración del chat y vuelve a intentarlo.",
   "recovery.credentialRejected":
     "El proveedor del modelo rechazó las credenciales guardadas. Actualiza tu conexión con Builder.io o la clave del proveedor y vuelve a intentarlo.",
   "codeRequired.builderAgentNotConnected":
@@ -378,6 +427,12 @@ const messages: AgentChatTranslation = {
     "La ejecución anterior del agente en segundo plano alcanzó el límite de tiempo antes de terminar. El trabajo parcial se conservó; continúa o reintenta desde aquí.",
   "recovery.noProgress":
     "La ejecución anterior del agente dejó de mostrar progreso durante la recuperación y se detuvo antes de que pudiera seguir en bucle.",
+  "recovery.stuckTitle": "Este chat parece atascado.",
+  "recovery.stuckNoProgress":
+    "No hay progreso. El agente puede haber alcanzado el tiempo de espera del servidor o perdido la conexión.",
+  "recovery.stuckWithDuration":
+    "No hay progreso desde hace {{seconds}} s. El agente puede haber alcanzado el tiempo de espera del servidor o perdido la conexión.",
+  "recovery.stuckRetrying": "Reintentando automáticamente ahora.",
   "recovery.statusCheckFailed":
     "No se pudo contactar con el servidor para comprobar si el agente sigue trabajando. Vuelve a enviar el mensaje para reintentarlo.",
   "recovery.streamEnded":
@@ -441,6 +496,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "Sigue trabajando",
   "status.thinking": "Pensando",
   "status.working": "Trabajando",
+  "status.workingFor": "Trabajando desde hace {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Cargando terminal...",
   "shell.toggleAgent": "Mostrar u ocultar agente",
@@ -487,6 +543,25 @@ const messages: AgentChatTranslation = {
   "widget.downloadCsv": "Descargar CSV",
   "widget.connectProvider": "Conectar {{provider}}",
   "widget.loadingToolResult": "Cargando el resultado de la herramienta",
+  "widget.actionOpen": "Abrir",
+  "widget.actionReview": "Revisar",
+  "widget.actionUndo": "Deshacer",
+  "widget.actionUndoing": "Deshaciendo…",
+  "widget.actionUndoFailed": "No se pudo deshacer",
+  "widget.actionUndoUnknown": "No se pudo comprobar si se deshizo",
+  "widget.actionChanges": "{{count}} cambios",
+  "widget.actionChanges_one": "{{count}} cambio",
+  "widget.actionChanges_many": "{{count}} cambios",
+  "widget.actionChanges_other": "{{count}} cambios",
+  "widget.actionStatus.created": "Creado",
+  "widget.actionStatus.draft": "Borrador",
+  "widget.actionStatus.updated": "Actualizado",
+  "widget.actionStatus.deleted": "Eliminado",
+  "widget.actionStatus.sent": "Enviado",
+  "widget.actionStatus.scheduled": "Programado",
+  "widget.actionStatus.enabled": "Activado",
+  "widget.actionStatus.disabled": "Desactivado",
+  "widget.actionStatus.undone": "Deshecho",
   "widget.noRows": "No hay filas",
   "widget.points": "{{formattedCount}} puntos",
   "widget.rows": "{{formattedCount}} filas",
@@ -887,6 +962,8 @@ const messages: AgentChatTranslation = {
     "Cualquier persona de tu organización puede verlo",
   "share.owner": "Propietario",
   "share.peopleWithAccess": "Personas con acceso",
+  "share.people": "Personas",
+  "share.agents": "Agentes",
   "share.private": "Privado",
   "share.privateDescription": "Solo las personas con acceso pueden verlo",
   "share.public": "Público",

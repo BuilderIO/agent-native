@@ -76,6 +76,7 @@ const messages = {
       aiSetupFilteredExample:
         "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
       aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
@@ -173,6 +174,7 @@ const messages = {
       deleteDraft: "Entwurf löschen",
       deleteDrafts: "Entwürfe löschen",
       reopenDraft: "Wieder öffnen",
+      openInMail: "In Mail öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
@@ -590,6 +592,7 @@ const messages = {
       automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      autoArchiveMode: "Automatisch archivieren",
       skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
@@ -609,6 +612,9 @@ const messages = {
       askJevPrompt:
         "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
       composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
+      chatSuggestionPriority: "E-Mails von … priorisieren",
+      chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
       ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
       ruleBackfillProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
@@ -731,6 +737,9 @@ const messages = {
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+    ruleSuggestionFilter: "Nachrichten wie diese herausfiltern",
+    ruleSuggestionImportant: "E-Mails von meiner Führungskraft priorisieren",
+    ruleSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
   },
   settings: {
     openAgentSettings: "Agent verwalten",

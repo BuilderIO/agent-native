@@ -1,5 +1,11 @@
 export { CoreComposerRuntimeProvider } from "./core-composer-runtime.js";
-export { GuidedQuestionFlow, useGuidedQuestionFlow } from "./questions.js";
+export {
+  GuidedQuestionFlow,
+  GuidedQuestionProviderGate,
+  useGuidedQuestionFlow,
+} from "./questions.js";
+export { AgentKitActionWidget } from "./action-widget.js";
+export { CoreAgentKitRoot } from "./root.js";
 export { useChatThreads, type ChatThreadSummary } from "../use-chat-threads.js";
 export {
   isAgentChatHomeHandoffActive,
@@ -24,3 +30,22 @@ export {
   McpAgentKitConnectionResume,
 } from "./connections.js";
 export { useAgentChatRunningThreads } from "../use-agent-chat-running-threads.js";
+export {
+  AgentKitDevCheckpointProvider,
+  AgentKitDevCheckpointRestore,
+  AgentKitHistoryBeginningRevert,
+  AgentKitHistoryMessageSupplement,
+  AgentKitHistoryProvider,
+  findAgentKitHistoryBeginningVersion,
+  findAgentKitHistoryVersion,
+  useAgentKitHistory,
+  type AgentKitHistoryConfig,
+  type AgentKitHistoryContextValue,
+  type AgentKitHistoryMessage,
+  type AgentKitHistoryScope,
+  type AgentKitHistoryVersion,
+} from "./history.js";
+export {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "../chat/tool-render-registry.js";

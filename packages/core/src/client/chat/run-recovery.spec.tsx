@@ -235,6 +235,9 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toMatch(/error/i);
     expect(container.firstElementChild?.className).toContain("bg-card");
     expect(container.firstElementChild?.className).not.toContain("amber");
+    const creditsLayout = container.firstElementChild?.firstElementChild;
+    expect(creditsLayout?.className).toContain("flex-col");
+    expect(creditsLayout?.className).toContain("@md:flex-row");
     expect(upgradeLink?.textContent).toContain("Add credits in Builder");
     expect(upgradeLink?.target).toBe("_blank");
     expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(

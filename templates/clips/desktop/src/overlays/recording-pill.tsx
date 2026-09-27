@@ -1,6 +1,10 @@
+import {
+  AgentKitAssistantChat,
+  generateTabId,
+  type AssistantChatHandle,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -21,38 +25,69 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveWaveform } from "../components/live-waveform";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
-import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
   ASK_SHEET_DEFAULT,
   ASK_SHEET_DISMISS_AT,
   clampAskSheetHeight,
-  isPinnedToBottom,
   isSheetGripTap,
 } from "../lib/ask-sheet-layout";
 import {
-  type AskTurn,
-  buildMeetingAskPrompt,
-  fenceTranscript,
-  MAX_ASK_HISTORY_TURNS,
-  streamMeetingAsk,
+  buildMeetingAskContext,
+  buildMeetingAskSuggestionsPrompt,
+  latestMeetingAskMessageRole,
+  parseMeetingAskSuggestions,
+  type MeetingAskChip,
 } from "../lib/meeting-ask";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { writeClipboardText } from "../lib/recording-link";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { loadStoredServerUrl } from "../lib/url";
-import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
+/** Cap height as a fraction of font size, for the system faces this stack
+ *  resolves to. Used to find a line of text's optical centre. */
 const CAP_HEIGHT_RATIO = 0.72;
 
+/** A cursor crossing the capsule should not open it. Matches the recorder. */
 const HOVER_INTENT_MS = 150;
 
+/** The capsule's one spacing step, matched in styles.css. */
 const TRANSPORT_GAP_PX = 8;
 
+/** Longer than any reveal transition. Past this the browser is not advancing
+ *  the animation, so the reveal has to finish itself. */
 const TRANSITION_STALL_MS = 400;
 
+/** Matches `pill-ask-sheet-out` in styles.css. */
 const ASK_SHEET_EXIT_MS = 200;
+
+const FALLBACK_ASK_CHIPS: MeetingAskChip[] = [
+  { label: "What did I miss?", ask: "What did I miss?" },
+  {
+    label: "Summarize decisions",
+    ask: "Summarize the decisions made so far",
+  },
+  {
+    label: "Suggest questions",
+    ask: "Suggest questions I should ask next",
+  },
+];
+
+const MEETING_CONTEXT_KEY = "clips-live-meeting";
+const MEETING_CONTEXT_NAMESPACE = "clips-meeting-pill";
+
+function meetingAgentChatApiUrl(): string {
+  return `${loadStoredServerUrl().replace(/\/+$/, "")}/_agent-native/agent-chat`;
+}
+
+function stopAgentKitChat(container: HTMLElement | null): void {
+  container
+    ?.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="stop-button"]',
+    )
+    ?.click();
+}
 
 type PillMode = "meeting" | "clip";
 
@@ -60,15 +95,28 @@ interface PillContext {
   meetingId?: string | null;
   mode?: PillMode;
   title?: string | null;
+  /** On screen, but capture has not attached yet. Never claim "recording". */
   starting?: boolean;
 }
 
+/**
+ * Granola-style recording indicator. A floating pill anchored by Rust:
+ * center-right for meetings, bottom-center for ordinary recordings.
+ *
+ *   - Collapsed (default): logo + live waveform capsule, click to expand.
+ *   - Expanded: header + scrolling live transcript + Pause / Stop + Ask bar.
+ *
+ * The hosting Tauri window is always-on-top, transparent, no decorations,
+ * and capture-excluded — see `recording_indicator.rs`. We only deal with
+ * sizing the window when the user toggles the chevron.
+ */
 const pillDemoMode = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
 
 export function MeetingPill() {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
+  /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const demoLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -84,35 +132,41 @@ export function MeetingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
-  const [ask, setAsk] = useState("");
   const [providerStatus, setProviderStatus] = useState<
-    "unknown" | "configured" | "missing" | "unavailable"
-  >(pillDemoMode ? "configured" : "unknown");
+    "unknown" | "eligible" | "missing" | "unavailable"
+  >(pillDemoMode ? "eligible" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
-  const [askMessages, setAskMessages] = useState<
-    Array<{
-      role: "user" | "assistant";
-      text: string;
-      streaming?: boolean;
-      steps?: AgentStep[];
-    }>
-  >([]);
+  // The flex column the transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
+  /** Held open for the exit animation. A drawer that vanishes on close reads
+   *  as a bug even when the entrance is right. */
   const [askSheetClosing, setAskSheetClosing] = useState(false);
   const askSheetExitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
-  const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const askAbortRef = useRef<AbortController | null>(null);
-  const chipsAbortRef = useRef<AbortController | null>(null);
+  const [askThreadId, setAskThreadId] = useState(generateTabId);
+  const [chipsThreadId, setChipsThreadId] = useState(generateTabId);
+  const askChatRef = useRef<AssistantChatHandle | null>(null);
+  const chipsChatRef = useRef<AssistantChatHandle | null>(null);
+  const askChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const chipsChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastAskChatStateRef = useRef({ count: 0, isRunning: false });
+  const lastChipsChatStateRef = useRef({ count: 0, isRunning: false });
+  const [transcriptRevision, setTranscriptRevision] = useState(0);
+  const [askChatRevision, setAskChatRevision] = useState(0);
+  const [chipsChatRevision, setChipsChatRevision] = useState(0);
   const chipsFetchedAtRef = useRef(0);
-  const [askChips, setAskChips] = useState<
-    Array<{ label: string; ask: string }>
-  >([]);
+  const chipsRequestRef = useRef(0);
+  const expectedChipsPromptRef = useRef<string | null>(null);
+  const [pendingChipsPrompt, setPendingChipsPrompt] = useState<{
+    id: number;
+    prompt: string;
+  } | null>(null);
+  const [askChips, setAskChips] = useState<MeetingAskChip[]>([]);
 
   const checkProviderStatus = useCallback(async () => {
     if (pillDemoMode) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     providerStatusAbortRef.current?.abort();
@@ -125,12 +179,12 @@ export function MeetingPill() {
         { credentials: "include", signal: controller.signal },
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = (await response.json()) as { configured?: unknown };
-      if (typeof body.configured !== "boolean") {
+      const body = (await response.json()) as { chatEligible?: unknown };
+      if (typeof body.chatEligible !== "boolean") {
         throw new Error("Provider status response was incomplete");
       }
       if (!controller.signal.aborted) {
-        setProviderStatus(body.configured ? "configured" : "missing");
+        setProviderStatus(body.chatEligible ? "eligible" : "missing");
       }
     } catch {
       if (!controller.signal.aborted) setProviderStatus("unavailable");
@@ -139,7 +193,7 @@ export function MeetingPill() {
 
   useEffect(() => {
     if (ctx.mode !== "meeting" || !ctx.meetingId) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     void checkProviderStatus();
@@ -160,7 +214,8 @@ export function MeetingPill() {
     return () => window.removeEventListener("focus", onFocus);
   }, [checkProviderStatus, ctx.meetingId, ctx.mode, providerStatus]);
 
-  const recentTranscriptText = () => {
+  /** The last ~2 minutes of transcript, capped, most recent last. */
+  const recentTranscriptText = useCallback(() => {
     const lines = transcriptLinesRef.current;
     const latest = lines[lines.length - 1]?.startMs ?? null;
     const windowed =
@@ -174,24 +229,34 @@ export function MeetingPill() {
       .join("\n");
     if (out.length > 2_400) out = out.slice(-2_400);
     return out;
-  };
-  const askHistoryRef = useRef<AskTurn[]>([]);
-  const askSheetScrollRef = useRef<HTMLDivElement | null>(null);
-  const askPinnedRef = useRef(true);
-  const scrollAskSheetIfPinned = useCallback(() => {
-    const el = askSheetScrollRef.current;
-    if (el && askPinnedRef.current) el.scrollTop = el.scrollHeight;
   }, []);
   const sheetDragRef = useRef<{
     startY: number;
     startHeight: number;
   } | null>(null);
+  /**
+   * Whether the last grip gesture travelled far enough to be a resize.
+   *
+   * `click` fires after `pointerup`, so the drag state is always already
+   * cleared by the time the click handler runs — testing it there let every
+   * resize, including one that grew the sheet, dismiss it on release.
+   */
   const sheetDragMovedRef = useRef(false);
   const activeMeetingIdRef = useRef<string | null>(null);
+  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
+  // top-right when the main app loses focus, with a drag handle. Driven by
+  // the `clips:pill-detached` event from Rust (toggled by JS via
+  // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
+  // Driven by the Rust-side global cursor poll (`clips:pill-hover`). macOS only
+  // delivers hover events to the key window, so while another app is focused
+  // CSS `:hover` never fires on the pill — we mirror the polled state into a
+  // class and key the hover styling off that too.
   const [hovered, setHovered] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mic and system audio share one calm activity meter, matching Granola's
+  // single indicator for the combined meeting capture.
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
@@ -221,6 +286,16 @@ export function MeetingPill() {
         const next: PillContext = {
           meetingId,
           mode,
+          // Rust re-emits this event on every `recording_pill_show` without a
+          // `title` or a `starting` field, so within one session absent means
+          // "no opinion" and the previous value stands — coercing `starting`
+          // to false there would race the flag to a live-looking pill.
+          //
+          // Across a session it means the opposite. A meeting's first context
+          // carries no title (the fetch that finds it has not returned yet),
+          // so carrying the old one opened the new meeting under the previous
+          // meeting's name — and scaffolded any ask made in that window with
+          // it, which is a wrong answer rather than a wrong label.
           title:
             ev.payload?.title ?? (isSameSession ? prev.title : null) ?? null,
           starting:
@@ -230,23 +305,43 @@ export function MeetingPill() {
         };
         ctxRef.current = next;
         setCtx(next);
+        // The Rust side re-shows (and re-emits this event for) the same pill
+        // window whenever the tray icon re-triggers `recording_pill_show`
+        // (e.g. toggling the popover) while a meeting is already in progress.
+        // Only reset session state below when the meeting/mode actually
+        // changed — otherwise an in-progress meeting's timer, transcript, and
+        // transcript would wipe out on every tray click.
         if (isSameSession) return;
+        // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
         setPaused(false);
+        // The Rust side reuses the pill window across recordings, so the
+        // component never unmounts. Reset stop state explicitly when a
+        // new recording session begins, otherwise the Stop button stays
+        // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
         setFinishedMeetingId(null);
         setError(null);
         setExpanded(false);
+        // Reset transcript state for the new session.
         setPreloadedLines([]);
-        askAbortRef.current?.abort();
-        askAbortRef.current = null;
-        chipsAbortRef.current?.abort();
-        chipsAbortRef.current = null;
+        transcriptLinesRef.current = [];
+        setHasTranscriptLines(false);
+        // A new session is a new meeting: stop both AgentKit-owned threads so
+        // an old answer or suggestion cannot land in the new recording.
+        stopAgentKitChat(askChatContainerRef.current);
+        stopAgentKitChat(chipsChatContainerRef.current);
+        askChatRef.current?.clearComposerContextItems();
+        setAskThreadId(generateTabId());
+        setChipsThreadId(generateTabId());
+        lastAskChatStateRef.current = { count: 0, isRunning: false };
+        lastChipsChatStateRef.current = { count: 0, isRunning: false };
         chipsFetchedAtRef.current = 0;
+        chipsRequestRef.current += 1;
+        expectedChipsPromptRef.current = null;
+        setPendingChipsPrompt(null);
         setAskChips([]);
-        askHistoryRef.current = [];
-        setAskMessages([]);
         setAskSheetOpen(false);
         activeMeetingIdRef.current =
           ev.payload?.mode === "meeting" ? (next.meetingId ?? null) : null;
@@ -256,6 +351,8 @@ export function MeetingPill() {
         }
       }),
     );
+    // Capture emits levels continuously once it attaches, including through
+    // silence — the first one means the engine is live.
     trackListen(
       listen("voice:audio-level", () => {
         clearStartingRef.current();
@@ -266,6 +363,9 @@ export function MeetingPill() {
         "clips:recorder-state",
         (ev) => {
           clearStartingRef.current();
+          // Meeting capture has its own optimistic pause state. Ordinary clips
+          // follow the recorder's authoritative broadcast so this reused pill
+          // cannot drift or emit an inverted command.
           if (ctxRef.current.mode !== "clip") return;
           setPaused(!!ev.payload.paused);
           setElapsed(
@@ -285,6 +385,8 @@ export function MeetingPill() {
         "meetings:transcription-stopped",
         (ev) => {
           const reason = ev.payload?.reason;
+          // "replaced" hands straight over to the next session and "app-quit"
+          // is tearing the window down — neither has a user left to read this.
           if (reason === "replaced" || reason === "app-quit") return;
           if (ctxRef.current.mode !== "meeting") return;
           const meetingId = ev.payload?.meetingId ?? activeMeetingIdRef.current;
@@ -306,13 +408,26 @@ export function MeetingPill() {
     trackListen(
       listen<{ detached: boolean }>("clips:pill-detached", (ev) => {
         setDetached(!!ev.payload?.detached);
+        // Detached pill auto-collapses — there's not enough room for the
+        // expanded transcript view in the small floating footprint.
         if (ev.payload?.detached) setExpanded(false);
       }),
     );
+    // Signal that all listeners are registered. app.tsx listens for this and
+    // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
+    // Recovery: the context event is push-only, so a pill window that mounts
+    // after it fired (webview reload, popover restart) would strand in clip
+    // mode with no ask bar. Rust owns the active meeting id — ask it.
     invoke<string | null>("get_active_meeting_id")
       .then((meetingId) => {
         if (!meetingId || stopped) return;
+        // Recovery only covers "no context ever arrived". This lookup is
+        // asynchronous, so by the time it answers a real `clips:pill-context`
+        // may have landed — and that event is authoritative where this is a
+        // guess. Applying it anyway replaced the live context with one carrying
+        // `title: null` and no `starting` flag, which is how a starting pill
+        // lost its spinner and a titled meeting lost its name.
         if (ctxRef.current.meetingId !== null) return;
         const next: PillContext = { meetingId, mode: "meeting", title: null };
         ctxRef.current = next;
@@ -321,6 +436,8 @@ export function MeetingPill() {
       })
       .catch(() => {});
     if (pillDemoMode) {
+      // Open in the starting state the real pill now shows, so the spinner is
+      // reviewable in the harness rather than only during a live start.
       ctxRef.current = {
         mode: "meeting",
         meetingId: "demo",
@@ -373,8 +490,8 @@ export function MeetingPill() {
         clearTimeout(stopFallbackRef.current);
         stopFallbackRef.current = null;
       }
-      askAbortRef.current?.abort();
-      askAbortRef.current = null;
+      stopAgentKitChat(askChatContainerRef.current);
+      stopAgentKitChat(chipsChatContainerRef.current);
       if (askSheetExitRef.current) {
         clearTimeout(askSheetExitRef.current);
         askSheetExitRef.current = null;
@@ -386,7 +503,10 @@ export function MeetingPill() {
     };
   }, []);
 
+  // Elapsed timer.
   useEffect(() => {
+    // Clip recordings already broadcast their pause-aware elapsed time every
+    // 500ms. Keep the local wall clock only for meeting mode.
     if (paused || finished || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
@@ -432,6 +552,10 @@ export function MeetingPill() {
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
+    // Meetings keep the pill up and switch it to the finished banner right
+    // away. Teardown (final flush, finalize) runs for seconds afterwards, so
+    // waiting on `meetings:transcription-stopped` would leave the pill looking
+    // stuck; the banner is what the user acts on, not the save.
     if (ctxRef.current.mode === "meeting" && meetingId) {
       showFinished(meetingId);
       return;
@@ -442,6 +566,18 @@ export function MeetingPill() {
     }, 3_000);
   }
 
+  // Stable callback for LiveTranscript to push locked-in lines up. Stable
+  // identity matters — it's a dep of an effect inside LiveTranscript.
+  /**
+   * Leave the starting state on evidence, not only on being told.
+   *
+   * `clips:pill-context` with `starting: false` is the intended signal, but it
+   * is a single push event: one dropped emit and the pill claims it is still
+   * starting a session that is already recording. Audio arriving IS the
+   * session, so anything that could only happen after capture attached also
+   * clears it.
+   */
+  /** The capsule and the transport segment inside it, for measured growth. */
   const capsuleRef = useRef<HTMLDivElement | null>(null);
   const transportRef = useRef<HTMLDivElement | null>(null);
   const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -455,6 +591,11 @@ export function MeetingPill() {
 
   clearStartingRef.current = clearStarting;
 
+  /**
+   * Serialize window ops. Two resizes in flight read each other's stale
+   * geometry and the capsule ends up the wrong size — the same queue the
+   * recorder pill runs its segment growth through.
+   */
   const queueWindowOp = (op: () => Promise<void>) => {
     windowOpChainRef.current = windowOpChainRef.current
       .then(op)
@@ -463,9 +604,16 @@ export function MeetingPill() {
       });
   };
 
+  /**
+   * Size the window around the capsule's own layout, keeping the top edge
+   * fixed so growth extends downward — away from the cursor that is sitting
+   * on the logo at the top.
+   */
   const syncCapsuleWindow = useCallback((extraLogicalHeight: number) => {
     const el = capsuleRef.current;
     if (!el || pillDemoMode) return;
+    // offsetHeight is a layout metric, immune to a transition in flight; a
+    // rect read mid-animation locks the window to a half-open size.
     const contentH = el.offsetHeight + extraLogicalHeight;
     const contentW = el.offsetWidth;
     queueWindowOp(async () => {
@@ -481,14 +629,26 @@ export function MeetingPill() {
     });
   }, []);
 
+  /**
+   * Grow the capsule to reveal pause and stop, then let the segment animate
+   * its own height open — window first so there is room to grow into, and on
+   * the way out the window shrinks only once the segment has closed.
+   */
   useEffect(() => {
     if (expanded || detached || ctx.mode !== "meeting" || finished) return;
     const seg = transportRef.current;
     if (!seg) return;
+    // Nothing to pause or end until capture has attached.
     const open = hovered && !ctx.starting;
 
     let release: (() => void) | null = null;
 
+    /**
+     * The segment's own content height. `scrollHeight` cannot be used: the
+     * transport buttons carry hit-target overlays that extend past their box,
+     * and scrollHeight counts that overflow — which showed up as dead space
+     * under the last control.
+     */
     const contentHeight = () => {
       const kids = Array.from(seg.children).filter(
         (kid): kid is HTMLElement =>
@@ -508,8 +668,15 @@ export function MeetingPill() {
       seg.style.height = `${target}px`;
       seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
       seg.style.opacity = open ? "1" : "0";
+      // Grow the window first so the capsule has somewhere to open into. It
+      // is transparent below the capsule, so the extra frame is invisible
+      // until the segment fills it.
       if (open) syncCapsuleWindow(target + TRANSPORT_GAP_PX);
 
+      // This window is never the key window, and the browser can stop
+      // advancing animations in one — the transition then never progresses
+      // and the capsule stays at the size it started from. Wait for the real
+      // transition, and if it never arrives, drop it and snap to the end.
       let settled = false;
       const settle = () => {
         if (settled) return;
@@ -522,6 +689,8 @@ export function MeetingPill() {
         seg.style.height = `${target}px`;
         seg.style.marginTop = open ? `${TRANSPORT_GAP_PX}px` : "0px";
         seg.style.opacity = open ? "1" : "0";
+        // Read back so the snapped value commits before the transition is
+        // restored, or the restore just re-animates from the old value.
         void seg.offsetHeight;
         seg.style.transition = "";
         settle();
@@ -534,6 +703,8 @@ export function MeetingPill() {
       };
     };
 
+    // Opening waits out a cursor that is only passing over. Closing does not,
+    // so the capsule never lingers open under a cursor that has left.
     let intent: ReturnType<typeof setTimeout> | null = null;
     if (open && !seg.dataset.open) intent = setTimeout(apply, HOVER_INTENT_MS);
     else apply();
@@ -552,6 +723,17 @@ export function MeetingPill() {
     syncCapsuleWindow,
   ]);
 
+  /**
+   * Put the header's glyphs on the title's optical centre line.
+   *
+   * Flexbox centres boxes, and a text box is not centred on its own ink: the
+   * ink sits wherever the font's ascent, descent and half-leading put it.
+   * Chrome and this app's webview do not resolve `-apple-system` to the same
+   * metrics — measured in the shipped webview, the controls sat 3.68px below
+   * the title's cap centre while Chrome put them within 0.15px. So the row is
+   * aligned by measurement rather than by construction: the shift is computed
+   * from the real rendered text and applied to everything that is not text.
+   */
   useEffect(() => {
     if (!expanded || pillDemoMode) return;
     let frame = 0;
@@ -567,12 +749,18 @@ export function MeetingPill() {
       title.removeChild(marker);
       if (!baseline) return;
       const fontSize = parseFloat(window.getComputedStyle(title).fontSize);
+      // Cap centre: half a cap-height above the baseline. 0.72em is the cap
+      // ratio for the system faces this stack resolves to, and a few
+      // hundredths of an em either way is invisible at 13px.
       const capCentre = baseline - (fontSize * CAP_HEIGHT_RATIO) / 2;
       const rect = controls.getBoundingClientRect();
       const shift = capCentre - (rect.top + rect.bottom) / 2;
       const style = (header as HTMLElement).style;
       style.setProperty("--header-ink-shift", `${shift.toFixed(2)}px`);
 
+      // The meter is measured from its own bars rather than sharing the
+      // controls' shift: its band is what the eye lines up against the text,
+      // and its box does not necessarily sit where their boxes do.
       const bars = Array.from(
         header.querySelectorAll<HTMLElement>(".pill-wave-meter i"),
       );
@@ -588,6 +776,7 @@ export function MeetingPill() {
         );
       }
     };
+    // After layout, and again on the next frame so a late font swap lands.
     align();
     frame = requestAnimationFrame(align);
     const timer = setTimeout(align, 400);
@@ -601,6 +790,7 @@ export function MeetingPill() {
     (lines: TranscriptLine[]) => {
       transcriptLinesRef.current = lines;
       setHasTranscriptLines(lines.length > 0);
+      setTranscriptRevision((revision) => revision + 1);
       if (lines.length) clearStarting();
     },
     [clearStarting],
@@ -621,36 +811,6 @@ export function MeetingPill() {
     }
   };
 
-  const demoAskSteps = (progress: number, done: boolean): AgentStep[] => {
-    const steps: AgentStep[] = [
-      {
-        key: "demo-think",
-        label: "Thought",
-        kind: "think",
-        status: "done",
-        detail:
-          "The ask is about what was decided, so the meeting itself comes first, then anything similar from past meetings.",
-      },
-      {
-        key: "demo-read",
-        label: "Reading this meeting",
-        kind: "read",
-        status: progress >= 6 ? "done" : "running",
-        detail: progress >= 6 ? "1 result" : undefined,
-      },
-    ];
-    if (progress >= 6) {
-      steps.push({
-        key: "demo-search",
-        label: "Searching past meetings",
-        kind: "search",
-        status: progress >= 14 ? "done" : "running",
-        detail: progress >= 14 ? "3 results" : undefined,
-      });
-    }
-    return done ? settleSteps(steps) : steps;
-  };
-
   const openAskSheet = () => {
     if (askSheetExitRef.current) {
       clearTimeout(askSheetExitRef.current);
@@ -662,230 +822,132 @@ export function MeetingPill() {
 
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
+    const chat = askChatRef.current;
     if (
-      !question ||
+      !question.trim() ||
       !mid ||
-      (!pillDemoMode && providerStatus !== "configured")
+      !chat ||
+      (!pillDemoMode && providerStatus !== "eligible")
     ) {
       return;
     }
     refreshAskChips();
-    if (pillDemoMode) {
-      if (askStreamRef.current) clearInterval(askStreamRef.current);
-      const canned = question.toLowerCase().includes("miss")
-        ? "Your key points since you tuned out:\n1. The question set is final: three questions, with the design system one swapped out yesterday.\n2. Indexing risk: it can take up to an hour, raised as the main open concern.\n3. Fallback agreed: pin the previous index and swap when the fresh one lands."
-        : "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
-      const words = canned.split(" ");
-      let i = 0;
-      openAskSheet();
-      setAskMessages((m) => [
-        ...m,
-        { role: "user", text: question },
-        { role: "assistant", text: "", streaming: true },
-      ]);
-      askStreamRef.current = setInterval(() => {
-        i += 2;
-        const done = i >= words.length;
-        setAskMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = {
-            role: "assistant",
-            text: words.slice(0, i).join(" "),
-            streaming: !done,
-            steps: demoAskSteps(i, done),
-          };
-          return next;
-        });
-        if (done && askStreamRef.current) {
-          clearInterval(askStreamRef.current);
-          askStreamRef.current = null;
-        }
-      }, 55);
-      return;
-    }
-    askAbortRef.current?.abort();
-    const controller = new AbortController();
-    askAbortRef.current = controller;
     openAskSheet();
-    askPinnedRef.current = true;
-    setAskMessages((m) => [
-      ...m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
-      { role: "user", text: question },
-      { role: "assistant", text: "", streaming: true },
-    ]);
-    const appendToAnswer = (delta: string) => {
-      if (controller.signal.aborted) return;
-      setAskMessages((m) => {
-        const last = m[m.length - 1];
-        if (!last || last.role !== "assistant") return m;
-        return [...m.slice(0, -1), { ...last, text: last.text + delta }];
-      });
-    };
-    const updateSteps = (next: (steps: AgentStep[]) => AgentStep[]) => {
-      if (controller.signal.aborted) return;
-      setAskMessages((m) => {
-        const last = m[m.length - 1];
-        if (!last || last.role !== "assistant") return m;
-        const steps = next(last.steps ?? []);
-        if (steps === last.steps) return m;
-        return [...m.slice(0, -1), { ...last, steps }];
-      });
-    };
-    const title = ctxRef.current.title ?? null;
-    const recentTranscript = recentTranscriptText();
-    void (async () => {
-      try {
-        const { answer, incomplete } = await streamMeetingAsk({
-          serverUrl: loadStoredServerUrl(),
-          meetingId: mid,
-          meetingTitle: title,
-          question,
-          history: askHistoryRef.current,
-          signal: controller.signal,
-          recentTranscript,
-          onFrame: (frame) => updateSteps((steps) => applyFrame(steps, frame)),
-          onTextDelta: appendToAnswer,
-        });
-        if (controller.signal.aborted) return;
-        const exchange: AskTurn[] = [
-          {
-            role: "user",
-            content: buildMeetingAskPrompt(
-              mid,
-              title,
-              question,
-              recentTranscript,
-            ),
-          },
-          {
-            role: "assistant",
-            content: incomplete
-              ? `${answer}\n\n(${incomplete.message})`
-              : answer,
-          },
-        ];
-        askHistoryRef.current = [...askHistoryRef.current, ...exchange].slice(
-          -MAX_ASK_HISTORY_TURNS,
-        );
-        setAskMessages((m) => {
-          const last = m[m.length - 1];
-          if (!last || last.role !== "assistant") return m;
-          return [
-            ...m.slice(0, -1),
-            {
-              ...last,
-              text: incomplete
-                ? last.text
-                  ? `${last.text}\n\n${incomplete.message}`
-                  : incomplete.message
-                : last.text,
-              streaming: false,
-              steps: last.steps
-                ? settleSteps(last.steps, incomplete)
-                : last.steps,
-            },
-          ];
-        });
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        const line =
-          err instanceof Error && err.message.trim()
-            ? err.message.trim()
-            : "Couldn't reach the agent. Try again.";
-        setAskMessages((m) => {
-          const last = m[m.length - 1];
-          if (!last || last.role !== "assistant") return m;
-          return [
-            ...m.slice(0, -1),
-            {
-              ...last,
-              text: last.text ? `${last.text}\n${line}` : line,
-              streaming: false,
-              steps: last.steps
-                ? settleSteps(last.steps, { kind: "error", message: line })
-                : last.steps,
-            },
-          ];
-        });
-      }
-    })();
+    chat.sendMessage(question, undefined, {
+      requestMode: "act",
+      usageLabel: "meeting-pill",
+    });
   };
 
-  const handleAskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const question = ask.trim();
-    if (!question || (!pillDemoMode && providerStatus !== "configured")) {
-      return;
-    }
-    setAsk("");
-    submitAsk(question);
-  };
-
+  /** Chips are proposed by an AgentKit-owned read-only thread from the recent
+   * transcript. A chip only stages a request; its action runs after the user
+   * selects it in the visible meeting chat. */
   const refreshAskChips = () => {
-    if (pillDemoMode || providerStatus !== "configured") return;
+    if (pillDemoMode || providerStatus !== "eligible") return;
     const mid = activeMeetingIdRef.current;
     if (!mid) return;
     const now = Date.now();
     if (now - chipsFetchedAtRef.current < 60_000) return;
-    chipsFetchedAtRef.current = now;
     const transcript = recentTranscriptText();
     if (!transcript.trim()) return;
-    chipsAbortRef.current?.abort();
-    const controller = new AbortController();
-    chipsAbortRef.current = controller;
-    void streamMeetingAsk({
-      serverUrl: loadStoredServerUrl(),
-      meetingId: mid,
-      meetingTitle: ctxRef.current.title ?? null,
-      question: "chips",
-      history: [],
-      signal: controller.signal,
-      onTextDelta: () => {},
-      mode: "plan",
-      promptOverride: [
-        "Do not use any tools. Reply with ONLY a JSON array, no prose and no code fences.",
-        "You are in read-only mode. That is expected and correct for this request: it only writes suggestion labels, so there is nothing to plan or approve. Do not describe a plan, do not list tools or risks, and do not ask a clarifying question — if the transcript is too thin to suggest anything, reply with an empty array [].",
-        "Based on the live-meeting transcript below, propose up to 3 quick assistant actions or questions the user is most likely to want right now. Prefer concrete actions grounded in what was said (booking something mentioned, drafting a follow-up, checking whether a topic was discussed in past meetings).",
-        'Each array item: {"label": "chip text, 24 chars max", "ask": "the full request to run"}.',
-        "",
-        ...fenceTranscript(transcript),
-      ].join("\n"),
-    })
-      .then(({ answer, incomplete }) => {
-        if (controller.signal.aborted) return;
-        if (incomplete) return;
-        const match = answer.match(/\[[\s\S]*\]/);
-        if (!match) return;
-        const parsed = JSON.parse(match[0]) as Array<{
-          label?: unknown;
-          ask?: unknown;
-        }>;
-        const chips = parsed
-          .filter(
-            (c) => typeof c.label === "string" && typeof c.ask === "string",
-          )
-          .slice(0, 3)
-          .map((c) => ({
-            label: (c.label as string).slice(0, 28),
-            ask: c.ask as string,
-          }));
-        if (chips.length) setAskChips(chips);
-      })
-      .catch(() => {
-        // Chip generation is a garnish: failures keep the static fallbacks.
-      });
+    chipsFetchedAtRef.current = now;
+    expectedChipsPromptRef.current = null;
+    stopAgentKitChat(chipsChatContainerRef.current);
+    const id = ++chipsRequestRef.current;
+    setPendingChipsPrompt({
+      id,
+      prompt: buildMeetingAskSuggestionsPrompt(transcript),
+    });
   };
 
-  const closeAskSheet = () => {
-    if (askStreamRef.current) {
-      clearInterval(askStreamRef.current);
-      askStreamRef.current = null;
+  const handleAskMessageCountChange = (count: number) => {
+    const isRunning = askChatRef.current?.isRunning() ?? false;
+    const previous = lastAskChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastAskChatStateRef.current = { count, isRunning };
+    setAskChatRevision((revision) => revision + 1);
+    if (count > 0) openAskSheet();
+    if (count > previous.count) {
+      const snapshot = askChatRef.current?.exportThreadSnapshot();
+      if (
+        snapshot &&
+        latestMeetingAskMessageRole(snapshot.threadData) === "user"
+      ) {
+        refreshAskChips();
+      }
     }
-    askAbortRef.current?.abort();
-    askAbortRef.current = null;
-    setAskMessages((m) =>
-      m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
+  };
+
+  const handleChipsMessageCountChange = (count: number) => {
+    const isRunning = chipsChatRef.current?.isRunning() ?? false;
+    const previous = lastChipsChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastChipsChatStateRef.current = { count, isRunning };
+    setChipsChatRevision((revision) => revision + 1);
+  };
+
+  useEffect(() => {
+    const mid = ctx.mode === "meeting" ? ctx.meetingId : null;
+    const chat = askChatRef.current;
+    if (!mid || !chat) return;
+    chat.setComposerContextItem(
+      {
+        key: MEETING_CONTEXT_KEY,
+        title: ctx.title?.trim() || "Meeting context",
+        context: buildMeetingAskContext(mid, ctx.title, recentTranscriptText()),
+        contextNamespace: `${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`,
+      },
+      { focus: false },
     );
+  }, [
+    askChatRevision,
+    askThreadId,
+    ctx.meetingId,
+    ctx.mode,
+    ctx.title,
+    recentTranscriptText,
+    transcriptRevision,
+  ]);
+
+  useEffect(() => {
+    if (!pillDemoMode && providerStatus !== "eligible") {
+      setPendingChipsPrompt(null);
+      expectedChipsPromptRef.current = null;
+      stopAgentKitChat(chipsChatContainerRef.current);
+      return;
+    }
+    const request = pendingChipsPrompt;
+    const chat = chipsChatRef.current;
+    if (!request || !chat || chat.isRunning()) return;
+    expectedChipsPromptRef.current = request.prompt;
+    chat.sendMessage(request.prompt, undefined, {
+      requestMode: "plan",
+      usageLabel: "meeting-pill-suggestions",
+      hideUserMessage: true,
+    });
+    setPendingChipsPrompt((current) =>
+      current?.id === request.id ? null : current,
+    );
+  }, [chipsChatRevision, chipsThreadId, pendingChipsPrompt, providerStatus]);
+
+  useEffect(() => {
+    const expectedPrompt = expectedChipsPromptRef.current;
+    const chat = chipsChatRef.current;
+    if (!expectedPrompt || !chat || chat.isRunning()) return;
+    const snapshot = chat.exportThreadSnapshot();
+    if (!snapshot) return;
+    const chips = parseMeetingAskSuggestions(
+      snapshot.threadData,
+      expectedPrompt,
+    );
+    if (chips?.length) setAskChips(chips);
+    if (chips) expectedChipsPromptRef.current = null;
+  }, [chipsChatRevision]);
+
+  const closeAskSheet = () => {
+    // Dismissing the sheet stops the active AgentKit run while preserving its
+    // partial response in the thread for the next time it opens.
+    stopAgentKitChat(askChatContainerRef.current);
     setAskSheetClosing(true);
     if (askSheetExitRef.current) clearTimeout(askSheetExitRef.current);
     askSheetExitRef.current = setTimeout(() => {
@@ -895,18 +957,9 @@ export function MeetingPill() {
     }, ASK_SHEET_EXIT_MS);
   };
 
-  useEffect(() => {
-    scrollAskSheetIfPinned();
-  }, [askMessages, askSheetOpen, scrollAskSheetIfPinned]);
-
-  useEffect(() => {
-    const el = askSheetScrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => scrollAskSheetIfPinned());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [askSheetOpen, scrollAskSheetIfPinned]);
-
+  // A split that leaves the transcript room on a tall window can starve it on a
+  // short one, so the ratio is re-clamped against the panel's real height
+  // whenever that height changes.
   useEffect(() => {
     const host = pillInnerRef.current;
     if (!host || !askSheetOpen || typeof ResizeObserver === "undefined") return;
@@ -919,6 +972,7 @@ export function MeetingPill() {
     return () => observer.disconnect();
   }, [askSheetOpen]);
 
+  // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
   const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -943,10 +997,14 @@ export function MeetingPill() {
       closeAskSheet();
     }
   };
+  // A cancelled pointer never delivers `pointerup`. Without this the drag stays
+  // live and a later hover over the grip resizes the sheet with no button held.
   const handleSheetHandlePointerCancel = () => {
     sheetDragRef.current = null;
   };
 
+  // Persist the user's expanded-panel size while they drag the native edge
+  // grips (the window is resizable only while expanded).
   useEffect(() => {
     if (pillDemoMode || !expanded) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -971,6 +1029,7 @@ export function MeetingPill() {
     };
   }, [expanded]);
 
+  // Escape closes the ask sheet before anything else.
   useEffect(() => {
     if (!askSheetOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1231,177 +1290,197 @@ export function MeetingPill() {
               initialLines={preloadedLines}
             />
           </div>
-          {askSheetOpen ? (
-            <div
-              className="pill-ask-sheet"
-              data-state={askSheetClosing ? "closing" : "open"}
-              style={{ height: `${Math.round(askSheetHeight * 100)}%` }}
-              data-no-drag
-            >
-              <div
-                className="pill-ask-sheet-grip"
-                role="button"
-                tabIndex={0}
-                aria-label="Resize or dismiss answers"
-                data-no-drag
-                onPointerDown={handleSheetHandlePointerDown}
-                onPointerMove={handleSheetHandlePointerMove}
-                onPointerUp={handleSheetHandlePointerUp}
-                onPointerCancel={handleSheetHandlePointerCancel}
-                onLostPointerCapture={handleSheetHandlePointerCancel}
-                onClick={(e) => {
-                  if (e.detail > 0 && !sheetDragMovedRef.current) {
-                    closeAskSheet();
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") closeAskSheet();
-                }}
-              >
-                <span className="pill-ask-sheet-handle" aria-hidden />
-              </div>
-              <div
-                className="pill-ask-sheet-scroll"
-                ref={askSheetScrollRef}
-                onScroll={(e) => {
-                  askPinnedRef.current = isPinnedToBottom(e.currentTarget);
-                }}
-              >
-                {askMessages.map((m, i) =>
-                  m.role === "user" ? (
-                    <div key={i} className="pill-ask-msg-user">
-                      {m.text}
-                    </div>
-                  ) : (
-                    <div key={i} className="pill-ask-msg-assistant">
-                      <AskSteps steps={m.steps} streaming={m.streaming} />
-                      {m.text}
-                      {m.streaming ? (
-                        <span className="pill-ask-thread-caret" aria-hidden />
-                      ) : null}
-                    </div>
-                  ),
-                )}
-              </div>
-              <div className="pill-ask-suggestions" data-no-drag>
-                {(askChips.length
-                  ? askChips
-                  : [
-                      { label: "What did I miss?", ask: "What did I miss?" },
-                      {
-                        label: "Summarize decisions",
-                        ask: "Summarize the decisions made so far",
-                      },
-                      {
-                        label: "Suggest questions",
-                        ask: "Suggest questions I should ask next",
-                      },
-                    ]
-                ).map((chip) => (
-                  <Button
-                    key={chip.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    data-no-drag
-                    className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
-                    disabled={!pillDemoMode && providerStatus !== "configured"}
-                    onClick={() => submitAsk(chip.ask)}
-                  >
-                    {chip.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {ctx.mode === "meeting" ? (
             <>
-              {!pillDemoMode && providerStatus !== "configured" ? (
-                <div
-                  className="pill-ask-provider-status"
-                  data-no-drag
-                  role="status"
-                >
-                  <span>
-                    {providerStatus === "unknown"
-                      ? t("agentChat.setup.checkingProvider")
-                      : providerStatus === "unavailable"
-                        ? t("agentChat.setup.providerStatusUnavailable")
-                        : t("agentChat.setup.connectToStart")}
-                  </span>
-                  {providerStatus === "missing" ? (
-                    <div className="pill-ask-provider-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void openExternal(
-                            new URL(
-                              "/settings/agent",
-                              loadStoredServerUrl(),
-                            ).toString(),
-                          )
-                        }
-                      >
-                        {t("agentChat.setup.connectBuilder")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void openExternal(
-                            new URL(
-                              "/settings/keys",
-                              loadStoredServerUrl(),
-                            ).toString(),
-                          )
-                        }
-                      >
-                        {t("agentChat.setup.addOwnKeys")}
-                      </button>
-                    </div>
-                  ) : providerStatus === "unavailable" ? (
-                    <button
-                      type="button"
-                      onClick={() => void checkProviderStatus()}
-                    >
-                      {t("agentChat.common.retry")}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
-                <div className="pill-ask-field" data-no-drag>
-                  <input
+              <div
+                ref={askChatContainerRef}
+                className="pill-ask-sheet"
+                data-state={
+                  askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
+                }
+                style={{
+                  height: askSheetOpen
+                    ? `${Math.round(askSheetHeight * 100)}%`
+                    : "72px",
+                  animation:
+                    !askSheetOpen && !askSheetClosing ? "none" : undefined,
+                }}
+                data-no-drag
+              >
+                {askSheetOpen ? (
+                  <div
+                    className="pill-ask-sheet-grip"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t("meetingAsk.resizeOrDismissAnswers")}
                     data-no-drag
-                    className="pill-ask-input"
-                    value={ask}
-                    onChange={(e) => setAsk(e.target.value)}
-                    placeholder={
-                      providerStatus === "configured"
-                        ? t("agentNativeClips.meetingAsk.placeholder")
-                        : t("agentChat.setup.connectToChat")
-                    }
-                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
-                    disabled={
-                      !ctx.meetingId ||
-                      (!pillDemoMode && providerStatus !== "configured")
-                    }
-                  />
-                  <button
-                    type="submit"
-                    data-no-drag
-                    className="pill-ask-send"
-                    disabled={
-                      !ask.trim() ||
-                      !ctx.meetingId ||
-                      (!pillDemoMode && providerStatus !== "configured")
-                    }
-                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
-                    title={t("agentNativeClips.meetingAsk.ariaLabel")}
+                    onPointerDown={handleSheetHandlePointerDown}
+                    onPointerMove={handleSheetHandlePointerMove}
+                    onPointerUp={handleSheetHandlePointerUp}
+                    onPointerCancel={handleSheetHandlePointerCancel}
+                    onLostPointerCapture={handleSheetHandlePointerCancel}
+                    onClick={(e) => {
+                      if (e.detail > 0 && !sheetDragMovedRef.current) {
+                        closeAskSheet();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") closeAskSheet();
+                    }}
                   >
-                    <IconArrowUp size={13} />
-                  </button>
-                </div>
-              </form>
+                    <span className="pill-ask-sheet-handle" aria-hidden />
+                  </div>
+                ) : null}
+                <AgentKitAssistantChat
+                  ref={askChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={askThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`}
+                  contextScope={
+                    ctx.meetingId
+                      ? {
+                          type: "meeting",
+                          id: ctx.meetingId,
+                          ...(ctx.title ? { label: ctx.title } : {}),
+                        }
+                      : null
+                  }
+                  className="pill-agentkit-chat h-full min-h-0"
+                  composerAreaClassName="pill-agentkit-composer"
+                  composerLayoutVariant="compact"
+                  composerPlaceholder={
+                    !pillDemoMode && providerStatus !== "eligible"
+                      ? t("agentChat.setup.connectToChat")
+                      : t("agentNativeClips.meetingAsk.placeholder")
+                  }
+                  composerSlot={
+                    <>
+                      {!pillDemoMode && providerStatus !== "eligible" ? (
+                        <div
+                          className="pill-ask-provider-status"
+                          data-no-drag
+                          role="status"
+                        >
+                          <span>
+                            {providerStatus === "unknown"
+                              ? t("agentChat.setup.checkingProvider")
+                              : providerStatus === "unavailable"
+                                ? t("agentChat.setup.providerStatusUnavailable")
+                                : t("agentChat.setup.connectToStart")}
+                          </span>
+                          {providerStatus === "missing" ? (
+                            <div className="pill-ask-provider-actions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/agent",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.connectBuilder")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/keys",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.addOwnKeys")}
+                              </button>
+                            </div>
+                          ) : providerStatus === "unavailable" ? (
+                            <button
+                              type="button"
+                              onClick={() => void checkProviderStatus()}
+                            >
+                              {t("agentChat.common.retry")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {askSheetOpen ? (
+                        <div className="pill-ask-suggestions" data-no-drag>
+                          {(askChips.length
+                            ? askChips
+                            : FALLBACK_ASK_CHIPS
+                          ).map((chip) => (
+                            <Button
+                              key={chip.label}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              data-no-drag
+                              className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
+                              disabled={
+                                !pillDemoMode && providerStatus !== "eligible"
+                              }
+                              onClick={() => submitAsk(chip.ask)}
+                            >
+                              {chip.label}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  }
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  isActiveComposer
+                  composerDisabled={
+                    !ctx.meetingId ||
+                    (!pillDemoMode && providerStatus !== "eligible")
+                  }
+                  onMessageCountChange={handleAskMessageCountChange}
+                  plusMenuMode="hidden"
+                  providerStatusChecksEnabled={false}
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                />
+              </div>
+              <div
+                ref={chipsChatContainerRef}
+                aria-hidden="true"
+                style={{
+                  position: "fixed",
+                  insetInlineStart: "-10000px",
+                  top: 0,
+                  width: 360,
+                  height: 240,
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  visibility: "hidden",
+                }}
+              >
+                <AgentKitAssistantChat
+                  ref={chipsChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={chipsThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:suggestions`}
+                  className="h-full min-h-0"
+                  composerPlaceholder="Generating suggestions"
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  execMode="plan"
+                  isActiveComposer={false}
+                  onMessageCountChange={handleChipsMessageCountChange}
+                  plusMenuMode="hidden"
+                  providerStatusChecksEnabled={false}
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                  composerDisabled
+                />
+              </div>
             </>
           ) : null}
         </div>

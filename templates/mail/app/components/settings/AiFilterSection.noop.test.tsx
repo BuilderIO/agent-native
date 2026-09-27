@@ -231,7 +231,7 @@ describe("AiFilterSection", () => {
     expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
   });
 
-  it("groups Important, AI tag, Spam, and Skip inbox rules in one editor", () => {
+  it("groups important, tag, filtered, and auto-archive rules in one editor", () => {
     mocks.rules = [
       importantRule(),
       {
@@ -265,8 +265,8 @@ describe("AiFilterSection", () => {
     for (const key of [
       "mail.aiFilter.importantMode",
       "mail.aiFilter.aiTagsTitle",
-      "mail.aiFilter.spamMode",
-      "mail.aiFilter.skipInboxMode",
+      "mail.aiFilter.filteredMode",
+      "mail.aiFilter.autoArchiveMode",
     ]) {
       expect(screen.getByText(key)).not.toBeNull();
     }
@@ -278,28 +278,84 @@ describe("AiFilterSection", () => {
     ).not.toBeNull();
   });
 
+  it("offers a Filtered rule in-row when there are no Filtered rules", () => {
+    renderSection();
+
+    expect(screen.getByText("mail.aiFilter.filteredMode")).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.manageSettings")).not.toBeNull();
+    const addButtons = screen.getAllByRole("button", {
+      name: "mail.aiFilter.newRule",
+    });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    expect(
+      screen
+        .getByRole("button", { name: "mail.aiFilter.filteredMode" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("uses a styled Filtered disclosure button and wraps rule sentences", () => {
+    const condition =
+      "Unsolicited promotional offers from senders I have never replied to";
+    mocks.rules = [
+      {
+        ...importantRule(),
+        id: "filtered-rule",
+        name: "AI spam",
+        condition,
+        actions: [
+          { type: "label", labelName: "agent-native-filtered" },
+          { type: "archive" },
+        ],
+      },
+    ];
+    renderSection();
+
+    const disclosure = screen.getByRole("button", {
+      name: "mail.aiFilter.manageSettings",
+    });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure.getAttribute("aria-controls")).toBe(
+      "ai-filter-management-settings",
+    );
+    expect(document.querySelector("details, summary")).toBeNull();
+    expect(disclosure.querySelector("svg")).not.toBeNull();
+
+    const ruleSentence = screen.getByText(condition);
+    expect(ruleSentence.className).toContain("line-clamp-2");
+    expect(ruleSentence.className).not.toContain("truncate");
+
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document
+        .getElementById("ai-filter-management-settings")
+        ?.hasAttribute("hidden"),
+    ).toBe(false);
+  });
+
   it.each([
     ["importantMode", "importantRuleHelp"],
     ["aiTagsTitle", "aiTagRuleHelp"],
-    ["spamMode", "spamRuleHelp"],
-    ["skipInboxMode", "skipInboxRuleHelp"],
+    ["filteredMode", "spamRuleHelp"],
+    ["autoArchiveMode", "skipInboxRuleHelp"],
   ])("explains %s rule prompts", async (modeKey, helpKey) => {
     renderSection();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
     );
-    const modeButton = screen.getByRole("button", {
-      name: `mail.aiFilter.${modeKey}`,
-    });
-    fireEvent.focus(modeButton);
+    fireEvent.focus(
+      screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }),
+    );
 
     expect((await screen.findByRole("tooltip")).textContent).toContain(
       `mail.aiFilter.${helpKey}`,
     );
   });
 
-  it("describes filtered rules without promising Gmail Spam", () => {
+  it("describes Filtered rules without promising Gmail Spam", () => {
     const help = enUS.mail.aiFilter.spamRuleHelp;
     expect(help).toContain("agent-native-filtered");
     expect(help).toContain("archives");
@@ -311,10 +367,10 @@ describe("AiFilterSection", () => {
     renderSection();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.spamMode" }),
+      screen.getByRole("button", { name: "mail.aiFilter.filteredMode" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
@@ -383,7 +439,7 @@ describe("AiFilterSection", () => {
     );
   });
 
-  it("preserves the archive action when editing a tag rule", async () => {
+  it("keeps auto-archive when editing a tag rule", async () => {
     mocks.rules = [
       {
         ...importantRule(),
@@ -398,7 +454,7 @@ describe("AiFilterSection", () => {
     ];
     renderSection();
 
-    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.autoArchiveMode")).not.toBeNull();
     fireEvent.pointerDown(
       screen.getByRole("button", { name: "mail.toolbar.menu" }),
       { button: 0, ctrlKey: false },

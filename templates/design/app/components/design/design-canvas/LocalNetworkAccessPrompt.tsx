@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlugConnected,
   IconPlugConnectedX,
@@ -9,7 +10,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -29,6 +29,7 @@ export function LocalNetworkAccessPrompt({
   onDismiss: () => void;
   proactive?: boolean;
 }) {
+  const t = useT();
   // "unreachable" is the one confident case (permission is confirmed
   // granted, so it's confirmed NOT the cause) — every other kind is
   // deliberately hedged copy, never a diagnosed permission claim. See
@@ -36,14 +37,18 @@ export function LocalNetworkAccessPrompt({
   const isConfirmedUnreachable = kind === "unreachable";
   const isStalePreviewToken = kind === "stalePreviewToken";
   const title = proactive
-    ? "Connect your local screens" /* i18n-ignore first-land localhost permission dialog title */
+    ? t("designCanvas.localBridge.permissionPromptTitle", {
+        defaultValue: "Connect your local screens",
+      })
     : isStalePreviewToken
       ? "Reconnect this screen" /* i18n-ignore stale local dev preview token title */
       : isConfirmedUnreachable
         ? "Local dev server unreachable" /* i18n-ignore local dev connect card title */
         : "Can't reach your local dev server" /* i18n-ignore local dev connect card title */;
   const description = proactive
-    ? "Allow this Design tab to connect to your localhost app so live layers can load and be edited. Click Allow if Chrome asks." /* i18n-ignore first-land localhost permission dialog body */
+    ? t("designCanvas.localBridge.permissionPromptDescription", {
+        defaultValue: "Choose Allow in Chrome's prompt to enable live editing.",
+      })
     : isStalePreviewToken
       ? "The local bridge restarted, so this screen's preview token is stale. Run design connect again, then click Retry." /* i18n-ignore stale local dev preview token body */
       : isConfirmedUnreachable
@@ -51,11 +56,28 @@ export function LocalNetworkAccessPrompt({
         : "Your browser may need permission to connect to localhost — or the dev server may be offline." /* i18n-ignore local dev connect card body */;
   const actionLabel = connecting
     ? "Connecting…" /* i18n-ignore local dev connect card button, transient */
-    : proactive
-      ? "Allow local access" /* i18n-ignore first-land localhost permission dialog button */
-      : isStalePreviewToken || isConfirmedUnreachable
-        ? "Retry" /* i18n-ignore local dev connect card button */
-        : "Connect" /* i18n-ignore local dev connect card button */;
+    : kind === "maybePermissionBlocked"
+      ? t("designCanvas.localBridge.permissionPromptRetry", {
+          defaultValue: "Retry connection",
+        })
+      : "Retry" /* i18n-ignore local dev connect card button */;
+  const showPermissionHelp = proactive || kind === "maybePermissionBlocked";
+  const noPromptLabel = t("designCanvas.localBridge.permissionPromptNoPrompt", {
+    defaultValue: "No Chrome prompt?",
+  });
+  const permissionSettingsInstructions = t(
+    "designCanvas.localBridge.permissionPromptSettingsInstructions",
+    {
+      defaultValue:
+        "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+    },
+  );
+  const permissionHelp = showPermissionHelp ? (
+    <details className="text-xs text-muted-foreground">
+      <summary className="cursor-pointer">{noPromptLabel}</summary>
+      <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
+    </details>
+  ) : null;
 
   if (proactive) {
     return (
@@ -73,11 +95,7 @@ export function LocalNetworkAccessPrompt({
             </DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button type="button" onClick={onConnect} disabled={connecting}>
-              {actionLabel}
-            </Button>
-          </DialogFooter>
+          {permissionHelp}
         </DialogContent>
       </Dialog>
     );
@@ -111,6 +129,7 @@ export function LocalNetworkAccessPrompt({
           <div className="text-sm font-medium text-foreground">{title}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
+        {permissionHelp}
         <Button
           type="button"
           size="sm"

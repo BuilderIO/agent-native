@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "연결",
@@ -1003,7 +1005,7 @@ export default {
     year: "년",
     zoom: "Zoom",
     zoomAdded: "Zoom 추가됨",
-    zoomAddFailed: "Zoom를 추가하지 못했습니다.",
+    zoomAddFailed: zoomAddFailedMessages["ko-KR"],
     zoomConnectFailed: "Zoom를 연결할 수 없습니다",
     zoomConnectionOpened: "Zoom 연결이 열렸습니다.",
     zoomNotConfigured: "Zoom OAuth가 구성되지 않았습니다.",

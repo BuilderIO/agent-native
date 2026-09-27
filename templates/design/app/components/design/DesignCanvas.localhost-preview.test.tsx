@@ -20,6 +20,7 @@ import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
 } from "./design-canvas/external-preview";
+import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -74,6 +75,30 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("keeps Chrome settings help available when the prompt is gone", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+        />,
+      );
+    });
+
+    const permissionHelp = container.querySelector("details");
+    expect(container.textContent).toContain("Retry connection");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+    );
+  });
+
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
     useActionQueryMock.mockReturnValue({
       data: {
@@ -1002,10 +1027,25 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("Connect your local screens");
+      expect(document.body.textContent).toContain(
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      );
+      expect(document.body.textContent).not.toContain("Allow local access");
+      expect(document.body.textContent).not.toContain("Retry connection");
       expect(document.body.textContent).not.toContain(
         "Can't reach your local dev server",
       );
     });
+    const permissionHelp = document.querySelector("details");
+    expect(permissionHelp?.open).toBe(false);
+    expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
+    await act(async () => {
+      permissionHelp?.querySelector("summary")?.click();
+    });
+    expect(permissionHelp?.open).toBe(true);
+    expect(permissionHelp?.textContent).toContain(
+      "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+    );
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });
 

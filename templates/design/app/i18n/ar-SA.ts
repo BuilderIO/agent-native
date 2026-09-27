@@ -1453,6 +1453,13 @@ export default {
         "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
       connectionNotConfirmed:
         "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
+      permissionPromptTitle: "وصّل شاشاتك المحلية",
+      permissionPromptDescription:
+        "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
+      permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
+      permissionPromptSettingsInstructions:
+        "انقر على رمز معلومات الموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الوصول إلى الشبكة المحلية على السماح.",
+      permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },
   multiScreenCanvas: {

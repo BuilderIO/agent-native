@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "连接",
@@ -960,7 +962,7 @@ export default {
     year: "年",
     zoom: "Zoom",
     zoomAdded: "添加Zoom",
-    zoomAddFailed: "添加Zoom失败",
+    zoomAddFailed: zoomAddFailedMessages["zh-CN"],
     zoomConnectFailed: "无法连接Zoom",
     zoomConnectionOpened: "Zoom 连接已打开",
     zoomNotConfigured: "Zoom OAuth 未配置。",
