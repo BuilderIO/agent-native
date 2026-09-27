@@ -50,6 +50,26 @@ describe("sources route pointer-lock guards", () => {
   });
 });
 
+describe("Builder embedding check controls", () => {
+  it("only shows the check after resolving Admin or Owner source access", () => {
+    const source = readRouteSource("./sources.tsx");
+
+    expect(source).toContain('"get-source" as any');
+    expect(source).toContain('sourceAccess.data?.accessRole === "admin"');
+    expect(source).toContain('sourceAccess.data?.accessRole === "owner"');
+    expect(source).toContain("{canCheckBuilder ? (");
+  });
+
+  it("runs only after confirming one provider-cost request", () => {
+    const source = readRouteSource("./sources.tsx");
+
+    expect(source).toContain('t("sources.checkBuilderConfirm"');
+    expect(source).toContain('"check-builder-embeddings" as any');
+    expect(source).toContain("confirmProviderCost: true,");
+    expect(source).toContain("disabled={checkBuilder.isPending}");
+  });
+});
+
 describe("add source drawer config validation", () => {
   it("validates the Allowed channels field through the shared validator", () => {
     const source = readRouteSource("./sources.tsx");

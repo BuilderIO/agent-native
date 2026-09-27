@@ -493,6 +493,15 @@ const enUS = {
     reviewRequired: "Review required",
     reviewRequiredDescription: "Queue extracted knowledge before approval",
     cancel: "Cancel",
+    close: "Close",
+    checkBuilder: "Check Builder embeddings",
+    checkBuilderDescription:
+      "Verify Builder with one synthetic request. No source content is sent or indexed.",
+    checkBuilderConfirm:
+      "Run one synthetic Builder embedding request for {{source}}? This may incur provider usage. No source content is sent, and the vector is not stored.",
+    runBuilderCheck: "Run one check",
+    checkBuilderSuccess:
+      "Builder check passed: {{provider}} / {{model}}, {{dimensions}} dimensions. No vector was stored.",
     saveSource: "Save source",
     createSource: "Create source",
     retryAfter: "Retry after {{date}}",
