@@ -1097,6 +1097,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "आपके संगठन का कोई भी व्यक्ति देख सकता है",
   "share.owner": "मालिक",
   "share.peopleWithAccess": "एक्सेस वाले लोग",
+  "share.people": "लोग",
+  "share.agents": "एजेंट",
   "share.private": "निजी",
   "share.privateDescription": "केवल एक्सेस वाले लोग देख सकते हैं",
   "share.public": "सार्वजनिक",

@@ -1127,6 +1127,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "يمكن لأي شخص في مؤسستك العرض",
   "share.owner": "المالك",
   "share.peopleWithAccess": "الأشخاص الذين لديهم صلاحية الوصول",
+  "share.people": "الأشخاص",
+  "share.agents": "الوكلاء",
   "share.private": "خاص",
   "share.privateDescription": "يمكن للأشخاص الذين لديهم صلاحية الوصول فقط العرض",
   "share.public": "عام",

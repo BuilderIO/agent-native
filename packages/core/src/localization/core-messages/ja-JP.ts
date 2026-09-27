@@ -1131,6 +1131,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "組織内のすべてのユーザーが閲覧可能",
   "share.owner": "所有者",
   "share.peopleWithAccess": "アクセスできるユーザー",
+  "share.people": "人",
+  "share.agents": "エージェント",
   "share.private": "非公開",
   "share.privateDescription": "アクセス権を持つユーザーのみ閲覧可能",
   "share.public": "公開",

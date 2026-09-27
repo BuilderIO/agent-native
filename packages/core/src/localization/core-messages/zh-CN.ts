@@ -1050,6 +1050,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "您组织中的任何人都可以查看",
   "share.owner": "所有者",
   "share.peopleWithAccess": "拥有访问权限的人员",
+  "share.people": "人",
+  "share.agents": "智能体",
   "share.private": "私密",
   "share.privateDescription": "只有拥有访问权限的人员可以查看",
   "share.public": "公开",

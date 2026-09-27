@@ -1221,6 +1221,8 @@ const messages: AgentChatTranslation = {
     "Qualquer pessoa na sua organização pode visualizar",
   "share.owner": "Proprietário",
   "share.peopleWithAccess": "Pessoas com acesso",
+  "share.people": "Pessoas",
+  "share.agents": "Agentes",
   "share.private": "Privado",
   "share.privateDescription": "Somente pessoas com acesso podem visualizar",
   "share.public": "Público",

@@ -181,6 +181,10 @@ import {
   RECORDING_SESSION_EXPIRED,
   isStorageSetupFailureMessage,
 } from "./lib/recording-request";
+import {
+  listenForRecordingShortcutStopAcks,
+  requestRecordingShortcutStop,
+} from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -3606,7 +3610,9 @@ export function App({
       return;
     }
     if (recorder) {
-      emit("clips:recorder-stop").catch(() => {});
+      void requestRecordingShortcutStop().catch((error) => {
+        console.error("[clips] Recording shortcut stop failed:", error);
+      });
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
@@ -3642,31 +3648,30 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listen("clips:record-shortcut", () => {
+    let unlistenAcks: (() => void) | undefined;
+    let unlistenShortcut: (() => void) | undefined;
+    void listenForRecordingShortcutStopAcks()
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenAcks = unlisten;
+      })
+      .catch((error) => {
+        console.error("[clips] stop acknowledgement listener failed:", error);
+      });
+    void listen("clips:record-shortcut", () => {
       recordShortcutHandlerRef.current();
     })
-      .then((u) => {
-        if (cancelled) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        unlisten = u;
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenShortcut = unlisten;
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error("[clips] record shortcut listener failed:", error);
+      });
     return () => {
       cancelled = true;
-      if (unlisten) {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      }
+      unlistenShortcut?.();
+      unlistenAcks?.();
     };
   }, []);
 

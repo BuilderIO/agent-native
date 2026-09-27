@@ -1110,6 +1110,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "조직 내 모든 사용자가 볼 수 있음",
   "share.owner": "소유자",
   "share.peopleWithAccess": "접근 권한이 있는 사용자",
+  "share.people": "사람",
+  "share.agents": "에이전트",
   "share.private": "비공개",
   "share.privateDescription": "접근 권한이 있는 사용자만 볼 수 있음",
   "share.public": "공개",

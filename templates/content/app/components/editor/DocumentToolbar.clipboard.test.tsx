@@ -2,7 +2,7 @@
 
 import { appPath } from "@agent-native/core/client/api-path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,25 @@ vi.mock("sonner", async (importOriginal) => ({
     error: mocks.error,
     success: mocks.success,
   },
+}));
+vi.mock("@agent-native/core/client/sharing", () => ({
+  ShareButton: ({
+    quickCopy,
+    agentTabContent,
+  }: {
+    quickCopy: { label: string; onCopy: () => Promise<boolean | void> };
+    agentTabContent: ReactNode;
+  }) =>
+    createElement(
+      "div",
+      null,
+      createElement(
+        "button",
+        { onClick: () => void quickCopy.onCopy() },
+        quickCopy.label,
+      ),
+      agentTabContent,
+    ),
 }));
 
 import { DocumentToolbar } from "./DocumentToolbar";
@@ -103,26 +122,20 @@ describe("DocumentToolbar clipboard behavior", () => {
     vi.unstubAllGlobals();
   });
 
-  async function copyPageLink() {
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '[aria-label="editor.toolbar.morePageActions"]',
+  async function copyFromShare(label: string) {
+    const trigger = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((candidate) =>
+      candidate.textContent?.includes("editor.toolbar.share"),
     );
     expect(trigger).not.toBeNull();
     await act(async () => {
-      trigger!.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
+      trigger!.click();
     });
 
     const item = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((candidate) =>
-      candidate.textContent?.includes("editor.toolbar.copyPageLink"),
-    );
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((candidate) => candidate.textContent?.includes(label));
     expect(item).not.toBeUndefined();
     await act(async () => item!.click());
   }
@@ -130,7 +143,7 @@ describe("DocumentToolbar clipboard behavior", () => {
   it("copies the canonical page URL before reporting success", async () => {
     mocks.copy.mockResolvedValue(true);
 
-    await copyPageLink();
+    await copyFromShare("editor.toolbar.copyPageLink");
 
     expect(mocks.copy).toHaveBeenCalledWith(
       `${window.location.origin}${appPath("/p/clipboard-fixture")}`,
@@ -144,10 +157,28 @@ describe("DocumentToolbar clipboard behavior", () => {
     });
   });
 
+  it("offers the joined quick-copy action before the Share panel loads", async () => {
+    mocks.copy.mockResolvedValue(true);
+    const quickCopy = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "editor.toolbar.copyPageLink",
+    );
+    expect(quickCopy).toBeDefined();
+    await act(async () => quickCopy!.click());
+    expect(mocks.copy).toHaveBeenCalledWith(
+      `${window.location.origin}${appPath("/p/clipboard-fixture")}`,
+    );
+    expect(container.textContent).not.toContain(
+      "editor.toolbar.copyAgentPrompt",
+    );
+  });
+
   it("reports failure without a success toast or analytics", async () => {
     mocks.copy.mockResolvedValue(false);
 
-    await copyPageLink();
+    await copyFromShare("editor.toolbar.copyPageLink");
 
     expect(mocks.error).toHaveBeenCalledWith(
       "editor.toolbar.couldNotCopyLink",
@@ -157,6 +188,91 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(mocks.track).not.toHaveBeenCalled();
   });
 
+  it("copies an agent request without creating a share grant", async () => {
+    mocks.copy.mockResolvedValue(true);
+
+    await copyFromShare("editor.toolbar.copyAgentPrompt");
+
+    expect(mocks.copy).toHaveBeenCalledWith("editor.toolbar.agentPrompt");
+    expect(mocks.success).toHaveBeenCalledWith(
+      "editor.toolbar.copiedAgentPrompt",
+    );
+    expect(mocks.track).toHaveBeenCalledWith("share_link_copied", {
+      resource_type: "document",
+      resource_id: "clipboard-fixture",
+      link_type: "agent_prompt",
+    });
+  });
+
+  it("does not report an agent copy when clipboard access fails", async () => {
+    mocks.copy.mockResolvedValue(false);
+
+    await copyFromShare("editor.toolbar.copyAgentPrompt");
+
+    expect(mocks.error).toHaveBeenCalledWith(
+      "editor.toolbar.couldNotCopyAgentPrompt",
+      { description: "editor.toolbar.clipboardAccessUnavailable" },
+    );
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("keeps local-file documents on their local page link", async () => {
+    mocks.copy.mockResolvedValue(true);
+    await act(async () => {
+      root.render(
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(
+            TooltipProvider,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(DocumentToolbar, {
+                documentId: "clipboard-fixture",
+                source: { mode: "local-files", path: "notes/example.md" },
+                utilityPanel: null,
+                onUtilityPanelChange: () => {},
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+
+    const trigger = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((candidate) =>
+      candidate.textContent?.includes("editor.toolbar.share"),
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const copyItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) =>
+      candidate.textContent?.includes("editor.toolbar.copyPageLink"),
+    );
+    expect(copyItem).not.toBeUndefined();
+    await act(async () => copyItem!.click());
+
+    expect(mocks.copy).toHaveBeenCalledWith(
+      `${window.location.origin}${appPath("/page/clipboard-fixture")}`,
+    );
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
+    ).toBeNull();
+  });
   it("captures the editor selection before pointer-opening Suggest edits", async () => {
     const editor = document.createElement("div");
     editor.tabIndex = 0;
