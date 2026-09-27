@@ -1,5 +1,12 @@
 # @agent-native/recap-cli
 
+## 0.5.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
 ## 0.5.45
 
 ### Patch Changes

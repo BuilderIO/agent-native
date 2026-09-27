@@ -5,6 +5,15 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-26
 
+### Improved
+
+- Assets prompts for storage only when you choose to upload files.
+- Loading screens now reflect the app's home layout.
+
+### Fixed
+
+- Dismissing storage setup now cancels queued uploads.
+
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.

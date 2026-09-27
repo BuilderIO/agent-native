@@ -11,6 +11,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Connect storage only when you choose to upload a file
+- Human Review shows thread owners' emails and opens designs in the editor.
+- Loading screens now reflect the app's home layout.
 - Home headers keep search and controls aligned at intermediate widths
 - Browse every design template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - Design home suggestions reflect the role selected during onboarding, and the prompt stays centered above templates.
@@ -19,6 +22,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- API key settings recover when loading stalls.
+- Cmd+D copies avoid existing screens while reserving simultaneous duplicates.
+- Duplicated screens now keep their placement, stacking order, and undo history consistent with the canvas.
+- Frame drops keep auto-layout slots and escape clipped nested frames.
+- Image and font uploads ask for storage only after you choose to upload, with a retry when storage status is unavailable.
+- Screen titles stay clickable when the Interact button appears.
 - The home search shortcut leaves commands for open menus and dialogs.
 - Cmd+D places screen duplicates in the next open slot
 - Dropping a layer beside a sibling keeps that insertion point.
