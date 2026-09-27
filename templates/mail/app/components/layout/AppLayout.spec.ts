@@ -94,11 +94,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
-    expect(source).toContain("{sidebarOpen && (");
-    expect(source).toContain("setSidebarOpen((open) => !open)");
     expect(source).toContain(
-      "fixed start-0 top-0 bottom-0 z-40 flex w-[260px]",
+      "<Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>",
     );
+    expect(source).toContain("<DialogTrigger asChild>");
+    expect(source).toContain("<DialogContent");
+    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain('<DialogTitle className="sr-only">');
+    expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
     expect(source).not.toContain("mail-sidebar-pinned");
     expect(source).not.toContain("railNavItems");
     expect(source).not.toContain("showCollapsedSidebar");
@@ -208,10 +211,10 @@ describe("AppLayout inbox tab bar", () => {
   });
 
   it("labels the hidden keyboard-shortcut target for Search", () => {
-    const source = appLayoutSource();
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
-      'id="mail-search"\n              aria-label={t("mail.search.label")}\n              className="sr-only"',
+      'id="mail-search" aria-label={t("mail.search.label")} className="sr-only"',
     );
   });
 
@@ -450,13 +453,13 @@ describe("AppLayout inbox tab bar", () => {
   });
 
   it("only shows the Google-connect takeover for a known mail view", () => {
-    const source = appLayoutSource();
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
       'import { isKnownMailView } from "@/routes/$view";',
     );
     expect(source).toContain(
-      "isKnownMailView(view) &&\n          (googleConfigured || canOfferGoogleOAuthSetup) ? (\n            <GoogleConnectBanner",
+      "isKnownMailView(view) && (googleConfigured || canOfferGoogleOAuthSetup) ? ( <GoogleConnectBanner",
     );
   });
 });
