@@ -96,6 +96,8 @@ export {
   chatModelSelectionStorageKey,
   useChatModels,
   type UseChatModelsResult,
+  type UseChatModelsOptions,
+  type PersistedModelSelection,
   type EngineModelGroup,
 } from "../use-chat-models.js";
 export {
