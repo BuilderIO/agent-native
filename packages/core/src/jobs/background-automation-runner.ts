@@ -626,6 +626,7 @@ async function executeBackgroundAutomation(
                   spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
+                    automationId: automation.resource.id,
                     trigger: "background_automation",
                     label: usageLabel,
                     scope: orgId ? "organization" : "personal",
