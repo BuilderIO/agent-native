@@ -17,6 +17,8 @@ const SETTING_PREFIX = "credential:";
 export interface CredentialContext {
   userEmail: string;
   orgId?: string | null;
+  /** Restricts lookup to shared credentials in the explicit org. */
+  credentialScope?: "org";
 }
 
 export type CredentialStorageScope = "user" | "org";
@@ -223,6 +225,7 @@ export async function resolveCredentialDetailed(
 
   // Stored but unused while the org restricts a member's provider keys.
   const personalRestricted =
+    ctx.credentialScope !== "org" &&
     isPersonalProviderPolicyKey(key) &&
     (await isPersonalProviderKeyUseRestricted(
       ctx.orgId
@@ -230,7 +233,7 @@ export async function resolveCredentialDetailed(
         : { email: ctx.userEmail },
     ));
 
-  if (!personalRestricted) {
+  if (ctx.credentialScope !== "org" && !personalRestricted) {
     const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
     if (userSecret) {
       return { value: userSecret, scope: "user", scopeId: ctx.userEmail };
@@ -245,6 +248,7 @@ export async function resolveCredentialDetailed(
     }
   }
 
+  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
@@ -267,6 +271,8 @@ export async function resolveCredentialDetailed(
       return { value: orgSetting, scope: "org", scopeId: orgId };
     }
   }
+
+  if (ctx.credentialScope === "org") return undefined;
 
   // Solo-workspace fallback: always checked, even when an org id was found
   // above. A credential written before the user joined/created an org lives

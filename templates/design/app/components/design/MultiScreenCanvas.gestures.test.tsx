@@ -1898,8 +1898,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(fullView).not.toBeNull();
     expect(fullView!.getAttribute("data-compact")).toBe("true");
-    expect(fullView!.classList.contains("left-1/2")).toBe(true);
-    expect(fullView!.classList.contains("-translate-x-1/2")).toBe(true);
+    expect(fullView!.classList.contains("right-1")).toBe(true);
+    expect(fullView!.classList.contains("left-1/2")).toBe(false);
     expect(fullView!.classList.contains("w-5")).toBe(true);
     expect(fullView!.style.maxWidth).toBe("20px");
     expect(fullViewLabel?.classList.contains("sr-only")).toBe(true);

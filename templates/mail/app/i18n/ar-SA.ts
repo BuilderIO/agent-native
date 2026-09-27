@@ -165,6 +165,7 @@ const messages = {
       deleteDraft: "حذف المسودة",
       deleteDrafts: "حذف المسودات",
       reopenDraft: "إعادة فتح",
+      openInMail: "فتح في Mail",
       discardDraft: "تجاهل المسودة",
       enterLinkUrl: "أدخل عنوان URL للرابط.",
       forward: "Forward",

@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
+import { randomUUID } from "node:crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -3078,23 +3079,82 @@ function nitroStartupRecovery(): Plugin {
     name: "agent-native-nitro-startup-recovery",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use(function nitroStartupErrorRecovery(
-        error: unknown,
+      server.middlewares.use(function frameworkDevRequestId(
         req: IncomingMessage,
-        res: ServerResponse,
+        _res: ServerResponse,
         next: (error?: unknown) => void,
       ) {
-        if (
-          !isNitroEnvironmentUnavailable(error) ||
-          !isHtmlDocumentRequest(req) ||
-          res.headersSent
-        ) {
-          next(error);
-          return;
+        if (isFrameworkDevPath(req.url ?? "", server.config.base)) {
+          (
+            req as IncomingMessage & { agentNativeRequestId?: string }
+          ).agentNativeRequestId = randomUUID();
         }
-
-        sendNitroStartingResponse(req, res);
+        next();
       });
+      return () => {
+        server.middlewares.use(function nitroFrameworkRequestErrorBoundary(
+          error: unknown,
+          req: IncomingMessage,
+          res: ServerResponse,
+          next: (error?: unknown) => void,
+        ) {
+          if (!error) {
+            next();
+            return;
+          }
+          if (!isFrameworkDevPath(req.url ?? "", server.config.base)) {
+            next(error);
+            return;
+          }
+
+          const err = error as NodeJS.ErrnoException & {
+            cause?: NodeJS.ErrnoException;
+          };
+          const code = err.code ?? err.cause?.code;
+          const syscall = err.syscall ?? err.cause?.syscall;
+          const disconnected =
+            req.aborted ||
+            req.destroyed ||
+            req.socket?.destroyed === true ||
+            res.destroyed ||
+            res.writableEnded;
+          if (
+            (code === "ECONNRESET" && syscall === "read") ||
+            (disconnected &&
+              (code === "ECONNRESET" || err.message === "read ECONNRESET"))
+          ) {
+            if (!res.destroyed && !res.writableEnded) res.destroy();
+            return;
+          }
+
+          const requestId =
+            (req as IncomingMessage & { agentNativeRequestId?: string })
+              .agentNativeRequestId ?? randomUUID();
+          console.error(
+            `[agent-native] Dev framework request failed (request_id=${requestId} method=${req.method ?? "GET"} path=${devPathname(req.url ?? "/")} request_aborted=${Boolean(req.aborted)} request_destroyed=${Boolean(req.destroyed)} socket_destroyed=${Boolean(req.socket?.destroyed)} response_destroyed=${Boolean(res.destroyed)} response_ended=${Boolean(res.writableEnded)})`,
+            error,
+          );
+          next(error);
+        });
+
+        server.middlewares.use(function nitroStartupErrorRecovery(
+          error: unknown,
+          req: IncomingMessage,
+          res: ServerResponse,
+          next: (error?: unknown) => void,
+        ) {
+          if (
+            !isNitroEnvironmentUnavailable(error) ||
+            !isHtmlDocumentRequest(req) ||
+            res.headersSent
+          ) {
+            next(error);
+            return;
+          }
+
+          sendNitroStartingResponse(req, res);
+        });
+      };
     },
   };
 }

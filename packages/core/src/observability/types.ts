@@ -89,6 +89,7 @@ export interface OutputReviewListRow {
   artifacts: HumanReviewArtifactRef[];
   runs: OutputReviewRun[];
   runCount: number;
+  authorEmail?: string;
   authorName?: string;
   authorAvatar?: string;
   model: string;

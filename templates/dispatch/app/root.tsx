@@ -263,6 +263,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="launchpad"
         toaster={
           <Toaster
             richColors

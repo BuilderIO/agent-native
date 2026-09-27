@@ -31,6 +31,10 @@ vi.mock("./auth.js", () => ({
   getSession: mockGetSession,
 }));
 
+vi.mock("./http-response-telemetry.js", () => ({
+  getHttpRequestTelemetryId: () => "poll-request-id",
+}));
+
 describe("poll handler", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -47,6 +51,51 @@ describe("poll handler", () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
     vi.useRealTimers();
+  });
+
+  it("logs the request id and stack when the poll handler throws", async () => {
+    const error = new Error("poll database read failed");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler({
+      seedVersionFromDb: async () => {
+        throw error;
+      },
+    } as any);
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toBe(error);
+      expect(log).toHaveBeenCalledWith(
+        "[agent-native] Poll handler failed (request_id=poll-request-id)",
+        error,
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs a rejected final change read before rethrowing it", async () => {
+    const error = new Error("poll change read failed");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler({
+      seedVersionFromDb: async () => {},
+      ensureSyncEventsTable: async () => true,
+      checkExternalDbChanges: async () => {},
+      getCombinedChangesSinceForUser: async () => {
+        throw error;
+      },
+    } as any);
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toBe(error);
+      expect(log).toHaveBeenCalledWith(
+        "[agent-native] Poll handler failed (request_id=poll-request-id)",
+        error,
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("returns durable sync events without running the legacy watermark scan", async () => {

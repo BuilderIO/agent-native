@@ -12,7 +12,10 @@ import {
 import { getSsrBetaRedirectScriptBody } from "../shared/ssr-beta-redirect.js";
 import { getSsrSessionBootstrapScriptBody } from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath, frameworkRoutePrefix } from "./api-path.js";
-import { AppShellSkeleton } from "./AppShellSkeleton.js";
+import {
+  AppShellSkeleton,
+  type AppShellSkeletonLayout,
+} from "./AppShellSkeleton.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
@@ -57,6 +60,8 @@ export interface AppProvidersProps {
   isPublicPath?: boolean;
 
   clientOnlyFallback?: React.ReactNode;
+
+  skeletonLayout?: AppShellSkeletonLayout;
 
   sessionBypass?: boolean;
 
@@ -426,6 +431,7 @@ export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
+  skeletonLayout,
   sessionBypass = false,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -439,7 +445,9 @@ export function AppProviders({
   documentTitleFallback,
   children,
 }: AppProvidersProps) {
-  const fallback = clientOnlyFallback ?? <AppShellSkeleton />;
+  const fallback = clientOnlyFallback ?? (
+    <AppShellSkeleton layout={skeletonLayout} />
+  );
 
   if (isPublicPath) {
     return (
@@ -493,7 +501,7 @@ export function AppProviders({
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate>
+              <FirstRunOnboardingStartupGate fallback={fallback}>
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

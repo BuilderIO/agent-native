@@ -47,6 +47,11 @@ export default {
     noEventId: "未提供事件 ID。請在 URL 中新增 ?id=<eventId>。",
     openCalendar: "開啟行事曆",
   },
+  eventCreation: {
+    created: "活動已建立",
+    zoomNotAdded: "活動已建立，但無法新增 Zoom。",
+    openInCalendar: "在 Calendar 中開啟活動",
+  },
   agentSidebar: {
     emptyState: "問我任何關於你的行事曆的問題",
     suggestions: {

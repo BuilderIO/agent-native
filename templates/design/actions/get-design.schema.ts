@@ -26,4 +26,9 @@ export const getDesignSchema = z.object({
     .describe(
       "Human Review only: read a design in the current organization. Requires an organization owner or admin.",
     ),
+  reviewOrgId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The customer organization shown in this Human Review row."),
 });

@@ -47,6 +47,11 @@ export default {
     noEventId: "Aucun ID d'événement fourni. Ajoutez ?id=<eventId> à l'URL.",
     openCalendar: "Ouvrir le calendrier",
   },
+  eventCreation: {
+    created: "Événement créé",
+    zoomNotAdded: "L’événement a été créé, mais Zoom n’a pas pu être ajouté.",
+    openInCalendar: "Ouvrir l’événement dans Calendar",
+  },
   agentSidebar: {
     emptyState: "Demandez-moi n’importe quoi sur votre calendrier",
     suggestions: {

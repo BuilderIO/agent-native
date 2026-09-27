@@ -47,6 +47,11 @@ export default {
     noEventId: "कोई इवेंट ID नहीं दिया गया। URL में ?id=<eventId> जोड़ें।",
     openCalendar: "कैलेंडर खोलें",
   },
+  eventCreation: {
+    created: "इवेंट बनाया गया",
+    zoomNotAdded: "इवेंट बनाया गया, लेकिन Zoom नहीं जोड़ा जा सका।",
+    openInCalendar: "Calendar में इवेंट खोलें",
+  },
   agentSidebar: {
     emptyState: "अपने कैलेंडर के बारे में कुछ भी पूछें",
     suggestions: {

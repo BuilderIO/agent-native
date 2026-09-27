@@ -37,8 +37,10 @@ import { createRunner, RunError, type HostFunctions } from "run";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
+  getRequestContext,
   getRequestRunContext,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
@@ -729,7 +731,22 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
     try {
-      return formatBridgeResult(await entry.run(childArgs, options.context));
+      const run = () => entry.run(childArgs, options.context);
+      const result =
+        options.context?.credentialScope === "org"
+          ? await runWithRequestContext(
+              {
+                ...getRequestContext(),
+                ...(options.context.userEmail
+                  ? { userEmail: options.context.userEmail }
+                  : {}),
+                orgId: options.context.orgId ?? undefined,
+                credentialScope: "org",
+              },
+              run,
+            )
+          : await run();
+      return formatBridgeResult(result);
     } catch (error) {
       throw new BridgeInvocationError(
         500,

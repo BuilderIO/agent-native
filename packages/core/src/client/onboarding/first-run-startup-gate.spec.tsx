@@ -139,9 +139,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     });
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
-    expect(
-      container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+    const loading = container.querySelector("[data-first-run-startup-loading]");
+    expect(loading?.getAttribute("role")).toBe("status");
+    expect(loading?.getAttribute("aria-label")).toBe("Loading application");
+    expect(loading?.hasAttribute("inert")).toBe(false);
+    expect(loading?.querySelector("[inert]")).not.toBeNull();
     expect(
       container.querySelector("[data-first-run-app-hidden]"),
     ).not.toBeNull();
