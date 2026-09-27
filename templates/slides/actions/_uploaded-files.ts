@@ -45,7 +45,14 @@ export async function readUserUploadedFile(
   if (
     !(resolved === allowedDir || resolved.startsWith(allowedDir + path.sep))
   ) {
-    throw new Error("Access denied: file path must be within your uploads");
+    throw new AgentActionStopError(
+      "Access denied: file path must be within your uploads",
+      {
+        errorCode: "permanent_precondition",
+        toolResult:
+          "This filePath is outside the current user's uploads. Do not retry this filePath; use a valid Slides upload reference or ask the user to upload the file.",
+      },
+    );
   }
   if (!fs.existsSync(resolved)) {
     throw new Error(`File not found: ${filePath}`);

@@ -57,10 +57,17 @@ describe("readUserUploadedFile", () => {
     ).resolves.toEqual({ data: Buffer.from("local"), filename: "deck.pptx" });
   });
 
-  it("rejects local path traversal before reading", async () => {
-    await expect(
-      readUserUploadedFile("/uploads/other/deck.pptx"),
-    ).rejects.toThrow("Access denied");
+  it("stops instead of retrying a local path outside the user's uploads", async () => {
+    const error = await readUserUploadedFile("/uploads/other/deck.pptx").then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "permanent_precondition",
+      toolResult: expect.stringContaining("Do not retry this filePath"),
+    });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
