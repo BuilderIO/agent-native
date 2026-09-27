@@ -21,24 +21,12 @@ function cloneSeed(seed: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(seed)) as Record<string, unknown>;
 }
 
-/**
- * Load a shipped dashboard seed JSON. Seeds live in
- * `seeds/dashboards/<id>.json` at the template root and describe the
- * default SqlDashboardConfig we materialize into a user's settings the
- * moment they wire up the underlying data source. Kept as JSON (not TS)
- * so the agent and humans can edit it without touching code.
- *
- * Shipped catalog seeds are statically imported so they survive TS runtimes and
- * production bundles. Filesystem lookup remains as a development escape hatch
- * for locally edited or future non-bundled seeds.
- */
 export function loadDashboardSeed(id: string): Record<string, unknown> | null {
   const shipped = shippedSeeds[id];
   if (shipped) return cloneSeed(shipped);
 
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates: string[] = [];
-  // server/lib/ -> template root is two levels up in source/dev.
   candidates.push(
     path.resolve(moduleDir, "..", "..", "seeds", "dashboards", `${id}.json`),
   );

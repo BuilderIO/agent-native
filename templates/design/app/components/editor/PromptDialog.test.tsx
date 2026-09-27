@@ -781,9 +781,6 @@ describe("PromptPopover draft isolation", () => {
       "New design:org-a",
     );
 
-    // Switching accounts (org.orgId changes) happens client-side with no
-    // reload, so this must re-derive to a different key rather than keep
-    // reading/writing the previous account's localStorage entry.
     mockActiveOrg.current = { orgId: "org-b" };
     await act(async () => {
       root!.render(
@@ -805,10 +802,6 @@ describe("PromptPopover draft isolation", () => {
   });
 
   it("never falls back to the unscoped title key while the org query is still pending", async () => {
-    // Before `useOrg` resolves we don't know which account this popover
-    // belongs to. Falling back to the bare title key here would let this
-    // popover read (or later leak) a different signed-in account's
-    // abandoned draft, since that unscoped key predates org-scoping.
     mockOrgPending.current = true;
     mockActiveOrg.current = undefined;
     await renderPopover({ title: "New design" });
@@ -842,7 +835,6 @@ describe("PromptPopover submit failure recovery", () => {
         .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
         ?.click();
     });
-    // Let the async handleSubmit's rejection settle and re-render.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -854,9 +846,6 @@ describe("PromptPopover submit failure recovery", () => {
     const composer = container!.querySelector(
       '[data-testid="prompt-composer"]',
     );
-    // The composer optimistically clears its own text as soon as onSubmit is
-    // invoked, so the popover must feed the failed prompt back in via
-    // `initialText`/`initialTextKey` rather than let it vanish.
     expect(composer?.getAttribute("data-initial-text")).toBe(
       "  hello world  \n",
     );

@@ -63,11 +63,6 @@ import {
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 export type AgentChatSurfaceKind =
-  /**
-   * Chat rendered by the app itself, including the normal AgentSidebar. This
-   * surface must not receive code-editing dev tools because source edits can
-   * reload the same React tree that is hosting the chat.
-   */
   | "app"
   /** Chat rendered by the outer local dev frame, outside the app iframe. */
   | "dev-frame"
@@ -122,18 +117,7 @@ const AUTO_CONTINUE_COMPLETION_GUARD =
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_QUEUED_CONFLICT_RETRIES = 120;
-// The consecutive non-advancing continuation (see `describeContinuationAdvance`)
-// that ends the turn: the third one stops it, so two are tolerated. This
-// replaced five separate budgets — stale-run, stalled, empty, repeated-narration
-// and repeated-action-preparation — each of which existed because the rung above
-// it had a hole the next one patched. One question answers all five: a round
-// that produced nothing, or produced exactly what the round before it
-// produced, did not advance.
 const MAX_NON_ADVANCING_CONTINUATIONS = 3;
-// Ceiling across the whole turn for TRANSIENT continuations — rounds that
-// followed a failure (timeout, dropped stream, stale run). Every attempt
-// re-POSTs the full history plus attachments, so a high ceiling only burns
-// tokens and wall time on a connection that keeps breaking.
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 12;
 // Ceiling across the whole turn for WORK-boundary continuations. A `loop_limit`
 // round is not a failure — the server spent a full iteration budget on real
@@ -148,36 +132,10 @@ const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
-// Keep prior/history attachment payloads bounded. The current turn is already
-// capped by the text adapter and aggregate body guard, so preserve its full
-// text here for server-side resource persistence and read-attachment paging.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
-// An array-length backstop, NOT the reduction policy. Reducing a long thread is
-// Observational Memory's job: it folds older turns into observations/reflections
-// and replaces the raw prefix with a memory block plus a recent-raw window
-// (agent/observational-memory/). But its Observer only engages once a thread
-// passes 30k unobserved tokens, and a count cap of 24 bit long before that — so
-// turns were evicted from the request while compaction still had nothing to say
-// about them, and only reached the model again once thread_data was observed a
-// turn or more later. The two char budgets below are the real bound (they cap
-// what a request can carry regardless of message count); this cap only keeps the
-// array from growing without limit.
 const MAX_HISTORY_MESSAGES = 80;
-// Every provider prompt cache matches a byte-identical PREFIX. A window that
-// ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
-// START by one message per turn, so from the first turn past the cap onward no
-// cached prefix ever matches again and the whole conversation is re-billed at
-// full write price on every turn — the cache breakpoints the engines place
-// (system prefix, last tool, last user message) cannot save a prefix whose
-// first bytes changed. Quantizing where the window starts holds those bytes
-// identical for a stride of turns, so one turn in STRIDE pays the write and the
-// rest read. The window then holds up to MAX + STRIDE - 1 messages; the char
-// budgets below, not the message count, are what bound the payload.
 const HISTORY_WINDOW_STRIDE = 8;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
-// Budget for everything actually said in the thread — every user ask and every
-// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
-// tool args/results those turns produced. See limitPriorMessagesForRequest.
 const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
@@ -287,11 +245,6 @@ async function continueJsonResponseProbe(
     reader.releaseLock();
   }
 }
-// Tools whose entire input IS the artifact being built (extension HTML, etc.).
-// Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
-// the resumed agent — it can no longer refine the artifact because it sees a
-// fake input. Keep the real input for these on continuation, only collapsing
-// inputs that are far larger than any realistic extension payload.
 const LARGE_INPUT_TOOL_NAMES = new Set([
   "create-extension",
   "update-extension",
@@ -302,10 +255,6 @@ const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
   if (typeof window === "undefined") return;
 
-  // Some terminal outcomes are synthesized by the adapter after recovery
-  // (for example, a completed tool whose final response timed out) and never
-  // pass through a terminal SSE frame. Clear both halves of the status UI so
-  // the wrap-up result cannot leave a preparation label or "Resuming" state.
   window.dispatchEvent(
     new CustomEvent("agent-chat:activity-clear", { detail: { tabId } }),
   );
@@ -320,20 +269,7 @@ function isTerminalChatModelRunResult(result: ChatModelRunResult): boolean {
   );
 }
 
-// ── Background follow mode ──────────────────────────────────────────────────
-// For server-continued runs (dispatchMode starts with "background" or equals
-// "foreground-self-chain") the SERVER normally chains continuation chunks
-// itself (fresh runId, same turnId), pre-inserts the successor run row BEFORE
-// the old chunk completes (so /runs/active shows an active run continuously
-// across chunk boundaries), and a server sweep reaps lost handoffs into loud
-// terminal errors. The client demotes itself to a READER of server state for
-// healthy handoffs. Foreground self-chain keeps one escape hatch: if the server
-// reports that the self-dispatch itself failed before a successor claimed the
-// run, the existing client auto-continue POST remains the fallback.
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
-// This watchdog belongs to a read-only reattach, not to the server run. A
-// shorter reader window lets the follow loop re-poll `/runs/active` while a
-// completed run is still inside the server's terminal replay window.
 export const BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS = 90_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
@@ -365,19 +301,6 @@ export const BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS = 90_000;
 // accurate if any of the four numbers change.
 export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 
-// Per-TURN follow budgets. BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS above is a
-// per-idle-WINDOW bound and resets every time a successor run appears, so a
-// server stuck redispatching the same failing chunk resets the only budget on
-// every poll tick and the follow loop never exits (prod: 26 chained runs over
-// 22 minutes, all error:stale_run, user watching a spinner). These bound the
-// whole turn instead, and an identical repeated failure counts as no progress.
-//
-// Defined in `app-config/run-lifecycle-invariants.ts`, not here, because the
-// CLIENT-ABOVE-SERVER relationship they belong to is checked there against the
-// RESOLVED server configuration — the server bounds are runtime-configurable
-// now, so a spec pinning them against module constants stopped enforcing
-// anything. Re-exported under the same names so importers are unchanged; that
-// module has no runtime imports, so the bundle pays nothing for it.
 import {
   MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
   MAX_FOLLOWED_BACKGROUND_RUNS,
@@ -394,15 +317,6 @@ const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 // before the user sees an error.
 const BACKGROUND_TERMINAL_ERROR_GRACE_POLLS = 5;
 
-/**
- * User-facing copy for the server's background terminal reasons
- * (`agent_runs.terminal_reason`, surfaced by /runs/active). These runs died in
- * server-side handoff machinery where no richer error event may exist, so the
- * client owns the message. Keys are matched after stripping an optional
- * `error:` prefix (`terminalReasonForEvent` records `error:<code>`). Keep this
- * map scoped to terminal failures, including reasons that must override a
- * mistakenly completed row.
- */
 const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   background_worker_never_started:
     "The agent run was handed off to a background worker that never started. It was recovered so you can try again.",
@@ -439,19 +353,6 @@ function laneAwareTerminalReasonMessage(
   });
 }
 
-/**
- * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
- * of the turn — `markBackgroundContinuationChunkTerminal` (production-agent.ts)
- * writes status "completed" with one of these bare reasons whenever a
- * background chunk ends at a continuation boundary (mirrors
- * `AgentLoopContinuationReason` there). A run in this state is expected to be
- * replaced by a server-chained successor row; it must never be read as "the
- * turn is done" just because its own row says `status: "completed"`.
- */
-// Derived from the shared `CONTINUATION_REASONS` (types.ts) rather than
-// re-listing the reasons here, so a new chunk-boundary reason (like
-// "rate_limited" once was) can't land server-side without the client also
-// recognizing it as non-terminal.
 const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>(
   CONTINUATION_REASONS,
 );
@@ -464,14 +365,6 @@ function isUserInitiatedTerminalReason(reason: string): boolean {
   );
 }
 
-/**
- * True when the given `/runs/active` snapshot, if surfaced as a background
- * terminal outcome right now, would render as an error rather than a
- * successful completion. Mirrors `emitBackgroundTerminalOutcome`'s own
- * mappedMessage/hasErrorTerminalReason/status branching (kept in sync with
- * it) so callers can decide whether an error-surfacing grace window applies
- * BEFORE actually emitting anything.
- */
 function isBackgroundTerminalErrorOutcome(
   lastKnown: Record<string, unknown> | null,
 ): boolean {
@@ -550,10 +443,6 @@ function truncateToolArgsForHistory(
   toolName?: string,
 ): Record<string, unknown> {
   if (!args || typeof args !== "object" || Array.isArray(args)) return {};
-  // Large-input tools (e.g. create-extension/update-extension) carry the
-  // artifact itself as their input. Preserve the real input on continuation so
-  // the resumed agent can keep refining it; only collapse inputs that exceed a
-  // far larger ceiling than any realistic payload.
   const cap =
     toolName && LARGE_INPUT_TOOL_NAMES.has(toolName)
       ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
@@ -985,8 +874,6 @@ function contentToStructuredMessages(
       continue;
     }
 
-    // Reasoning/thinking is UI-only — do not send chain-of-thought back into
-    // model history on continuation.
     if (part.type === "reasoning") {
       continue;
     }
@@ -996,9 +883,6 @@ function contentToStructuredMessages(
         continue;
       }
       const toolCallId = nextToolCallId();
-      // A pending approval must replay the exact authorized arguments. Normal
-      // history may truncate large tool inputs, but doing that here changes the
-      // approval key and turns every approval into a fresh approval request.
       const preserveApprovalInput = shouldPreserveApprovalInput(part);
       assistantParts.push({
         type: "tool-call",
@@ -1024,10 +908,6 @@ function contentToStructuredMessages(
           ...(preserveApprovalInput
             ? {}
             : { toolInput: JSON.stringify(part.args ?? {}) }),
-          // A settled-interrupted tool has a result whose outcome is UNKNOWN.
-          // It is neither a success nor a failure, so it carries the marker the
-          // server's write-interruption breaker matches on instead of claiming
-          // either.
           content:
             part.outcome === "unknown" &&
             !body.includes(INTERRUPTED_TOOL_RESULT)
@@ -1116,10 +996,6 @@ export function assistantUiMessagesToStructuredHistory(
           ...(part.result !== undefined
             ? { result: toolResultContent(part.result, toolName) }
             : {}),
-          // A failed call replayed without `isError` reads to the next turn as
-          // an ordinary success whose body happens to contain error prose, so
-          // the model cannot tell it already tried this and failed. The
-          // server's repeat-error breaker keys on exactly this flag.
           ...(part.isError === true ? { isError: true } : {}),
           ...(part.outcome === "unknown"
             ? { outcome: "unknown" as const }
@@ -1138,13 +1014,6 @@ export function assistantUiMessagesToStructuredHistory(
   return structured;
 }
 
-/**
- * Size this message will actually contribute to the request, AFTER the
- * per-part truncation `assistantUiMessagesToStructuredHistory` applies. Tool
- * calls are most of a tool-heavy turn, so counting only text parts priced a
- * turn of 40 tool calls at ~0: it survived every trim against
- * MAX_HISTORY_TOTAL_CHARS while the user's own prose was evicted around it.
- */
 function estimateHistoryMessageCost(message: {
   content: readonly { type: string; text?: string }[];
   attachments?: readonly AssistantUiAttachment[];
@@ -1172,9 +1041,6 @@ function estimateHistoryMessageCost(message: {
       : Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        // Price the string the request actually carries. `stringifyValue(result)` is
-        // 15 chars ("[object Object]") for every object result, which is most
-        // of them.
         toolResultContent(tool.result, tool.toolName).length,
         MAX_HISTORY_TOOL_RESULT_CHARS,
       );
@@ -1201,10 +1067,6 @@ function limitPriorMessagesForRequest<
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    // What was said is cheap and cannot be re-derived; what a tool returned is
-    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
-    // one budget let a single read-heavy turn evict the whole conversation, so
-    // the agent re-derived the same answer and re-asked the same question.
     const wordCost = messageTextForHistory(message).length;
     if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
     const payloadCost = estimateHistoryMessageCost(message) - wordCost;
@@ -1224,9 +1086,6 @@ function limitPriorMessagesForRequest<
   }
 
   kept.reverse();
-  // Stop before emptying: this rule exists to start history on a user turn for
-  // providers that require it, not to license sending no history at all. It was
-  // the last step that turned an over-budget turn into a blank conversation.
   while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
@@ -1277,8 +1136,6 @@ function lastCompletedTimeoutCandidateTool(
       part.activity !== true &&
       part.result !== undefined &&
       part.isError !== true &&
-      // A settled-interrupted tool has a result but an unknown outcome; claiming
-      // it completed is the same false-success this message exists to avoid.
       part.outcome !== "unknown" &&
       isCompletedToolTimeoutCandidate(part)
     ) {
@@ -1305,15 +1162,6 @@ function completedToolTimeoutMessage(toolName: string): string {
   return `The ${humanizeActionName(toolName)} action completed, but the assistant timed out before sending its final response. The saved result is in the completed tool card above.`;
 }
 
-/**
- * Signature of the *unique* sentence-like segments in a continuation's newly
- * streamed text, used to detect a degenerate repetition loop. A stuck model
- * re-emits the same phrase ("I have the full HTML. Creating the extension
- * now!") an arbitrary number of times per run, so the set of unique segments
- * is small and stable across continuations regardless of how many times any
- * single run repeated it. An empty signature (no visible text) is never a
- * repeat — the stalled/empty budgets handle no-output stalls instead.
- */
 function continuationRepeatSignature(content: ContentPart[]): string {
   const text = content
     .map((part) => (part.type === "text" ? part.text : ""))
@@ -1331,33 +1179,12 @@ function continuationRepeatSignature(content: ContentPart[]): string {
 
 type ContinuationAdvance = {
   signature: string;
-  /**
-   * What the round was left sitting on. Only the give-up wording reads this;
-   * the control flow is the signature comparison alone.
-   */
   stall: {
     kind: "in-flight" | "preparing" | "repeat" | "empty";
     toolName?: string;
   };
 };
 
-/**
- * Everything a continuation could have advanced, as one signature over the
- * work it produced: the distinct tool results it completed, the tool it left
- * in flight, and the action card it left unstarted. Two consecutive
- * continuations with the same signature moved the turn nowhere, whatever the
- * server's reason code called it.
- *
- * DISTINCT, not per-occurrence: a round that degenerates into four hundred
- * copies of one tool call collapses to the same signature as the round before
- * it, which is exactly the shape production shows (up to 28 identical calls in
- * one turn).
- *
- * Narration counts only when the round left NO unfinished work. A model stuck
- * re-wording "I have the file, creating it now!" while the same action never
- * starts emits new prose every round, and prose alone is why that used to look
- * like progress.
- */
 function describeContinuationAdvance(
   content: ContentPart[],
   preparingToolName: string | undefined,
@@ -1382,9 +1209,6 @@ function describeContinuationAdvance(
       stall = { kind: "in-flight", toolName: part.toolName };
     }
   }
-  // A "Preparing X action" card is an activity-trail entry, not a content
-  // part, so a round can sit on an unstarted action while its content holds
-  // nothing but narration.
   if (preparingToolName && !stall) {
     work.add(`preparing ${preparingToolName}`);
     stall = { kind: "preparing", toolName: preparingToolName };
@@ -1397,25 +1221,10 @@ function describeContinuationAdvance(
   return { signature: Array.from(work).sort().join(""), stall };
 }
 
-/**
- * True when an action was streamed but never returned a result yet — i.e. a
- * `tool_start` with no matching `tool_done`. The server is still executing it,
- * so a run_timeout that fires in this window is NOT a stall: the agent was
- * actively working and `foldAssistantTurn` persisted the in-flight call. We
- * must not count this against the stalled/empty continuation budgets.
- */
 export function hasInFlightToolCall(content: ContentPart[]): boolean {
   return content.some((part) => isToolCallInFlight(part));
 }
 
-/**
- * Server truth for "does this run still look alive?", used to keep the client
- * from aborting a run the server believes is healthy — the destructive half of
- * the old client watchdog. Fails SAFE (true) when the lookup itself fails: an
- * unreachable server is not evidence that the run is dead. A local content
- * snapshot with an unresolved tool call is also treated as alive, matching the
- * server's own in-flight suspension.
- */
 export async function activeRunLooksAlive(args: {
   apiUrl: string;
   threadId: string | undefined;
@@ -1439,9 +1248,6 @@ export async function activeRunLooksAlive(args: {
     if (data?.active !== true || String(data.runId ?? "") !== args.runId) {
       return false;
     }
-    // `running` only says the server row has not terminalized. It is not proof
-    // that a tool is executing, and treating it as proof skips the client
-    // rescue precisely when a stalled run has no in-flight work.
     return data.hasInFlightWork === true;
   } catch {
     return true;
@@ -1543,13 +1349,6 @@ function stableJson(value: unknown): string {
   }
 }
 
-// Bounded signature of an in-flight tool call's input, used by the stall guard
-// to tell a genuinely-stuck retry (same tool, same payload, connection keeps
-// dropping) apart from a legitimate retry with a CHANGED payload (e.g. the
-// `create-extension` cutoff nudge tells the model to re-send a smaller body).
-// A changed payload yields a different signature, so the guard resets that
-// tool's stall budget instead of aborting the new attempt as a repeat. Bounded
-// to length + head so we never retain a large pasted payload across rounds.
 function inFlightToolInputSignature(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): string {
@@ -1646,12 +1445,6 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
           : signal.reason === "stream_ended"
             ? "The previous stream ended before the agent sent a final completion signal."
             : "The previous run reached an internal execution budget.";
-  // A run_timeout or a mid-stream cutoff while assembling one large action
-  // payload (e.g. inlining a big pasted HTML file into `create-extension`, a
-  // full file set into `generate-design`, or a whole `update-dashboard` config)
-  // is the classic trigger for the repetition/cutoff loop. Nudge the model
-  // toward a compact first version it can actually finish in a single run, then
-  // incremental refinements — never re-streaming the same oversized payload.
   const cutoffPreparingAction =
     signal.reason === "run_timeout" ||
     signal.reason === "stream_ended" ||
@@ -1698,13 +1491,6 @@ type StructuredAgentChatError = {
   upgradeUrl?: string;
 };
 
-/**
- * Keep the server's error contract intact across the fetch boundary. In
- * particular, a POST response with `retryable: false` must not be fed into the
- * generic reconnect/continuation path: replaying a mutation after the server
- * has started processing it can duplicate work. The previous code discarded
- * this metadata and exposed the raw JSON body to the user instead.
- */
 class AgentChatHttpError extends Error {
   readonly errorCode?: string;
   readonly details?: string;
@@ -1869,10 +1655,6 @@ function isRetryableStartupError(message: string): boolean {
 
 function isAuthErrorMessage(message: string): boolean {
   const msg = message.toLowerCase();
-  // A transient gateway 403/429 retry is diagnostic text that names its own
-  // HTTP status ("...temporarily refused this request (HTTP 403...", the
-  // gateway's `provider_transient_rejection`/`provider_rate_limited` codes),
-  // not an auth failure — it must not fall into the bare digit match below.
   if (
     msg.includes("provider_transient_rejection") ||
     msg.includes("provider_rate_limited") ||
@@ -2013,15 +1795,6 @@ function missingCredentialFailure(message: string): {
   }
 }
 
-/**
- * The composer's exec mode is sent as explicit request metadata. The server
- * owns the plan-mode prompt and read-only tool filtering so the chat history
- * stays clean and Plan mode is enforced outside the model's goodwill.
- */
-/**
- * Creates a ChatModelAdapter that connects to the agent-native
- * `/_agent-native/agent-chat` SSE endpoint. Supports reconnection via run-manager.
- */
 export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
   streamingUrl?: string;
@@ -2189,8 +1962,6 @@ export function createAgentChatAdapter(
     (typeof window === "undefined" ? undefined : getBrowserTabId());
   const scopeRef = options?.scopeRef;
   const surface = options?.surface ?? "app";
-  // A queued recovery can survive until a server-owned continuation finishes,
-  // and assistant-ui may ask the same memoized adapter to run that item again.
   const claimedRecoveryMessageIds = new Set<string>();
   let runtimeDebugDetails = "";
   const runtimeDebugUrl = runtimeDebugUrlForApiUrl(apiUrl);
@@ -2205,7 +1976,6 @@ export function createAgentChatAdapter(
 
   return {
     async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
-      // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
         for (let i = adapterMessages.length - 1; i >= 0; i--) {
@@ -2265,9 +2035,6 @@ export function createAgentChatAdapter(
           (runConfig.custom as { actionScope?: unknown }).actionScope,
         );
       })();
-      // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
-      // the run config so a queued send keeps its label when it finally flushes,
-      // and every auto-continuation of the turn re-sends the same one.
       const usageLabel = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2285,9 +2052,6 @@ export function createAgentChatAdapter(
             : undefined;
         return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       })();
-      // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
-      // the user approves a paused tool call, the turn is re-issued with the
-      // approval key so the server lets that specific call run.
       const approvedToolCalls = (() => {
         const raw =
           runConfig?.custom &&
@@ -2310,9 +2074,6 @@ export function createAgentChatAdapter(
             : execModeRef?.current === "build"
               ? "act"
               : undefined;
-      // Queued turns carry the model/engine/effort they were composed with.
-      // The refs track the live picker, so without this a queue that flushes
-      // after the user switches models runs under the wrong one.
       const runConfigSelection = (
         key: "model" | "engine" | "effort" | "harness",
       ) => {
@@ -2362,9 +2123,6 @@ export function createAgentChatAdapter(
         };
       };
 
-      // Extract attachments (images as base64, text as content).
-      // assistant-ui puts user attachments on msg.attachments (not on content);
-      // each attachment carries its own content parts from the adapter.
       const attachments = lastUserMsg
         ? extractAttachmentsFromMessage(lastUserMsg as any, {
             preserveFullText: true,
@@ -2377,7 +2135,7 @@ export function createAgentChatAdapter(
 
       const priorMessages = limitPriorMessagesForRequest(
         messages.slice(0, latestUserIndex >= 0 ? latestUserIndex : -1) as any,
-      ); // exclude latest user/recovery message and cap resend size
+      );
       const history = priorMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -2391,7 +2149,6 @@ export function createAgentChatAdapter(
       const structuredHistory =
         assistantUiMessagesToStructuredHistory(priorMessages);
 
-      // Signal that generation is starting
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
@@ -2449,9 +2206,6 @@ export function createAgentChatAdapter(
           clearActiveRun();
         }
       };
-      // The adapter's own stream outranks AssistantChat's reconnect fallback:
-      // when it attaches to a run, any reconnect reader folding the same run
-      // must stop writing UI state or both folds render at once.
       const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
       const takeRunStreamOwnership = () => {
         if (threadId && runId) {
@@ -2474,9 +2228,6 @@ export function createAgentChatAdapter(
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken, turnId);
         }
-        // A successor claims the surface before its response can publish an
-        // active run. Keep the old stream from clearing that successor's UI
-        // after releasing its completed stream ownership claim.
         if (hasPendingSuccessorRequest()) return;
         const activeRun = getActiveRun();
         const ownsActiveRun =
@@ -2487,10 +2238,6 @@ export function createAgentChatAdapter(
             activeRun.runId === runId &&
             activeRunMatchesTab(activeRun));
         if (!ownsActiveRun) {
-          // A newer run in this tab must keep its running state intact. A
-          // different run on another surface must not leave this surface
-          // marked running after its own stream finishes. The same run on
-          // another surface still owns the shared stream and is left alone.
           if (!activeRun || activeRunMatchesTab(activeRun)) {
             return;
           }
@@ -2532,28 +2279,11 @@ export function createAgentChatAdapter(
       let startupRecoveryAttempts = 0;
       let queuedConflictRetries = 0;
       let totalTransientContinuationAttempts = 0;
-      // Work-boundary continuations (`loop_limit`), counted apart from the
-      // transient ones — see MAX_LOOP_LIMIT_CONTINUATIONS.
       let loopLimitContinuations = 0;
-      // Consecutive continuations whose advance signature matched the previous
-      // round's (or was empty). Reset by any real advance.
       let nonAdvancingContinuations = 0;
       let lastAdvanceSignature: string | null = null;
-      // Set at the moment we give up, so the user-facing message can name what
-      // the turn was stuck on without a counter per shape of stuck.
       let recoveryStall: ContinuationAdvance["stall"] | null = null;
-      // Content already accounted for by a previous advance check. Tracked
-      // separately from `visibleContinuationPrefix`, which deliberately does
-      // NOT advance on a `loop_limit` boundary so that round's output stays in
-      // continuation history; the advance check needs the per-round delta for
-      // every reason code, `loop_limit` included.
       let advanceCheckPrefix: ContentPart[] = [];
-      // Set when the turn is stopped by a whole-turn continuation ceiling
-      // (MAX_TOTAL_TRANSIENT_CONTINUATIONS or MAX_LOOP_LIMIT_CONTINUATIONS)
-      // rather than by a dropped connection. Either can trip on a turn that was
-      // making real progress the entire time, so it needs its own honest
-      // message instead of falling through to the generic "connection kept
-      // failing" copy below.
       let recoveryGaveUpOnContinuationBudget = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
@@ -2720,12 +2450,6 @@ export function createAgentChatAdapter(
         if (mode) currentRunDispatchMode = mode;
       };
 
-      // Mode switch for recovery ownership: durable/background-dispatched runs
-      // are always recovered by the server. Foreground self-chain follows the
-      // server on healthy handoffs. A loud continuation-dispatch failure falls
-      // back to the client POST path in either mode because the server has
-      // already marked the unclaimed successor terminal; the per-turn tool
-      // journal keeps that retry from replaying completed side effects.
       const isDurableBackgroundDispatch = () =>
         currentRunDispatchMode?.startsWith("background") === true;
       const isForegroundSelfChainDispatch = () =>
@@ -2876,8 +2600,6 @@ export function createAgentChatAdapter(
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
         }
         try {
-          // Lets the run's `$ai_*` events carry PostHog's `$session_id`, so an
-          // agent trace joins to the session replay it happened in.
           const sessionId = getOrCreateAnalyticsSessionId();
           if (sessionId) headers["x-agent-native-session-id"] = sessionId;
           // coercion-ok: replay linkage must not block sending the message
@@ -2886,10 +2608,6 @@ export function createAgentChatAdapter(
         }
         headers[ANALYTICS_CLIENT_PLATFORM_HEADER] =
           getAnalyticsClientPlatform();
-        // Surface hint — the server uses this to keep code-editing dev tools
-        // out of the app-rendered sidebar. The outer dev frame passes
-        // "dev-frame" explicitly; the reusable in-product chat defaults to
-        // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
         if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
@@ -3144,10 +2862,6 @@ export function createAgentChatAdapter(
             return false;
           };
 
-        // ── Background follow mode (see module comment on the constants) ──
-        // Emits a terminal chat error using the same runError/content/yield
-        // shape as the exhausted-recovery paths, so background failures render
-        // identically to foreground ones.
         const emitBackgroundTerminalError = function* (args: {
           message: string;
           errorCode: string;
@@ -3194,11 +2908,6 @@ export function createAgentChatAdapter(
           clearOwnedActiveRun();
         };
 
-        // Final outcome for a background turn the follow loop can no longer
-        // follow: either the run went terminal server-side (surface its
-        // error, mapping terminal_reason to clear copy) or it vanished
-        // (finalize with received content when it completed, loud error
-        // otherwise — never a silent stop).
         const emitBackgroundTerminalOutcome = function* (
           lastKnown: Record<string, unknown> | null,
         ): Generator<ChatModelRunResult, void, unknown> {
@@ -3230,8 +2939,6 @@ export function createAgentChatAdapter(
             clearOwnedActiveRun();
             return;
           }
-          // terminal_reason is either a bare reason ("dispatch_payload_missing")
-          // or "error:<errorCode>" when derived from a terminal error event.
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
           const mappedMessage = terminalReason
@@ -3248,14 +2955,6 @@ export function createAgentChatAdapter(
               : terminalReason;
 
           if (hasErrorTerminalReason) {
-            // Never REPLACE the wording the server chose for this failure: a
-            // deployment that pays for its own AI answers whoever is chatting
-            // with one visitor line, and the map only knows the owner copy.
-            // Only the captured error whose code IS the terminal reason is that
-            // wording — an earlier auto-recoverable error in the same run is
-            // stale (the cursor reset only clears it when the followed run
-            // changes), and letting it outrank the terminal reason reports a
-            // transient blip for a run that died of something else.
             const serverChosenError =
               lastRecoverableRunError?.errorCode === terminalReason
                 ? lastRecoverableRunError
@@ -3291,10 +2990,6 @@ export function createAgentChatAdapter(
           }
 
           if (status === "completed") {
-            // The turn finished server-side; the events we managed to fold are
-            // the durable transcript. Never turn a terminal tool-only chunk
-            // into a blank successful message when no explicit `done` event
-            // passed through the normal SSE finalizer.
             settleInterruptedToolCalls(content, undefined, {
               includeActivity: true,
             });
@@ -3315,9 +3010,6 @@ export function createAgentChatAdapter(
           }
 
           if (lastRecoverableRunError) {
-            // A replayed terminal error event already carried the real
-            // message (recoverable errors replay as auto-continue signals
-            // whose errorInfo we captured while following).
             yield* emitBackgroundTerminalError({
               message: lastRecoverableRunError.message,
               errorCode:
@@ -3336,16 +3028,6 @@ export function createAgentChatAdapter(
           });
         };
 
-        // One read-only attach to the current run's event stream. Unlike
-        // reconnectCurrentRun this does NOT retry internally and lets the
-        // follow loop see every auto-continue signal (with errorInfo intact),
-        // because the loop — not this reader — decides what a detach means.
-        // Return values: "completed" = terminal event consumed (turn over);
-        // "aborted" = user abort; "detached" = we ATTACHED to a live stream
-        // that ended/stalled without a terminal event (resets the follow
-        // loop's idle window); "gone" = could not attach at all (404, HTTP
-        // error, network failure — the idle window keeps accumulating so a
-        // persistently unattachable run still terminates loudly).
         const followAttachOnce = async function* (): AsyncGenerator<
           ChatModelRunResult,
           "completed" | "client_continue" | "aborted" | "detached" | "gone",
@@ -3421,8 +3103,6 @@ export function createAgentChatAdapter(
               clearOwnedActiveRun();
               return "completed";
             }
-            // readSSEStream returned normally: a terminal done/error was
-            // consumed and rendered — the turn is over.
             clearOwnedActiveRun();
             return "completed";
           } catch (attachErr: unknown) {
@@ -3442,20 +3122,10 @@ export function createAgentChatAdapter(
                 lastRecoverableRunError = attachErr.errorInfo;
               }
             }
-            // A fetch that never yielded a response body counts as "gone" for
-            // the idle window; a broken mid-stream read counts as attached.
             return attached ? "detached" : "gone";
           }
         };
 
-        // The background follow loop. Entered instead of ANY synthetic
-        // continuation POST when the current run is background-dispatched.
-        // Keeps following as long as an active run for this turn exists — the
-        // server keeps chaining until its own per-turn budget or a real
-        // terminal error, so a successor that stalls again is simply
-        // re-followed, not counted against any client budget. Only a
-        // continuous BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS with no active run
-        // ends the turn from the client side.
         const followBackgroundTurn = async function* (
           initialSignal: AgentAutoContinueSignal,
         ): AsyncGenerator<
@@ -3470,8 +3140,6 @@ export function createAgentChatAdapter(
           if (initialSignal.errorInfo) {
             lastRecoverableRunError = initialSignal.errorInfo;
           }
-          // Show "Resuming…" instead of a frozen Thinking label while waiting
-          // for the server-chained successor chunk.
           const dispatchResumingUiEvent = () => {
             if (typeof window !== "undefined") {
               window.dispatchEvent(
@@ -3513,13 +3181,6 @@ export function createAgentChatAdapter(
             yield* emitBackgroundTerminalError(outcome);
           };
 
-          // Before surfacing a background terminal ERROR (never called for a
-          // genuine "done" success — see call site), give the server's
-          // reap-and-recover path a short extra window to insert a claimable
-          // successor row for this turn. Returns as soon as `/runs/active`
-          // reports a DIFFERENT runId than the stale one, so the caller can
-          // hand back to the main loop and follow it seamlessly instead of
-          // erroring out from under it.
           const awaitBackgroundErrorRecoverySuccessor = async (
             staleRunId: string,
           ): Promise<"successor" | "timeout" | "aborted"> => {
@@ -3563,8 +3224,6 @@ export function createAgentChatAdapter(
           const followedRunIds = new Set<string>();
           let repeatedTerminalReason: string | null = null;
           let repeatedTerminalReasonCount = 0;
-          // Returns true once the SAME terminal reason has come back from
-          // enough successive successors that produced no events at all.
           const noteRepeatedTerminalReason = (
             reason: string,
             producedEvents: boolean,
@@ -3591,15 +3250,6 @@ export function createAgentChatAdapter(
           let lastObservedActiveRunId = runId;
           let lastObservedServerProgressAt: number | null = null;
           let noProgressPollAttempts = 0;
-          // Terminal runs already replayed once. A recoverable terminal error
-          // event replays as an auto-continue signal (isAutoRecoverableError),
-          // which used to re-drive a POST in foreground mode. In follow mode
-          // the server owns recovery, so a SECOND visit to the same terminal
-          // run means the turn is over — surface the outcome instead of
-          // re-replaying it every poll for the whole reconnect window. (A
-          // CONTINUATION-class terminal_reason is the one exception: see the
-          // isContinuationChunkBoundary check below, which keeps polling
-          // instead of surfacing anything.)
           const replayedTerminalRunIds = new Set<string>();
 
           while (true) {
@@ -3612,11 +3262,6 @@ export function createAgentChatAdapter(
               MAX_BACKGROUND_FOLLOW_WALL_TIME_MS
             ) {
               yield* stopBackgroundTurnBeforeReporting({
-                // Says only what this backstop actually knows. It fires on a
-                // clock, so it cannot tell a looping turn from one that was
-                // still working — the old copy asserted "kept restarting
-                // without finishing", which prod runs contradicted: they were
-                // streaming tokens right up to the abort.
                 message: `This turn ran for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing, so it was stopped. Your chat context is preserved — retrying, or splitting this into smaller requests, usually gets through.`,
                 errorCode: "background_follow_time_budget_exhausted",
                 details: `followed_runs: ${followedRunIds.size}`,
@@ -3624,10 +3269,6 @@ export function createAgentChatAdapter(
               return "completed";
             }
             let active: Record<string, unknown> | null = null;
-            // "The poll failed" and "the server reports no active run" are
-            // different facts. Only the second one is evidence the run is
-            // gone; coercing the first into the second lets a flaky network
-            // tick drive a durable abort of a run that is still working.
             let activeUnreadable = false;
             try {
               const activeRes = await fetch(
@@ -3640,8 +3281,6 @@ export function createAgentChatAdapter(
                   return null;
                 });
               } else {
-                // A 5xx/404 from this route is the route failing, not the run
-                // ending.
                 activeUnreadable = true;
               }
             } catch (pollErr: unknown) {
@@ -3652,7 +3291,6 @@ export function createAgentChatAdapter(
               activeUnreadable = true;
             }
             if (activeUnreadable) {
-              // Unreadable: learn nothing, decide nothing, wait and re-ask.
               await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
               if (abortSignal.aborted) {
                 clearOwnedActiveRun();
@@ -3668,11 +3306,6 @@ export function createAgentChatAdapter(
             const reportedRunId = active?.runId
               ? stringifyValue(active.runId)
               : null;
-            // Some deployed readers report a terminal snapshot with
-            // `active: false` while the row is being released. It is still
-            // authoritative when it names this turn or a run we already
-            // claimed; dropping it creates a false idle gap and eventually
-            // reports a completed run as lost.
             const isTerminalSnapshot =
               reportedRunId !== null &&
               (activeStatus === "completed" ||
@@ -3686,8 +3319,6 @@ export function createAgentChatAdapter(
               (active?.active === true || isTerminalSnapshot)
                 ? reportedRunId
                 : null;
-            // Only follow runs belonging to THIS turn (server-chained
-            // successors reuse the turnId) or runs we already attached to.
             const isOurRun =
               activeRunId !== null && canAttachRun(activeRunId, activeTurnId);
 
@@ -3730,16 +3361,6 @@ export function createAgentChatAdapter(
                   /^error:/,
                   "",
                 );
-                // A re-observed "completed" row with a CONTINUATION-class
-                // reason (run_timeout/no_progress/loop_limit/…) is a MID-TURN
-                // chunk boundary, not the end of the turn — a warm instance
-                // can keep serving this stale row for a beat before the
-                // pre-inserted successor becomes visible. Emitting a terminal
-                // outcome here is exactly the bug this branch exists to
-                // avoid: it would flip the message to "done" while the
-                // successor's content is still coming. Keep polling on the
-                // shared idle budget instead; a truly stuck handoff still
-                // fails loud (never a silent stop) once it expires.
                 const isContinuationChunkBoundary =
                   activeStatus === "completed" &&
                   !rawTerminalReason.startsWith("error:") &&
@@ -3773,10 +3394,6 @@ export function createAgentChatAdapter(
                     return "completed";
                   }
                   if (graceOutcome === "successor") {
-                    // A successor claimed the turn while we waited — hand
-                    // back to the top of the loop so it attaches and follows
-                    // it exactly like any other newly-discovered run instead
-                    // of duplicating that bookkeeping here.
                     continue;
                   }
                 }
@@ -3843,7 +3460,6 @@ export function createAgentChatAdapter(
                 });
                 return "completed";
               }
-              // Progress read from the PRE-attach snapshot first...
               const snapshotProgressAt =
                 typeof active?.lastProgressAt === "number" &&
                 Number.isFinite(active.lastProgressAt)
@@ -3853,25 +3469,7 @@ export function createAgentChatAdapter(
                 lastObservedServerProgressAt !== null &&
                 (snapshotProgressAt === null ||
                   snapshotProgressAt <= lastObservedServerProgressAt);
-              // ...and re-read ONLY when that snapshot would condemn the run.
-              //
-              // `active` was fetched at the top of this iteration and the attach
-              // above blocked for its whole duration, so judging progress from
-              // it asks "did the server advance before we started listening?" —
-              // never the question. A run that streamed text and a complete
-              // tool-argument payload DURING the attach still looked frozen, and
-              // the client durably aborted it. Measured fleet-wide: 23 of 24
-              // client-watchdog kills landed on runs that had made
-              // server-authoritative progress within the previous 90 seconds.
-              //
-              // Re-reading only on the condemning path keeps the extra request
-              // off the healthy path entirely: a run already observed to be
-              // advancing needs no second opinion.
               let activeProgressAt = snapshotProgressAt;
-              // Set when the second opinion could not be obtained. The
-              // snapshot is NOT a safe fallback here: it is precisely the
-              // value that condemns the run, so falling back to it turns a
-              // network blip into a kill.
               let secondOpinionUnreadable = false;
               if (snapshotSaysStalled) {
                 try {
@@ -3880,7 +3478,6 @@ export function createAgentChatAdapter(
                     { signal: abortSignal },
                   );
                   if (!freshRes.ok) {
-                    // The route failing is not the run ending.
                     secondOpinionUnreadable = true;
                   } else {
                     const fresh = await freshRes.json().catch(() => {
@@ -3924,18 +3521,6 @@ export function createAgentChatAdapter(
                 backgroundFollowLastServerProgressAt =
                   lastObservedServerProgressAt;
               }
-              // Server-authoritative "silently deferred, recovery in
-              // progress" signal (see `awaitingRedispatch` on
-              // `getActiveRunForThreadAsync`, run-manager.ts): a
-              // `chainServerDrivenContinuation` successor still inside
-              // `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`, being
-              // redispatched by the server's fast/slow sweeps. This is known
-              // to demonstrably exist — same as a "detached" attach — so
-              // treat it identically and never accumulate idle time against
-              // it. Once the server's own bound is exceeded (or the row is
-              // claimed/terminal) this flips false and normal idle accounting
-              // resumes, so a truly stuck deferral still fails loud via the
-              // existing timeout below.
               const awaitingRedispatch = active?.awaitingRedispatch === true;
               const madeProgress = runChanged || serverProgressAdvanced;
               if (
@@ -3943,21 +3528,10 @@ export function createAgentChatAdapter(
                 awaitingRedispatch ||
                 secondOpinionUnreadable
               ) {
-                // Only server-authoritative progress resets the idle window:
-                // a successor run or a newer lastProgressAt timestamp. Raw
-                // sequence advancement is not enough — keepalives and retry
-                // `clear` events are sequenced too, but the run manager
-                // deliberately excludes both from lastProgressAt because they
-                // do not move the user's task forward.
                 idleSince = null;
                 noProgressPollAttempts = 0;
                 backgroundFollowConsecutiveNoProgressDetaches = 0;
               } else {
-                // An absent stream and an attached stream with no newer
-                // server-authoritative progress are the same no-progress
-                // observation. Keep accumulating one idle window and back off
-                // repeat attaches so a broken SQL tail cannot become a
-                // reconnect storm.
                 if (idleSince === null) idleSince = Date.now();
                 noProgressPollAttempts += 1;
                 if (attach === "detached") {
@@ -3975,12 +3549,6 @@ export function createAgentChatAdapter(
               }
               dispatchResumingUiEvent();
             } else {
-              // No active run visible for this turn yet (the gap between a
-              // chunk ending and the successor becoming pollable). Refresh
-              // the "Resuming…" bridge on every tick here too — not just
-              // when an active run IS visible — so the client's own
-              // isAutoResuming window can't lapse into a false-idle UI while
-              // this loop is still confidently waiting out its own budget.
               dispatchResumingUiEvent();
               if (idleSince === null) idleSince = Date.now();
               if (Date.now() - idleSince >= BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS) {
@@ -4054,27 +3622,10 @@ export function createAgentChatAdapter(
           let currentPartialHistory =
             contentToContinuationHistory(visibleContent);
           const madeContentProgress = hasContinuationProgress(visibleContent);
-          // THE boundary. One question — did this continuation advance the
-          // turn? — decides every reason code, `loop_limit` included. It used
-          // to skip this block entirely AND reset two of the budgets, so a
-          // model that degenerated into a tool loop re-POSTed the same turnId
-          // until the user gave up (measured in production at 186 minutes with
-          // no answer). The durable per-turn ledger lives server-side inside
-          // one run and never sees a client re-POST, so nothing else bounds it.
           const advanceDelta = contentAfterContinuationPrefix(
             content,
             advanceCheckPrefix,
           );
-          // Everything that asks "what did THIS round do" reads the delta.
-          // `visibleContent` accumulates across a `loop_limit` chain — its
-          // prefix deliberately does not advance there — so one unresolved
-          // "Preparing X" card from an earlier round would otherwise stall
-          // every later round on the same name and kill a turn that was
-          // streaming new prose the whole time.
-          // An action streamed but not returned yet (a tool_start with no
-          // tool_done) means the SERVER is still executing it, so a run_timeout
-          // in that window can still deliver the result on reconnect; every
-          // other reason means the stream is dead and nothing will complete it.
           const hasInFlightTool = hasInFlightToolCall(advanceDelta);
           const completedTool = lastCompletedTimeoutCandidateTool(content);
           const currentPreparingToolName =
@@ -4091,8 +3642,6 @@ export function createAgentChatAdapter(
             serverStillRunningTool ||
             (advance.signature !== "" &&
               advance.signature !== lastAdvanceSignature);
-          // Only remember a non-empty signature, so an empty round between two
-          // identical rounds cannot launder the second one into "new work".
           if (advance.signature) lastAdvanceSignature = advance.signature;
           nonAdvancingContinuations = advanced
             ? 0
@@ -4104,11 +3653,6 @@ export function createAgentChatAdapter(
           }
           advanceCheckPrefix = snapshotContent(content);
 
-          // If a tool already completed, do not turn a missing closing
-          // sentence into a scary connection failure. Give the model one
-          // continuation opportunity (the completed tool itself counts as an
-          // advance on the first timeout); if the follow-up produces no new
-          // content, stop locally with a clear completed-tool warning.
           if (
             signal.reason === "run_timeout" &&
             completedTool &&
@@ -4184,10 +3728,6 @@ export function createAgentChatAdapter(
             ...structuredCombinedHistory,
           ];
           currentMessageText = autoContinueMessage(signal);
-          // Continuation requests are stateless new POSTs. If the interrupted
-          // turn depended on uploaded context, re-send that context; otherwise
-          // an attachment-only prompt degrades to "Use the attached context."
-          // with nothing attached after a stale run or reconnect recovery.
           includeAttachments = attachments.length > 0;
           includeReferences = Boolean(runConfig?.custom?.references);
           internalContinuationRequest = true;
@@ -4201,9 +3741,6 @@ export function createAgentChatAdapter(
             };
           }
 
-          // Keep everything visible during transient recovery. The continuation
-          // prefix diff tracks what the next request has already seen, so
-          // preserving text no longer causes duplicate continuation history.
           visibleContinuationPrefix = snapshotContent(content);
           return {
             ok: true,
@@ -4303,7 +3840,6 @@ export function createAgentChatAdapter(
             );
             responseReceived = true;
 
-            // Check for auth errors returned as 200 with JSON (common with middleware issues)
             const contentType = res.headers.get("content-type") || "";
             if (
               res.ok &&
@@ -4316,8 +3852,6 @@ export function createAgentChatAdapter(
               let probePrefix = "";
               let probeBytes = 0;
               {
-                // Read a bounded prefix so a mislabeled live SSE stream is not
-                // buffered until it closes before the original reader starts.
                 const probeReader = res.clone().body?.getReader();
                 if (probeReader) {
                   const decoder = new TextDecoder();
@@ -4363,8 +3897,6 @@ export function createAgentChatAdapter(
                         probeTimedOut = true;
                         probeReaderTransferred = true;
                         timedOutRead = read;
-                        // The timeout only releases the diagnostic clone; the
-                        // original body remains available for SSE parsing.
                         break;
                       }
 
@@ -4444,21 +3976,6 @@ export function createAgentChatAdapter(
                 } catch {
                   // Fall through to the generic response handling below.
                 }
-                // A 409 means the server still has an active run for this
-                // thread. For a fresh user turn — a queued follow-up OR a normal
-                // send fired shortly after the previous run finished (the server
-                // can report a just-finished run as active for up to
-                // RUN_STALE_MS while its terminal status write lands) — adopting
-                // `activeRunId` below would reconnect to that prior run, replay
-                // its final answer, and silently drop this turn. The same race
-                // can happen after an internal auto-continue: if the reported
-                // active run is one this adapter already consumed, reconnecting
-                // to it replays the terminal auto_continue and exits instead of
-                // posting the continuation. Wait for stale/previous active runs
-                // to clear and retry THIS prompt. An unknown run reported to an
-                // internal continuation is only adoptable after /runs/active
-                // proves it carries this turnId; a bare 409 run id is not
-                // enough ownership evidence.
                 if (activeRunId !== null && internalContinuationRequest) {
                   const reconnected = yield* reconnectActiveRunForThread({
                     requireCurrentTurn: true,
@@ -4482,11 +3999,6 @@ export function createAgentChatAdapter(
                     recoverable: true,
                     runId: activeRunId,
                   };
-                  // This is a terminal outcome for the attempted turn. Settle
-                  // both real in-flight calls and activity-only placeholders
-                  // before yielding the error; otherwise a prior "Preparing
-                  // run-code" event remains an unresolved tool card and the UI
-                  // keeps showing a spinner beside an already-terminal error.
                   settleInterruptedToolCalls(content, undefined, {
                     includeActivity: true,
                   });
@@ -4539,8 +4051,6 @@ export function createAgentChatAdapter(
                 return;
               }
 
-              // 405 Method Not Allowed usually means the session is broken/expired
-              // (e.g. a redirect to a login page that only accepts GET).
               if (res.status === 405) {
                 if (await tryRecoverAuthOnce()) {
                   continue;
@@ -4609,9 +4119,6 @@ export function createAgentChatAdapter(
                   errorText =
                     "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
                 } else if (body) {
-                  // A non-retryable structured response is a terminal server
-                  // outcome. Preserve its code and stop before the generic
-                  // connection recovery below can POST the same turn again.
                   if (
                     structuredError &&
                     (structuredError.retryable === false ||
@@ -4634,7 +4141,6 @@ export function createAgentChatAdapter(
               throw new Error("No response body");
             }
 
-            // Track the run ID for reconnection
             runId = res.headers.get("X-Run-Id");
             updateCurrentRunDispatchMode(res.headers.get("X-Dispatch-Mode"));
             if (runId && !attemptedRunIds.includes(runId)) {
@@ -4704,7 +4210,6 @@ export function createAgentChatAdapter(
               return;
             }
 
-            // Run completed normally — clear active run state
             cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
@@ -4712,7 +4217,6 @@ export function createAgentChatAdapter(
             let err = caughtError;
             if (err instanceof Error && err.name === "AbortError") {
               cancelDelayedJsonProbe();
-              // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
             }
@@ -4784,11 +4288,6 @@ export function createAgentChatAdapter(
                   yield* reconnectBackgroundContinuationForRunTimeout();
                 if (reconnected) return;
               }
-              // A CLIENT watchdog expiring means "reattach", never "kill the
-              // run": the server owns recovery and still believes this run is
-              // healthy. Aborting here was the single largest source of
-              // user-visible failure. A server-sent `auto_continue` is a
-              // different thing entirely — it wants a fresh POST.
               if (
                 err.reason === "stream_ended" ||
                 (err.reason === "no_progress" && err.clientWatchdog)
@@ -4865,12 +4364,6 @@ export function createAgentChatAdapter(
                   text: formatChatErrorText(
                     message,
                     preservedError?.upgradeUrl,
-                    // `message` is already user-facing here: either a
-                    // recovery-specific explanation from exhaustedRecoveryMessage
-                    // or a normalized gateway message from errorInfo. Passing
-                    // the fallback connection_error code back through the
-                    // formatter would replace the useful recovery guidance
-                    // with the generic interruption copy.
                     preservedError ? errorCode : undefined,
                   ),
                 });
@@ -4893,8 +4386,6 @@ export function createAgentChatAdapter(
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
               }
-              // Signal to the UI that we are in the continuation window so it
-              // can display "Resuming…" instead of "Thinking" during the gap.
               if (typeof window !== "undefined") {
                 window.dispatchEvent(
                   new CustomEvent("agent-chat:auto-continue", {
@@ -4902,9 +4393,6 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              // A run that advanced nothing usually never got past
-              // startup/gateway; re-POSTing the identical payload immediately
-              // just hits the identical wall. Back that case off instead.
               if (continuation.nonAdvancing) {
                 await retryDelay(
                   Math.max(0, nonAdvancingContinuations - 1),
@@ -4973,7 +4461,6 @@ export function createAgentChatAdapter(
               err instanceof Error ? err.message : "Something went wrong.";
             const isAuthError = isAuthErrorMessage(errMsg);
 
-            // Don't try to reconnect for auth/client errors — show error directly
             if (isAuthError) {
               if (await tryRecoverAuthOnce()) {
                 continue;
@@ -5019,17 +4506,11 @@ export function createAgentChatAdapter(
               return;
             }
 
-            // Connection lost — try to reconnect to the run
             const reconnected = yield* reconnectCurrentRun();
             if (reconnected) return;
             const activeReconnected = yield* reconnectActiveRunForThread();
             if (activeReconnected) return;
 
-            // Background-dispatched run whose transport failed and could not
-            // be reconnected above: follow server state instead of the
-            // synthetic-continuation POST below. (An initial POST that failed
-            // before any response headers arrived has no dispatch mode yet
-            // and keeps the foreground startup-retry path.)
             if (shouldFollowServerContinuation() && threadId) {
               const followOutcome = yield* followBackgroundTurn(
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
@@ -5083,8 +4564,6 @@ export function createAgentChatAdapter(
               return;
             }
 
-            // Reconnect failed or not possible — keep going from the partial
-            // streamed content instead of surfacing a transient transport error.
             if (content.length > 0) {
               const continuation = prepareAutoContinuation(
                 new AgentAutoContinueSignal({ reason: "stream_ended" }),
@@ -5158,7 +4637,6 @@ export function createAgentChatAdapter(
                   content: snapshotContent(content),
                 } as ChatModelRunResult;
               }
-              // Signal to the UI that we are in the continuation window.
               if (typeof window !== "undefined") {
                 window.dispatchEvent(
                   new CustomEvent("agent-chat:auto-continue", {
@@ -5180,7 +4658,6 @@ export function createAgentChatAdapter(
               continue;
             }
 
-            // No partial work exists, so this is still a real startup failure.
             captureChatClientError(err, "startup-failed", {
               retryableStartupError: isRetryableStartupError(errMsg),
             });
@@ -5219,9 +4696,6 @@ export function createAgentChatAdapter(
         }
       } finally {
         if (threadId) clearPendingTurnIfMatches(threadId, turnId);
-        // Abort and retry-delay exits do not necessarily reach a terminal
-        // result. Apply the same surface-only cleanup without clearing a
-        // newer run owned by this or another surface.
         settleTerminalChatRun();
       }
     },

@@ -18,7 +18,6 @@ import {
 const NONCE = "slide-r1.s1";
 const SCOPE = '[data-slide-content-scope="slide-r1"]';
 
-/** Mounts `stored` the way the editor canvas does, autofit layer included. */
 function mount(stored: string) {
   const rendered = renderRawSlideHtml(stored, {
     scopeSelector: SCOPE,
@@ -72,11 +71,9 @@ describe("stampSlideSource", () => {
     }
     expect(ranges[2].closeStart).not.toBeNull();
     expect(ranges[5].closeStart).toBeNull();
-    // <hr> closes the open <p>.
     expect(stored.slice(ranges[5].openStart, ranges[5].closeEnd)).toBe(
       '<p>implied<!-- note --><svg viewBox="0 0 1 1"><path d="M0"/></svg>',
     );
-    // `/` after an unquoted value stays part of the value.
     expect(html).toContain('<img src=a/ data-src-i="n:4">');
     expect(html).toContain('<hr data-src-i="n:8"/>');
     const doc = new DOMParser().parseFromString(html, "text/html");
@@ -113,7 +110,6 @@ describe("mergeRenderedEdits", () => {
       for (const slide of fixture.slides as Array<{ content: string }>) {
         if (!slide.content.trimStart().startsWith("<")) continue;
         const { root, save } = mount(slide.content);
-        // Editor-only state on live nodes is not content.
         for (const el of Array.from(root.querySelectorAll("p, h1, h2, div"))) {
           el.setAttribute("data-builder-id", "b-1");
         }
@@ -177,7 +173,6 @@ describe("mergeRenderedEdits", () => {
     q(root, "h2").style.fontSize = "48px";
     const out = save().html;
     expect(out).toContain('<div class="card" style="left: 30px; top: 45px">');
-    // The font rename the renderer made never reaches storage.
     expect(out).toContain(
       '<h2 class="title"  style="font-family:\'Work Sans Medium\'; font-size: 48px">',
     );
@@ -256,8 +251,6 @@ describe("mergeRenderedEdits", () => {
     const misnested =
       '<div class="fmd-slide"><p class="a">keep  me</p><b><p>x</b>y</p></div>';
     const { ranges } = stampSlideSource(misnested, NONCE);
-    // The tree a spec parser builds (happy-dom does not run the adoption
-    // agency algorithm): the <b> is cloned into the <p>.
     const s = (i: number) => `${SOURCE_STAMP_ATTR}="${NONCE}:${i}"`;
     const base = `<div class="fmd-slide" ${s(0)}><p class="a" ${s(1)}>keep  me</p><b ${s(2)}></b><p ${s(3)}><b ${s(2)}>x</b>y</p></div>`;
     const live = document.createElement("div");
@@ -279,7 +272,6 @@ describe("mergeRenderedEdits", () => {
     const withDiagram =
       '<div class="mermaid">graph TD\nA --> B</div><div class="fmd-slide"><p>Title</p></div>';
     const { root, save } = mount(withDiagram);
-    // The diagram component replaces the placeholder with its own markup.
     const placeholder = q(root, "[data-mermaid-index]");
     placeholder.setAttribute("data-mermaid-state", "ready");
     placeholder.innerHTML = "<svg><g></g></svg>";
@@ -292,7 +284,6 @@ describe("mergeRenderedEdits", () => {
       '<div class="fmd-slide" style="padding:48px"><h2>Diagram title</h2><div class="mermaid">graph TD\nA-->B</div><p>Caption below</p></div>';
     for (const target of ["p", "h2"]) {
       const { root, save } = mount(inside);
-      // MermaidRenderer mounts its own node inside the placeholder.
       q(root, "[data-mermaid-index]").innerHTML =
         '<div data-mermaid-index="0" data-mermaid-state="ready"><svg></svg></div>';
       q(root, `.fmd-slide ${target}`).append(" ok");
@@ -316,7 +307,6 @@ describe("mergeRenderedEdits", () => {
       q(root, "p:nth-of-type(3) strong").append(" ok");
       const out = save().html;
       expect(out).toBe(unclosed.replace("Third para", "Third para ok"));
-      // A second save of the result grows nothing.
       const again = mount(out);
       q(again.root, "p:nth-of-type(3) strong").append("!");
       expect(again.save().html).toBe(
@@ -433,8 +423,6 @@ describe("renderArtifactGrowth", () => {
     expect(
       renderArtifactGrowth("<p>a</p>", "<p contenteditable>a</p>"),
     ).toEqual(["contenteditable"]);
-    // Older editors stored contenteditable="false"; only an editable value is
-    // the live editing surface.
     expect(
       renderArtifactGrowth("<p>a</p>", '<p contenteditable="false">a</p>'),
     ).toEqual([]);

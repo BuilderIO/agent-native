@@ -1,4 +1,5 @@
 import { Badge } from "@agent-native/toolkit/ui/badge";
+import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconArrowRight,
@@ -34,6 +35,7 @@ import {
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+import { resolveFirstRunOnboardingMode } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
@@ -48,7 +50,8 @@ type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
 type FirstRunSetupMethodId =
   | "builder_create_account"
   | "builder_sign_in"
-  | "custom_keys";
+  | "custom_keys"
+  | "skip_to_app";
 
 interface FirstRunSetupAttempt {
   id: string;
@@ -63,6 +66,7 @@ function trackFirstRunSetupOutcome(
     | "already_connected"
     | "failed"
     | "settings_opened"
+    | "skipped_to_app"
     | "handoff_failed",
   errorType?: string,
 ) {
@@ -129,7 +133,6 @@ const BUILDER_MORE_SERVICES = [
 ] as const;
 
 export interface FirstRunOnboardingProps {
-  /** The shared startup gate has already resolved this account as eligible. */
   initialFirstRun?: boolean;
 }
 
@@ -137,6 +140,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const connectFirstRun = resolveFirstRunOnboardingMode() === "connect";
   const { pathname } = useLocation();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
@@ -164,10 +168,6 @@ export function FirstRunOnboarding({
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
   }, [previewMode, previewStep]);
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
   const trackFirstRunStepCompleted = useCallback(
     (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
       if (previewMode) return;
@@ -195,21 +195,38 @@ export function FirstRunOnboarding({
   const completionAttemptRef = useRef<{
     screen: FirstRunScreen | null;
     extensionIndex: number;
+    onSuccess?: () => void;
   } | null>(null);
   const completionInFlightRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
-  const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const pendingHandoffFailureRef = useRef<FirstRunSetupAttempt | null>(null);
+  const flushPendingHandoffFailure = useCallback(() => {
+    const attempt = pendingHandoffFailureRef.current;
+    if (!attempt) return;
+    pendingHandoffFailureRef.current = null;
+    trackFirstRunSetupOutcome(
+      attempt,
+      "handoff_failed",
+      "onboarding_completion_error",
+    );
+  }, []);
   const startSetupMethod = useCallback(
-    (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
+    (
+      methodId: FirstRunSetupMethodId,
+      methodKind: "builder" | "manual" | "skip",
+    ) => {
       if (previewMode || typeof window === "undefined") return null;
+      flushPendingHandoffFailure();
       const attempt = {
         id: window.crypto.randomUUID(),
         methodId,
         outcomeTracked: false,
       };
-      setupAttemptRef.current = attempt;
+      if (methodKind !== "builder") {
+        pendingHandoffFailureRef.current = attempt;
+      }
       const properties = {
         flow: "first_run",
         step_id: "choice",
@@ -221,31 +238,37 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_method_started", properties);
       return attempt;
     },
-    [previewMode],
+    [flushPendingHandoffFailure, previewMode],
   );
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
       completedExtensionIndex = extensionIndex,
+      onSuccess?: () => void,
     ) => {
-      completionAttemptRef.current = completedScreen
-        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
-        : { screen: null, extensionIndex: completedExtensionIndex };
+      completionAttemptRef.current = {
+        screen: completedScreen,
+        extensionIndex: completedExtensionIndex,
+        ...(onSuccess ? { onSuccess } : {}),
+      };
       completionInFlightRef.current = true;
+      let onSuccessAfterCompletion: (() => void) | undefined;
       try {
         await completeFirstRun();
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
         onboardingTerminalRef.current = true;
+        onSuccessAfterCompletion = completionAttemptRef.current?.onSuccess;
         completionAttemptRef.current = null;
-        return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
       } finally {
         completionInFlightRef.current = false;
       }
+      onSuccessAfterCompletion?.();
+      return true;
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
   );
@@ -278,6 +301,7 @@ export function FirstRunOnboarding({
       )
         return;
       abandonmentTrackedRef.current = true;
+      flushPendingHandoffFailure();
       trackOnboardingEvent("onboarding_abandoned", {
         ...firstRunStepProperties(screen, extensions, extensionIndex),
         reason: "page_exit",
@@ -293,6 +317,7 @@ export function FirstRunOnboarding({
     previewMode,
     profile,
     screen,
+    flushPendingHandoffFailure,
   ]);
   const handleFinish = useCallback(
     (completedScreen: FirstRunScreen | null, track = true) => {
@@ -309,7 +334,6 @@ export function FirstRunOnboarding({
   const handleBuilderConnected = useCallback(() => {
     trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
     builderSetupAttemptRef.current = null;
-    setupAttemptRef.current = null;
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
     handleFinish(null);
@@ -339,6 +363,7 @@ export function FirstRunOnboarding({
     void finishOnboarding(
       attempt?.screen ?? null,
       attempt?.extensionIndex ?? extensionIndex,
+      attempt?.onSuccess,
     );
   }, [extensionIndex, finishOnboarding]);
   const completionErrorProps = {
@@ -396,7 +421,6 @@ export function FirstRunOnboarding({
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
       trackFirstRunSetupOutcome(attempt, "already_connected");
       builderSetupAttemptRef.current = null;
-      setupAttemptRef.current = null;
       trackFirstRunStepCompleted("choice");
       handleFinish(null);
       return;
@@ -414,23 +438,8 @@ export function FirstRunOnboarding({
     });
   };
 
-  const handleOpenSettings = async () => {
-    if (completionInFlightRef.current) return;
-    const attempt = startSetupMethod("custom_keys", "manual");
-    const completed = await finishOnboarding("choice");
-    if (!completed) {
-      trackFirstRunSetupOutcome(
-        attempt,
-        "handoff_failed",
-        "onboarding_completion_error",
-      );
-      return;
-    }
-    trackFirstRunSetupOutcome(attempt, "settings_opened");
+  const navigateToKeySettings = () => {
     if (typeof window === "undefined") return;
-    // Drop the onboarding preview params — useOnboardingPreviewMode() reads
-    // them live from the URL, so carrying them over would re-trigger the
-    // preview overlay on the Settings page we're navigating to.
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
@@ -445,6 +454,32 @@ export function FirstRunOnboarding({
     );
     window.dispatchEvent(new Event("popstate"));
   };
+
+  const handleOpenSettings = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("custom_keys", "manual");
+    await finishOnboarding("choice", extensionIndex, () => {
+      if (pendingHandoffFailureRef.current === attempt) {
+        pendingHandoffFailureRef.current = null;
+      }
+      trackFirstRunSetupOutcome(attempt, "settings_opened");
+      navigateToKeySettings();
+    });
+  };
+
+  const handleSkipToApp = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("skip_to_app", "skip");
+    await finishOnboarding(null, extensionIndex, () => {
+      if (pendingHandoffFailureRef.current === attempt) {
+        pendingHandoffFailureRef.current = null;
+      }
+      trackFirstRunStepSkipped("choice", "skip_to_app");
+      trackFirstRunSetupOutcome(attempt, "skipped_to_app");
+    });
+  };
+
+  const builderStatusPending = !previewMode && !connectFlow.statusResolved;
 
   const handleRoleContinue = async () => {
     const roleToSave =
@@ -506,6 +541,101 @@ export function FirstRunOnboarding({
             void finishOnboarding(null);
           }}
         />
+      </OnboardingShell>
+    );
+  }
+
+  if (screen === "choice" && connectFirstRun) {
+    return (
+      <OnboardingShell
+        profile={profile}
+        screen="choice"
+        {...completionErrorProps}
+      >
+        <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6">
+          <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground">
+            {t("agentChat.setup.connectBuilder")}
+          </h1>
+          <div className="flex w-full flex-col items-center gap-3">
+            <Button
+              type="button"
+              data-testid="first-run-builder-continue"
+              className={cn(primaryButtonClass, "w-full")}
+              onClick={() => handleBuilder(canActivateBuilderFreeCredits)}
+              disabled={builderStatusPending || connectFlow.connecting}
+            >
+              {t("agentChat.common.continue")}
+              {builderStatusPending || connectFlow.connecting ? (
+                <IconLoader2 size={15} className="animate-spin" />
+              ) : (
+                <IconArrowRight size={15} />
+              )}
+            </Button>
+            <p className="text-center text-xs leading-5 text-muted-foreground">
+              {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+              <a
+                href="https://www.builder.io/legal/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderTerms")}
+              </a>{" "}
+              {t("agentChat.onboarding.builderConsentAnd")}{" "}
+              <a
+                href="https://www.builder.io/legal/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderPrivacy")}
+              </a>
+              .
+            </p>
+          </div>
+          {connectFlow.error && !connectFlow.statusResolved && !previewMode && (
+            <div className="flex flex-col items-center gap-2">
+              <p
+                role="status"
+                data-testid="first-run-builder-status-error"
+                className="text-center text-xs text-destructive"
+              >
+                {t("agentChat.setup.providerStatusUnavailable")}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => connectFlow.retry()}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          )}
+          <div className="flex flex-col items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="first-run-open-key-settings"
+              className="min-h-9 rounded-lg px-2.5 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void handleOpenSettings()}
+            >
+              {t("agentChat.onboarding.useOwnApiKeys")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              data-testid="first-run-skip-to-app"
+              className="min-h-8 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void handleSkipToApp()}
+            >
+              {t("agentChat.onboarding.skipForNow")}
+            </Button>
+          </div>
+        </div>
       </OnboardingShell>
     );
   }
@@ -632,7 +762,7 @@ export function FirstRunOnboarding({
                     data-testid="first-run-builder-status-error"
                     className="text-center text-xs text-destructive"
                   >
-                    {connectFlow.error}
+                    {t("agentChat.setup.providerStatusUnavailable")}
                   </p>
                 )}
               </section>
@@ -1045,16 +1175,8 @@ function CapabilityList({
   );
 }
 
-// Design system intelligence has no BYOK path — it's Builder-managed only, so
-// the manual list shows it crossed out with no Required/Recommended tag
-// instead of mislabeling it "Optional".
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
-/** The setup cards are a scannable comparison, not a capability inventory:
- *  they carry what the app needs (required), what we recommend (suggested),
- *  and the Builder-only rows that make the manual column honest. Per-app
- *  extras like an optional Figma token belong in Settings, where the user is
- *  actually choosing them. */
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
     capability.required ||
@@ -1115,17 +1237,9 @@ function CapabilityInfoButton({
   );
 }
 
-// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
-// Builder status is still in flight, so the `disabled:` styles never engage and
-// a pending CTA is pixel-identical to a live one — which is why this class of
-// dead button survives screenshot review.
 const primaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
-/** Inline failure signal for a failed completeFirstRun() call — keeps the
- *  user on their current screen with a way forward, instead of swapping to
- *  an unrelated full-screen error or leaving Skip/Continue looking like it
- *  did nothing. */
 function FirstRunCompletionError({
   message,
   onRetry,

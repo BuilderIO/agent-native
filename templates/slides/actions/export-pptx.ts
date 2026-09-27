@@ -9,7 +9,7 @@ import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
 import {
   safeGeneratedFilename,
@@ -24,21 +24,12 @@ import {
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
 
-/**
- * Extract inline style value for a given property from a style string.
- */
 function getStyle(style: string, prop: string): string | null {
   const re = new RegExp(`${prop}\\s*:\\s*([^;]+)`, "i");
   const m = style.match(re);
   return m ? m[1].trim() : null;
 }
 
-/**
- * Convert a CSS color string to a 6-char hex string (no #) plus an optional
- * pptxgenjs transparency (0-100, percent transparent) carried from an
- * alpha-bearing CSS color.
- * Handles #hex, #shortHex, rgb(), rgba(), and named colors.
- */
 function colorToHex(color: string): { hex: string; transparency?: number } {
   if (!color) return { hex: "FFFFFF" };
   const parsed = parseCssColor(color);
@@ -49,21 +40,13 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
   return { hex: "FFFFFF" };
 }
 
-/**
- * The recognition half of `colorToHex`, reporting `undefined` rather than white
- * for a value that is not a color at all. A caller that can act on "not a
- * color" — a gradient deciding whether its first argument is a direction or a
- * stop — must not be handed a color the source never contained.
- */
 function parseCssColor(
   color: string,
 ): { hex: string; transparency?: number } | undefined {
   if (!color) return undefined;
 
-  // Strip quotes / trim
   color = color.replace(/['"]/g, "").trim();
 
-  // Already hex
   if (/^#[0-9a-f]{8}$/i.test(color)) {
     const alpha = parseInt(color.slice(7, 9), 16) / 255;
     return {
@@ -80,7 +63,6 @@ function parseCssColor(
     return { hex: `${r}${r}${g}${g}${b}${b}`.toUpperCase() };
   }
 
-  // rgb / rgba
   const rgbMatch = color.match(
     /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
   );
@@ -94,7 +76,6 @@ function parseCssColor(
     return { ...result, transparency: Math.round((1 - alpha) * 100) };
   }
 
-  // Named colors used in the slide templates, plus the CSS Level 1 keyword set.
   const named: Record<string, string> = {
     white: "FFFFFF",
     black: "000000",
@@ -121,14 +102,6 @@ function parseCssColor(
   return undefined;
 }
 
-/**
- * Resolve a CSS `background`/`background-color` value to the single solid fill
- * PowerPoint can hold. pptxgenjs has no gradient fill (`ShapeFillProps.type` is
- * `'none' | 'solid'`), so a gradient must collapse to one stop — but dropping
- * the fill entirely, as this used to, exports the shape emptier than the source
- * rather than merely flatter. Pick the first stop that is not fully
- * transparent, which is the stop a `<a:gradFill>` leads with.
- */
 function cssFillToSolid(
   value: string | null | undefined,
 ): { hex: string; transparency?: number } | undefined {
@@ -141,10 +114,8 @@ function cssFillToSolid(
   return undefined;
 }
 
-/** The deck templates' own family, used only when no HTML declares one. */
 const DEFAULT_DECK_FONT_FACE = "Poppins";
 
-/** First family name of a CSS `font-family` declaration, unquoted. */
 function cssFontFace(style: string): string | undefined {
   return (
     getStyle(style, "font-family")
@@ -154,12 +125,6 @@ function cssFontFace(style: string): string | undefined {
   );
 }
 
-/**
- * A preset name copied from `<a:prstGeom prst="...">` only survives if
- * PowerPoint knows it, and pptxgenjs writes whatever string it is handed
- * straight into `prst`. Report an unrecognized one the way `colorToHex`
- * reports an unreadable color instead of shipping a file PowerPoint rejects.
- */
 export function resolveShapeType(
   shapeTypes: Record<string, string>,
   shapeType: string | undefined,
@@ -173,11 +138,6 @@ export function resolveShapeType(
   return "rect" as PptxGenJS.ShapeType;
 }
 
-/**
- * CSS border styles PowerPoint can draw. `solid` needs no `dashType`, so it is
- * absent here; anything unlisted (`double`, `groove`, ...) also falls through to
- * a solid line, which is the closest single-stroke approximation.
- */
 const CSS_BORDER_DASH_TYPES: Record<
   string,
   NonNullable<PptxGenJS.ShapeLineProps["dashType"]>
@@ -195,19 +155,8 @@ interface ParsedCssBorder {
   color: string;
 }
 
-/**
- * PowerPoint's `a:spcPct val="100000"` is 100% of the font's *natural* line
- * height, which CSS renders as `line-height: 1.2`, so the importer multiplies a
- * declared percentage by that ratio. Writing the CSS value back out as `lnSpc`
- * unchanged applied that correction a second time, and every imported paragraph
- * came back 20% looser than the source. Neither copy of the constant is
- * exported — `SINGLE_LINE_SPACING_RATIO` in packages/core/src/ingestion/pptx.ts
- * and `DEFAULT_LINE_SPACING` in server/handlers/import/html-converter.ts — so
- * all three have to move together.
- */
 const SINGLE_LINE_SPACING_RATIO = 1.2;
 
-/** A CSS line-height ratio as the single-spacing multiple `lnSpc` measures. */
 function cssLineHeightToSpacingMultiple(
   lineHeight: number | undefined,
 ): number | undefined {
@@ -218,7 +167,6 @@ function cssLineHeightToSpacingMultiple(
     : undefined;
 }
 
-/** Parse a CSS `border` shorthand. `none`/`hidden` borders yield `undefined`. */
 function parseCssBorder(
   border: string | null | undefined,
 ): ParsedCssBorder | undefined {
@@ -231,10 +179,6 @@ function parseCssBorder(
   };
 }
 
-/**
- * Convert CSS px value to inches at a given slide width.
- * The mapping depends on the aspect ratio: pxPerIn = pxWidth / inchWidth.
- */
 function pxToIn(
   px: number,
   dims: { width: number; pptxInches: { w: number } },
@@ -242,11 +186,6 @@ function pxToIn(
   return (px / dims.width) * dims.pptxInches.w;
 }
 
-/**
- * Convert CSS font-size px to PowerPoint points, using this deck's actual
- * px/inch ratio (like `pxToIn` above) instead of assuming 96 CSS px/inch —
- * the ratio varies by aspect ratio (72 for 16:9/9:16, 108 for 1:1/4:5).
- */
 function pxToPt(
   px: number,
   dims: { width: number; pptxInches: { w: number } },
@@ -257,15 +196,6 @@ function pxToPt(
 
 const EMU_PER_INCH = 914400;
 
-/**
- * The page size an imported slide carries from its source `<p:sldSz>`. The
- * importer lays elements out against the nearest `ASPECT_RATIOS` preset box, so
- * exporting onto that preset's inches instead re-pages the deck: a 10x5.625in
- * source comes back 13.33x7.5in, and a 16:10 source (creandum) comes back 16:9
- * with every element stretched 11% vertically, because the preset it snapped to
- * is not its real shape. Scaling the preset's px box onto the source's own
- * inches makes both round trips exact.
- */
 export function sourcePageInches(
   html: string,
 ): { w: number; h: number } | undefined {
@@ -274,8 +204,6 @@ export function sourcePageInches(
   if (!widthEmu || !heightEmu) return undefined;
   const w = widthEmu / EMU_PER_INCH;
   const h = heightEmu / EMU_PER_INCH;
-  // PowerPoint itself refuses a page outside 1-56in; a value beyond that is a
-  // corrupt attribute, not a page size, and must not silently re-page the deck.
   if (w < 1 || w > 56 || h < 1 || h > 56) {
     console.warn(
       `[export-pptx] ignoring out-of-range source page size ${widthEmu}x${heightEmu} EMU`,
@@ -285,7 +213,6 @@ export function sourcePageInches(
   return { w, h };
 }
 
-/** `dims` re-based onto the source page size when the slide declares one. */
 function withSourcePageInches(dims: SlideDims, html: string): SlideDims {
   const pptxInches = sourcePageInches(html);
   return pptxInches ? { ...dims, pptxInches } : dims;
@@ -293,20 +220,20 @@ function withSourcePageInches(dims: SlideDims, html: string): SlideDims {
 
 interface TextElement {
   text: string;
-  fontSize?: number; // in pt; omitted when the source declares none
-  fontFace?: string; // omitted when the source declares none
-  color: string; // 6-char hex
-  transparency?: number; // 0-100, percent transparent
+  fontSize?: number;
+  fontFace?: string;
+  color: string;
+  transparency?: number;
   bold: boolean;
-  x: number; // inches
-  y: number; // inches
-  w: number; // inches
-  h: number; // inches
+  x: number;
+  y: number;
+  w: number;
+  h: number;
   align?: "left" | "center" | "right";
   letterSpacing?: number;
   lineSpacingMultiple?: number;
   runs?: TextRunElement[];
-  rotate?: number; // degrees clockwise
+  rotate?: number;
   order?: number;
   stack?: number;
 }
@@ -317,7 +244,7 @@ interface TextRunElement {
     fontSize?: number;
     fontFace?: string;
     color?: string;
-    transparency?: number; // 0-100, percent transparent
+    transparency?: number;
     bold?: boolean;
     italic?: boolean;
     underline?: { style: "sng" };
@@ -330,7 +257,7 @@ interface ImageElement {
   y: number;
   w: number;
   h: number;
-  rotate?: number; // degrees clockwise
+  rotate?: number;
   order?: number;
   stack?: number;
 }
@@ -341,18 +268,17 @@ interface ShapeElement {
   w: number;
   h: number;
   fill?: string;
-  fillTransparency?: number; // 0-100, percent transparent
+  fillTransparency?: number;
   lineColor?: string;
-  lineTransparency?: number; // 0-100, percent transparent
-  lineWidth?: number; // in pt
+  lineTransparency?: number;
+  lineWidth?: number;
   lineDashType?: NonNullable<PptxGenJS.ShapeLineProps["dashType"]>;
   lineHeadType?: NonNullable<PptxGenJS.ShapeLineProps["beginArrowType"]>;
   lineTailType?: NonNullable<PptxGenJS.ShapeLineProps["endArrowType"]>;
-  /** A PowerPoint preset geometry name, or `custGeom` when `points` carry a traced outline. */
   shapeType?: string;
-  rectRadius?: number; // inches; roundRect corner radius
+  rectRadius?: number;
   points?: PptxGenJS.ShapeProps["points"];
-  rotate?: number; // degrees clockwise
+  rotate?: number;
   order?: number;
   stack?: number;
 }
@@ -363,9 +289,7 @@ interface TableElement {
   y: number;
   w: number;
   h: number;
-  /** Per-column widths in inches, from the source `a:tblGrid`; absent when the HTML declares none. */
   colW?: number[];
-  /** Per-row heights in inches, from the source `a:tr/@h`; absent when the HTML declares none. */
   rowH?: number[];
   order?: number;
   stack?: number;
@@ -373,7 +297,7 @@ interface TableElement {
 
 interface GridElement {
   color: string;
-  transparency?: number; // 0-100, percent transparent
+  transparency?: number;
   stepX: number;
   stepY: number;
   offsetX: number;
@@ -385,9 +309,6 @@ export function assertServerPptxExportable(
   html: string,
   slideNumber: number,
 ): void {
-  // Absolute positioning alone is not an editing-object contract: uploaded
-  // backgrounds are intentionally absolute but the normal-flow exporter can
-  // still include them. Only reject objects persisted by the freeform editor.
   const hasPersistedFreeformObject =
     /\bdata-slide-object-id\s*=/i.test(html) ||
     /\bclass\s*=\s*["'][^"']*\bfmd-freeform-object\b/i.test(html);
@@ -408,15 +329,10 @@ interface ParsedSlide {
   tables: TableElement[];
   grid?: GridElement;
   bgColor: string;
-  bgTransparency?: number; // 0-100, percent transparent
-  /** The slide background's CSS gradient, when it has one. `bgColor` still holds its flattened stop for the shape-level path. */
+  bgTransparency?: number;
   bgGradient?: string;
 }
 
-/**
- * Parse slide HTML and extract text/image elements with positioning.
- * We know the exact HTML structure from the slide templates.
- */
 export function parseSlideHtml(
   html: string,
   aspectRatio?: AspectRatio,
@@ -440,7 +356,6 @@ export function parseSlideHtml(
   const slideW = dims.pptxInches.w;
   const slideH = dims.pptxInches.h;
 
-  // Check for background color on the outer .fmd-slide div
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
   const slideBackground = slideStyleMatch
     ? getStyle(slideStyleMatch[1], "background(?:-color)?")
@@ -454,14 +369,10 @@ export function parseSlideHtml(
     bgColor = parsedBg.hex;
     bgTransparency = parsedBg.transparency;
   }
-  // Deck templates set the family once on the wrapper; individual headings and
-  // paragraphs only override it. Reading it is what keeps a Work Sans or
-  // Montserrat design system from exporting as this template's default.
   const slideFontFace = slideStyleMatch
     ? cssFontFace(slideStyleMatch[1])
     : undefined;
 
-  // Extract padding from the .fmd-slide wrapper
   const paddingStr = slideStyleMatch
     ? getStyle(slideStyleMatch[1], "padding")
     : null;
@@ -479,11 +390,9 @@ export function parseSlideHtml(
   const contentW = slideW - 2 * xMargin;
   let yPos = pxToIn(padTop, dims);
 
-  // Check if the slide is vertically centered (justify-content: center)
   const isCentered =
     slideStyleMatch && slideStyleMatch[1].includes("justify-content: center");
 
-  // Collect all elements in order for vertical layout
   let match;
   interface ParsedEl {
     tag: string;
@@ -493,21 +402,17 @@ export function parseSlideHtml(
   }
   const elements: ParsedEl[] = [];
 
-  // Find top-level elements inside the .fmd-slide div
-  // Skip the outer wrapper div itself
   const innerContent = html.replace(
     /^<div[^>]*class="fmd-slide"[^>]*>([\s\S]*)<\/div>\s*$/i,
     "$1",
   );
 
-  // Parse top-level elements from inner content
   const topLevelRegex = /<(h1|h2|h3|p|div)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   while ((match = topLevelRegex.exec(innerContent)) !== null) {
     const tag = match[1].toLowerCase();
     const attrs = match[2];
     const inner = match[3];
 
-    // Extract style
     const styleMatch = attrs.match(/style="([^"]*)"/);
     const style = styleMatch ? styleMatch[1] : "";
 
@@ -519,7 +424,6 @@ export function parseSlideHtml(
     });
   }
 
-  // If centered, estimate the content height and adjust starting Y
   if (isCentered && elements.length > 0) {
     let totalHeight = 0;
     for (const el of elements) {
@@ -529,7 +433,6 @@ export function parseSlideHtml(
       let marginBottom = 0;
       if (mb) {
         const parts = mb.split(/\s+/).map((s) => parseInt(s));
-        // margin: top right bottom left or margin: vert horiz
         if (parts.length === 4) marginBottom = parts[2] || 0;
         else if (parts.length === 2) marginBottom = parts[0] || 0;
         else marginBottom = parts[0] || 0;
@@ -552,7 +455,6 @@ export function parseSlideHtml(
     const letterSpacing = getStyle(style, "letter-spacing");
     const lineHeight = getStyle(style, "line-height");
 
-    // Extract text from inner HTML, stripping nested tags
     const text = el.innerHtml
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, "")
@@ -568,7 +470,6 @@ export function parseSlideHtml(
 
     if (!text && !el.innerHtml.includes("<img")) continue;
 
-    // Check for images within this element
     const imgRegex =
       /<img[^>]*src="([^"]*)"[^>]*(?:style="([^"]*)")?[^>]*\/?>/gi;
     let imgMatch;
@@ -590,19 +491,16 @@ export function parseSlideHtml(
     }
 
     if (text) {
-      // Calculate element height based on font size and line count
       const lineCount = Math.max(1, text.split("\n").length);
       const lineH = lineHeight ? parseFloat(lineHeight) : 1.3;
       const elHeight = pxToIn(fontSize * lineH * lineCount, dims);
 
-      // Extract margin-bottom
       const marginStr = getStyle(style, "margin");
       let marginBottom = 0;
       if (marginStr) {
         const parts = marginStr.split(/\s+/).map((s) => parseInt(s));
         if (parts.length === 4) marginBottom = parts[2] || 0;
-        else if (parts.length >= 2)
-          marginBottom = 0; // margin: 0 0 = no bottom
+        else if (parts.length >= 2) marginBottom = 0;
         else marginBottom = parts[0] || 0;
       }
       const mbStr = getStyle(style, "margin-bottom");
@@ -621,8 +519,6 @@ export function parseSlideHtml(
         w: contentW,
         h: elHeight + 0.2,
         letterSpacing: letterSpacing ? parseFloat(letterSpacing) : undefined,
-        // Editor-authored HTML already uses the multiple pptxgenjs expects;
-        // the importer-only correction belongs in parseImportedSlideHtml.
         lineSpacingMultiple: lineH,
       });
 
@@ -641,24 +537,12 @@ export function parseSlideHtml(
   };
 }
 
-/**
- * Structural rather than `ReturnType<typeof getAspectRatioDims>`: the px box
- * stays the aspect-ratio preset the importer laid out against, while
- * `pptxInches` is re-based onto the source page size, so the two halves no
- * longer come from the same preset literal.
- */
 interface SlideDims {
   width: number;
   height: number;
   pptxInches: { w: number; h: number };
 }
 
-/**
- * The `.fmd-slide` wrapper's inline style. The delimiter has to be captured and
- * back-referenced: the importer writes `font-family: 'Work Sans', sans-serif`
- * into a double-quoted attribute, so a naive `[^"']*` body silently truncates
- * the style at the first font name and hides every declaration after it.
- */
 function slideWrapperStyle(html: string): string | undefined {
   return html.match(
     /class=(["'])[^"']*\bfmd-slide\b[^"']*\1[^>]*\bstyle=(["'])([\s\S]*?)\2/i,
@@ -723,10 +607,6 @@ function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   };
 }
 
-// Must stay identical to `DEFAULT_PPTX_BACKGROUND` / `DEFAULT_PPTX_FOREGROUND`
-// in server/handlers/import/html-converter.ts. Export previously inverted both
-// (black background, white text), so an undecorated slide came back out of a
-// round trip with its colors flipped rather than unchanged.
 const IMPORTED_PPTX_BACKGROUND_FALLBACK = "#ffffff"; // guard:allow-raw-color - mirrors the importer's PPTX default
 const IMPORTED_PPTX_FOREGROUND_FALLBACK = "111827"; // guard:allow-raw-color - mirrors the importer's PPTX default
 
@@ -792,8 +672,6 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
           ? {
               lineColor: parsedLine.hex,
               lineTransparency: parsedLine.transparency,
-              // `pxToPt` rounds, so a hairline needs the same 0.5pt floor the
-              // table borders use or the outline rounds away to nothing.
               lineWidth: Math.max(0.5, pxToPt(border.widthPx, dims)),
               ...(border.dashType ? { lineDashType: border.dashType } : {}),
             }
@@ -805,8 +683,6 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
               }
             : {}),
         ...importedShapeGeometry(attrs, style, outline?.path, geometry, dims),
-        // A single-edge border is the importer's own verdict that this box is a
-        // line rather than an outline, so it settles the geometry too.
         ...line,
         ...(rotate != null ? { rotate } : {}),
         order: match.index,
@@ -838,9 +714,6 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       ? getStyle(firstParagraph, "line-height")
       : null;
     const alignValue = getStyle(style, "text-align");
-    // Per-run faces still win inside `addText`; this only supplies the
-    // box-level default for runs that declare none, so it must be the source
-    // deck's own theme font rather than this template's.
     const boxFontFace = firstRun?.options.fontFace ?? slideFontFace;
     texts.push({
       text: runs.map((run) => run.text).join(""),
@@ -850,11 +723,6 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       ...(boxFontFace ? { fontFace: boxFontFace } : {}),
       color: firstRun?.options.color ?? IMPORTED_PPTX_FOREGROUND_FALLBACK,
       transparency: firstRun?.options.transparency,
-      // pptxgenjs copies a box-level option onto any run whose own value is
-      // falsy (`!textObj.options[key]`), so a box default of `bold: true` taken
-      // from the first run overwrites every later run that said `bold: false` —
-      // a bold heading made its whole text box bold. The box may only default
-      // to bold when the runs already agree.
       bold: runs.length > 0 && runs.every((run) => run.options.bold === true),
       align:
         alignValue === "center" || alignValue === "right" ? alignValue : "left",
@@ -944,12 +812,6 @@ function pxToInY(px: number, dims: SlideDims): number {
   return (px / dims.height) * dims.pptxInches.h;
 }
 
-/**
- * The `<a:xfrm rot="...">` the importer rendered as `transform: rotate(Ndeg)`.
- * Dropping it exports a rotated object square to the slide, which on a ring of
- * six curved arrows leaves six copies of the same arrow stacked at the top
- * rather than a ring.
- */
 function importedRotation(style: string): number | undefined {
   const degrees = Number.parseFloat(
     getStyle(style, "transform")?.match(
@@ -959,15 +821,6 @@ function importedRotation(style: string): number | undefined {
   return Number.isFinite(degrees) && degrees !== 0 ? degrees : undefined;
 }
 
-/**
- * Recover the shape's PowerPoint geometry. `<a:prstGeom prst="...">` is the
- * only lossless carrier — CSS cannot distinguish a trapezoid from a hexagon
- * once both are `clip-path: polygon(...)` — so the importer's
- * `data-pptx-shape-type` attribute wins when present. Otherwise trace what CSS
- * can prove: a freeform outline and a polygon become custom outlines, and a
- * border radius becomes an ellipse or a real corner radius instead of
- * pptxgen's default roundRect.
- */
 function importedShapeGeometry(
   attrs: string,
   style: string,
@@ -979,8 +832,6 @@ function importedShapeGeometry(
   if (preset) return { shapeType: preset };
 
   const clipPath = getStyle(style, "clip-path");
-  // A stroke-only freeform carries no clip (clipping an unfilled box would eat
-  // half the stroke), so its overlay path is the only outline it has.
   const outline =
     clipPath?.match(/path\(\s*(["']?)([^"')]*)\1\s*\)/i)?.[2] ?? strokeOutline;
   if (outline) {
@@ -1006,18 +857,10 @@ function importedShapeGeometry(
   }
   return {
     shapeType: "roundRect",
-    // A pill (`border-radius: 9999px`) clamps to the half-side PowerPoint caps
-    // its `adj` value at, rather than overflowing the shape.
     rectRadius: Math.min(pxToIn(value, dims), shortSide / 2),
   };
 }
 
-/**
- * A freeform outline's stroke follows the path, not the box, so the importer
- * draws it as an SVG overlay instead of a `border`. Read that overlay back:
- * it carries the shape's line color and width, and for a line-art pictogram —
- * no fill, so nothing to clip — it is the only copy of the outline itself.
- */
 function importedFreeformStroke(
   innerHtml: string,
   dims: SlideDims,
@@ -1035,27 +878,15 @@ function importedFreeformStroke(
   return {
     path: decodeHtmlText(path),
     color: colorToHex(stroke),
-    // The same 0.5pt floor the CSS-border path uses: `pxToPt` rounds, and a
-    // hairline outline that rounds to 0pt is an invisible shape.
     width: Math.max(0.5, pxToPt(Number.isFinite(widthPx) ? widthPx : 1, dims)),
   };
 }
 
-/** The line axis each single-edge border the importer writes draws along. */
 const SINGLE_EDGE_BORDER_AXES = {
   "border-top": "x",
   "border-left": "y",
 } as const;
 
-/**
- * The stroke of a `<p:cxnSp>` or a degenerate `<p:sp>` — a box with one
- * dimension of zero. The importer draws those with a single `border-left` or
- * `border-top` rather than the `border` shorthand (`strokeDecoration` in
- * server/handlers/import/html-converter.ts), which `parseCssBorder` above
- * cannot see, so every connector used to export as a `rect` of `cx="0"` with
- * `<a:noFill/>` and an empty `<a:ln/>`: no width, no color, no ends, nothing
- * drawn. Reading the edge the importer actually wrote gives back the real line.
- */
 function importedLineStroke(
   style: string,
   innerHtml: string,
@@ -1079,14 +910,9 @@ function importedLineStroke(
     const color = colorToHex(border.color);
     return {
       shapeType: "line",
-      // A single-edge border is a line in the element's local coordinate
-      // system. Keep its perpendicular dimension collapsed after the box
-      // geometry has been parsed, or a thin rule becomes a diagonal line.
       ...(axis === "x" ? { h: 0 } : { w: 0 }),
       lineColor: color.hex,
       lineTransparency: color.transparency,
-      // The same 0.5pt floor the outline paths use, for the same reason:
-      // `pxToPt` rounds, and a hairline that rounds to 0pt draws nothing.
       lineWidth: Math.max(0.5, pxToPt(border.widthPx, dims)),
       ...(border.dashType ? { lineDashType: border.dashType } : {}),
       ...importedLineEndTypes(innerHtml, axis),
@@ -1095,14 +921,6 @@ function importedLineStroke(
   return undefined;
 }
 
-/**
- * The `<a:headEnd>`/`<a:tailEnd>` the importer redraws as absolutely
- * positioned `<circle>` overlays (`lineEndCaps` in html-converter.ts). It only
- * ever reproduces `oval`, and it centers the overlay on the line, so a circle
- * before the viewBox midpoint caps the head and one after it caps the tail —
- * still true for a flipped source, because the importer swapped the two before
- * drawing them.
- */
 function importedLineEndTypes(
   innerHtml: string,
   axis: "x" | "y",
@@ -1130,7 +948,6 @@ function importedLineEndTypes(
 
 type CustomGeometryPoint = NonNullable<ShapeElement["points"]>[number];
 
-/** Numbers each SVG path command consumes. The importer emits only these. */
 const SVG_PATH_ARITY: Record<string, number> = {
   M: 2,
   L: 2,
@@ -1139,27 +956,8 @@ const SVG_PATH_ARITY: Record<string, number> = {
   A: 7,
 };
 
-/**
- * One SVG number. The importer writes path data in its shortest legal
- * spelling — `-1.7 0-1.2-.2` is four numbers, not one token per space — so
- * splitting on whitespace reads a 200-country map as a single unreadable
- * command and exports the whole thing as rectangles.
- */
 const SVG_PATH_NUMBER = /[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi;
 
-/**
- * Trace the importer's freeform outline — `clip-path: path('...')`, or the
- * stroke overlay it draws for an unfilled one — as pptxgenjs custom geometry.
- * Every command `customGeometryPath`/`blockArcPath` emit has an exact
- * counterpart in `ShapeProps.points`: `moveTo`/`lnTo` are bare points and
- * `cubicBezTo`/`quadBezTo`/`arcTo` are its three curve types, so nothing is
- * flattened. Coordinates are the shape's own pixel box, which converts to the
- * inches `addShape` writes into `<a:path>` the same way a polygon's do.
- *
- * Returns `undefined` rather than a partial outline when a command cannot be
- * read, so the caller falls back to a whole rectangle instead of exporting a
- * fragment of the shape.
- */
 function svgPathPoints(
   path: string,
   dims: SlideDims,
@@ -1181,8 +979,6 @@ function svgPathPoints(
     if (command === "Z") {
       if (args.length > 0) return undefined;
       points.push({ close: true });
-      // `z` returns the pen to where the subpath started; the next relative
-      // command steps from there, not from the last point drawn.
       cursorX = subpathX;
       cursorY = subpathY;
       continue;
@@ -1201,9 +997,6 @@ function svgPathPoints(
     }
     for (let i = 0; i < args.length; i += arity) {
       const chunk = args.slice(i, i + arity);
-      // A relative command steps from the point its own segment starts at —
-      // including a curve's control points, which are offsets from that same
-      // point rather than from each other.
       const originX = relative ? cursorX : 0;
       const originY = relative ? cursorY : 0;
       const atX = (index: number) => originX + chunk[index];
@@ -1211,8 +1004,6 @@ function svgPathPoints(
       const endX = atX(arity - 2);
       const endY = atY(arity - 1);
       if (command === "M") {
-        // A repeated pair after `M` is an implicit lineto, and every `M` past
-        // the first opens a subpath pptxgenjs only reopens for `moveTo`.
         points.push(
           i === 0
             ? { x: toX(endX), y: toY(endY), moveTo: true }
@@ -1243,8 +1034,6 @@ function svgPathPoints(
           curve: { type: "quadratic", x1: toX(atX(0)), y1: toY(atY(1)) },
         });
       } else {
-        // Only an arc's endpoint is relative: its radii and flags are not
-        // coordinates.
         const arc = svgArcToPptxCurve(
           cursorX,
           cursorY,
@@ -1263,14 +1052,6 @@ function svgPathPoints(
   return points.length > 0 ? points : undefined;
 }
 
-/**
- * `<a:arcTo>` names an arc by its radii and its start/swing angles around a
- * center it derives from the current point; SVG's `A` names the same arc by
- * its endpoint plus two flags. This is the SVG spec's endpoint-to-center
- * conversion (F.6.5) with the x-axis rotation the importer never emits left
- * out, so the ring segments and rounded freeforms come back as true arcs
- * rather than as chords across them.
- */
 function svgArcToPptxCurve(
   startX: number,
   startY: number,
@@ -1286,8 +1067,6 @@ function svgArcToPptxCurve(
   const point = { x: pxToIn(endX, dims), y: pxToInY(endY, dims) };
   let rx = Math.abs(radiusX);
   let ry = Math.abs(radiusY);
-  // A zero radius is a straight line in SVG, and PowerPoint draws nothing at
-  // all for one.
   if (!(rx > 0) || !(ry > 0)) return point;
 
   const midX = (startX - endX) / 2;
@@ -1320,18 +1099,12 @@ function svgArcToPptxCurve(
       type: "arc",
       wR: pxToIn(rx, dims),
       hR: pxToInY(ry, dims),
-      // pptxgenjs subtracts a full turn from anything over 360 before scaling
-      // to 60000ths of a degree, so the start angle has to arrive inside one.
       stAng: (toDegrees(startAngle) + 360) % 360,
       swAng: toDegrees(swingAngle),
     },
   };
 }
 
-/**
- * `clip-path: polygon(x y, ...)` traced as pptxgenjs custom-geometry points,
- * in inches relative to the shape's own box.
- */
 function clipPathPolygonPoints(
   polygon: string,
   size: { w: number; h: number },
@@ -1385,13 +1158,6 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
   return runs;
 }
 
-/**
- * No table-level `border` or `margin`: pptxgenjs cascades every table option
- * onto each cell that declares none of its own, so the white rule and the flat
- * 0.04in padding this used to pass were stamped on every cell of every
- * imported table — a grid the source never drew, over the cell margins it did.
- * Both now travel per cell, from that cell's own CSS.
- */
 export function tableOptions(table: TableElement): PptxGenJS.TableProps {
   return {
     x: table.x,
@@ -1404,23 +1170,10 @@ export function tableOptions(table: TableElement): PptxGenJS.TableProps {
   };
 }
 
-/** Inline style of the first `<p>` in a fragment, which is where the importer puts paragraph-level alignment. */
 function firstParagraphStyle(html: string): string | undefined {
   return html.match(/<p\b[^>]*style=["']([^"']*)["']/i)?.[1];
 }
 
-/**
- * The `<colgroup>` and `<tr>` percentages the importer derives from
- * `a:tblGrid/a:gridCol` and `a:tr/@h`, back as the inch sizes `addTable`
- * needs. Without them pptxgenjs divides the box evenly, so a table exports
- * with columns and rows the source never had — nine equal columns in place of
- * gamesfund's 1001175/836125/862000/899775... grid.
- *
- * A track list that does not cover every column (pptxgenjs counts colspans) or
- * every row is dropped whole: a partial `colW` makes pptxgenjs warn and fall
- * back anyway, and a partial `rowH` would size some rows from the source and
- * the rest from the box.
- */
 function importedTableTracks(
   html: string,
   rows: TableRow[],
@@ -1454,11 +1207,6 @@ function importedTableTracks(
   };
 }
 
-/**
- * A cell's CSS `padding` as pptxgenjs's `[top, right, bottom, left]` margin.
- * The library reads any side >= 1 as points rather than inches, so a padding
- * that large is left to its default instead of exporting an inch as a point.
- */
 function importedCellMargin(
   style: string,
   dims: SlideDims,
@@ -1502,9 +1250,6 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
             getAttribute(attrs, "rowspan") ?? "",
             10,
           );
-          // The importer writes the cell's alignment on the paragraph, not the
-          // `<td>`; reading only the cell style exported every imported table
-          // left-aligned regardless of what the source `a:pPr algn` said.
           const align =
             getStyle(style, "text-align") ??
             getStyle(firstParagraphStyle(cellHtml) ?? "", "text-align");
@@ -1533,8 +1278,6 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
             ...(parsedBorder && border
               ? {
                   border: {
-                    // pptxgenjs table borders only offer solid or dash, so a
-                    // dotted rule maps to the nearest broken stroke.
                     type: border.dashType
                       ? ("dash" as const)
                       : ("solid" as const),
@@ -1589,26 +1332,12 @@ function importedRunOptions(
   };
 }
 
-/**
- * An imported element's own paint level. The importer stamps every element with
- * `z-index: <its index in the source deck's scene graph>`, so this is the true
- * order the deck was drawn in; `auto` and absent both paint at 0, as a browser
- * treats them. The div's position in the stored HTML string cannot stand in for
- * it: a later edit rewrites that string without renumbering anything.
- */
 function cssStackLevel(style: string): number {
   const value = getStyle(style, "z-index");
   const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/**
- * Stacks imported objects the way the deck draws them: by the level the
- * importer recorded, then by source order within a level. Ordering on position
- * in the stored HTML alone laid a full-slide panel over the content it belongs
- * behind, since editing a slide rewrites that string without renumbering
- * anything.
- */
 export function orderImportedObjects(parsed: {
   images: ImageElement[];
   shapes: ShapeElement[];
@@ -1657,7 +1386,6 @@ function decodeHtmlText(value: string): string {
     .replace(/&#x25cf;/gi, "●");
 }
 
-/** Split a CSS function argument list on top-level commas — an rgb/rgba stop carries its own. */
 function splitTopLevel(value: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -1675,7 +1403,6 @@ function splitTopLevel(value: string): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
-/** `<a:srgbClr>` carrying the alpha an rgba or 8-digit-hex value declares. */
 function drawingMlColor(parsed: {
   hex: string;
   transparency?: number;
@@ -1685,28 +1412,12 @@ function drawingMlColor(parsed: {
     : `<a:srgbClr val="${parsed.hex}"/>`;
 }
 
-/**
- * The inverse of the importer's `parseGradientFill` (packages/core
- * `ingestion/pptx.ts`): CSS measures a linear angle clockwise from "up",
- * OOXML's `<a:lin ang>` clockwise from the positive x-axis, so the two differ
- * by 90°, and `<a:fillToRect>`'s edge insets collapse to the radial focus.
- *
- * Returns `undefined` for a gradient it cannot express (`conic`, an angle unit
- * other than `deg`, a single stop) so the caller keeps the flattened solid fill
- * instead of writing a background PowerPoint rejects.
- */
 export function cssGradientToDrawingMl(css: string): string | undefined {
   const match = css.trim().match(/^(linear|radial)-gradient\(([\s\S]*)\)$/i);
   if (!match) return undefined;
   const kind = match[1].toLowerCase();
   const args = splitTopLevel(match[2]);
 
-  // A gradient's first argument is either its configuration (`45deg`,
-  // `to right`, `circle at 20% 30%`) or already the first color stop, and one
-  // thing tells them apart: a stop starts with a color. Recognizing only the
-  // configuration spellings we had handled let every other one — `to right`, a
-  // bare `circle` — fall through to `colorToHex`, which turned a direction
-  // keyword into a white stop the source never had.
   const config =
     args.length > 0 && !parseCssColor(splitGradientStop(args[0]).color)
       ? args[0]
@@ -1741,7 +1452,6 @@ export function cssGradientToDrawingMl(css: string): string | undefined {
   return `<a:gradFill rotWithShape="1"><a:gsLst>${stops.join("")}</a:gsLst>${geometry}</a:gradFill>`;
 }
 
-/** Split a gradient stop into its color token and optional position. */
 function splitGradientStop(arg: string): { color: string; position?: number } {
   const match = arg.match(/\s([\d.]+)%$/);
   return match
@@ -1749,11 +1459,6 @@ function splitGradientStop(arg: string): { color: string; position?: number } {
     : { color: arg };
 }
 
-/**
- * CSS `to <side-or-corner>` as its angle. A corner's true angle depends on the
- * box's aspect ratio, but `<a:lin scaled="0">` takes an absolute one, so the
- * 45° diagonals are the closest fixed stand-in.
- */
 const LINEAR_GRADIENT_SIDE_ANGLES: Record<string, number> = {
   top: 0,
   "top right": 45,
@@ -1769,9 +1474,8 @@ const LINEAR_GRADIENT_SIDE_ANGLES: Record<string, number> = {
   "left top": 315,
 };
 
-/** The CSS angle a `linear-gradient` configuration argument names, or `undefined` when it names one we cannot express. */
 function linearGradientAngle(config: string | undefined): number | undefined {
-  if (config === undefined) return 180; // CSS defaults to `to bottom`
+  if (config === undefined) return 180;
   const degrees = config.match(/^(-?[\d.]+)deg$/i)?.[1];
   if (degrees !== undefined) return Number(degrees);
   const side = config.match(/^to\s+([a-z]+(?:\s+[a-z]+)?)$/i)?.[1];
@@ -1780,7 +1484,6 @@ function linearGradientAngle(config: string | undefined): number | undefined {
     : LINEAR_GRADIENT_SIDE_ANGLES[side.toLowerCase().replace(/\s+/g, " ")];
 }
 
-/** CSS position keywords as a percentage along their own axis. */
 const RADIAL_POSITION_PERCENTS: Record<string, number> = {
   left: 0,
   top: 0,
@@ -1789,7 +1492,6 @@ const RADIAL_POSITION_PERCENTS: Record<string, number> = {
   bottom: 100,
 };
 
-/** The focus a `radial-gradient` configuration argument names, or `undefined` when it names one we cannot express. */
 function radialGradientCenter(
   config: string | undefined,
 ): { x: number; y: number } | undefined {
@@ -1802,13 +1504,11 @@ function radialGradientCenter(
       ? Number(percent)
       : RADIAL_POSITION_PERCENTS[axis.toLowerCase()];
   });
-  // A lone value positions the x axis and centers the y axis.
   const [x, y = 50] = axes;
   if (axes.length > 2 || x === undefined || y === undefined) return undefined;
   return { x, y };
 }
 
-/** `<a:clrScheme>` requires every slot, in this order. */
 const THEME_COLOR_SLOTS = [
   "dk1",
   "lt1",
@@ -1824,7 +1524,6 @@ const THEME_COLOR_SLOTS = [
   "folHlink",
 ] as const;
 
-/** The deck's own palette as a `<a:clrScheme>`, or `undefined` when a slot is missing. */
 export function themeClrSchemeXml(
   colorsByName: Record<string, string>,
 ): string | undefined {
@@ -1851,19 +1550,10 @@ function replaceOnce(
   return xml.replace(pattern, () => replacement);
 }
 
-/**
- * Rewrite the two parts pptxgenjs hardcodes. `ShapeFillProps.type` is only
- * `'none' | 'solid'` and `makeXmlTheme` templates a fixed Office `clrScheme`,
- * so a deck's theme palette and its gradient slide backgrounds cannot be
- * expressed through the API at all; they have to be patched into the finished
- * package. Shape-level gradients stay flattened — unlike `<p:bg>` there is no
- * stable node to address per shape, so that one really is the library ceiling.
- */
 export async function applyDeckIdentity(
   buffer: Buffer,
   args: {
     themeColors?: Record<string, string>;
-    /** 0-based slide index -> `<a:gradFill>` XML. */
     slideGradients: Map<number, string>;
   },
 ): Promise<Buffer> {
@@ -1906,16 +1596,6 @@ export async function applyDeckIdentity(
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
-/**
- * Fetch a URL and return it as a base64 data URI.
- *
- * Hand-rolled SSRF allow-list checks have repeatedly missed cases (Alibaba
- * cloud-metadata, IPv6 IMDS, decimal/octal IPv4, DNS rebinding, etc.).
- * Route every URL through the central `ssrfSafeFetch` helper, which validates
- * DNS and every redirect hop. Also enforce that the response is actually an
- * image so a 200 OK from an internal HTML / JSON endpoint can't smuggle bytes
- * into the .pptx.
- */
 export async function fetchImageAsBase64(
   url: string,
   ownerEmail?: string,
@@ -1993,9 +1673,6 @@ export default defineAction({
     )
       ? rawAspectRatio
       : undefined;
-    // `<p:sldSz>` is per presentation, so the first slide that declares a
-    // source page size settles it for the whole export; `parseSlideHtml`
-    // re-derives the same value per slide.
     const slideContents: string[] = slides.map((slide: unknown) =>
       slide &&
       typeof slide === "object" &&
@@ -2018,7 +1695,7 @@ export default defineAction({
       Math.abs(dims.pptxInches.w - 13.33) < 0.01 &&
       Math.abs(dims.pptxInches.h - 7.5) < 0.01
     ) {
-      pptx.layout = "LAYOUT_WIDE"; // built-in 16:9
+      pptx.layout = "LAYOUT_WIDE";
     } else {
       pptx.defineLayout({
         name: "AGENT_NATIVE",
@@ -2029,8 +1706,6 @@ export default defineAction({
     }
     pptx.author = "Agent-Native Slides";
     pptx.title = row.title;
-    // The font scheme is the one half of the theme pptxgenjs does expose;
-    // without it a themed deck re-imports as Calibri Light / Calibri.
     const [headFontFace, bodyFontFace] = deckThemeFonts(deckData);
     if (headFontFace) pptx.theme = { headFontFace, bodyFontFace };
 
@@ -2051,9 +1726,6 @@ export default defineAction({
         bgGradient,
       } = parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
 
-      // The solid fill stays the pre-rewrite value: `applyDeckIdentity`
-      // replaces the whole `<p:bg>` when the gradient survives, and this is
-      // what the deck falls back to when it does not.
       pptxSlide.background = {
         color: bgColor,
         ...(bgTransparency != null ? { transparency: bgTransparency } : {}),
@@ -2117,8 +1789,6 @@ export default defineAction({
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
 
-      // Imported elements are parsed separately because PptxGenJS needs real
-      // slide objects, so they are stacked back together here.
       const orderedObjects = orderImportedObjects({
         images: orderedImages,
         shapes: orderedShapes,
@@ -2219,7 +1889,6 @@ export default defineAction({
         }
       }
 
-      // Add speaker notes
       if (
         includeNotes &&
         slide &&
@@ -2236,13 +1905,6 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".pptx");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `buffer` directly. CLI and local-dev
-    // still get a real file path.
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);
@@ -2276,13 +1938,6 @@ export default defineAction({
   },
 });
 
-/**
- * The palette an imported deck kept from its source `<a:clrScheme>`, in the
- * shape `import-pptx` already returns. Absent on decks imported before the
- * importer persisted it, and on decks the editor authored — both export with
- * pptxgenjs's Office default, which is the honest answer for a deck that has
- * no theme of its own.
- */
 function deckThemeColors(
   deckData: unknown,
 ): Record<string, string> | undefined {
@@ -2296,7 +1951,6 @@ function deckThemeColors(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-/** `[majorFont, minorFont]` from the deck's theme, in `parseTheme`'s own order. */
 function deckThemeFonts(
   deckData: unknown,
 ): [string | undefined, string | undefined] {

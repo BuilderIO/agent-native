@@ -1,10 +1,5 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 
-/**
- * Native tab routes are explicit so an app selected in Settings stays inside
- * the tab shell. Custom apps still use the secure full-screen app route from
- * More until they have a native tab route of their own.
- */
 export const APP_ID_TO_ROUTE: Record<string, string> = {
   analytics: "/analytics",
   assets: "/assets",
@@ -21,12 +16,6 @@ export const APP_ID_TO_ROUTE: Record<string, string> = {
   slides: "/slides",
 };
 
-/**
- * Apps pinned to the bar, beside Chat and More. Two, not four: the bar also
- * carries a round button that opens every app, so the row holds the handful you
- * reach for constantly rather than the whole workspace. Six chips plus that
- * button left ~52pt each on a 393pt screen — too narrow to read or hit.
- */
 export const MOBILE_BOTTOM_TAB_LIMIT = 2;
 
 export const MOBILE_DEFAULT_APP_IDS = ["mail", "calendar"] as const;

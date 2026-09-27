@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -24,32 +23,94 @@
   backface-visibility: hidden;
 }
 
+.design-library-card-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: hsl(var(--muted) / 0.5);
+}
+
+.design-library-card-preview > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .design-template-preview-interactive {
   pointer-events: auto;
 }
 
 .design-home-header {
   display: grid;
-  height: auto;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 3rem 3rem;
-  row-gap: 0;
+  height: 3.5rem;
+  grid-template-columns:
+    minmax(0, 1fr) minmax(8rem, min(30rem, max(8rem, calc(100cqw - 38rem))))
+    minmax(0, 1fr);
+  grid-template-rows: 3.5rem;
+  column-gap: 0.75rem;
+  border-bottom: 0;
 }
 
 .design-home-header-search {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 30rem;
+  align-items: center;
+  align-self: center;
+  justify-self: center;
 }
 
-@container design-home-toolbar (min-width: 72rem) {
+.design-home-header h1 {
+  font-size: 1rem;
+  line-height: 1.25rem;
+}
+
+.design-home-mobile-header-actions > div:first-child {
+  min-width: 0;
+}
+
+.design-home-mobile-header-actions {
+  border-bottom: 0;
+}
+
+@container design-home-toolbar (max-width: 32rem) {
   .design-home-header {
-    grid-template-columns: minmax(0, 1fr) 43.75rem minmax(0, 1fr);
-    grid-template-rows: 3rem;
+    height: 7rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 3.5rem 3.5rem;
   }
 
   .design-home-header-search {
-    grid-column: 2;
-    grid-row: 1;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 20rem) {
+  .design-home-mobile-header-actions {
+    height: auto;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .design-home-mobile-header-actions > div:first-child {
+    flex: 0 0 100%;
+  }
+
+  .design-home-mobile-header-actions > div:last-child {
+    margin-inline-start: auto;
+  }
+}
+
+@container design-home-toolbar (max-width: 52rem) {
+  .design-home-header .design-home-import-label {
+    display: none;
   }
 }
 
@@ -57,8 +118,6 @@
   padding: 0;
 }
 
-/* Keep agent context available to the Design agent without making the
- * composer carry implementation details as visible chips. */
 [data-design-app]
   .agent-composer-context-row:not(
     [data-design-home-composer] .agent-composer-context-row
@@ -139,9 +198,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
@@ -253,9 +309,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
@@ -501,8 +554,6 @@
       var(--design-inspector-debug-column-fill) 50%,
       transparent 50%
     );
-  /* Section separators are 1px, so the content baseline begins one pixel
-     below the outer inspector origin. Keep the debug coordinates honest. */
   background-position:
     left 1px,
     left 1px,
@@ -523,9 +574,6 @@
   row-gap: var(--design-baseline-half);
 }
 
-/* Responsive inspector rows preserve the 8px baseline at every width. Only
-   property tracks flex; inter-field gutters and right-side action rails stay
-   physical 8px multiples instead of stretching with the 28-column fallback. */
 .design-inspector-grid[data-inspector-layout="pair"] {
   grid-template-columns:
     minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
@@ -611,10 +659,6 @@
   grid-column: 1 / -1 !important;
 }
 
-/* Two stacked label/control rows sharing the same action-pair geometry.
-   Appearance uses this shape so Opacity and Corner radius stay on the same
-   field starts as Position/Resizing while the independent-corners action
-   remains centered in the fixed terminal slot. */
 .design-inspector-grid[data-inspector-layout="label-action-rows"] {
   grid-template-columns:
     minmax(0, 1fr) var(--design-baseline-unit)
@@ -850,8 +894,6 @@
   );
 }
 
-/* Design keeps denser side-chrome contrast while sharing the borderless app
-   surface treatment used by the rest of the workspace. */
 .agent-layout-shell,
 .agent-sidebar-shell {
   --design-shell-chrome-bg: hsl(0 0% 93%);

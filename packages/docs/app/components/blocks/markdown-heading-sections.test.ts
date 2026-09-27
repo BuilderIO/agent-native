@@ -123,10 +123,6 @@ describe("splitMarkdownHeadingSections", () => {
   });
 
   it("round-trips serialize -> parse for an empty-body last item", () => {
-    // Mirrors what `serializeAccordionToMarkdown` (and its Steps/Cards/
-    // Comparison siblings) produce for `{ title: "Last", body: "" }`:
-    // `### Last\n\n` with nothing after — this used to get silently
-    // dropped because the old regex required a literal `\n` after the title.
     const serialized = "### First\n\nBody.\n\n### Last\n\n";
 
     expect(splitMarkdownHeadingSections(serialized)).toEqual([

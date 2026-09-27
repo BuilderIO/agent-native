@@ -1,14 +1,3 @@
-/**
- * HTTP helpers for the beta fleet sweep.
- *
- * Serverless beta hosts cold-start: the first request to an idle site has been
- * measured at 40s+ before the same host answers in under a second. Retries here
- * absorb that. What they must never do is absorb a *result* — a host that is
- * unreachable resolves to a distinct `unreachable` outcome, never to a
- * plausible-looking empty body or a 0 status, so a caller cannot mistake
- * "we never got an answer" for "the answer was no".
- */
-
 export interface HttpOutcome {
   ok: boolean;
   status: number;
@@ -33,7 +22,6 @@ export interface ProbeOptions {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
-  /** Total attempts, including the first. Cold starts need at least 3. */
   attempts?: number;
   timeoutMs?: number;
   redirect?: RequestRedirect;
@@ -46,10 +34,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Issue a request, retrying only transport failures. A response — any response,
- * including 5xx — is an answer and is returned on the first attempt.
- */
 export async function probe(
   url: string,
   options: ProbeOptions = {},
@@ -98,11 +82,6 @@ export async function probe(
   };
 }
 
-/**
- * `probe` for callers that treat unreachability as a failure of the host rather
- * than a condition to branch on. Throws with the transport error attached so a
- * report never shows a bare "expected 200, got undefined".
- */
 export async function mustRespond(
   url: string,
   options: ProbeOptions = {},
@@ -117,11 +96,6 @@ export async function mustRespond(
   return outcome;
 }
 
-/**
- * Parse a JSON body, failing with the actual payload rather than `null`. A
- * beta host answering an HTML error page to a JSON endpoint is a real finding;
- * coercing it to an empty object would hide it.
- */
 export function parseJson<T = unknown>(outcome: HttpOutcome, label: string): T {
   try {
     return JSON.parse(outcome.body) as T;
@@ -132,7 +106,6 @@ export function parseJson<T = unknown>(outcome: HttpOutcome, label: string): T {
   }
 }
 
-/** Warm a host so a cold start does not surface as a test failure elsewhere. */
 export async function warm(origin: string): Promise<void> {
   await probe(`${origin}/_agent-native/health`, {
     attempts: 4,

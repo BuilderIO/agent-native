@@ -7,13 +7,6 @@ import {
   type GuidedQuestion,
 } from "./guided-questions.js";
 
-// A clarifying question and its answer arrive in two different messages, and
-// history trimming decides independently whether each survives. When the
-// answer's only label was the tool's hardcoded `q1`, an answer that outlived
-// the turn that asked said nothing, and the agent re-asked the same scope
-// questions instead of building. This locks the pairing end-to-end: whatever
-// survives trimming, one single message states both question and answer.
-
 const GRAIN = "What time grain should the dashboard use?";
 const EXCLUSIONS = "Which orgs should be excluded?";
 
@@ -45,7 +38,6 @@ describe("appendAgentChatContextToMessage", () => {
   });
 });
 
-/** The assistant turn `ask-question` produces: one tool call, no prose. */
 function askTurn(id: string, text: string) {
   return {
     role: "assistant",
@@ -63,7 +55,6 @@ function askTurn(id: string, text: string) {
   };
 }
 
-/** The answer turn, built the way `useGuidedQuestionFlow` submits it. */
 function answerTurn(text: string, answer: string) {
   return {
     role: "user",
@@ -85,7 +76,6 @@ function answerTurn(text: string, answer: string) {
   };
 }
 
-/** A tool-heavy build turn, the kind that evicts cheap turns around it. */
 function toolHeavyTurn(index: number) {
   return {
     role: "assistant",
@@ -123,7 +113,6 @@ async function requestedHistory(messages: unknown[]) {
   }[];
 }
 
-/** Text of every message that mentions `answer`, as sent to the model. */
 function messagesMentioning(
   history: Awaited<ReturnType<typeof requestedHistory>>,
   answer: string,
@@ -170,8 +159,6 @@ describe("answered clarifications survive history trimming", () => {
     const carriers = messagesMentioning(history, "Weekly");
 
     expect(carriers.length).toBeGreaterThan(0);
-    // The answer is interpretable on its own — it does not depend on the
-    // asking turn surviving next to it.
     expect(carriers.some((text) => text.includes(GRAIN))).toBe(true);
   });
 
@@ -189,7 +176,6 @@ describe("answered clarifications survive history trimming", () => {
     expect(messagesMentioning(history, "Internal orgs")[0]).toContain(
       EXCLUSIONS,
     );
-    // No answer reaches the model behind the tool's placeholder id.
     expect(JSON.stringify(history)).not.toContain("q1: ");
   });
 });

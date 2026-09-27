@@ -1,20 +1,3 @@
-/**
- * S3-compatible file upload provider.
- *
- * Works with AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2,
- * and any other S3-compatible object storage. Uses SigV4 signing via Web Crypto
- * — no SDK dependency.
- *
- * Env vars (S3_* or R2_* prefix, first found wins):
- *   S3_BUCKET | R2_BUCKET                — required
- *   S3_ACCESS_KEY_ID | R2_ACCESS_KEY_ID  — required
- *   S3_SECRET_ACCESS_KEY | R2_SECRET_ACCESS_KEY — required
- *   S3_ENDPOINT | R2_ENDPOINT            — required (e.g. https://s3.us-east-1.amazonaws.com
- *                                           or https://<acct>.r2.cloudflarestorage.com)
- *   S3_REGION | R2_REGION                — optional, default "auto"
- *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
- */
-
 import {
   assertCredentialCanReachEndpoint,
   type CredentialEndpointOwner,
@@ -147,8 +130,6 @@ async function readS3Config(): Promise<S3Config | null> {
     )?.value,
   });
 }
-
-// ── SigV4 helpers (Web Crypto, no SDK) ────────────────────────────────
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -293,8 +274,6 @@ async function putObject(
     ? `${cfg.publicBaseUrl}/${key}`
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
 }
-
-// ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

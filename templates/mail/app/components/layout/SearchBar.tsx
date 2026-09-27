@@ -84,9 +84,6 @@ export function SearchBar({
     [],
   );
 
-  // Sync from URL when it changes externally (e.g. browser back/forward).
-  // Track the last prop we absorbed so user typing isn't clobbered when the
-  // debounced navigate round-trips back through the URL.
   useEffect(() => {
     if (initialQuery !== lastSyncedQueryRef.current) {
       lastSyncedQueryRef.current = initialQuery;
@@ -94,7 +91,6 @@ export function SearchBar({
     }
   }, [initialQuery]);
 
-  // Filter contacts matching the query
   const matchedContacts = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
@@ -106,9 +102,6 @@ export function SearchBar({
       .slice(0, 6);
   }, [query, contacts]);
 
-  // Instant local matches over already-cached email pages (subject/from/snippet
-  // substring), so something shows up before the debounced remote Gmail search
-  // fires and while it's in flight. Cheap and quota-free — no network call.
   const localMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
@@ -133,8 +126,6 @@ export function SearchBar({
     return groupIntoThreads(messages).slice(0, LOCAL_MATCH_LIMIT);
   }, [query, queryClient]);
 
-  // True while a live Gmail search for the current query is in flight, so we
-  // can show a "searching Gmail" row under the instant local matches.
   const remoteSearchPending =
     useIsFetching({ queryKey: ["emails", "all", query.trim()] }) > 0;
 
@@ -142,7 +133,6 @@ export function SearchBar({
   const showDropdown =
     isFocused && (matchedContacts.length > 0 || showLocalResults);
 
-  // Reset selection when matches change
   useEffect(() => {
     setSelectedIndex(-1);
   }, [matchedContacts.length, localMatches.length]);
@@ -200,10 +190,6 @@ export function SearchBar({
     [navigate],
   );
 
-  // Debounced auto-search as you type (only for text queries, not contact
-  // selection). Kept at 400ms and gated to 3+ chars — Gmail's per-user search
-  // quota is tight, so this must not fire a live round trip per keystroke.
-  // Instant local matches (above) cover the gap while this waits/runs.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
@@ -217,8 +203,6 @@ export function SearchBar({
     };
   }, [query, executeSearch]);
 
-  // Combined keyboard-navigable list: contacts first, then instant local
-  // thread matches, matching the visual order of the dropdown.
   const combinedMatchCount = matchedContacts.length + localMatches.length;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -243,8 +227,6 @@ export function SearchBar({
         executeSearch(query);
         inputRef.current?.blur();
       } else if (localMatches[0]) {
-        // Below the remote-search minimum: only ever run the local filter,
-        // never a live Gmail round trip for a 1-2 char query.
         selectThread(localMatches[0]);
       }
     } else if (e.key === "Escape") {
@@ -254,14 +236,12 @@ export function SearchBar({
     }
   };
 
-  // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex < 0 || !listRef.current) return;
     const items = listRef.current.querySelectorAll("[data-search-item]");
     items[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  // Highlight matching text
   const highlight = (text: string, q: string) => {
     if (!q) return text;
     const idx = text.toLowerCase().indexOf(q.toLowerCase());
@@ -347,7 +327,6 @@ export function SearchBar({
             setIsFocused(true);
           }}
           onBlur={(e) => {
-            // Don't close if clicking on a dropdown item
             if (
               e.relatedTarget &&
               (e.relatedTarget as HTMLElement).closest("[data-search-dropdown]")
@@ -355,8 +334,6 @@ export function SearchBar({
               return;
             }
             setIsFocused(false);
-            // Keep the bar mounted while a search is active — the user needs
-            // to see what they searched. Only collapse when empty.
             if (hasActiveSearch || query.trim()) return;
             blurCloseTimeoutRef.current = setTimeout(() => {
               blurCloseTimeoutRef.current = null;
@@ -396,8 +373,6 @@ export function SearchBar({
                   handleClear();
                 }}
                 onClick={(e) => {
-                  // Pointer activation is handled on mousedown so the input
-                  // keeps focus; detail=0 covers keyboard activation.
                   if (e.detail === 0) handleClear();
                 }}
                 className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"

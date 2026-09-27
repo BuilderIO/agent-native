@@ -109,9 +109,6 @@ export function BrandingEditor({
     [uploadPreviewUrl],
   );
 
-  // The last-saved values the Save button compares against to show the
-  // dirty state. Re-seeded after every successful save so the button
-  // returns to neutral instead of staying "dirty" against the original props.
   const [savedState, setSavedState] = useState({
     name: initialName,
     brandColor: initialBrandColor,

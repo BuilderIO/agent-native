@@ -300,9 +300,6 @@ export async function persistBlocksFieldIdentity(args: {
       markdown: args.previousMarkdown,
     });
 
-  // A legacy whole-field writer may have changed Markdown without updating the
-  // sidecar. Reconcile exact unique blocks first and report the resulting extra
-  // revision instead of silently pretending continuity was complete.
   if (previous.contentHash !== blocksContentHash(args.previousMarkdown)) {
     previous = reconcileBlocksFieldIdentity({
       documentId: args.documentId,

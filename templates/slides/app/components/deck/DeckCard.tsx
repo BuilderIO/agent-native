@@ -126,7 +126,7 @@ export default function DeckCard({
         </div>
 
         {/* Info */}
-        <div className="agent-template-library-caption p-4">
+        <div className="agent-template-library-caption">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input
@@ -204,11 +204,6 @@ export default function DeckCard({
                 pendingRenameRef.current = false;
                 setIsRenaming(true);
               }
-              // Opening a modal dialog while this menu is still tearing down
-              // leaves `pointer-events: none` stuck on <body>: two dismissable
-              // layers overlap and the survivor never restores the style. Wait
-              // for the menu to finish closing, and keep focus off the trigger
-              // so the dialog owns it.
               if (pendingWorkspaceDefaultRef.current) {
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;

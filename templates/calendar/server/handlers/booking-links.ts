@@ -151,7 +151,6 @@ export async function deleteBookingLinkById(id: string) {
   if (!id)
     throw createError({ statusCode: 400, statusMessage: "id is required" });
 
-  // Sharing: only owner / admin grantees can delete.
   await assertAccess("booking-link", id, "admin");
 
   const toDelete = await getDb()
@@ -182,10 +181,6 @@ export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// PUBLIC booking page — unauthenticated visitors fetch a link by slug to book.
-// This is the anonymous-booking axis and MUST NOT apply the sharing filter.
-// Sharing controls who can MANAGE the link; the public slug controls who can
-// BOOK via the link (gated only by `isActive` + explicit publish).
 export const getPublicBookingLink = defineEventHandler(
   async (event: H3Event) => {
     try {
@@ -205,7 +200,6 @@ export const getPublicBookingLink = defineEventHandler(
         .where(eq(schema.bookingLinks.slug, slug));
 
       if (rows.length === 0 || !rows[0].isActive) {
-        // Check if there's a redirect for this slug
         const redirect = await getDb()
           .select({ newSlug: schema.bookingSlugRedirects.newSlug })
           .from(schema.bookingSlugRedirects)
@@ -251,8 +245,6 @@ export const getPublicBookingLink = defineEventHandler(
 
       return {
         ...withHostTimezones(bookingLink, ownerTimezone, eligibleHosts),
-        // Identify the owner without exposing their raw email address to
-        // anonymous visitors of the public booking page.
         ownerName: displayNameFromIdentifier(
           canonicalUsername,
           rows[0].ownerEmail,

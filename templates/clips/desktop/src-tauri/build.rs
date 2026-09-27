@@ -9,15 +9,6 @@ fn main() {
     tauri_build::build()
 }
 
-/// `tauri dev` runs the macOS executable directly instead of inside the app
-/// bundle, so the bundle's `Info.plist` is not available to TCC. Embed an
-/// equivalent plist in the dev binary or privacy-sensitive APIs can terminate
-/// it before the tray icon becomes visible.
-///
-/// The identity and version keys are generated here from `tauri.conf.json`
-/// and the crate version instead of living in `Info.plist`: the bundler
-/// merges that file over the plist it generates, so hardcoded values there
-/// override the release identifier, executable name, and version.
 fn embed_macos_dev_info_plist() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
@@ -73,9 +64,6 @@ fn embed_macos_dev_info_plist() {
     );
 }
 
-/// Build the tiny, macOS-only AVFoundation/Vision bridge used by local Screen
-/// Memory OCR. Keeping this outside the Rust dependency graph avoids adding a
-/// large Objective-C binding surface for a single, OS-provided capability.
 fn compile_screen_memory_ocr_helper() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
@@ -88,9 +76,6 @@ fn compile_screen_memory_ocr_helper() {
     let object = out_dir.join("screen_memory_ocr_helper.o");
     let archive = out_dir.join("libscreen_memory_ocr_helper.a");
 
-    // `tauri build --target universal-apple-darwin` invokes Cargo once per
-    // architecture. swiftc otherwise emits an object for the runner's host
-    // architecture, which makes the x86_64 link fail on arm64 CI runners.
     let swift_arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",
         Ok("x86_64") => "x86_64",
@@ -131,8 +116,6 @@ fn compile_screen_memory_ocr_helper() {
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=screen_memory_ocr_helper");
-    // The helper is written in Swift, while the rest of the native desktop
-    // stack already carries Swift runtime rpaths through ScreenCaptureKit.
     for library in ["swiftCore", "swiftFoundation", "swift_Concurrency"] {
         println!("cargo:rustc-link-lib=dylib={library}");
     }
@@ -171,21 +154,12 @@ fn add_swift_runtime_rpaths() {
         return;
     }
 
-    // Native pause/resume concatenates MP4 segments via AVFoundation +
-    // CoreMedia (see `concat_mp4_segments` in `native_screen.rs`). These
-    // frameworks may already be pulled in transitively, but declaring them
-    // explicitly guarantees the linker resolves the AVAssetExportSession /
-    // CMTime symbols we touch via raw `msg_send!` / `extern "C"`.
     println!("cargo:rustc-link-lib=framework=AVFoundation");
     println!("cargo:rustc-link-lib=framework=CoreMedia");
     println!("cargo:rustc-link-lib=framework=Vision");
     println!("cargo:rustc-link-lib=framework=CoreGraphics");
     println!("cargo:rustc-link-lib=framework=IOKit");
 
-    // The screencapturekit crate builds a Swift bridge. Its build script adds
-    // these rpaths for its own crate, but Cargo does not propagate them to the
-    // final Tauri binary, so the dev executable can fail to find
-    // libswift_Concurrency.dylib at launch.
     emit_rpath("/usr/lib/swift");
 
     if let Some(developer_dir) = xcode_developer_dir() {

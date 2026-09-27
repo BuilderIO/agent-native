@@ -44,8 +44,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// `fetchOrgApps` reuses resolveA2ACallerAuth() for the bearer. Mock it so the
-// directory-fetch behavior is testable without a request context / DB.
 vi.mock("../a2a/caller-auth.js", () => ({
   resolveA2ACallerAuth: vi.fn(async () => ({
     apiKey: "signed-org-jwt",
@@ -146,7 +144,6 @@ describe("fetchOrgApps", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const apps = await fetchOrgApps({ selfId: "mail" });
-    // mail is the current app → stripped; bogus entry → dropped.
     expect(apps).toEqual([
       {
         id: "calendar",

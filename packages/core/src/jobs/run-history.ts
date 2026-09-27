@@ -27,19 +27,10 @@ registerEvent({
     status: z.enum(["success", "error", "interrupted"]),
     error: z.string().nullable(),
     errorCode: z.string().nullable(),
-    /** Wall-clock from `started_at` to now. Null when the row predates the
-     *  start timestamp being readable, so "not measured" stays distinct from
-     *  "took no time". */
     durationMs: z.number().nullable(),
   }),
 });
 
-/**
- * "interrupted" is derived at read time, never stored: a process killed
- * mid-run cannot write its own outcome, so a row left running long past the
- * point a run could still be alive is reported as interrupted rather than
- * shown as permanently in-flight.
- */
 export type AutomationRunStatus =
   | "running"
   | "success"
@@ -60,11 +51,6 @@ export interface AutomationRun {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
-  /**
-   * Machine-readable failure code, so "how often are runs cut off?" is a
-   * GROUP BY instead of a LIKE over an English sentence. Null on success and
-   * on rows written before the column existed.
-   */
   errorCode: string | null;
 }
 
@@ -77,7 +63,6 @@ export interface StartAutomationRunInput {
   appId?: string | null;
   runId?: string | null;
   threadId?: string | null;
-  /** A pre-created row still waiting for its background worker handoff. */
   dispatchPending?: boolean;
 }
 
@@ -85,35 +70,17 @@ const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
 const MAX_ERROR_CODE_LENGTH = 100;
 
-/**
- * Past this, no run of this automation is still alive.
- *
- * DERIVED from the runner's own hard abort rather than pinned, because that
- * abort became configurable: a fixed 15 minutes against a longer configured
- * timeout would report a still-executing run as `interrupted` and expire its
- * claim lease, redispatching it on top of itself. Half again the abort leaves
- * room for wind-down and the terminal write without ever preceding them.
- */
 function resolveRunLivenessCeilingMs(): number {
   return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
 }
 const INTERRUPTED_RUN_MESSAGE =
   "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
-/**
- * Derived at read time alongside `INTERRUPTED_RUN_MESSAGE`: a process killed
- * mid-run cannot write its own code any more than it can write its own message.
- */
 const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
-// The background worker's hard timeout is always shorter than this lease, by
-// construction above. A worker that dies after claiming can therefore be
-// redelivered without overlapping a still-live execution.
 const claimLeaseMs = () => resolveRunLivenessCeilingMs();
 
-/** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
 
-/** Authoritative release-time schema for durable automation history. */
 export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -261,11 +228,6 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   };
 }
 
-/**
- * Record an automation execution. Manual runs create the row before dispatch,
- * so `dispatchPending` distinguishes that durable handoff from a run that has
- * already entered the worker.
- */
 export async function startAutomationRun(
   input: StartAutomationRunInput,
 ): Promise<string> {
@@ -304,7 +266,6 @@ export async function getAutomationRun(
   return row ? toRun(row, Date.now()) : null;
 }
 
-/** Claim a manually queued run exactly once before loading its automation. */
 export async function claimAutomationRun(id: string): Promise<boolean> {
   await ensureTable();
   const now = Date.now();
@@ -315,11 +276,6 @@ export async function claimAutomationRun(id: string): Promise<boolean> {
   return Number(result.rowsAffected ?? 0) > 0;
 }
 
-/**
- * Find manual handoffs that have stayed unclaimed long enough to have missed
- * their first self-dispatch. The row is the durable queue; callers may safely
- * redeliver it because claimAutomationRun is an atomic CAS.
- */
 export async function listUnclaimedAutomationRuns(options?: {
   appId?: string | null;
   olderThanMs?: number;
@@ -358,13 +314,6 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
-/**
- * Drop the oldest rows for one automation once it exceeds the retention cap.
- *
- * Pruning on insert keeps the table bounded by the number of automations
- * rather than by how often they run, and avoids a separate sweeper. The
- * derived table is aliased because Postgres requires it.
- */
 async function pruneAutomationRuns(
   owner: string,
   automation: string,
@@ -429,8 +378,6 @@ export async function finishAutomationRun(
       { owner: stringifyValue(row.owner) },
     );
   } catch (eventError) {
-    // History is the source of truth. A subscriber must never turn a recorded
-    // terminal result back into a failed automation run.
     console.warn(
       "[automations] terminal-run event delivery failed:",
       eventError,
@@ -438,10 +385,6 @@ export async function finishAutomationRun(
   }
 }
 
-/**
- * Attach the agent thread once it exists. The thread is created after the run
- * row so the history survives a crash between the two.
- */
 export async function attachAutomationRunThread(
   id: string,
   threadId: string,
@@ -454,22 +397,11 @@ export async function attachAutomationRunThread(
   });
 }
 
-/**
- * Forget an automation's executions.
- *
- * History is keyed by the automation's name, which is reusable: deleting
- * "digest" and creating a new "digest" would otherwise show the old
- * definition's runs as the new one's history.
- */
 export async function deleteAutomationRuns(
   owner: string,
   automation: string,
 ): Promise<void> {
   await ensureTable();
-  // Bounded to runs that had already started. Names are reusable, so if a new
-  // automation takes this name and starts running before the cleanup lands,
-  // the cutoff keeps that run's history from being swept up with the old
-  // definition's.
   const cutoff = Date.now();
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ? AND started_at <= ?`,

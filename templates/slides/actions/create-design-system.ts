@@ -67,9 +67,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check only this user's owned systems in the active organization. Shared
-    // systems should not prevent the first system a user creates from becoming
-    // their default, and another organization must not affect this one.
     const existing = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)

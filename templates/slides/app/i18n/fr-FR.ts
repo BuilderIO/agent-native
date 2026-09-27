@@ -839,6 +839,11 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Créer un pitch produit",
+      roadmap: "Créer une feuille de route produit",
+      explainer: "Expliquer un sujet dans une présentation",
+    },
     suggestedPrompts: "Prompts suggérés",
     importMenu: {
       import: "Importer",
@@ -846,7 +851,11 @@ const messages = {
       invalidPdf: "Choisissez un fichier PDF.",
       invalidPptx: "Choisissez un fichier PPTX.",
       invalidFile: "Choisissez un fichier PDF ou PPTX.",
+      networkFailed:
+        "La demande d’importation a expiré ou la connexion réseau a été interrompue. Vérifiez votre connexion et réessayez.",
       notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+      uploadLimitExceeded:
+        "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
     },
     importDeck: "Importer une présentation",
     context: {
@@ -886,6 +895,8 @@ const messages = {
       notReady:
         "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
       emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      figmaReadFailed:
+        "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
       tooMany: "Choisissez jusqu’à 20 références.",
       search: "Rechercher des références",
       designCategory: "Création",

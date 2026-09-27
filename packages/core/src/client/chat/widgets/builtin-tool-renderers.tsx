@@ -183,9 +183,6 @@ const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   ) : null;
 };
 
-/** True when a result is a connect blocker, which the widget frames itself.
- *  Callers pass this alongside `isBuiltinDataWidgetActionRenderer` so a gated
- *  action that also declares a chatUI renderer does not get a second border. */
 export function isBuiltinConnectRequiredResult(
   context: ToolRendererContext,
 ): boolean {
@@ -204,11 +201,6 @@ export function isBuiltinDataWidgetActionRenderer(
   );
 }
 
-/** True whenever a result renders as a workspace-file card — with or
- *  without a static chatUI on the action that produced it (see the
- *  shape-based fallback registered below). The widget frames itself, so
- *  callers use this the same way they use `isBuiltinDataWidgetActionRenderer`
- *  to skip the chatUI-gated outer border and avoid a double frame. */
 export function isBuiltinWorkspaceFileResult(
   context: ToolRendererContext,
 ): boolean {
@@ -218,9 +210,6 @@ export function isBuiltinWorkspaceFileResult(
 export function resolveBuiltinActionChatRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
-  // A blocked call did not produce the table/chart/extension the action
-  // advertises, so its declared renderer would draw an empty or blank widget
-  // over the Connect control. The blocker outranks the success renderer.
   if (normalizeConnectRequiredResult(context.resultJson)) {
     return BuiltinConnectRequiredRenderer;
   }
@@ -285,11 +274,6 @@ registerReservedFallbackToolRenderer({
   Component: BuiltinDataWidgetRenderer,
 });
 
-// Shape-based like the workspace-file card below, but registered as a reserved
-// renderer rather than a fallback: reserved is the only tier `resolveToolRenderer`
-// checks before an action's declared `chatUI.renderer`. A gated action that also
-// advertises a table or chart did not produce one when it stopped, so leaving it
-// in the fallback tier would draw that empty widget over the Connect control.
 registerReservedToolRenderer({
   id: "core.connect-required",
   match: (context) =>
@@ -297,12 +281,6 @@ registerReservedToolRenderer({
   Component: BuiltinConnectRequiredRenderer,
 });
 
-// Shape-based, not chatUI-based: any tool result — from show-workspace-file,
-// or any other action that spreads `{ file: toWorkspaceFileCard(meta) }` into
-// its own result — renders a download card without a second discretionary
-// call to show-workspace-file. Matching by shape (instead of statically
-// tagging every such action with `chatUI`) also keeps read/list-style calls
-// on the same multi-purpose action collapsible when they don't produce a file.
 registerReservedFallbackToolRenderer({
   id: "core.workspace-file",
   match: (context) => normalizeWorkspaceFileResult(context.resultJson) !== null,

@@ -16,6 +16,7 @@ import {
   AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
+  RouterSidebarLink,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
@@ -153,8 +154,6 @@ type SnoozeTarget = {
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
 const ACCOUNT_POLL_INTERVAL_MS = 2000;
-// Bounds the account-status poll so a hung fetch can't leave the in-flight
-// guard stuck and stall the interval forever.
 const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
 
 function wasMailChatOpen(): boolean {
@@ -214,13 +213,6 @@ function AccountAvatar({
   return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
 }
 
-/**
- * Routes that render the slim "standard layout" chrome instead of the full
- * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
- * badge button, theme toggle, etc.). These pages have their own internal
- * toolbars and only need a generic h-12 header with the page title + the
- * AgentToggleButton.
- */
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
@@ -234,7 +226,6 @@ function isStandardLayoutPath(pathname: string): boolean {
   );
 }
 
-/** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
   const lastSlash = name.lastIndexOf("/");
   if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
@@ -272,13 +263,6 @@ export interface LabelTreeRow {
   displayName: string;
 }
 
-/**
- * Sort labels by full path (case-insensitive, natural) and compute each
- * row's nesting depth and leaf display name. A parent path that has no
- * label of its own (e.g. "1-clients" when only "1-clients/electric kiwi"
- * exists) is never synthesized — the child just sorts and indents where
- * the parent would have been.
- */
 export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
   return [...labels]
     .sort((a, b) =>
@@ -293,14 +277,6 @@ export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
     }));
 }
 
-/**
- * Move `draggedId` next to `targetId` (before it when `side` is "left",
- * after when "right"), or to the end of the list when `targetId` is
- * undefined — the drop landed outside this list's own items (e.g. a saved
- * filter dropped on a pinned-label tab). Shared by both drag-reorderable
- * groups in the top bar: pinned labels and saved filters each reorder their
- * own array through this, never each other's.
- */
 export function reorderById<T>(
   items: readonly T[],
   getId: (item: T) => string,
@@ -331,7 +307,6 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-// System views that can be shown/hidden via settings
 const collapsibleViews = [
   { id: "unread", labelKey: "mail.views.unread" },
   { id: "starred", labelKey: "mail.views.starred" },
@@ -444,9 +419,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     rememberAndOpenPalette();
   }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  // When the user requests snooze from the list, we need to snooze the live
-  // focused/selected rows — not whatever is currently in navigation state.
-  // This override wins over `targetEmail` while the modal is open.
   const [snoozeOverride, setSnoozeOverride] = useState<{
     targets: SnoozeTarget[];
   } | null>(null);
@@ -454,7 +426,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
-  // Parse view and threadId from pathname since AppLayout is outside <Routes>
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const view = pathSegments[0] || "inbox";
   const threadId = pathSegments[1] || undefined;
@@ -479,10 +450,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  // Remember which view (label or inbox tab) the user was in before searching —
-  // SearchBar always routes searches through /all?q=..., so on clear we'd
-  // otherwise drop a user searching from Starred/Sent/Archive or from a
-  // label-filtered tab back into plain Inbox.
   const preSearchViewRef = useRef<{
     view: string;
     label: string | null;
@@ -513,10 +480,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const search = params.toString();
     return `/${v}${search ? `?${search}` : ""}`;
   }, []);
-  // When the search param is cleared externally (browser back/forward,
-  // agent navigation), drop the searchFocused flag — otherwise the bar
-  // stays mounted with an empty input and no focus, since nothing fires
-  // onBlur after the input was already blurred by a prior Enter.
   const prevSearchQueryRef = useRef(activeSearchQuery);
   useEffect(() => {
     if (prevSearchQueryRef.current && !activeSearchQuery) {
@@ -537,8 +500,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const googleStatusReady = !googleStatus.isLoading && !googleStatus.isError;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
-  // Account filter: which accounts' emails to show. Empty set = all accounts.
-  // Persisted to localStorage so it survives page refreshes.
   const [activeAccounts, setActiveAccounts] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -550,7 +511,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     } catch {}
     return new Set<string>();
   });
-  // Persist active accounts to localStorage
   useEffect(() => {
     if (activeAccounts.size === 0) {
       localStorage.removeItem("active-accounts");
@@ -561,9 +521,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  // useLabels degrades gracefully on its own (placeholderData keeps the last
-  // known labels around on a failed background refresh) — there is no error
-  // state to surface here.
   const { data: labelsData } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
@@ -581,14 +538,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
-  // Spin the refresh icon only when the user clicked the button — background
-  // poll-driven `inboxIsFetching` should not animate the icon. Reset shortly
-  // after click so the spin always feels like a deliberate action.
   const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  // Keep the pinned label order exactly as stored so the settings checkbox can
-  // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
   const combineInbox = settings?.combineInbox === true;
   const showAllTab = settings?.showAllTab !== false;
@@ -653,11 +605,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [hasFilteredLabel, hasFilteredPin, hasFilteredRule],
   );
 
-  // The top bar's tabs, their counts, and the account/sync status all come
-  // from one server call — see shared/inbox-threads.ts. InboxPage requests
-  // the identical `input` while on /inbox, so React Query dedupes the two
-  // into a single request; here the bar stays populated (with the default
-  // tab's data) on every other route too.
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
@@ -797,10 +744,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     />
   );
 
-  // Drag-to-reorder tabs. Two independently-orderable groups share this one
-  // mechanism: pinned labels reorder `pinnedLabels`, saved filters reorder
-  // `savedFilters` — a drag never crosses groups, it just falls back to
-  // "append within its own group" (see handleTabDrop).
   type DragItem = { group: "label" | "filter"; id: string };
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
@@ -808,10 +751,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     side: "left" | "right";
   } | null>(null);
 
-  // Pinned collapsible system views (Sent, Archive, ...) render as their own
-  // top-bar shortcuts, ahead of the server-computed inbox-split tabs below —
-  // an orthogonal feature from the inbox split itself, so it stays
-  // client-side off the same `pinnedLabels` settings list.
   type RenderedTab = {
     id: string;
     pinnedId?: string;
@@ -849,9 +788,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       });
   }, [activeLabel, combineInbox, pinnedLabels, systemViews, view, t]);
 
-  // The inbox split (Important / pinned labels / saved filters / Other) with
-  // its counts comes from one account-scoped snapshot, shared across each
-  // tab's separately cached row page.
   const dataTabs = useMemo<RenderedTab[]>(() => {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
@@ -880,15 +816,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [systemViewTabs, dataTabs],
   );
 
-  // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
     () => systemViews.filter((v) => !pinnedLabels.includes(v.id)),
     [pinnedLabels, systemViews],
   );
 
-  // The top-bar inbox tabs are hidden on mobile, so mirror the label/filter
-  // ones in the drawer. Pinned system views already appear in the fixed
-  // drawer list below and must not be duplicated here.
   const mobileInboxTabs = dataTabs;
 
   // Is current view one of the hidden ones? If so force-show it
@@ -901,7 +833,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const currentInHidden = currentHiddenView !== undefined;
 
-  // User labels available for pinning
   const userLabels = useMemo(() => {
     const aiTagIds = new Set(aiTags.map((tag) => tag.id));
     const filtered = labels.filter(
@@ -929,7 +860,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     });
   }, [compose]);
 
-  // Spam / block / mute actions (need current email context)
   const isMailboxView = [
     "inbox",
     "starred",
@@ -951,12 +881,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();
 
-  // Find the target email: from open thread, or the focused row in the list via navigation state
   const [focusedListId, setFocusedListId] = useState<string | null>(null);
 
-  // Poll navigation.json for the focused email ID (synced by InboxPage)
   useEffect(() => {
-    if (threadId) return; // thread view has its own context
+    if (threadId) return;
     const fetchNav = async () => {
       try {
         const res = await fetch(
@@ -971,7 +899,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       } catch {}
     };
     void fetchNav();
-    // Re-check when palette opens
     if (paletteOpen) void fetchNav();
   }, [threadId, paletteOpen]);
 
@@ -983,9 +910,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const focused = currentViewEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    // Fall back to the first email in the list — if it's auto-focused in the
-    // UI, or the synced id points at a row that has since disappeared, shortcuts
-    // should still work.
     return currentViewEmails[0] ?? undefined;
   }, [threadId, focusedListId, currentViewEmails]);
 
@@ -1196,7 +1120,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [activeFilterId, navigate, savedFilters, updateSettings],
   );
 
-  // Drag-to-reorder tab handlers
   const handleTabDragStart = useCallback(
     (e: React.DragEvent, item: DragItem) => {
       setDragItem(item);
@@ -1264,7 +1187,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
-  // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
       if (topBarTabs.length < 2) return;
@@ -1304,9 +1226,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setSnoozeOpen(true);
   }, [targetEmail]);
 
-  // List snooze requests carry the current focused/selected rows. Swipe
-  // requests still carry one target; keyboard and command-palette requests may
-  // carry many.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (
@@ -1383,7 +1302,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       window.removeEventListener("agent-native:open-command-menu", handler);
   }, [openPalette]);
 
-  // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
     {
       keys: ["g", "i"],
@@ -1402,10 +1320,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
-  // The whole-inbox rail badge reads the Gmail "inbox" system label's own
-  // unread count from the same sync-cache label list the tab bar uses —
-  // summing the (possibly overlapping) split tabs would double-count threads
-  // that match more than one label/filter tab.
   const inboxSidebarUnreadCount = inboxMetadata?.labels.find(
     (label) => label.id === "inbox",
   )?.unreadCount;
@@ -1518,7 +1432,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
                   const link = (
-                    <Link
+                    <RouterSidebarLink
                       to={tab.href}
                       aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
@@ -1552,7 +1466,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           {count}
                         </span>
                       )}
-                    </Link>
+                    </RouterSidebarLink>
                   );
                   return (
                     <div
@@ -1840,17 +1754,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     setActiveAccounts((prev) => {
                       const next = new Set(prev);
                       if (next.size === 0) {
-                        // Switching from "all" → deselect this one (keep others)
                         for (const a of accounts) {
                           if (a.email !== email) next.add(a.email);
                         }
                       } else if (next.has(email)) {
                         next.delete(email);
-                        // If nothing left, reset to "all"
                         if (next.size === 0) return new Set();
                       } else {
                         next.add(email);
-                        // If all are now checked, reset to "all" (empty set)
                         if (next.size === accounts.length) return new Set();
                       }
                       return next;
@@ -1898,8 +1809,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 {!showCollapsedSidebar && (
                   <div className="ms-auto flex items-center gap-1">
                     {isMobile ? (
-                      // The drawer is always a slide-out overlay on mobile,
-                      // so "pin" has nothing to pin here — offer to close it.
                       <button
                         type="button"
                         onClick={() => setSidebarOpen(false)}
@@ -1957,7 +1866,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     return (
                       <Tooltip key={item.id}>
                         <TooltipTrigger asChild>
-                          <Link
+                          <RouterSidebarLink
                             to={item.href}
                             aria-label={item.label}
                             className={cn(
@@ -1970,7 +1879,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             {item.count && item.count > 0 ? (
                               <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
                             ) : null}
-                          </Link>
+                          </RouterSidebarLink>
                         </TooltipTrigger>
                         <TooltipContent side="right">
                           {item.label}
@@ -2191,14 +2100,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         <DevDatabaseLink />
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Link
+                            <RouterSidebarLink
                               to="/settings"
                               onClick={closeSidebar}
                               aria-label={t("mail.toolbar.settings")}
                               className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
                             >
                               <IconSettings className="size-4" />
-                            </Link>
+                            </RouterSidebarLink>
                           </TooltipTrigger>
                           <TooltipContent side="right">
                             {t("mail.toolbar.settings")}
@@ -2250,7 +2159,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       </div>
 
       {(() => {
-        // Filter out inline drafts (rendered in thread view, not the popout composer)
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;
         const popoutActiveId =
@@ -2456,16 +2364,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 }
 
-// ─── Standard Layout (settings, team, tools, draft-queue) ────────────────────
-
-/**
- * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
- * account stack, compose pen, etc.).
- *
- * Pages can hoist a custom title or right-side actions via
- * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
- */
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
@@ -2516,9 +2414,6 @@ function StandardLayout({ children }: AppLayoutProps) {
   );
   const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
-  // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar inside the shared
-  // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -2682,14 +2577,14 @@ function StandardLayout({ children }: AppLayoutProps) {
               <DevDatabaseLink />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link
+                  <RouterSidebarLink
                     to="/settings"
                     onClick={() => setSidebarOpen(false)}
                     aria-label={t("mail.toolbar.settings")}
                     className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
                   >
                     <IconSettings className="size-4" />
-                  </Link>
+                  </RouterSidebarLink>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   {t("mail.toolbar.settings")}
@@ -2714,8 +2609,6 @@ function StandardLayout({ children }: AppLayoutProps) {
     </div>
   );
 }
-
-// ─── Tab Settings Popover ────────────────────────────────────────────────────
 
 function CheckboxRow({
   checked,
@@ -2823,8 +2716,6 @@ function TabSettingsPopover({
       )
     : savedFilters;
 
-  // Split labels into Gmail categories and regular user labels
-  // Keep Important with regular labels so it can be toggled like any other tab.
   const gmailCategoryIds = new Set([
     "note-to-self",
     "promotions",
@@ -2833,7 +2724,6 @@ function TabSettingsPopover({
     "forums",
     "personal",
   ]);
-  // Ensure all known Gmail categories always appear (some are virtual, not from API)
   const knownCategories: Label[] = [
     {
       id: "note-to-self",
@@ -2860,9 +2750,6 @@ function TabSettingsPopover({
     : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
-  // Nested by full label path so e.g. "1-clients/electric kiwi" sorts and
-  // indents under where "1-clients" would sort, even when "1-clients" isn't
-  // a label of its own.
   const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
@@ -3104,8 +2991,6 @@ function TabSettingsPopover({
   );
 }
 
-// ─── Account Popover ─────────────────────────────────────────────────────────
-
 function AccountPopover({
   accounts,
   canAddAccount,
@@ -3168,7 +3053,6 @@ function AccountPopover({
     return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data, accounts.length]);
 
-  // Empty activeAccounts means "all selected"
   const allSelected = activeAccounts.size === 0;
 
   return (

@@ -177,8 +177,6 @@ describe("SharedAvailabilityPanel", () => {
     );
   });
 
-  // A status row with no server answer must stay unlabeled rather than guess:
-  // the loading and error cases are indistinguishable from the client.
   it("renders no status label until the status query answers", () => {
     people.mockReturnValue([{ email: "peer@example.com", color: "#111" }]);
     render();

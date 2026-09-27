@@ -1,24 +1,3 @@
-/**
- * Fetch all data the player page needs in one call:
- *   - recording fields
- *   - visibility + access role
- *   - transcript
- *   - comments (flat list — UI groups into threads)
- *   - reactions
- *   - chapters (parsed from recording.chaptersJson)
- *   - tags
- *   - CTAs
- *   - counted-view total
- *
- * This is the read endpoint the player/:id and share/:id routes use.
- * Access is gated by assertAccess at viewer level — for public-visibility
- * recordings, any signed-in user can view; for password-protected ones, the
- * route enforces the password before invoking this action.
- *
- * Usage:
- *   pnpm action get-recording-player-data --recordingId=<id>
- */
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -165,13 +144,7 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    // Reaching this action already requires a signed-in session with at
-    // least viewer access to the recording (`resolveAccess` above), so any
-    // resolved role qualifies to comment/react — no separate "commenter"
-    // tier.
     const canCommentRecording = true;
-    // This action is on a 1-3s poll from the player, so every read here shares
-    // one Promise.all instead of adding serial round-trips.
     const [
       cleanupStateRaw,
       builderCreditsRaw,
@@ -228,10 +201,6 @@ export default defineAction({
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
 
-    // DISTINCT because `recording_tags` carries no unique (recording_id, tag)
-    // constraint: `tag-recording` checks-then-inserts, so two editors adding
-    // the same tag at once can leave duplicate rows. The player should not
-    // render the same tag twice on account of that.
     const tagRows = await db
       .selectDistinct({ tag: schema.recordingTags.tag })
       .from(schema.recordingTags)
@@ -259,10 +228,6 @@ export default defineAction({
       .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
       .limit(1);
 
-    // Reverse-lookup: if a meeting captured this recording, surface it so the
-    // player can show a "From meeting: <title>" badge linking back to the
-    // meeting detail page. We don't need an FK on recordings — the meetings
-    // table already points at recording_id.
     let meeting: { id: string; title: string } | null = null;
     try {
       const [linkedMeeting] = await db
@@ -277,8 +242,6 @@ export default defineAction({
         meeting = { id: linkedMeeting.id, title: linkedMeeting.title };
       }
     } catch (err) {
-      // Best-effort — a missing meetings table on a fresh install shouldn't
-      // break the player.
       console.warn(
         "[get-recording-player-data] meeting lookup failed:",
         (err as Error)?.message ?? err,
@@ -315,26 +278,6 @@ export default defineAction({
           })
         : null;
 
-    // Normalize the dev-fallback videoUrl:
-    //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
-    //      rows keep playing after the route move.
-    //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
-    //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
-    //      Loom rows proxy their stored provider URL from the server.
-    //   3. For password-protected recordings, mint a short-lived HMAC token
-    //      bound to this recording id and pass it via `?t=<token>` instead of
-    //      the plaintext password. Sticking the password in the URL leaks it
-    //      into browser history, CDN logs, the Referer header on outbound
-    //      requests, and — most importantly here — into MCP-host tool results
-    //      (any MCP client receiving this action's structured output would
-    //      otherwise see the plaintext password). The downstream
-    //      `/api/video/:id` route accepts either `?t=<token>` (preferred) or
-    //      `?password=<pw>` (legacy fallback) so old share pages keep
-    //      working during rollout. (audit 11 F-07)
-    //      Owners are skipped — the blob route bypasses the password gate
-    //      for them, so they don't need the token. Remote provider URLs are
-    //      still proxied through same-origin media serving so CORS, range
-    //      requests, and signed URL quirks match public share playback.
     const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
       addPasswordToken: access.role !== "owner",
       proxyRemoteMedia: true,
@@ -354,10 +297,6 @@ export default defineAction({
         animatedThumbnailUrl: rec.animatedThumbnailUrl
           ? resolvePlayerThumbnailUrl(rec, { animated: true })
           : null,
-        // The filmstrip is a sheet of unredacted frames, and unlike the
-        // video it is fetched straight from storage rather than through a
-        // route that can refuse. Held from anyone who cannot finish the burn,
-        // the same test every other media path uses.
         filmstripUrl: isHeldForRedaction(rec.editsJson, access.role)
           ? null
           : (rec.filmstripUrl ?? null),
@@ -373,9 +312,6 @@ export default defineAction({
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
         videoSizeBytes: rec.videoSizeBytes ?? null,
-        // The version of the stored bytes. A redaction burn re-uploads under
-        // the same URL, so without this the browser can keep playing the copy
-        // it already has — the one with the boxes still only drawn on.
         mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
@@ -392,11 +328,6 @@ export default defineAction({
               uploadGenerationId: rec.uploadGenerationId ?? null,
             }
           : {}),
-        // Don't leak the password to clients (especially to MCP hosts that
-        // surface action results to third-party agents); just indicate
-        // whether one was set. The videoUrl above already carries a
-        // short-lived `?t=<token>` for non-owner viewers, so the player
-        // can stream without ever seeing the plaintext password.
         hasPassword: !!rec.password,
         expiresAt: rec.expiresAt,
         enableComments: Boolean(rec.enableComments),

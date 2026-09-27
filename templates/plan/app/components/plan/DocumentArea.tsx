@@ -45,17 +45,8 @@ const LazyPlanMarkdownEditor = lazy(() =>
   })),
 );
 
-/**
- * Marker prefix embedded in salvaged "unknown-block" callout bodies by the
- * server-side per-block salvage path in parsePlanContent. The renderer detects
- * this prefix and shows an invalid-block warning card rather than a generic
- * callout.
- *
- * Format: `__unknown_block__:<originalType>\n<errorSummary>`
- */
 const UNKNOWN_BLOCK_MARKER = "​__unknown_block__:";
 
-/** React error boundary that catches render errors from a single block. */
 class BlockErrorBoundary extends Component<
   { blockId: string; blockType: string; children: ReactNode },
   { error: Error | null }
@@ -92,7 +83,6 @@ class BlockErrorBoundary extends Component<
   }
 }
 
-/** Muted warning card for unknown/salvaged/errored blocks. */
 function UnknownBlockPlaceholder({
   blockId,
   originalType,
@@ -160,12 +150,6 @@ type PlanBlockViewProps = {
   collabUser?: RichMarkdownCollabUser | null;
 };
 
-/**
- * Renders the document flow: dispatches a single plan block to its block
- * component. `compactVisuals` tightens embedded wireframes/diagrams in dense
- * contexts (e.g. tab panes). Wrapped in a per-block error boundary so one
- * crashing renderer shows an inline error card instead of blanking the document.
- */
 export function PlanBlockView(props: PlanBlockViewProps) {
   return (
     <BlockErrorBoundary blockId={props.block.id} blockType={props.block.type}>
@@ -197,12 +181,6 @@ function PlanBlockViewInner({
     );
   }
 
-  // Registry-first dispatch. If the block type is registered, render through the
-  // block registry (`BlockView` → spec `Read`, or in edit mode the spec `Edit`
-  // or the schema-driven auto-editor). Unregistered types fall through to the
-  // legacy branches below unchanged, so existing blocks keep working. The spec's
-  // `Read` owns its own block container; the editor path is wrapped in a titled
-  // `plan-block` section here so editing matches the document chrome.
   const blockRegistry = useOptionalBlockRegistry();
   const spec = blockRegistry?.registry.get(block.type);
   if (blockRegistry && spec) {
@@ -229,11 +207,6 @@ function PlanBlockViewInner({
         compactVisuals={compactVisuals}
       />
     );
-    // In INLINE / CONTAINER edit mode the auto-editor / custom Edit often renders
-    // bare fields — wrap them in the standard titled block section. In read mode
-    // (and in PANEL edit mode, where `BlockView` renders the spec's own `Read`
-    // plus a corner edit button) the spec already provides its own section, so
-    // render it directly to avoid double-nesting.
     const surface = blockEditSurface(spec);
     const wrapInline =
       editing && spec.placement.includes("block") && surface !== "panel";
@@ -347,9 +320,6 @@ function PlanBlockViewInner({
     );
   }
   if (block.type === "code-tabs") {
-    // Display-time migration: render code-tabs as a tabs block with inline code
-    // children so old stored plans get the richer tabs UX. Storage stays intact
-    // (no write-back); the block re-converts on every render.
     const migratedTabs: Extract<PlanBlock, { type: "tabs" }> = {
       id: block.id,
       type: "tabs",
@@ -386,10 +356,6 @@ function PlanBlockViewInner({
     );
   }
   if (block.type === "implementation-map") {
-    // Display-time migration: render implementation-map as a file-tree block so
-    // old plans use the modern file explorer rather than the deprecated layout.
-    // The block-level `title` and each file's `note` and `snippet` carry over.
-    // Storage stays intact.
     const migratedFileTree: Extract<PlanBlock, { type: "file-tree" }> = {
       id: block.id,
       type: "file-tree",
@@ -452,8 +418,6 @@ function PlanBlockViewInner({
   if (block.type === "custom-html") {
     return <CustomHtmlBlock block={block} onChange={onChange} />;
   }
-  // Unregistered block type — show a muted placeholder so the rest of the
-  // document stays visible instead of silently swallowing the block.
   return (
     <UnknownBlockPlaceholder
       blockId={block.id}
@@ -514,9 +478,6 @@ function RichTextBlock({
           />
         </Suspense>
       ) : (
-        // Read-only path (public / shared-reviewer / review mode / SSR): render
-        // markdown without mounting Tiptap so comment clicks hit stable text.
-        // Pass blockId so headings get stable anchor ids for deep-linking.
         <PlanMarkdownReader markdown={block.data.markdown} blockId={block.id} />
       )}
     </section>
@@ -602,10 +563,6 @@ function ImplementationMapBlock({
 }: {
   block: Extract<PlanBlock, { type: "implementation-map" }>;
 }) {
-  // Track the active file by INDEX, not by path. A single file legitimately
-  // appears in multiple rows (e.g. one workflow file touched three different
-  // ways), so keying selection AND the React list key on `file.path` made every
-  // row sharing a path highlight together and select as one. Index is unique.
   const [activeIndex, setActiveIndex] = useState(0);
   const active = block.data.files[activeIndex] ?? block.data.files[0];
   return (
@@ -819,8 +776,6 @@ function CustomHtmlBlock({
   const [html, setHtml] = useState(block.data.html);
   const [css, setCss] = useState(block.data.css ?? "");
 
-  // Resync drafts from block.data when not actively editing so agent/poll
-  // updates are reflected without clobbering in-progress manual edits.
   useEffect(() => {
     if (!editing) {
       setHtml(block.data.html);
@@ -828,16 +783,12 @@ function CustomHtmlBlock({
     }
   }, [editing, block.data.html, block.data.css]);
 
-  // Re-seed from the current block data each time edit mode is ENTERED so
-  // stale mount-time state can never clobber a newer agent edit on save.
   const openEditing = () => {
     setHtml(block.data.html);
     setCss(block.data.css ?? "");
     setEditing(true);
   };
 
-  // Use prefers-color-scheme so the iframe ink matches the host theme even
-  // though the iframe document is isolated and can't inherit CSS variables.
   const srcDoc = `<!doctype html><html><head><style>body{margin:0;min-height:100%;font-family:Inter,system-ui,sans-serif;color:#1f1f1d;background:transparent;}*{box-sizing:border-box}@media(prefers-color-scheme:dark){body{color:#e8e8e6}}${block.data.css ?? ""}</style></head><body>${block.data.html}</body></html>`;
   return (
     <section className="plan-block group" data-block-id={block.id}>
@@ -919,7 +870,6 @@ function CustomHtmlBlock({
   );
 }
 
-/* ── Shiki syntax highlighting (lazy-loaded, light/dark themes) ─────────── */
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
@@ -1020,8 +970,6 @@ function HighlightedCode({
   }, [code, language]);
 
   if (html) {
-    // Shiki output is generated from plain text by the highlighter itself —
-    // it is NOT agent-authored HTML, so this is safe (mirrors core chat).
     return (
       <div className="plan-shiki" dangerouslySetInnerHTML={{ __html: html }} />
     );
@@ -1034,8 +982,6 @@ function HighlightedCode({
     </pre>
   );
 }
-
-/* ── Image block ───────────────────────────────────────────────────────── */
 
 type PlanImageData = Extract<PlanBlock, { type: "image" }>["data"];
 
@@ -1069,11 +1015,6 @@ function ImageBlock({
   const [storageSetupRequested, setStorageSetupRequested] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Opening the edit popover from the ⋯ dropdown item hits a Radix race: closing
-  // the dropdown restores focus to its trigger, which the just-opened popover
-  // reads as a focus-outside and instantly dismisses. Defer the open one
-  // macrotask (so the dropdown closes first) AND ignore any close that arrives in
-  // the first moments after opening (the focus-restore bounce).
   const editOpenedAtRef = useRef(0);
   const openEdit = () => {
     window.setTimeout(() => {
@@ -1086,9 +1027,6 @@ function ImageBlock({
     setEditOpen(open);
   };
 
-  // Auto-focus the block edit prompt once the edit popover mounts. The
-  // popover portals out and the deferred/guarded open can race Radix's own
-  // auto-focus, so focus it explicitly (a few retries to win the open animation).
   useEffect(() => {
     if (!editOpen) return;
     const focusPrompt = () => {
@@ -1124,12 +1062,6 @@ function ImageBlock({
     }
   }
 
-  // Reuse the EXACT edit surface registry blocks use — the shared
-  // `renderEditSurface` popover (the schema form + the auto-focusing top-right
-  // "Edit with AI" prompt) — pulled from the block-render context. No bespoke
-  // edit UI and no `planBlocks` import (so no module cycle). It's opened from the
-  // image's own ⋯ overlay, so the block keeps a single hover overlay with no
-  // separate corner pencil.
   const editSurface =
     editable && ctx?.renderEditSurface
       ? ctx.renderEditSurface({
@@ -1238,9 +1170,6 @@ function ImageBlock({
 
 function imageSrcForAsset(assetId?: string): string | undefined {
   if (!assetId) return undefined;
-  // Encode the asset ID into the plan-asset serving route.
-  // The filename segment is omitted here since the route handler uses only the
-  // asset ID for lookup; a trailing slash is added for compatibility.
   return `/_agent-native/plan-asset/${encodeURIComponent(assetId)}/image`;
 }
 

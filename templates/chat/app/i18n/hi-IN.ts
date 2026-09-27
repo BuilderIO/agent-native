@@ -32,6 +32,8 @@ const messages = {
     pinChat: "चैट पिन करें",
     pinned: "पिन की गई",
     recents: "हाल की",
+    retryPreviousRequest:
+      "मेरा पिछला अनुरोध फिर से आज़माएँ, अब जबकि मॉडल प्रदाता कनेक्ट हो गया है।",
     renameChat: "चैट का नाम बदलें",
     renameFailed: "नाम बदलना विफल",
     renameThread: "थ्रेड का नाम बदलें",

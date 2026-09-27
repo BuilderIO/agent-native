@@ -25,20 +25,13 @@ import type {
 
 export interface CanvasPin {
   id: string;
-  /** Position as a percentage of the canvas (so it survives resize/zoom) */
   xPct: number;
   yPct: number;
-  /** Optional CSS selector of the element under the click, for context */
   targetSelector?: string;
-  /** Best-effort stable canvas/code-layer id when the clicked layer exposes one. */
   targetAnchorId?: string;
-  /** Optional snippet of text content the user clicked near */
   targetText?: string;
-  /** Pending comment text the user is composing */
   draft?: string;
-  /** Held locally until the user batch-applies queued comments. */
   queued?: boolean;
-  /** Submitted state — the marker stays visible as confirmation. */
   submitted?: boolean;
 }
 
@@ -49,28 +42,14 @@ export interface CanvasCommentPinsProps {
   allowQueue?: boolean;
   showAnchorDetails?: boolean;
   showSubmitShortcut?: boolean;
-  /** Whether the pin tool is active. When true, clicks drop pins. */
   active: boolean;
-  /** In queue mode, pin Send adds to the shared annotation batch. */
   submitMode?: "direct" | "queue";
-  /** Disable / exit the pin mode (called on Escape, after submit, etc.) */
   onClose: () => void;
-  /** Mirrors local pins to a parent that can submit them with other annotations. */
   onPinsChange?: (pins: CanvasPin[]) => void;
-  /** Increment to mark queued pins as submitted by a parent action. */
   submitQueuedSignal?: number;
-  /** Keep the click plane below a sibling draw toolbar in combined annotate mode. */
   clickPlaneUnderToolbar?: boolean;
-  /**
-   * Selector for the canvas surface (e.g. `.slide-content`). Pins are anchored
-   * to this element's bounding rect; clicks outside are ignored.
-   */
   canvasSelector: string;
-  /** Stable identifier for the current view (slide id / design id) — used in
-   * the agent prompt and as a pin namespace key. */
   contextId: string;
-  /** Human-readable label for the context (slide title, slide index, design
-   * title) used in the agent prompt. */
   contextLabel?: string;
 }
 
@@ -85,22 +64,11 @@ function escapeCssIdentifier(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
-/**
- * Best-effort check for whether a pin's captured anchor element still exists
- * on the canvas. Only meaningful for parent-DOM canvases with a captured
- * `targetSelector` — iframe canvases never capture one (see `dropPinAt`), so
- * this naturally no-ops there rather than mislabeling every iframe pin as
- * stale. Recomputed on each render (already triggered by scroll/resize/pins
- * changes); this deliberately avoids adding a dedicated poll so idle canvas
- * perf is unaffected.
- */
 function pinAnchorStillPresent(canvas: HTMLElement, pin: CanvasPin): boolean {
   if (!pin.targetSelector) return true;
   try {
     return canvas.querySelector(pin.targetSelector) !== null;
   } catch {
-    // A selector that no longer parses shouldn't be reported as "stale" —
-    // that's a different failure mode than "the element was removed".
     return true;
   }
 }
@@ -162,11 +130,6 @@ function getTargetBehindClickPlane(
   }
 }
 
-/**
- * Purely visual "same spot" check used to spread overlapping markers apart on
- * screen. This also considers submitted pins so a new pin dropped on top of an
- * earlier confirmation marker doesn't render fully hidden underneath it.
- */
 function pinsAtSameSpot(pin: CanvasPin, other: CanvasPin): boolean {
   if (pin.id === other.id) return false;
   const xDelta = Math.abs(pin.xPct - other.xPct);
@@ -174,14 +137,6 @@ function pinsAtSameSpot(pin: CanvasPin, other: CanvasPin): boolean {
   return xDelta <= 3 && yDelta <= 3;
 }
 
-/**
- * Deterministic pixel nudge for a pin whose marker would otherwise render
- * stacked exactly on top of an earlier pin at (approximately) the same
- * canvas position. Pins are placed in a small golden-angle spiral around
- * their true position so every marker in a cluster stays visible and
- * individually clickable; the stored `xPct`/`yPct` (and the position sent to
- * the agent) are unaffected.
- */
 function pinClusterOffset(
   pin: CanvasPin,
   indexInPins: number,
@@ -192,7 +147,7 @@ function pinClusterOffset(
     if (pinsAtSameSpot(pin, pins[i]!)) clusterIndex += 1;
   }
   if (clusterIndex === 0) return { dx: 0, dy: 0 };
-  const angle = clusterIndex * 2.4; // golden angle (radians) for even spread
+  const angle = clusterIndex * 2.4;
   const radius = 9 + clusterIndex * 5;
   return {
     dx: Math.round(Math.cos(angle) * radius),
@@ -200,22 +155,6 @@ function pinClusterOffset(
   };
 }
 
-/**
- * Click-to-comment pins anchored to the canvas.
- *
- * Mirrors claude.ai/design's "inline comments" feature — the most-praised
- * interaction pattern of that tool. A user clicks anywhere on the canvas to
- * drop a pin, types a one-line instruction, and the pin's position + nearby
- * element selector + instruction is sent to the agent. Submitted pins stay on
- * the canvas as local confirmation; the agent's reply lands in the chat
- * sidebar where it can make targeted edits.
- *
- * Why pins (vs text-anchored comments):
- *   The existing slide_comments table anchors comments to text selections via
- *   TipTap. That's good for prose review — but Rochkind also wants to point
- *   to images, charts, and whitespace. Pins handle those cases without
- *   requiring a text selection.
- */
 export function CanvasCommentPins({
   translate,
   sendToAgent,
@@ -235,9 +174,6 @@ export function CanvasCommentPins({
 }: CanvasCommentPinsProps) {
   const t = translate;
   const [pins, setPins] = useState<CanvasPin[]>([]);
-  // Mirrors `pins` so the context-change reset effect below can inspect what
-  // was on the canvas the instant `contextId` changes, without re-running on
-  // every pin edit (it should only fire once, on the context switch itself).
   const pinsRef = useRef<CanvasPin[]>(pins);
   pinsRef.current = pins;
   const [activePinId, setActivePinId] = useState<string | null>(null);
@@ -245,16 +181,9 @@ export function CanvasCommentPins({
   const containerRef = useRef<HTMLElement | null>(null);
   const lastSubmitQueuedSignalRef = useRef(submitQueuedSignal);
   const [canvasEl, setCanvasEl] = useState<HTMLElement | null>(null);
-  // Dummy tick forces a re-render (and a fresh getBoundingClientRect()) whenever
-  // the canvas scrolls or resizes, keeping pin overlays in sync.
   const [, setLayoutTick] = useState(0);
 
-  // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
-    // Queued-but-unsent comment drafts don't survive a context switch (pins
-    // are intentionally scoped to one view). Losing them is unavoidable here
-    // since we don't control cross-view navigation, but it must never be
-    // silent — warn instead of quietly wiping the user's typed drafts.
     const discardedDraftCount = pinsRef.current.filter(
       (pin) => pin.queued && !pin.submitted && (pin.draft || "").trim(),
     ).length;
@@ -272,7 +201,6 @@ export function CanvasCommentPins({
     // actual context (slide/design) switch, not on every pins/t change.
   }, [contextId]);
 
-  // Find the canvas container the pins overlay
   useEffect(() => {
     if (!active) return;
     const findCanvas = () => {
@@ -287,22 +215,15 @@ export function CanvasCommentPins({
     return () => clearTimeout(t);
   }, [active, canvasSelector, contextId]);
 
-  // Re-render when the canvas element moves in the viewport (scroll or resize),
-  // so getBoundingClientRect() returns fresh coordinates for pin overlays.
   useEffect(() => {
     const canvas = containerRef.current ?? canvasEl;
     if (!canvas) return;
 
     const bump = () => setLayoutTick((t) => t + 1);
 
-    // ResizeObserver fires when the canvas element's own size changes.
     const ro = new ResizeObserver(bump);
     ro.observe(canvas);
 
-    // Scroll listeners on every scrollable ancestor and the window cover both
-    // page-level scrolling and container-level panning. Walk the ancestor
-    // chain with getComputedStyle instead of a class-name heuristic so
-    // inline-styled, nested, and multiple scroll containers are all covered.
     const isScrollable = (value: string) =>
       value === "auto" || value === "scroll" || value === "overlay";
     const scrollTargets: Array<HTMLElement | Window> = [];
@@ -362,9 +283,6 @@ export function CanvasCommentPins({
     [],
   );
 
-  // Click handler — drops a pin where the user clicks a non-iframe canvas.
-  // Iframe canvases cannot bubble clicks to the parent, so the rendered
-  // transparent overlay below handles those reliably.
   useEffect(() => {
     if (!active) return;
     const onClick = (e: MouseEvent) => {
@@ -372,7 +290,6 @@ export function CanvasCommentPins({
       if (!canvas) return;
       const target = e.target as HTMLElement;
 
-      // Ignore clicks on UI chrome (the pin popovers themselves)
       if (target.closest("[data-pin-popover]")) return;
       if (target.closest("[data-pin-click-overlay]")) return;
       if (!canvas.contains(target)) return;
@@ -385,7 +302,6 @@ export function CanvasCommentPins({
       window.removeEventListener("click", onClick, { capture: true });
   }, [active, dropPinAt]);
 
-  // Escape closes pin mode
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
@@ -538,20 +454,14 @@ export function CanvasCommentPins({
     setActivePinId(null);
   };
 
-  // Refs for drag-detection on the click overlay (Bug 3 fix).
-  // A pin is only dropped on a completed click, not on any drag gesture.
   const overlayDownPos = useRef<{ x: number; y: number } | null>(null);
   const overlayDidDrag = useRef(false);
 
   if (!active && pins.length === 0) return null;
 
-  // Render pins as portaled overlays positioned on top of the canvas
   const canvas = containerRef.current ?? canvasEl;
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
-  // Clamp summaryLeft so the w-64 (256px) panel, which is shifted left by
-  // -translate-x-full, never overflows the left viewport edge.
-  // 264 = 256 (panel width) + 8 (minimum margin from the viewport left edge).
   const summaryLeft = Math.max(
     264,
     Math.min(rect.right - 8, window.innerWidth - 8),
@@ -673,10 +583,6 @@ export function CanvasCommentPins({
         const top = rect.top + (pin.yPct / 100) * rect.height + dy;
         const isActive = activePinId === pin.id;
         const PinIcon = pin.submitted ? IconMessageCheck : IconMessage;
-        // Not submitted yet + claims a specific anchor that's no longer on
-        // the canvas (e.g. the element was deleted or the design was edited
-        // elsewhere) — flag it instead of silently pretending the position
-        // is still meaningful.
         const isStaleAnchor =
           !pin.submitted && !pinAnchorStillPresent(canvas, pin);
         return (
@@ -732,8 +638,8 @@ export function CanvasCommentPins({
             {isActive &&
               !pin.submitted &&
               (() => {
-                const composerW = 288; // w-72
-                const composerH = 220; // estimated height
+                const composerW = 288;
+                const composerH = 220;
                 const flipX = left + 12 + composerW > window.innerWidth;
                 const flipY = top + 4 + composerH > window.innerHeight;
                 return (
@@ -767,11 +673,6 @@ export function CanvasCommentPins({
                           void submitPin(pin);
                         }
                         if (e.key === "Escape") {
-                          // Stop propagation so the window Escape listener (which
-                          // calls onClose) does not also fire. Collapse the composer
-                          // back to the pin dot while preserving the draft text —
-                          // the pin and any typed draft survive. A second Escape
-                          // with no composer open exits pin mode, matching Figma.
                           e.stopPropagation();
                           e.preventDefault();
                           setActivePinId(null);

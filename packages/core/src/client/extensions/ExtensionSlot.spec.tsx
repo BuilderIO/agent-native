@@ -126,8 +126,6 @@ describe("ExtensionSlot", () => {
   it("does not report ready before the deferred install query settles", async () => {
     vi.useFakeTimers();
     try {
-      // Route the deferral onto faked timers so the paint window only passes
-      // when the test advances it.
       vi.stubGlobal("requestAnimationFrame", undefined);
       vi.stubGlobal("requestIdleCallback", undefined);
       let resolveFetch: ((value: Response) => void) | undefined;
@@ -148,8 +146,6 @@ describe("ExtensionSlot", () => {
         );
       });
 
-      // Deferral window passes and the query starts, but the fetch has not
-      // settled: zero known installs must not read as "ready".
       await act(async () => {
         await vi.advanceTimersByTimeAsync(400);
       });

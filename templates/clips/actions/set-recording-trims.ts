@@ -1,20 +1,3 @@
-/**
- * Overwrite the trim list on a recording.
- *
- * `trim-recording` appends one range and merges it into its neighbours, which
- * is the right shape for "cut this bit out" but cannot express reopening an
- * edit made earlier — a merged range has no identity left to grab. The segment
- * editor sends the whole list instead, each entry carrying an `id`, so moving
- * one cut's edge or putting a removed section back is a single write.
- *
- * Blurs, the thumbnail spec and every other field on `editsJson` are left
- * alone; only `trims` is replaced.
- *
- * Usage:
- *   pnpm action set-recording-trims --recordingId=<id> \
- *     --trims='[{"id":"cut-1","startMs":1000,"endMs":2500,"excluded":true}]'
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -31,15 +14,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
-/** A guard against a runaway client, not a design limit. */
 const MAX_TRIMS = 2_000;
 
-/**
- * Fractional milliseconds are accepted and rounded rather than rejected. The
- * editor reads a drag off the pointer, so an edge lands wherever a pixel maps
- * to — demanding a whole number here turned an ordinary drag into
- * "Invalid action parameters", with the raw list in the message.
- */
 const TrimSchema = z.object({
   id: z.string().min(1).max(128).optional(),
   startMs: z.coerce.number().finite().min(0),
@@ -91,8 +67,6 @@ export default defineAction({
       );
     }
 
-    // Ids are what make an edit reopenable, so backfill any the caller omitted
-    // rather than storing an entry the editor cannot address.
     const trims: TrimRange[] = identifyTrims(incoming as TrimRange[]);
     const seen = new Set<string>();
     for (const trim of trims) {

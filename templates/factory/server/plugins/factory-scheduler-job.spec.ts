@@ -521,8 +521,6 @@ describe("recordFinishedAutomationPrompt", () => {
     expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
     const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
     expect(call.promptVersion).toBe(3);
-    // Must be the agent run id (list-factory-audit's join key), not the core
-    // history-row id — those are two different id spaces.
     expect(call.automationRunId).toBe("agent-run-1");
     expect(call.path).toBe(path);
   });

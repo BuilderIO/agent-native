@@ -483,7 +483,6 @@ export function ContentFilesSidebarView({
   isLoading: boolean;
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
-  /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
   serverOrdered?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
@@ -973,8 +972,6 @@ function ReorderableDatabaseSidebarRow({
 }) {
   const reorder = useSidebarReorderItem(props.item.id);
   return (
-    // min-w-0 keeps a long title from widening this grid item past the
-    // sidebar, which would push the row actions out of view.
     <div
       ref={reorder.setNodeRef}
       style={reorder.style}
@@ -1008,7 +1005,6 @@ function DatabaseSidebarRow({
   isCollection = Boolean(item.document.database),
 }: {
   item: ContentDatabaseItem;
-  /** Collection pages cannot be duplicated from the sidebar yet. */
   isCollection?: boolean;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
@@ -1057,8 +1053,6 @@ function DatabaseSidebarRow({
 
   const pageActions = useSidebarPageActions();
   const [renaming, setRenaming] = useState(false);
-  // Show a committed rename immediately; the refreshed row takes over once
-  // its title matches, and a failed save drops back to the stored title.
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
   useEffect(() => {
     if (pendingTitle !== null && item.document.title === pendingTitle) {
@@ -1073,8 +1067,6 @@ function DatabaseSidebarRow({
   useEffect(() => {
     if (active) revealActiveSidebarRow(rowRef.current);
   }, [active]);
-  // Local-file Pages mirror files on disk; renaming, duplicating, or moving
-  // them here would diverge from the folder.
   const isLocalFile = item.document.source?.mode === "local-files";
   const canChangePage = canEdit && !isLocalFile && pageActions !== null;
 
@@ -1174,8 +1166,6 @@ function DatabaseSidebarRow({
             data-sidebar-reorder-item-id={reorder?.controls.itemId}
             role="link"
             className={cn(
-              // The action overlay covers the row's end; keep the row's hover
-              // fill while the pointer is over those buttons.
               !active && "group-hover:bg-sidebar-accent/60",
               reorder && "touch-none cursor-pointer select-none",
               reorder?.controls.isDragging && "cursor-grabbing",
@@ -1287,10 +1277,6 @@ function DatabaseSidebarRow({
   );
 }
 
-/**
- * Inline rename in place of a row. Enter or leaving the field saves; Escape
- * cancels. It keeps the row's height and icon column so nothing shifts.
- */
 function SidebarRenameInput({
   initialTitle,
   icon,
@@ -1388,7 +1374,6 @@ export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {
   return depth * 18;
 }
 
-/** Vertical guides under each ancestor's icon column, so nesting stays traceable. */
 function SidebarDepthGuides({ depth }: { depth: number }) {
   if (depth <= 0) return null;
   return (

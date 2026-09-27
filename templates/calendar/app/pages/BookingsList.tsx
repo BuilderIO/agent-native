@@ -54,7 +54,6 @@ export default function BookingsList() {
   const deleteBooking = useDeleteBooking();
   const [filter, setFilter] = useState<FilterStatus>("all");
 
-  // Build a map of slug -> custom fields for resolving field labels
   const fieldsBySlug = useMemo(() => {
     const map: Record<string, CustomField[]> = {};
     for (const link of bookingLinks) {

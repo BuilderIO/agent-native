@@ -432,8 +432,6 @@ export function buildNativeAnchorFromElement(input: {
     planDesignNodeEl?.dataset.planDesignId ||
     undefined;
 
-  // Build a short human-readable node path from the frame root down to the
-  // target node, e.g. `card > list > listItem "Acme Inc"`.
   let targetNodePath: string | undefined;
   if (wireNodeEl) {
     const frameRoot =

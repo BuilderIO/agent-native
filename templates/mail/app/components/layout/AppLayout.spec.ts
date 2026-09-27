@@ -20,6 +20,22 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain("RouterSidebarLink,");
+    expect(source).toContain("const link = ( <RouterSidebarLink");
+    expect(source).toContain(
+      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
+    );
+    expect(
+      source.match(
+        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+  });
+
   it("keeps the tab scrollport within the space before its settings cog", () => {
     const source = appLayoutSource();
 
@@ -415,12 +431,6 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
-  // Repro: with no Google account connected, `view` for an unmatched URL
-  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
-  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
-  // the routed NotFound page — with the Google-connect banner instead. The
-  // page's <title> was correct (computed separately in $view.tsx's meta())
-  // while the rendered body silently became the inbox shell.
   it("only shows the Google-connect takeover for a known mail view", () => {
     const source = appLayoutSource();
 

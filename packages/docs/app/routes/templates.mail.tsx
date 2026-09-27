@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import { useRef, type MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
@@ -115,11 +115,6 @@ const FAQ_ITEMS = [
   { id: "teammate-prepare-email", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -130,6 +125,13 @@ export default function MailTemplate() {
     usePrefersReducedMotion(videoRef);
   const shouldAutoplay = current === false && !autoplayStopped;
   const shouldMute = initial !== true;
+
+  useEffect(() => {
+    if (!shouldAutoplay) return;
+    void videoRef.current?.play().catch((error: unknown) => {
+      console.error("Mail story video could not autoplay", error);
+    });
+  }, [shouldAutoplay]);
 
   return (
     <div className="builder-brand-tokens">
@@ -170,7 +172,7 @@ export default function MailTemplate() {
           descriptionPlacement="below-title"
           mediaOverlapsHeader
           media={
-            <div className="aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black">
+            <div className="mx-4 aspect-video overflow-hidden rounded-2xl border border-[var(--docs-border)] bg-black sm:mx-0">
               <video
                 ref={videoRef}
                 src="/videos/mail-jev-story.mp4"
@@ -230,6 +232,9 @@ export default function MailTemplate() {
                         : "h-[300px] w-full max-w-[540px] lg:h-[390px] lg:max-w-none"
                     }
                     label={t(`templateLanding.mail.${useCase.titleKey}`)}
+                    mobileArchiveToast={t(
+                      "templateLanding.mail.mobileArchiveToast",
+                    )}
                   />
                 </div>
               );
@@ -323,11 +328,6 @@ export default function MailTemplate() {
             href={firstPartyAppUrl("https://mail.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // The shared cta variant renders at 14px in sentence case, but
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page
-            // read as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);

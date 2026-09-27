@@ -176,8 +176,6 @@ describe("hit-test target provenance through the cross-screen command", () => {
           placement: "before",
         });
 
-        // A host may omit the optional pending ID while retaining the exact,
-        // revision-proven structural anchor selector from the hit-test reply.
         const { writes, historyEntries } = runCommandFromHitTest(packet, {
           duplicate: false,
           includePendingNodeId,

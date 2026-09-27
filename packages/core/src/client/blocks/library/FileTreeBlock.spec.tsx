@@ -262,22 +262,18 @@ describe("FileTreeBlock", () => {
         );
       });
 
-    // Collapsed by default — neither focused nor open.
     expect(section?.hasAttribute("data-files-expanded")).toBe(false);
     expect(fileButton?.getAttribute("aria-expanded")).toBe("false");
 
-    // Focus + open the file → expanded.
     pointerDown(fileButton!);
     click(fileButton!);
     expect(section?.hasAttribute("data-files-expanded")).toBe(true);
     expect(fileButton?.getAttribute("aria-expanded")).toBe("true");
 
-    // Clicking elsewhere collapses the rail AND closes the open file.
     pointerDown(document.body);
     expect(section?.hasAttribute("data-files-expanded")).toBe(false);
     expect(fileButton?.getAttribute("aria-expanded")).toBe("false");
 
-    // Re-opening works again; closing the last open file collapses too.
     pointerDown(fileButton!);
     click(fileButton!);
     expect(section?.hasAttribute("data-files-expanded")).toBe(true);

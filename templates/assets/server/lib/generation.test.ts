@@ -676,10 +676,6 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("keeps the nested provider payload out of the failure message", async () => {
-    // Real shape returned while the managed catalog routed Gemini 3.x to a
-    // retired Vertex alias: the provider failure is a JSON string inside a
-    // JSON string inside the body, and it used to reach the candidate tray
-    // verbatim, escapes and all.
     mockBuilderFailure(502, {
       code: "provider_error",
       message: JSON.stringify({
@@ -852,8 +848,6 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     expect(generationCalls).toBe(3);
-    // Every poll re-POSTs the same key so the service replays the stored result
-    // instead of starting a second, double-charged generation.
     expect(requestIdempotencyKeys(fetchMock)).toEqual([
       "run-poll-1",
       "run-poll-1",
@@ -899,7 +893,6 @@ describe("generateWithManagedImageProvider", () => {
     ).rejects.toEqual(
       expect.objectContaining({ name: "BuilderImageGenerationError" }),
     );
-    // initial attempt + MANAGED_PROVIDER_INFLIGHT_MAX_POLLS (6 under test).
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 });
@@ -1248,8 +1241,6 @@ describe("resolveImageModelForRequest", () => {
   });
 
   it("does not let embedded-text routing override a preset-derived tier", () => {
-    // A preset that resolves to a `fast` tier (no explicit tier on the request)
-    // must keep its Flash model even when embedded text is requested.
     expect(
       resolveImageModelForRequest({
         resolvedTier: "fast",
@@ -1259,8 +1250,6 @@ describe("resolveImageModelForRequest", () => {
   });
 
   it("does not let the composer default override a preset's saved model", () => {
-    // Sticky composer default differs from the tagged preset's saved model;
-    // the preset must win.
     expect(
       resolveImageModelForRequest({
         imageModelDefault: "gemini-3.1-flash-image",
@@ -1270,8 +1259,6 @@ describe("resolveImageModelForRequest", () => {
   });
 
   it("does not let the composer default override a tier-derived model", () => {
-    // A `best` tier request must resolve to Pro even when the composer default
-    // is Flash.
     expect(
       resolveImageModelForRequest({
         imageModelDefault: "gemini-3.1-flash-image",
@@ -1290,9 +1277,6 @@ describe("resolveImageModelForRequest", () => {
   });
 
   it("keeps a preset's explicit model over its own drifted derived tier", () => {
-    // Preset saved model = Pro, but settings.tier drifted to `fast` (the two
-    // are separate fields and can be updated independently). With no explicit
-    // per-request tier, the explicit saved model must win.
     expect(
       resolveImageModelForRequest({
         presetModel: "gemini-3-pro-image",
@@ -1302,8 +1286,6 @@ describe("resolveImageModelForRequest", () => {
   });
 
   it("lets an explicit per-request tier override the preset's saved model", () => {
-    // The caller deliberately requested `best` this turn, so it outranks the
-    // preset's saved Flash model.
     expect(
       resolveImageModelForRequest({
         presetModel: "gemini-3.1-flash-image",

@@ -1007,9 +1007,6 @@ describe("list-events inventory contract", () => {
         bookings: [bookingRow({ googleEventId: "event-1" })],
       }),
     );
-    // Primary Google read succeeds but genuinely has no matching event
-    // (e.g. it was cancelled upstream) - a fully successful, authoritative
-    // read with zero events, not a failure.
     listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
     listOverlayEventsMock.mockResolvedValue({
       events: [],
@@ -1025,9 +1022,6 @@ describe("list-events inventory contract", () => {
       overlayEmails: ["person@example.com"],
     });
 
-    // An unrelated overlay-account error must not make the caller's own
-    // (successful) Google read look non-authoritative and resurrect a
-    // local booking fallback for an event Google no longer has.
     expect(
       result.events.filter((event) => event.googleEventId === "event-1"),
     ).toHaveLength(0);

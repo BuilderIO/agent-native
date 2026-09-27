@@ -833,6 +833,11 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Einen Produktpitch erstellen",
+      roadmap: "Eine Produkt-Roadmap erstellen",
+      explainer: "Ein Thema in einer Präsentation erklären",
+    },
     suggestedPrompts: "Vorgeschlagene Prompts",
     importMenu: {
       import: "Importieren",
@@ -840,7 +845,11 @@ const messages = {
       invalidPdf: "Wähle eine PDF-Datei.",
       invalidPptx: "Wähle eine PPTX-Datei.",
       invalidFile: "Wähle eine PDF- oder PPTX-Datei.",
+      networkFailed:
+        "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      uploadLimitExceeded:
+        "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {
@@ -880,6 +889,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      figmaReadFailed:
+        "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
       designCategory: "Gestaltung",

@@ -27,8 +27,8 @@ const storageStatus = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  actionErrorMessage: (error: Error) =>
-    error.message.replace(/^Action failed: /, ""),
+  actionErrorMessage: (error: { actionMessage?: unknown }) =>
+    typeof error?.actionMessage === "string" ? error.actionMessage : undefined,
 }));
 vi.mock("./GoogleDriveConnectionCta", () => ({
   GoogleDriveConnectionCta: () => (
@@ -64,10 +64,10 @@ function Harness({ onImport }: { onImport: PromptImportHandler }) {
   return <ImportDeckButton controller={controller} />;
 }
 function openMenu() {
-  fireEvent.pointerDown(
-    screen.getByRole("button", { name: "Import options" }),
-    { button: 0, ctrlKey: false },
-  );
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
+    button: 0,
+    ctrlKey: false,
+  });
 }
 function selectFile(file?: File) {
   fireEvent.change(screen.getByLabelText("Import file"), {
@@ -105,17 +105,19 @@ describe("toolbar deck import", () => {
     );
     expect(screen.getByRole("dialog", { name: "Google Slides" })).toBe(dialog);
   });
-  it("opens the combined PDF/PPTX native picker directly and cancelling is a no-op", () => {
+  it("opens import options from the whole button and cancelling is a no-op", () => {
     const onImport = vi.fn();
     const click = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={onImport} />);
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
-    expect(click).toHaveBeenCalledOnce();
-    expect(screen.getByLabelText("Import file").getAttribute("accept")).toBe(
-      Object.values(DECK_FILE_ACCEPT).join(","),
-    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Import" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByRole("menuitem", { name: "PDF" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "PPT" })).toBeTruthy();
+    expect(click).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
     selectFile();
     expect(onImport).not.toHaveBeenCalled();
@@ -127,7 +129,8 @@ describe("toolbar deck import", () => {
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
     render(<Harness onImport={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
     expect(click).not.toHaveBeenCalled();
     expect(screen.getByText("Connect object storage")).toBeTruthy();
     expect(
@@ -138,7 +141,8 @@ describe("toolbar deck import", () => {
     storageStatus.isError = true;
     storageStatus.isSuccess = false;
     render(<Harness onImport={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
     fireEvent.click(screen.getByText("Connect object storage"));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
@@ -146,7 +150,8 @@ describe("toolbar deck import", () => {
     storageStatus.isSuccess = false;
     storageStatus.isLoading = false;
     render(<Harness onImport={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
     fireEvent.click(screen.getByText("Connect object storage"));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
@@ -155,7 +160,12 @@ describe("toolbar deck import", () => {
     async (kind) => {
       const onImport = vi.fn().mockResolvedValue(true);
       render(<Harness onImport={onImport} />);
-      fireEvent.click(screen.getByRole("button", { name: "Import" }));
+      openMenu();
+      fireEvent.click(
+        screen.getByRole("menuitem", {
+          name: kind === "pdf" ? "PDF" : "PPT",
+        }),
+      );
       const file = new File(["source"], `source.${kind}`);
       selectFile(file);
       await waitFor(() =>
@@ -239,7 +249,11 @@ describe("toolbar deck import", () => {
     selectFile(file);
     expect(onImport).toHaveBeenCalledOnce();
     await act(async () =>
-      reject(new Error("Action failed: Upload unavailable")),
+      reject(
+        Object.assign(new Error("action failed"), {
+          actionMessage: "Upload unavailable",
+        }),
+      ),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Upload unavailable",
@@ -265,10 +279,66 @@ describe("toolbar deck import", () => {
       }),
     );
   });
+  it("explains when reference storage is unavailable", async () => {
+    render(
+      <Harness
+        onImport={() =>
+          Promise.reject(
+            Object.assign(
+              new Error(translate("home.referenceFileStorageUnavailable")),
+              { code: "reference_storage_unavailable" },
+            ),
+          )
+        }
+      />,
+    );
+    selectFile(new File(["source"], "source.pdf"));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      translate("home.referenceFileStorageUnavailable"),
+    );
+  });
+  it.each([
+    new TypeError("Failed to fetch"),
+    Object.assign(new Error("The request was aborted"), { name: "AbortError" }),
+    Object.assign(new Error('File "large.pptx": Failed to fetch'), {
+      code: "reference_upload_network_failed",
+    }),
+  ])(
+    "explains network failures without exposing transport details",
+    async (error) => {
+      render(<Harness onImport={() => Promise.reject(error)} />);
+      selectFile(new File(["source"], "source.pdf"));
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        translate("home.importMenu.networkFailed"),
+      );
+    },
+  );
+  it("uses generic storage guidance for storage HTTP failures", async () => {
+    render(
+      <Harness
+        onImport={() =>
+          Promise.reject(
+            Object.assign(new Error("Reference file storage status failed"), {
+              code: "reference_storage_http_failed",
+            }),
+          )
+        }
+      />,
+    );
+    selectFile(new File(["source"], "source.pdf"));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      translate("home.fileStorageStatusUnavailable"),
+    );
+  });
   it("opens an anchored Google Slides form, retains URL on failure, and submits through the same pipeline", async () => {
     const onImport = vi
       .fn()
-      .mockRejectedValueOnce(new Error("Reconnect Google Drive"))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("action failed"), {
+          actionMessage: "Reconnect Google Drive",
+        }),
+      )
       .mockResolvedValue(true);
     render(<Harness onImport={onImport} />);
     openMenu();
@@ -302,7 +372,11 @@ describe("toolbar deck import", () => {
     });
   });
   it("clears failed-file state for a new Google source and restores focus on Escape", async () => {
-    const onImport = vi.fn().mockRejectedValue(new Error("PDF upload failed"));
+    const onImport = vi.fn().mockRejectedValue(
+      Object.assign(new Error("action failed"), {
+        actionMessage: "PDF upload failed",
+      }),
+    );
     render(<Harness onImport={onImport} />);
     selectFile(new File(["source"], "source.pdf"));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -311,7 +385,7 @@ describe("toolbar deck import", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import options" }),
+        screen.getByRole("button", { name: "Import" }),
       ),
     );
     openMenu();
@@ -329,7 +403,7 @@ describe("toolbar deck import", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        screen.getByRole("button", { name: "Import options" }),
+        screen.getByRole("button", { name: "Import" }),
       ),
     );
   });

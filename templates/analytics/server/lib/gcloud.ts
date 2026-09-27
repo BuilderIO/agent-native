@@ -1,7 +1,3 @@
-// Google Cloud API helper
-// Fetches Cloud Run services, Cloud Functions, metrics, and logs
-// Uses manual JWT-based service account auth (no SDK dependencies)
-
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -17,12 +13,10 @@ async function getProjectId(): Promise<string> {
   return projectId;
 }
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
-// Token cache, scoped by caller credential context.
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
@@ -86,10 +80,6 @@ async function waitForGoogleRetry(attempt: number): Promise<void> {
   });
 }
 
-/**
- * Keep transient Google network failures from killing long-running jobs while
- * preserving a hard bound on attempts and request duration.
- */
 export async function fetchGoogleWithRetry(
   url: string,
   init: RequestInit,
@@ -162,7 +152,6 @@ async function getServiceAccountCredentials() {
     );
   }
 
-  // Detect OAuth client credential mistakenly uploaded as a service account key
   if (
     parsed &&
     typeof parsed === "object" &&
@@ -325,10 +314,8 @@ async function apiPost<T>(
   return data as T;
 }
 
-// -- Types --
-
 export interface CloudRunService {
-  name: string; // full resource name
+  name: string;
   uid: string;
   displayName: string;
   uri: string;
@@ -371,8 +358,6 @@ export interface LogEntry {
   logName: string;
   insertId: string;
 }
-
-// -- API functions --
 
 export async function listCloudRunServices(): Promise<CloudRunService[]> {
   const projectId = await getProjectId();
@@ -528,8 +513,6 @@ export async function getServiceMetrics(
     filter += ` AND ${extraFilter}`;
   }
 
-  // Cloud Run metrics are mostly DELTA (request_count, request_latencies) or GAUGE (instance_count, cpu/memory).
-  // ALIGN_RATE works for DELTA counters, ALIGN_MEAN for GAUGE, ALIGN_PERCENTILE_99 for distributions.
   let aligner: string;
   let reducer = "REDUCE_SUM";
 
@@ -539,21 +522,18 @@ export async function getServiceMetrics(
     metric.includes("execution_times") ||
     metric.includes("utilizations")
   ) {
-    // Distribution metrics — use percentile
     aligner = "ALIGN_PERCENTILE_99";
   } else if (
     metric.includes("instance_count") ||
     metric.includes("active_instances") ||
     metric.includes("memory")
   ) {
-    // Gauge metrics — use mean
     aligner = "ALIGN_MEAN";
     reducer = "REDUCE_MEAN";
   } else if (
     metric.includes("request_count") ||
     metric.includes("execution_count")
   ) {
-    // Delta counter metrics — use delta (sum over alignment period)
     aligner = "ALIGN_DELTA";
   } else {
     aligner = "ALIGN_MEAN";

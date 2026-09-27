@@ -59,16 +59,9 @@ configureTracking({
   }),
 });
 
-/** Routes that render without the app shell (sidebar + AgentSidebar) */
 const BARE_ROUTES = new Set(["/slide"]);
-/** Route prefixes that render without the app shell */
 const BARE_PREFIXES = ["/share/", "/p/"];
 
-/**
- * Routes that use the shareable-content app shell. Deck editor links keep
- * that shell to avoid first-run onboarding, then use a route-local session
- * gate below so anonymous recipients reach the sign-in form first.
- */
 export function isShareableContentPath(pathname: string): boolean {
   return isBareContentPath(pathname) || pathname.startsWith("/deck/");
 }
@@ -91,13 +84,10 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-// Key forces DeckProvider remount when code changes (HMR)
 const DECK_KEY = 3;
 
-/** Track whether we (the app) put the user into selection mode via a slide click */
 let weEnteredSelectionMode = false;
 
-/** Helper to send selection mode messages and track state */
 export function enterSelectionMode(
   type: "agentNative.enterStyleEditing" | "agentNative.enterTextEditing",
   data: { selector: string },
@@ -224,11 +214,18 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const handleCommandMenuShortcut = useCallback(() => setCmdkOpen(true), []);
+  const location = useLocation();
+  const handleCommandMenuShortcut = useCallback(() => {
+    setCmdkOpen(true);
+  }, []);
+  const shouldHandleContentEditableCommandMenuShortcut = useCallback(
+    () => location.pathname !== "/home",
+    [location.pathname],
+  );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
+    shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
   });
-  const location = useLocation();
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{

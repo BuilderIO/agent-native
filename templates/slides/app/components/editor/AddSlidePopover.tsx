@@ -26,6 +26,11 @@ import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -99,11 +104,7 @@ export function AddSlidePopover({
   agentSubmit: (message: string, context: string) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
-  /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
   placement?: "below" | "right";
-  /** Id of a blank slide already inserted — the agent fills it in instead of
-   *  inserting another one. Used when this popover follows a "New slide"
-   *  click that already created the placeholder. */
   targetSlideId?: string;
 }) {
   const t = useT();
@@ -113,8 +114,6 @@ export function AddSlidePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
-  // Estimate before the panel has painted so the first frame doesn't hang
-  // off the bottom of the viewport; corrected once the real height is known.
   const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -124,6 +123,11 @@ export function AddSlidePopover({
     },
     [],
   );
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
   const {
     commitFiles,
     discardFiles,
@@ -132,7 +136,7 @@ export function AddSlidePopover({
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
@@ -142,10 +146,6 @@ export function AddSlidePopover({
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
   }, [open]);
 
-  // Content can grow after the first paint (Google Doc hint, file chips,
-  // an auto-growing textarea) without necessarily triggering a React
-  // re-render. Watch the panel directly so it keeps clamping to the
-  // viewport as it resizes, not just on the frame it first opens.
   useEffect(() => {
     if (!open || !panelRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -197,11 +197,22 @@ export function AddSlidePopover({
             const storageSetupRequired = isStorageSetupRequiredError(error);
             if (storageSetupRequired) void storageQuery.refetch();
             toast.error(t("editorSidebar.uploadFailed"), {
-              description: storageSetupRequired
-                ? t("home.fileStorageSetupRequired")
-                : error instanceof Error
-                  ? error.message
-                  : t("editorSidebar.uploadAttachedFileFailed"),
+              description: formatPromptUploadFailure(
+                error,
+                storageSetupRequired
+                  ? t("home.fileStorageSetupRequired")
+                  : isPromptUploadNetworkError(error)
+                    ? t("home.importMenu.networkFailed")
+                    : isPromptUploadAuthRequiredError(error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadLimitError(error)
+                        ? t("home.importMenu.uploadLimitExceeded")
+                        : isPromptUploadStorageStatusError(error)
+                          ? t("editorToolbar.importFailedDescription")
+                          : error instanceof Error
+                            ? error.message
+                            : t("editorSidebar.uploadAttachedFileFailed"),
+              ),
             });
             return;
           }
@@ -296,11 +307,22 @@ export function AddSlidePopover({
         const storageSetupRequired = isStorageSetupRequiredError(error);
         if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("editorSidebar.uploadFailed"), {
-          description: storageSetupRequired
-            ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("editorSidebar.uploadAttachedFileFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorSidebar.uploadAttachedFileFailed"),
+          ),
         });
       });
     },

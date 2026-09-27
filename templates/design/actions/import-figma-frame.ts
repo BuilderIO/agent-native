@@ -106,10 +106,6 @@ export default defineAction({
     const requestedNodeId =
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
-    // Validate the target before any provider fetch, rendered-fallback
-    // download, or durable upload. saveImportedDesignFiles checks again at
-    // mutation time, but waiting until then leaves external work and orphaned
-    // assets behind when a caller names a design they cannot edit.
     const existingDesignId = args.createNew
       ? undefined
       : await resolveImportDesignId(args.designId);

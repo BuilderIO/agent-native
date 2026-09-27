@@ -32,11 +32,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 
-/**
- * Fade a row's title under its revealed actions instead of re-truncating it,
- * so the text never shifts under the pointer. Keyed by how many 24px action
- * buttons the row reveals.
- */
 export function sidebarRowTitleFadeClassName(actionCount: 1 | 2) {
   return actionCount === 1
     ? "group-hover:[mask-image:linear-gradient(to_left,transparent_1.5rem,#000_2.5rem)] group-focus-within:[mask-image:linear-gradient(to_left,transparent_1.5rem,#000_2.5rem)]"
@@ -46,10 +41,6 @@ export function sidebarRowTitleFadeClassName(actionCount: 1 | 2) {
 export const sidebarRowActionButtonClassName =
   "flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-/**
- * Row actions pinned to the end of a `group relative` sidebar row. They appear
- * on hover or focus and stay put while one of their menus is open.
- */
 export function SidebarRowActions({ children }: { children: ReactNode }) {
   return (
     <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
@@ -58,7 +49,6 @@ export function SidebarRowActions({ children }: { children: ReactNode }) {
   );
 }
 
-/** A row's "…" menu; each section decides which items it offers. */
 export function SidebarRowMenu({
   label,
   onCloseAutoFocus,
@@ -109,10 +99,6 @@ export function SidebarPinMenuItem({
   );
 }
 
-/**
- * Where a sidebar Page opens and what its copied link is. Local-file Pages
- * are not published, so their link is the in-app URL rather than /p/.
- */
 export function sidebarPageLinks(
   documentId: string,
   { localFile = false }: { localFile?: boolean } = {},
@@ -125,7 +111,6 @@ export function sidebarPageLinks(
   };
 }
 
-/** Page mutations the sidebar row menu can start, owned by DocumentSidebar. */
 export interface SidebarPageActions {
   renamePage: (documentId: string, title: string) => Promise<void>;
   duplicatePage: (documentId: string) => void;
@@ -146,12 +131,6 @@ export function useSidebarPageActions() {
   return useContext(SidebarPageActionsContext);
 }
 
-/**
- * The one sidebar Page menu. Every section renders it and passes only the
- * actions it allows, so Files, Pinned, and Recent share order, labels, and
- * behavior. Groups follow Notion's shape: pin; link and open; change the
- * Page; lifecycle; then who last edited it.
- */
 export function SidebarPageMenu({
   documentId,
   title,
@@ -178,9 +157,6 @@ export function SidebarPageMenu({
   onMoveToTrash?: () => void;
 }) {
   const t = useT();
-  // Rename swaps the row for an input. Start it only after the menu has
-  // closed and skip Radix's focus return to the "…" trigger; otherwise the
-  // menu's focus trap steals focus and the blur commits the input at once.
   const pendingRenameRef = useRef(false);
   const [open, setOpen] = useState(false);
 
@@ -284,10 +260,6 @@ export function SidebarPageMenu({
   );
 }
 
-/**
- * "Last edited by … · when", read only while the menu is open. It renders a
- * fixed two-line block so the menu does not jump when the read resolves.
- */
 function SidebarPageActivity({
   documentId,
   enabled,
@@ -297,7 +269,6 @@ function SidebarPageActivity({
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
-  // Every row renders a menu; only the open one reads its activity.
   const activity = useActionQuery(
     "get-document-activity",
     { id: documentId },

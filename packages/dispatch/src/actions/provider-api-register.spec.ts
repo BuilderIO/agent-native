@@ -28,10 +28,6 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 
-// Keep the real `assertCanMutateCustomProviderScope` (it's the guard under
-// test's downstream enforcement point) and only mock the DB-backed CRUD
-// functions, mirroring the `importOriginal` partial-mock pattern used in
-// packages/dispatch/src/server/lib/vault-store.spec.ts.
 vi.mock("@agent-native/core/provider-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/provider-api")>();
@@ -140,7 +136,6 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       null,
     );
-    // No membership lookup should even happen for user-scope calls.
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
@@ -170,7 +165,6 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       "owner",
     );
-    // No org, so no membership lookup should happen either.
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
@@ -187,7 +181,6 @@ describe("provider-api-register org-scope authorization", () => {
       "org-a",
       "my-api",
     );
-    // Reads are intentionally out of scope for the role gate (plan 014).
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

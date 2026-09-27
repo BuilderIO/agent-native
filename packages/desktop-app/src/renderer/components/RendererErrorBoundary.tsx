@@ -14,9 +14,6 @@ interface RendererErrorBoundaryState {
   error: Error | null;
 }
 
-// Inline styles (not a class in shell.css) so the fallback still renders
-// correctly even if the crash happened before/during stylesheet application.
-// Colors reuse the same tokens shell.css defines, so light/dark still match.
 const overlayStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -42,13 +39,6 @@ const buttonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-/**
- * Catches render-time and commit-phase-effect throws from anywhere under
- * `<App />`. Without this, React unmounts the whole tree on any such throw
- * and the window goes blank with no recovery short of quitting and
- * relaunching. Only a class component can implement getDerivedStateFromError
- * / componentDidCatch.
- */
 export class RendererErrorBoundary extends Component<
   RendererErrorBoundaryProps,
   RendererErrorBoundaryState

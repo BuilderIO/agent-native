@@ -1,9 +1,3 @@
-/**
- * Cross-tenant write (IDOR) regression tests for booking actions that
- * mutate — or disclose a capability token for — a booking that belongs to
- * another host. Mirrors the `isHost` guard already proven in
- * `cancel-booking.ts` / `reschedule-booking.ts`.
- */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

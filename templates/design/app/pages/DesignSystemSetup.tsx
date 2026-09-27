@@ -207,7 +207,6 @@ function DesignSystemSetupContent() {
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
 
-  // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
@@ -1926,8 +1925,6 @@ function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
   return name.endsWith(".md") || name.endsWith(".mdx");
 }
 
-// Only the exact name, because this classifies a bulk code-file drop: widening it
-// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
   const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";

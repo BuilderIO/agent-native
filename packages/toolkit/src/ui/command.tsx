@@ -83,7 +83,6 @@ function SearchInputFrame({
   );
 }
 
-/** Integrated menu search without cmdk's combobox/listbox relationship. */
 const MenuSearchInput = React.forwardRef<
   HTMLInputElement,
   React.ComponentPropsWithoutRef<"input"> & { leading?: React.ReactNode }

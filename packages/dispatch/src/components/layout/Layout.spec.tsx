@@ -21,8 +21,6 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
-  // Stable identity: WorkspaceAppFrame's embed effect depends on this
-  // function, so a fresh mock per render would re-run the effect forever.
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
@@ -732,9 +730,6 @@ describe("chat-first surface panel toggle stacking", () => {
       container.querySelector("[data-chat-first-surface-toggle]")?.className ??
       "";
 
-    // Below 768px the panel becomes a full-screen absolute overlay at this
-    // z-index (surface-panel.tsx). The toggle is the only control that can
-    // dismiss it, so it must always paint above that overlay.
     const panelMobileZIndex = readMobileZIndexClass(panelClassName);
     const toggleZIndex = readUnprefixedZIndexClass(toggleClassName);
     expect(panelMobileZIndex).not.toBeNull();
@@ -784,9 +779,6 @@ describe("chat-first app surface tab chat rail", () => {
   it("does not mount a second full-screen chat rail while the mobile surface panel already covers the screen", async () => {
     const { container, root } = await renderAppTab(true);
 
-    // ChatFirstSurfacePanel is already a full-screen overlay below 768px
-    // (surface-panel.tsx). A nested AgentSidebar chat rail here would stack a
-    // second full-screen shell on top of it.
     expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
     expect(
       container.querySelector("[data-chat-first-app-pane]"),

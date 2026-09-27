@@ -1,6 +1,3 @@
-// Prometheus HTTP API helper. Deterministic auth selection, descriptor parsing,
-// and matrix/vector → {rows, schema} transforms. No LLM in this path.
-
 import { z } from "zod";
 
 import {
@@ -11,8 +8,6 @@ import {
   requireRequestCredentialContext,
   scopedCredentialCacheKey,
 } from "./credentials-context";
-
-// --- Auth ---
 
 export interface PrometheusAuth {
   username?: string;
@@ -26,9 +21,6 @@ type ResolvedPrometheusAuth = {
   bearer?: NonNullable<Awaited<ReturnType<typeof resolveCredentialDetailed>>>;
 };
 
-/** Build the Authorization header. Basic auth wins over bearer when both are
- *  fully present. Partial basic (username XOR password) is ignored — falls
- *  through to bearer. Returns null when no auth is configured (self-hosted). */
 export function buildAuthHeader(auth: PrometheusAuth): string | null {
   const hasBasic = !!(auth.username && auth.password);
   if (hasBasic) {
@@ -87,8 +79,6 @@ function assertAuthCanReachEndpoint(
   }
 }
 
-// --- Cache (metadata only, never query results) ---
-
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
@@ -100,8 +90,6 @@ function cacheSet(key: string, data: unknown) {
   }
   cache.set(key, { data, ts: Date.now() });
 }
-
-// --- Low-level fetch ---
 
 async function doFetch<T>(
   url: string,
@@ -158,8 +146,6 @@ async function apiGet<T>(
   return doFetch<T>(url, headers);
 }
 
-// --- High-level API ---
-
 export async function queryInstant(promql: string, time?: string) {
   return apiGet<{ resultType: string; result: unknown }>("/api/v1/query", {
     query: promql,
@@ -199,8 +185,6 @@ export async function listLabelValues(label: string): Promise<string[]> {
 export async function listSeries(
   matchers: string[],
 ): Promise<Record<string, string>[]> {
-  // Prometheus accepts repeated match[]= params; encode manually since apiGet
-  // collapses keys via URLSearchParams.set.
   const base = await resolveBase();
   const auth = await resolveAuth();
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -222,8 +206,6 @@ export async function listMetricMetadata(metric?: string): Promise<unknown> {
 export async function listAlerts(): Promise<unknown> {
   return apiGet("/api/v1/alerts", {});
 }
-
-// --- Panel descriptor (panel `sql` serialized JSON) ---
 
 const PanelDescriptorSchema = z.object({
   promql: z.string().min(1, "promql is required"),
@@ -267,7 +249,6 @@ export function parsePanelDescriptor(raw: string): PanelDescriptor {
   return result.data;
 }
 
-/** Aim for ~250 points across the range, clamped to a 15-second minimum. */
 export function defaultStep(rangeSec: number): number {
   return Math.max(15, Math.floor(rangeSec / 250));
 }
@@ -309,8 +290,6 @@ export function resolveRangeWindow(
     : defaultStep(endSec - startSec);
   return { startSec, endSec, stepSec };
 }
-
-// --- Response flatteners ---
 
 function seriesLabel(metric: Record<string, string>): string {
   const name = metric.__name__ ?? "";
@@ -375,7 +354,6 @@ export function flattenVector(data: {
   return { rows, schema: ROW_SCHEMA };
 }
 
-/** Entrypoint used by the dashboard panel source resolver. */
 export async function runPrometheusPanel(raw: string) {
   const d = parsePanelDescriptor(raw);
   if (d.mode === "instant") {
@@ -387,13 +365,12 @@ export async function runPrometheusPanel(raw: string) {
   return flattenMatrix(data as any);
 }
 
-/** Verify connectivity. Called by /api/test-connection when source="prometheus". */
 export async function testConnection(): Promise<{
   ok: boolean;
   error?: string;
 }> {
   try {
-    const base = await resolveBase(); // throws if PROMETHEUS_URL not set
+    const base = await resolveBase();
     const auth = await resolveAuth();
     assertAuthCanReachEndpoint(base, auth);
     const headers: Record<string, string> = { Accept: "application/json" };

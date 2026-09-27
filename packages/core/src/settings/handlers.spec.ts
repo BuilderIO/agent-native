@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the store module
 const mockGetSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
@@ -11,7 +10,6 @@ vi.mock("./store.js", () => ({
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
-// Track setResponseStatus calls per event
 let lastStatus = 200;
 
 vi.mock("h3", () => ({
@@ -61,7 +59,6 @@ describe("settings handlers", () => {
       const event = { _params: { key: "!@#$" }, _headers: {} };
       await getSettingHandler(event);
 
-      // All chars stripped, resulting key is empty string
       expect(mockGetSetting).toHaveBeenCalledWith("");
     });
   });

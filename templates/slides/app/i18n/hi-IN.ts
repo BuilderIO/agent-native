@@ -805,6 +805,11 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "उत्पाद पिच डेक बनाएँ",
+      roadmap: "उत्पाद रोडमैप बनाएँ",
+      explainer: "प्रस्तुति में किसी विषय को समझाएँ",
+    },
     suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
     importMenu: {
       import: "आयात करें",
@@ -812,7 +817,11 @@ const messages = {
       invalidPdf: "PDF फ़ाइल चुनें।",
       invalidPptx: "PPTX फ़ाइल चुनें।",
       invalidFile: "PDF या PPTX फ़ाइल चुनें।",
+      networkFailed:
+        "आयात अनुरोध का समय समाप्त हो गया या नेटवर्क कनेक्शन टूट गया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
       notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+      uploadLimitExceeded:
+        "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
     },
     importDeck: "प्रस्तुति आयात करें",
     context: {
@@ -851,6 +860,8 @@ const messages = {
       notReady:
         "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
       emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      figmaReadFailed:
+        "Design यह Figma संदर्भ नहीं पढ़ सका। Design में सेव किया गया Figma access token और यह जाँचें कि उससे जुड़ा खाता फ़ाइल खोल सकता है, फिर दोबारा कोशिश करें।",
       tooMany: "अधिकतम 20 संदर्भ चुनें।",
       search: "संदर्भ खोजें",
       designCategory: "डिज़ाइन",

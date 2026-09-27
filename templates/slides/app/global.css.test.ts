@@ -26,9 +26,6 @@ const RAW_SLIDE = (inner: string) =>
   `<div style="color: rgb(41, 37, 36); background: #fdf6ec">${inner}</div>` +
   "</div>";
 
-/** What a "content"/"two-column" layout renders once the slide declares a
- *  color: the same palette-off marker, on the AutoFitContent container that
- *  carries `slide-content`. */
 const MARKDOWN_LAYOUT_SLIDE = (inner: string) =>
   '<div class="fmd-autofit-scale slide-content" ' +
   'data-slide-content-scope="authored-colors">' +
@@ -87,8 +84,6 @@ describe("slide-content text colors", () => {
   });
 
   it("covers raw slide HTML whose root has no fmd-slide class", () => {
-    // The reset used to be scoped to `.fmd-slide`, so agent HTML that omitted
-    // the class kept the white heading. This is that exact markup.
     const html =
       '<div class="slide-content" data-slide-content-scope="scope-2">' +
       '<div style="padding: 80px 110px; background: #fdf6ec; color: #292524">' +
