@@ -24,6 +24,7 @@ import {
 } from "../extensions/change-marker.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 
 export interface ChangeEvent {
   version: number;
@@ -1792,28 +1793,36 @@ export function createPollHandler(
 ) {
   if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
-    // coercion-ok: polling must fail closed when session resolution is unavailable.
-    const session = await import("./auth.js")
-      .then(({ getSession }) => getSession(event))
-      .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
-    if (!session?.email) {
-      setResponseStatus(event, 401);
-      return { error: "Unauthenticated" };
-    }
-    await state.seedVersionFromDb();
-    const durableEvents = await state.ensureSyncEventsTable();
-    await state.checkExternalDbChanges({ durableEvents });
+    try {
+      // coercion-ok: polling must fail closed when session resolution is unavailable.
+      const session = await import("./auth.js")
+        .then(({ getSession }) => getSession(event))
+        .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Unauthenticated" };
+      }
+      await state.seedVersionFromDb();
+      const durableEvents = await state.ensureSyncEventsTable();
+      await state.checkExternalDbChanges({ durableEvents });
 
-    const query = getQuery(event);
-    const cursor = decodeSyncCursor(query.cursor);
-    const since =
-      cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
-    return state.getCombinedChangesSinceForUser(
-      since,
-      session.email,
-      session.orgId,
-      durableEvents,
-      cursor,
-    );
+      const query = getQuery(event);
+      const cursor = decodeSyncCursor(query.cursor);
+      const since =
+        cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
+      return await state.getCombinedChangesSinceForUser(
+        since,
+        session.email,
+        session.orgId,
+        durableEvents,
+        cursor,
+      );
+    } catch (error) {
+      console.error(
+        `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,
+        error,
+      );
+      throw error;
+    }
   });
 }

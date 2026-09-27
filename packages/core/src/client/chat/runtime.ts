@@ -1731,13 +1731,8 @@ function mapAgentNativeEvent(
         toolCallId,
         toolName: ev.tool ?? "unknown",
         status: ev.isError || ev.error ? "failed" : "completed",
-        result: ev.result,
-        resultText:
-          typeof ev.result === "string"
-            ? ev.result
-            : ev.result !== undefined
-              ? JSON.stringify(ev.result)
-              : undefined,
+        result: ev.chatUIResult !== undefined ? ev.chatUIResult : ev.result,
+        resultText: ev.result,
         error: ev.error,
         mcpApp: ev.mcpApp,
         chatUI: ev.chatUI,
