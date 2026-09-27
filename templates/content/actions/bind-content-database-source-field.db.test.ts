@@ -1,8 +1,3 @@
-// Integration tests for the row-union per-source column field-binding action
-// (slice 6c + its Codex review fixes). Boots a real PGlite database, runs
-// the actual migrations, seeds a 2-source row-union, and drives the bind action
-// through `run` (with an owner request context so assertAccess passes).
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,12 +61,6 @@ async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
-/**
- * Seed a row-union database with two Builder sources. Source A has two rows
- * carrying a `data.cat` value (one of which is empty), plus a multi-value
- * `data.labels` field; source B has one row. A text column "Tag" is the bind
- * target. Returns the ids needed to drive and assert against the action.
- */
 async function seedRowUnion() {
   const db = getDb();
   const now = new Date().toISOString();
@@ -109,7 +98,6 @@ async function seedRowUnion() {
     });
     return id;
   }
-  // A is the primary (older); B is the secondary.
   const sourceA = await addSource("collection-a", "2026-01-01T00:00:00.000Z");
   const sourceB = await addSource("collection-b", "2026-01-02T00:00:00.000Z");
 
@@ -152,7 +140,7 @@ async function seedRowUnion() {
     return docId;
   }
   const a1 = await addRow(sourceA, "a1", { "data.cat": "Alpha" });
-  const a2 = await addRow(sourceA, "a2", {}); // no cat value (sparse)
+  const a2 = await addRow(sourceA, "a2", {});
   const b1 = await addRow(sourceB, "b1", { "data.cat": "Beta" });
 
   async function addField(
@@ -182,7 +170,6 @@ async function seedRowUnion() {
   const fieldALabels = await addField(sourceA, "data.labels", "list");
   const fieldBCat = await addField(sourceB, "data.cat", "text");
 
-  // Target text column "Tag".
   const tagPropertyId = `prop_tag_${suffix}`;
   await db.insert(schema.documentPropertyDefinitions).values({
     id: tagPropertyId,
@@ -417,7 +404,6 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // Source A's row with a value gets it; source B's row is untouched.
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBeUndefined();
   });
@@ -466,7 +452,6 @@ describe("bind-content-database-source-field (row-union)", () => {
   it("clears a stale column value when the newly bound field is empty", async () => {
     const f = await seedRowUnion();
     const db = getDb();
-    // Pre-seed a stale value on a2 (whose data.cat is empty).
     await db.insert(schema.documentPropertyValues).values({
       id: `pv_stale_${f.docs.a2}`,
       ownerEmail: OWNER,
@@ -483,7 +468,6 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // The empty-valued row no longer shows the stale value.
     expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
   });
@@ -688,11 +672,9 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // Both sources now feed "Tag": A's a1 and B's b1 both populated.
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBe("Beta");
 
-    // Unbind source A's field; its mapping reverts to unmapped.
     await asOwner(() =>
       bindAction.run({
         databaseId: f.databaseId,

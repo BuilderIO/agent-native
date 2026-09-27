@@ -11,7 +11,7 @@ import {
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -28,7 +28,6 @@ export default defineAction({
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)

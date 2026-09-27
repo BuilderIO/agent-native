@@ -98,9 +98,6 @@ async function borderPixels(page: Page, screenId: string) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("could not decode border screenshot");
     context.drawImage(image, 0, 0);
-    // A freshly-applied Linear gradient defaults to 180deg (top-to-bottom —
-    // see fill-gradient-helpers.ts's defaultGradientPrefix), so the color
-    // varies down the left border stripe (x=3), not along the top stripe.
     const sample = (y: number) =>
       Array.from(context.getImageData(3, y, 1, 1).data.slice(0, 3));
     return {
@@ -224,9 +221,6 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
         borderImageSource: "none",
         borderColor: "rgb(17, 24, 39)",
       });
-    // The live computed style updates before the debounced save round-trips
-    // to persisted source, so a one-shot read here races that save. Poll for
-    // the settled source instead of asserting on the first read.
     await expect
       .poll(async () => readSource(page, designId, screenId))
       .not.toContain("--an-css-border-gradient");

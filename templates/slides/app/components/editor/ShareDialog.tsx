@@ -22,9 +22,7 @@ import type { Deck } from "@/context/DeckContext";
 
 interface ShareDialogProps {
   deck: Deck;
-  /** Trigger element rendered as the dialog anchor (usually the Share button). */
   children?: ReactNode;
-  /** Controlled opening for menu items that must wait for their parent to close. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -54,8 +52,6 @@ export default function ShareDialog({
 
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
-  // Viral attribution: whoever copies this public presentation link is
-  // tagged as the referrer, so a signup that follows it can be attributed.
   const primaryShareLink = shareToken
     ? withShareLinkAttribution(
         `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,

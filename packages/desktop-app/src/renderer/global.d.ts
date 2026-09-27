@@ -1,6 +1,5 @@
 declare module "*.css" {}
 
-/** Auto-update status surfaced from electron-updater (mirrors shared/ipc-channels.ts). */
 type UpdateStatus =
   | { state: "idle" }
   | { state: "unsupported"; reason: string }
@@ -788,7 +787,6 @@ type DesktopAppCreationSettings = {
   appsRoot: string;
 };
 
-/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
 type DesktopAppCreationSettingsUpdateResult = {
   ok: boolean;
   settings: DesktopAppCreationSettings;
@@ -849,7 +847,6 @@ type MultiFrontierSubscriptionResult = {
   error?: { message: string };
 };
 
-/** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
   sentry: {
@@ -1160,7 +1157,6 @@ declare interface Window {
   electronAPI: ElectronAPI;
 }
 
-/** Extend JSX to support Electron's <webview> custom element */
 declare namespace JSX {
   interface IntrinsicElements {
     webview: React.DetailedHTMLProps<
@@ -1177,7 +1173,6 @@ declare namespace JSX {
   }
 }
 
-/** Minimal Electron WebviewTag interface for ref usage */
 interface ElectronWebviewElement extends HTMLElement {
   src: string;
   reload(): void;

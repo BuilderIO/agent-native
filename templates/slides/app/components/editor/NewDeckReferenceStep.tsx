@@ -44,6 +44,10 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import {
+  isPromptUploadAuthRequiredError,
+  isPromptUploadNetworkError,
+} from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -53,11 +57,6 @@ export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
-  /**
-   * The one uploaded document that became `referenceDeckId`. The import
-   * controls accept multiple files but only import one, so the rest of
-   * `referenceFilePaths` still needs hydrating.
-   */
   importedReferenceFilePath?: string;
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
@@ -74,7 +73,6 @@ export interface ImportedReference {
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
   referenceFilePaths?: string[];
-  /** The uploaded document this reference deck was built from, when any. */
   importedFilePath?: string;
 }
 
@@ -99,8 +97,6 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
-  /** Called after the inline "create a design system" dialog completes, so
-   * the caller can refetch the list and surface the new option. */
   onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
@@ -161,9 +157,6 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  // True while the picker still reflects an auto-applied default rather than
-  // an explicit user choice, so a default that resolves after this step is
-  // already open can still land - see the hydration effects below.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
 
@@ -286,8 +279,6 @@ export function NewDeckReferenceStep({
     if (isAlreadySelected) {
       setSelectedSource(null);
       if (importedReference) {
-        // The import also set the reference deck. Leaving that id behind would
-        // submit a deck the UI no longer shows as selected.
         setSelectedReferenceDeckId((current) =>
           current === importedReference.id ? null : current,
         );
@@ -556,11 +547,33 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
-              {!storageQuery.isLoading ? (
+              {storageQuery.isError ? (
+                <div
+                  className="mt-3 flex items-center justify-between gap-3 text-sm text-destructive"
+                  role="alert"
+                >
+                  <span>
+                    {isPromptUploadAuthRequiredError(storageQuery.error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadNetworkError(storageQuery.error)
+                        ? t("home.importMenu.networkFailed")
+                        : t("home.fileStorageStatusUnavailable")}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="shrink-0 px-1 text-destructive"
+                    onClick={() => void storageQuery.refetch()}
+                  >
+                    {t("home.retry")}
+                  </Button>
+                </div>
+              ) : !storageQuery.isLoading ? (
                 <div className="mt-3">
                   <UploadStorageGate
                     configured={fileStorageConfigured}
-                    unavailable={storageQuery.isError}
+                    unavailable={false}
                     onRetry={() => void storageQuery.refetch()}
                   />
                 </div>
@@ -650,11 +663,6 @@ export function NewDeckReferenceStep({
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);
-          // Most sources hand off to the agent and complete before the row
-          // exists, so this can be a no-op; it only helps the synchronous
-          // edit/GitHub-only paths. The dropdown still catches up once the
-          // agent-created row lands, via the shared action-query sync in
-          // useDbSync (see root.tsx), not through this call.
           onDesignSystemsChanged();
         }}
       />

@@ -184,9 +184,6 @@ describe("extension content patching", () => {
       error = caught;
     }
 
-    // Nothing applied: collapsing whitespace to match could otherwise
-    // silently rewrite semantically significant whitespace (<pre>, embedded
-    // JS/CSS) if it were spliced in.
     expect(error).toBeInstanceOf(Error);
     const message = (error as Error).message;
     expect(message).toContain("Closest matches in the current extension:");

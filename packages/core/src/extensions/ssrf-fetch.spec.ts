@@ -2,9 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ssrfSafeFetch } from "./url-safety.js";
 
-// A public IP literal: isBlockedExtensionUrlWithDns short-circuits for IP
-// literals (no DNS lookup), so these tests never touch the network — the only
-// fetch calls are the stubbed ones below.
 const PUBLIC = "http://93.184.216.34/";
 const METADATA = "http://169.254.169.254/latest/meta-data/";
 const LOOPBACK = "http://127.0.0.1:9/";

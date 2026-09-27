@@ -138,8 +138,6 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
-    // The `data` column (each deck's full slide JSON) must never be
-    // requested for the plain list — this mirrors list-decks.ts light mode.
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",
@@ -167,8 +165,6 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
-    // The single-deck fetch is a targeted, limit(1) lookup and genuinely
-    // needs the full row (slide content is rendered below).
     expect(limitFn).toHaveBeenCalled();
     expect(orderByFn).not.toHaveBeenCalled();
     expect(result).toContain("deckId: deck-1");
@@ -324,14 +320,6 @@ describe("view-screen", () => {
   });
 
   it("surfaces a selection made on a different slide than the stale/cross-tab currentSlide", async () => {
-    // Regression test for the WebMCP tab-mismatch bug: `navigation` and
-    // `slides-selection` are each read independently through
-    // `readAppStateForCurrentTab`, which falls back to the last global write
-    // for this app when the caller carries no browser tab id (every WebMCP
-    // call). That fallback can resolve to a different slide than the one the
-    // user actually selected text on. The selection must still surface using
-    // its own recorded slide, not be dropped because it disagrees with
-    // `currentSlide`.
     mockRows = [
       {
         id: "deck-1",
@@ -344,9 +332,7 @@ describe("view-screen", () => {
         }),
       },
     ];
-    // `navigation` resolved (stale/cross-tab) to slide index 0 ("slide-a")...
     navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
-    // ...but the selection was actually made on slide-b.
     slidesSelectionState = {
       deckId: "deck-1",
       slideId: "slide-b",

@@ -1,18 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Regression test for the per-form write lock added around the
- * read -> applyFieldOps -> update body in patch-form-fields.ts.
- *
- * Simulates a real read-modify-write race: two concurrent callers patch
- * DIFFERENT fields on the same form. The first caller's DB `select` is
- * delayed to open a window where, without serialisation, the second
- * caller's select/merge/update could interleave between the first
- * caller's read and write and clobber it. With `withFormLock` in place,
- * the second caller's read-modify-write only starts after the first
- * caller's write has fully landed, so both edits survive.
- */
-
 type Row = {
   id: string;
   status: string;
@@ -51,10 +38,6 @@ vi.mock("../server/db/index.js", () => ({
       from: vi.fn(() => ({
         where: vi.fn((cond: { value: string }) => ({
           limit: vi.fn(async () => {
-            // Snapshot the row synchronously (this is the "point in time"
-            // the caller reads), then optionally delay BEFORE returning it —
-            // this reproduces a real race where the first reader's snapshot
-            // goes stale while a second writer commits in between.
             const row = store.get(cond.value);
             const snapshot: Row[] = row ? [{ ...row }] : [];
             const shouldDelay =
@@ -174,8 +157,6 @@ describe("patch-form-fields concurrent writes", () => {
       finalFields.map((f) => [f.id, f.label]),
     );
 
-    // Both concurrent edits must be present in the final row — neither
-    // writer's update should have overwritten the other's.
     expect(labelById["field-a"]).toBe("A updated");
     expect(labelById["field-b"]).toBe("B updated");
     expect(resultA.fields).toHaveLength(2);

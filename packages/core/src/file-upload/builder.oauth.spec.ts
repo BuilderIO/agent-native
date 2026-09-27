@@ -1,8 +1,3 @@
-/**
- * The Builder upload provider was private-key-only long after new Builder
- * connections stopped issuing one, so an OAuth-connected user could not store a
- * file at all. These cases pin which credential actually reaches Builder.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";

@@ -7,6 +7,9 @@
     }
   },
   "doctor": {
+    "dbToolScopingDenylist": {
+      "recording_agent_views": "Agent telemetry is scoped through authorized parent recordings."
+    },
     "failOnBuild": false
   }
 }

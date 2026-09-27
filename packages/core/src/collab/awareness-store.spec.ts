@@ -127,15 +127,12 @@ describe("awareness-store", () => {
 
   it("throttles unchanged rewrites within the window", async () => {
     await upsertAwarenessRow("doc-3", 7, "{}", 1000);
-    // Same state, 500ms later — throttled (row keeps old last_seen).
     await upsertAwarenessRow("doc-3", 7, "{}", 1500);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(1000);
 
-    // Changed state — written immediately.
     await upsertAwarenessRow("doc-3", 7, '{"x":1}', 1600);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(1600);
 
-    // Same state past the throttle window — refreshes last_seen.
     await upsertAwarenessRow("doc-3", 7, '{"x":1}', 10_000);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(10_000);
   });
@@ -145,7 +142,6 @@ describe("awareness-store", () => {
     await deleteAwarenessRow("doc-4", 9);
     expect(dbRows.size).toBe(0);
 
-    // Rewrite after delete is not throttled away.
     await upsertAwarenessRow("doc-4", 9, "{}", 1100);
     expect(dbRows.size).toBe(1);
   });
@@ -161,7 +157,7 @@ describe("awareness-store", () => {
   });
 
   it("supports Yjs client ids above int32 range", async () => {
-    const bigClientId = 3_000_000_000; // uint32 territory
+    const bigClientId = 3_000_000_000;
     await upsertAwarenessRow("doc-5", bigClientId, "{}", 1000);
     const rows = await loadAwarenessRows("doc-5", 1000);
     expect(rows[0].clientId).toBe(bigClientId);

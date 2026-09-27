@@ -47,9 +47,6 @@ const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   settings: "/settings",
 };
 const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
-  // Dispatch's app root redirects to /overview. A ticket minted for the root
-  // should survive that first-hop redirect instead of falling back to the
-  // private deployment token gate.
   "/": ["/overview"],
   "/dashboard": [
     "/dashboards/agent-native-templates-first-party",
@@ -113,7 +110,6 @@ export interface EmbedSessionTicketConsumeDiagnostic {
 export interface ConsumeEmbedSessionTicketOptions {
   expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
-  /** Capability tickets are resource-scoped, not bound to the browser's account. */
   allowCapabilityIdentityMismatch?: boolean;
   onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
@@ -152,11 +148,6 @@ export type ResolvedEmbedSession = {
   scope?: string;
 };
 
-/**
- * Capability embed scopes authorize one narrow, non-identity operation. They
- * must never be promoted into the ticket owner's authenticated browser
- * session: the owner claim only records who minted the capability.
- */
 export function isEmbedCapabilityScope(
   scope: string | undefined | null,
 ): boolean {
@@ -756,9 +747,6 @@ export function normalizeEmbedTargetPath(
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.startsWith("//") || path.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(path)) return null;
-  // A ticket minted for an auth entry path used to be honoured, redirecting
-  // the embed straight at a login form. Fails closed on the existing
-  // "Invalid embed target." 400 instead.
   const base = getConfiguredAppBasePath();
   const pathForValidation =
     base && (path === base || path.startsWith(`${base}/`))
@@ -848,10 +836,6 @@ export async function createEmbedSessionTicket(
   return { ticket, ticketHash, expiresAt };
 }
 
-/**
- * Verify an embed token against the host serving it, including owner logout
- * revocation. Runtime asset gates use this without needing an H3 event.
- */
 export async function resolveEmbedSessionTokenForHost(
   token: string | undefined,
   hostname: string,

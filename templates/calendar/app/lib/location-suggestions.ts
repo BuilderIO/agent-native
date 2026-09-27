@@ -8,10 +8,6 @@ function isMeetingLink(location: string) {
   );
 }
 
-/**
- * Surface only locations from the user's connected Google calendars. Overlay
- * and subscribed-calendar locations can belong to someone else.
- */
 export function getLocationSuggestions(events: CalendarEvent[]): string[] {
   const seen = new Set<string>();
 

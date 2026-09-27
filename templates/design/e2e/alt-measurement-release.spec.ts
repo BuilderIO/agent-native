@@ -31,8 +31,6 @@ test("Alt distance labels clear on key release and lost-focus recovery without p
   await page.keyboard.up("Alt");
   await expect(overlay).toHaveCSS("display", "none");
 
-  // Reproduce a focus transition that can swallow the iframe's keyup while
-  // the pointer remains over the same second frame.
   await page.keyboard.down("Alt");
   await page.mouse.move(
     betaBox.x + betaBox.width / 2 + 1,

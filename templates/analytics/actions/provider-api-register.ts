@@ -44,7 +44,4 @@ const action = createCustomProviderRegistrationAction({
     "Register or update an Analytics custom API provider. Stores credential key names only, never secret values. Requires a public HTTPS base URL and owner/admin organization access.",
 });
 
-// The shared factory owns registration, validation, and mutation authorization;
-// this wrapper only adds Analytics' transport contract and base URL policy.
-// Static action registry marker: createCustomProviderRegistrationAction returns defineAction.
 export default { ...action, http: { method: "POST" as const } };

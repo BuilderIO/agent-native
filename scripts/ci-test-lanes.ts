@@ -1,37 +1,13 @@
 #!/usr/bin/env node
-/**
- * Split fast-test packages into balanced CI lanes. Full-suite runs deliberately
- * have NO change-based selection: every workspace test package runs when the
- * suite is selected, so a test can never be silently skipped. Targeted runs
- * resolve the dependency closure from CI_WORKSPACE_FILTERS, then shard the
- * concrete test packages in that closure. Docs-only PRs bypass this script and
- * use the focused docs job.
- * This script only decides which lane each package or Core test shard runs in,
- * purely to parallelise wall-clock.
- *
- * @agent-native/core is sharded across the normal CI lanes because it is the
- * largest test package. Every other test package is partitioned across those
- * same lanes. In both modes, the script asserts the partition covers all
- * selected test packages exactly once - if a package is dropped, the lane plan
- * fails rather than passing silently.
- *
- * Balance weight is each package's live fast-test file count, read from the tree
- * at run time — no hardcoded table, nothing to maintain.
- *
- * Runs on plain `node --experimental-strip-types` with zero dependencies so CI
- * can invoke it before `pnpm install`.
- */
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
-const CORE = "@agent-native/core"; // split into Vitest shards across the lanes
+const CORE = "@agent-native/core";
 const LANES = Math.max(1, Number(process.env.LANES || 5));
 
-// Must track the package globs in pnpm-workspace.yaml. A package under a glob
-// not listed here would be missed, so keep this in sync when workspaces change.
 const PACKAGE_PARENTS = ["packages", "templates"];
 const NESTED_TEMPLATE_DIRS = ["desktop", "chrome-extension"];
 
@@ -223,7 +199,6 @@ function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
     files: core ? splitWeight(coreFiles, index, n) : 0,
     coreShard: core ? `${index + 1}/${n}` : "",
   }));
-  // Greedy: heaviest first into the currently-lightest bin.
   for (const p of [...pkgs].sort(
     (a, b) => weight.get(b.name)! - weight.get(a.name)!,
   )) {

@@ -1,13 +1,3 @@
-/**
- * Unit tests for pure logic extracted from GradientEditor (IP21):
- *
- *  1. `parseStopPositionDraft` — the stop-position input buffers a draft and
- *     only commits a valid, clamped 0–100 number; empty/invalid drafts
- *     signal a revert instead of silently committing 0/NaN.
- *  2. `nearestStopId` — after deleting a stop, selection should jump to the
- *     nearest remaining neighbor by position, not always the leftmost stop.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -45,16 +35,12 @@ describe("nearestStopId", () => {
   ];
 
   it("selects the nearest remaining stop to the removed position, not the leftmost", () => {
-    // Deleting the rightmost stop should select "mid" (nearest), not "left"
-    // (the old, buggy leftmost-always behavior).
     const remaining = stops.filter((s) => s.id !== "right");
     expect(nearestStopId(remaining, 100)).toBe("mid");
   });
 
   it("selects the nearest stop when deleting a middle stop between two others", () => {
     const remaining = stops.filter((s) => s.id !== "mid");
-    // Removed position 50 is equidistant (50) from both "left" (0) and
-    // "right" (100); ties break to the first matching stop in array order.
     expect(nearestStopId(remaining, 50)).toBe("left");
   });
 
@@ -63,7 +49,6 @@ describe("nearestStopId", () => {
       { id: "a", color: "#000", position: 10 },
       { id: "b", color: "#fff", position: 90 },
     ];
-    // Removed stop was at position 80 — "b" (90) is closer than "a" (10).
     expect(nearestStopId(custom, 80)).toBe("b");
   });
 

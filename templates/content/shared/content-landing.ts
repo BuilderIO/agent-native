@@ -13,7 +13,6 @@ export type ContentLastLocationState = {
   documentId: string;
   databaseId?: string;
   viewId?: string;
-  /** Title of the page when it last loaded; absent on older writes. */
   title?: string;
 };
 

@@ -78,6 +78,7 @@ export interface ComposerContextMenuProps {
   addAttachment?: (file: File) => Promise<unknown>;
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
+  onDisabledFocus?: () => void;
   disabled?: boolean;
 }
 interface ComposerContextPage {
@@ -164,7 +165,6 @@ function ContextSubmenu({
         data-agent-native-composer-popover="true"
         onFocusOutside={(event) => {
           const target = event.target;
-          // Radix focuses ancestor menus/triggers while a resumed chain mounts.
           if (
             target instanceof HTMLElement &&
             target.closest('[data-agent-native-composer-popover="true"]') &&
@@ -207,6 +207,7 @@ export function ComposerContextMenu({
   addAttachment,
   attachmentAccept,
   onAttachmentError,
+  onDisabledFocus,
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
@@ -271,18 +272,40 @@ export function ComposerContextMenu({
       reportError(cause);
     }
   }, [reportError]);
-  const updatePath = (next: string[]) => {
+  const updatePath = useCallback((next: string[]) => {
     pathRef.current = next;
     setPath(next);
-  };
-  const changeOpen = (next: boolean) => {
-    setOpen(next);
-    if (!next) {
-      dismissPage();
-      updatePath([]);
-      setContextOpen(false);
+  }, []);
+  const changeOpen = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      if (!next) {
+        dismissPage();
+        updatePath([]);
+        setContextOpen(false);
+      }
+    },
+    [dismissPage, updatePath],
+  );
+  useEffect(() => {
+    if (!disabled) return;
+    pendingDialog.current = null;
+    if (open) {
+      restoreFocusOnClose.current = false;
+      changeOpen(false);
     }
-  };
+    const closingDialog = dialogRef.current;
+    if (!closingDialog) return;
+    dialogRef.current = null;
+    setDialog(null);
+    try {
+      findAction(itemsRef.current, closingDialog.id)?.onDismiss?.();
+    } catch (cause) {
+      reportError(cause);
+    }
+    const focusFrame = window.requestAnimationFrame(() => onDisabledFocus?.());
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [disabled, open, changeOpen, onDisabledFocus, reportError]);
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {
@@ -526,7 +549,8 @@ export function ComposerContextMenu({
               }
             }}
             onRestoreFocus={() => {
-              if (!dialogRef.current) triggerRef.current?.focus();
+              if (dialogRef.current) return;
+              if (!disabled) triggerRef.current?.focus();
             }}
           />
         )}

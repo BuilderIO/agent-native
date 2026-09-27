@@ -1,13 +1,3 @@
-/**
- * Org-scoped settings helpers.
- *
- * Wraps the global settings store with per-org key prefixing.
- * Keys are stored as `o:<orgId>:<key>` in the settings table.
- *
- * No global fallback — each org starts with a clean slate. This
- * prevents one org's data from leaking to another.
- */
-
 import {
   getSetting,
   mutateSetting,
@@ -25,7 +15,6 @@ function orgKey(orgId: string, key: string): string {
 
 const ORG_PREFIX_RE = /^o:([^:]+):(.+)$/;
 
-/** Read an org-scoped setting. Returns null if not set for this org. */
 export async function getOrgSetting(
   orgId: string,
   key: string,
@@ -34,7 +23,6 @@ export async function getOrgSetting(
   return getSetting(orgKey(orgId, key), options);
 }
 
-/** Write an org-scoped setting. Always writes to the prefixed key. */
 export async function putOrgSetting(
   orgId: string,
   key: string,
@@ -44,7 +32,6 @@ export async function putOrgSetting(
   return putSetting(orgKey(orgId, key), value, options);
 }
 
-/** Atomically derive and persist an org-scoped setting. */
 export async function mutateOrgSetting(
   orgId: string,
   key: string,
@@ -56,7 +43,6 @@ export async function mutateOrgSetting(
   return mutateSetting(orgKey(orgId, key), updater, options);
 }
 
-/** Delete an org-scoped setting. */
 export async function deleteOrgSetting(
   orgId: string,
   key: string,
@@ -65,7 +51,6 @@ export async function deleteOrgSetting(
   return deleteSetting(orgKey(orgId, key), options);
 }
 
-/** Delete every setting belonging to an org. For org deletion. */
 export async function deleteAllOrgSettings(
   orgId: string,
   options?: StoreWriteOptions,
@@ -73,19 +58,11 @@ export async function deleteAllOrgSettings(
   return deleteSettingsByPrefix(`o:${orgId}:`, options);
 }
 
-/**
- * List settings keys for an org with an optional sub-prefix and result limit.
- * Returns a map of `<key>` (without the org prefix) to value.
- */
 export async function listOrgSettings(
   orgId: string,
   subPrefix?: string,
   options?: { limit?: number },
 ): Promise<Record<string, Record<string, unknown>>> {
-  // Narrow in SQL, then apply the same checks as before. Reading this with
-  // `getAllSettings()` pulled and JSON-parsed every org's rows into the caller
-  // to keep one org's, putting the whole deployment's settings table on the
-  // critical path of any org-scoped list read.
   const scoped = await listSettingsByPrefix(
     `o:${orgId}:${subPrefix ?? ""}`,
     options,

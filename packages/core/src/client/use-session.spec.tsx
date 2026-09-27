@@ -16,10 +16,6 @@ import {
   useSession,
 } from "./use-session.js";
 
-/**
- * A fresh copy of the session module. `signingOut` is one-way for the life of a
- * document, so a case that enters it cannot share module state with the others.
- */
 async function freshSessionModule() {
   vi.resetModules();
   return import("./use-session.js");
@@ -77,10 +73,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  // The session cache is module state keyed on Date.now(), and fake timers
-  // advance Date.now() inside a test. Without an explicit reset, a test that
-  // advances further than the per-test clock bump leaves a cache the next test
-  // reads as fresh, and that test silently never fetches.
   notifySessionInvalidated();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -231,11 +223,6 @@ describe("useSession", () => {
   });
 
   it("keeps retrying an instantly-failing endpoint for the whole time budget", async () => {
-    // The reported Analytics failure: the session endpoint answered 503 with no
-    // latency (cold database, deploy swap, pool blip), so an attempt-counted
-    // loop spent its whole budget in ~6s and told a signed-in visitor the
-    // server was unreachable. Patience must be measured in wall-clock time, so
-    // a fast failure is no less patient than a hung one.
     vi.useFakeTimers();
     const failingFetch = vi.fn(async () => new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", failingFetch);
@@ -249,7 +236,6 @@ describe("useSession", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });
-    // Still trying 20s in, where the old attempt-counted loop had long given up.
     expect(container.textContent).toBe("loading");
     expect(failingFetch.mock.calls.length).toBeGreaterThan(4);
 
@@ -258,15 +244,10 @@ describe("useSession", () => {
     });
 
     expect(container.textContent).toBe("unavailable");
-    // An unreadable endpoint must never be reported as a signed-out visitor.
     expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
   it("reports unavailable at the budget boundary, not after the request's own timeout", async () => {
-    // Build up elapsed time with fast failures until an attempt starts right
-    // before the 30s budget expires, then hang that read. It must not be
-    // allowed to run for its own full 15s request timeout on top of that,
-    // which would leave the gate on "loading" until ~42.5s instead of ~30s.
     vi.useFakeTimers();
     let callCount = 0;
     const fetchMock = vi.fn(() => {
@@ -292,12 +273,6 @@ describe("useSession", () => {
   });
 
   it("issues a fresh request on retry instead of reusing the timed-out shared read", async () => {
-    // Build up elapsed time with fast failures until an attempt starts right
-    // before the 30s budget expires, then hang that one specific call: its
-    // own Promise will never resolve, no matter what the mock does later. A
-    // fix that reused it would stay on "unavailable"/"loading" forever; only
-    // a brand new fetch call (from the auto re-ask this invalidation
-    // triggers, or from a manual retry) can ever reach "authenticated" below.
     vi.useFakeTimers();
     let callCount = 0;
     const fetchMock = vi.fn(() => {
@@ -333,8 +308,6 @@ describe("useSession", () => {
   });
 
   it("recovers on its own when a cold backend comes back mid-budget", async () => {
-    // A backend that fails fast for 10s and then answers must never reach the
-    // notice: the visitor should see the app, not a retry screen.
     vi.useFakeTimers();
     let elapsed = 0;
     const fetchMock = vi.fn(async () => {
@@ -367,8 +340,6 @@ describe("useSession", () => {
   });
 
   it("keeps legacy isLoading consumers from misreading unavailable as signed-out", async () => {
-    // Consumers that only read `isLoading`/`session` (not `status`) must never
-    // see a false "signed out" once retries are exhausted.
     vi.useFakeTimers();
     const failingFetch = vi.fn(async () => new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", failingFetch);
@@ -512,10 +483,6 @@ describe("useSession", () => {
   });
 
   it("reports signing-out instead of the last authenticated answer", async () => {
-    // The reported logout race: a cache invalidation only schedules a re-read,
-    // so the hook kept answering "authenticated" from the previous read while
-    // the browser was still navigating to the auth page. The app shell stayed
-    // mounted with no cookie and its queries 401ed into a load-failure screen.
     const { beginSignOut: begin, useSession: useFreshSession } =
       await freshSessionModule();
     const statuses: string[] = [];
@@ -541,10 +508,8 @@ describe("useSession", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    // Every render from here on, starting with the first.
     expect(statuses[0]).toBe("signing-out");
     expect(new Set(statuses)).toEqual(new Set(["signing-out"]));
-    // And it stops asking, so a late reply cannot resurrect the session.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -612,7 +577,6 @@ describe("useSession", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    // A focus revalidation is exactly how a signed-out tab used to flip back.
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -622,10 +586,6 @@ describe("useSession", () => {
   });
 
   it("re-resolves the session after an authenticated request comes back 401", async () => {
-    // The half-authenticated state behind the reported logout race: the last
-    // completed read said "authenticated", so the shell stays mounted and every
-    // data query paints its own generic load error. Nothing else tells the gate
-    // the server stopped recognising this browser.
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -647,9 +607,6 @@ describe("useSession", () => {
   });
 
   it("throttles the 401 re-check so one failing screen cannot storm the session endpoint", async () => {
-    // A listing page fails many queries at once. Each invalidation schedules a
-    // fresh read, so an unthrottled re-check turns one expired cookie into a
-    // request per failing query.
     const fetchMock = vi.fn(async () =>
       jsonResponse({ userId: "user-storm", email: "storm@example.com" }),
     );
@@ -669,9 +626,6 @@ describe("useSession", () => {
   });
 
   it("ignores a 401 re-check once sign-out has started", async () => {
-    // Sign-out revokes the session and then navigates, so the 401s it produces
-    // are expected. Asking again here is exactly how a late reply used to
-    // resurrect the session the document had already given up.
     const {
       beginSignOut: begin,
       recheckSessionAfterUnauthorized: recheck,

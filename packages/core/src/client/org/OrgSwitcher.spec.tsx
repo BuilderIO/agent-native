@@ -124,8 +124,6 @@ describe("OrgSwitcher", () => {
   });
 
   it("still renders a labelled trigger in compact mode", () => {
-    // A collapsed sidebar rail used to drop the switcher entirely, which left
-    // no way to reach another workspace or the "Join your team" list.
     mocks.useOrg.mockReturnValue({
       data: {
         email: "brent@builder.io",
@@ -147,11 +145,7 @@ describe("OrgSwitcher", () => {
     expect(button).not.toBeNull();
     expect(button?.getAttribute("aria-label")).toBe("Brent's workspace");
     expect(button?.textContent).toBe("");
-    // Rail neighbours use the shared tooltip; a native `title` reads as a
-    // missing tooltip next to them.
     expect(button?.getAttribute("title")).toBeNull();
-    // The tooltip and the popover both target this one button. Anything
-    // rendered between the popover trigger and the button eats the click.
     expect(button?.getAttribute("aria-haspopup")).toBe("dialog");
     act(() => {
       button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

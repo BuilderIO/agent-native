@@ -77,7 +77,6 @@ async function createDesign(
   return { designId, fileIds };
 }
 
-/** Shapes actually painted in the screen's live preview document. */
 async function paintedShapes(page: Page) {
   return paintedShapesInFrame(page);
 }
@@ -95,8 +94,6 @@ async function paintedShapesInFrame(page: Page, screenId?: string) {
   }, screenId);
 }
 
-// The host source morph used to remove an optimistic alt-drag clone after the
-// persisted source update, leaving state and the live canvas out of sync.
 test("alt-dragging an element keeps every copy on the canvas, not just in state", async ({
   page,
   request,
@@ -123,7 +120,6 @@ test("alt-dragging an element keeps every copy on the canvas, not just in state"
       y: card.y + y * scale,
     });
 
-    // Drill into the frame so the rectangle itself is the drag target.
     const source = at(270, 240);
     await page.mouse.dblclick(source.x, source.y);
     await page.waitForTimeout(1500);
@@ -140,8 +136,6 @@ test("alt-dragging an element keeps every copy on the canvas, not just in state"
       await page.mouse.up();
       await page.keyboard.up("Alt");
 
-      // Settle past the host's follow-up source push, which is what can
-      // delete a clone it fails to match by selector.
       await page.waitForTimeout(3500);
       expect(await paintedShapes(page)).toBe(copy + 2);
     }

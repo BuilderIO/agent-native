@@ -1,9 +1,3 @@
-/** Browser-local reasoning-visibility preference for the chat surface.
- *
- * Presentation only, and deliberately device-local: it must not reach the
- * agent, application state, or the engine's reasoning-effort request.
- */
-
 import {
   createContext,
   useCallback,
@@ -76,11 +70,6 @@ export function subscribeToBrowserThinkingDisplay(
   };
 }
 
-/**
- * A host-supplied mode. When set it wins over the stored preference and the
- * in-chat control disappears, so a host that pins the mode does not leave a
- * menu item that silently does nothing.
- */
 const ThinkingDisplayContext = createContext<ThinkingDisplay | undefined>(
   undefined,
 );
@@ -92,9 +81,6 @@ export function ThinkingDisplayProvider({
   value?: ThinkingDisplay;
   children: ReactNode;
 }) {
-  // Inherit rather than clear: a chat surface nested inside a host that pinned
-  // the mode renders this provider too, and passing its own absent prop
-  // straight through would silently un-pin the host's choice.
   const inherited = useContext(ThinkingDisplayContext);
   return (
     <ThinkingDisplayContext.Provider value={value ?? inherited}>
@@ -113,11 +99,9 @@ export function useThinkingDisplay(): ThinkingDisplay {
   return pinned ?? stored;
 }
 
-/** Reads and writes the preference for the in-chat control. */
 export function useThinkingDisplayControl(): {
   mode: ThinkingDisplay;
   setMode: (mode: ThinkingDisplay) => void;
-  /** True when a host prop pins the mode, so no control should be offered. */
   pinned: boolean;
 } {
   const pinned = useContext(ThinkingDisplayContext);

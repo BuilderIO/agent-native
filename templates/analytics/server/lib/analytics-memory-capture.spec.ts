@@ -202,7 +202,6 @@ describe("Analytics async memory capture", () => {
     saveMemory.mockImplementationOnce(async (_args, options) => {
       await options?.beforeWrite?.({ execute: guardExecute });
     });
-    // The head is the last entry above; the abandoned branch is outside its ancestry.
     await runAnalyticsMemoryCaptureSweep();
 
     expect(runWithRequestContext).toHaveBeenCalledWith(

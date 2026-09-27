@@ -18,7 +18,6 @@ const H1 = `margin:0;font-family:'Lexend',sans-serif;font-weight:700;color:var(-
 const HEAD = `font-family:var(--deck-heading-font);font-weight:600;letter-spacing:-0.02em;`;
 const CARD = `background:var(--deck-surface);border-radius:var(--deck-radius);box-shadow:0 2px 0 ${tint(C.navy, 8)},0 10px 24px -12px ${tint(C.navy, 25)};`;
 
-/** Lesson chrome: section chip in the section's color and a progress track. */
 const lesson = (
   n: number,
   section: string,

@@ -19,7 +19,6 @@ interface SessionResult {
   body: unknown;
 }
 
-/** Read an authenticated session endpoint with the browser context's cookies. */
 async function readJson(page: Page, path: string): Promise<SessionResult> {
   const response = await page
     .context()
@@ -131,10 +130,6 @@ for (const target of targets) {
         400,
       );
       await renderedText(page, signInUrl);
-      // The form is absent, not hidden, when the server picks password auth —
-      // which it does whenever the deployment has no email provider. Read the
-      // mode the server actually rendered so the failure names the missing env
-      // instead of timing out on a locator.
       const authData = await page
         .locator("#agent-native-auth-data")
         .textContent();
@@ -182,7 +177,6 @@ for (const target of targets) {
     });
     if (!message) return;
 
-    // The link-sent page redirects itself when its session poll sees verification.
     const verificationStartedAt = Date.now();
     const verificationPage = await page.context().newPage();
     const verificationPageDiagnostics = observePage(verificationPage);

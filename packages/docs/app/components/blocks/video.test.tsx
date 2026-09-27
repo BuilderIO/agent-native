@@ -46,12 +46,6 @@ function stubMatchMedia(matches: boolean) {
 
 describe("VideoBlock autoplay", () => {
   it("never emits autoplay in the pre-hydration SSR markup, even when requested", () => {
-    // No `window`/`matchMedia` at all during SSR — the reduced-motion
-    // preference cannot be known yet, so autoplay must not appear in the
-    // markup a browser parses before React's effect has a chance to run.
-    // `renderToStaticMarkup` emits boolean attributes camelCased
-    // (`autoPlay=""`), so match case-insensitively rather than assuming the
-    // lowercase HTML spelling.
     const html = renderToStaticMarkup(
       <VideoBlock data={baseData()} ctx={{}} blockId="video" />,
     );
@@ -70,8 +64,6 @@ describe("VideoBlock autoplay", () => {
       const video = container.querySelector("video");
       expect(video?.hasAttribute("autoplay")).toBe(false);
       expect(video?.hasAttribute("playsinline")).toBe(true);
-      // `muted` is a live media property React sets directly, not an
-      // attribute — assert via the element property, not `hasAttribute`.
       expect((video as HTMLVideoElement | null)?.muted).toBe(false);
     });
   });

@@ -80,7 +80,6 @@ function usePrefersReducedMotion(): boolean {
   return prefersReducedMotion;
 }
 
-/** Advances one synthetic frame for non-React consumers and focused tests. */
 export function advanceBufferedText(visible: string, target: string): string {
   if (!target.startsWith(visible)) return target;
   const targetGraphemes = splitStreamingTextGraphemes(target);
@@ -100,7 +99,6 @@ export interface UseBufferedAgentTextOptions {
   frameMs?: number;
 }
 
-/** Smooths irregular transport chunks into animation-frame-paced text. */
 export function useBufferedAgentText(
   text: string,
   {

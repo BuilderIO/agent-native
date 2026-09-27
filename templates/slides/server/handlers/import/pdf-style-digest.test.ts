@@ -177,8 +177,6 @@ describe("buildPdfStyleDigest", () => {
   });
 
   it("counts imagery the read-only parse detected but could not place", () => {
-    // The read-only path parses without decoded image bytes, so an
-    // image-heavy page arrives with no image element and imagesSkipped set.
     const digest = buildPdfStyleDigest([
       page({ imagesSkipped: 3 }),
       page({ pageNumber: 2, imagesSkipped: 1 }),

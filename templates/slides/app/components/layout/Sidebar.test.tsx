@@ -179,14 +179,12 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
   it("hides the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} />);
     expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
-    // Nav still renders.
     expect(screen.getByText("Decks")).toBeDefined();
   });
 
   it("hides the Expand button in the collapsed layout", () => {
     renderAt("/", <Sidebar collapsed={true} />);
     expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
-    // Nav icons still render.
     expect(screen.getByLabelText("Decks")).toBeDefined();
   });
 });

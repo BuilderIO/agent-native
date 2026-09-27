@@ -27,9 +27,6 @@ function renderSnackbar() {
 }
 
 describe("SnackbarProvider", () => {
-  // The pill has to escape core's `.agent-sidebar-main-surface`, which sets
-  // `position: relative; z-index: 1` and `container-type: inline-size` around
-  // all page content. Left inside it, no z-index can clear the dialog overlay.
   it("mounts the live region directly on body, not inside the provider tree", () => {
     const { container } = renderSnackbar();
 

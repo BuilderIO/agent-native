@@ -102,13 +102,6 @@ async function setFillColor(page: Page, layerName: string, hex: string) {
   const fill = inspectorSection(page, /^Fill$/i);
   await expect(fill).toBeVisible();
   let swatch = fill.getByRole("button", { name: "Open color picker" });
-  // A closed pen path starts stroke-only, like Figma. Add fill on a vector
-  // element (fill-properties.tsx addFill()'s isVectorFillElement branch)
-  // commits the default shape fill directly and does not open the picker,
-  // so open the swatch it creates afterward instead of assuming a popover.
-  // An empty Fill section also renders "Add fill" twice — the header's own
-  // click-to-add title and the action-rail "+" icon — so scope to the
-  // action rail (present in every state) instead of the ambiguous name.
   if ((await swatch.count()) === 0) {
     await fill
       .locator("[data-inspector-action-rail]")
@@ -215,7 +208,6 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
       .first()
       .boundingBox())!;
 
-    // Use the Shape menu and drag on the screen to create the circle behind the icon.
     const toolbar = page.locator("[data-design-bottom-toolbar]");
     await toolbar.getByRole("button", { name: "Rectangle options" }).click();
     await page.getByRole("menuitem", { name: "Ellipse" }).click();
@@ -232,7 +224,6 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
       })
       .toContain("Ellipse");
 
-    // Pen clicks close a filled triangle that visually overlaps the ellipse.
     await page.keyboard.press("p");
     await page.waitForTimeout(300);
     const points = [
@@ -282,7 +273,6 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
       )
       .toBe(2);
 
-    // Group and promote through the same keyboard path users invoke in Design.
     await page.keyboard.press(`${MOD}+g`);
     await expect(layerRow(page, "Group")).toBeVisible({ timeout: 15_000 });
     await layerRow(page, "Group").click();
@@ -299,8 +289,6 @@ test("draws an overlaid play triangle and converts the grouped layers to a compo
     await expect.poll(readGroupId, { timeout: 15_000 }).toBeTruthy();
     const groupId = await readGroupId();
 
-    // Use the Figma component shortcut from the selected Layers row. Keyboard
-    // focus stays on the host editor, matching the documented interaction.
     await page.keyboard.press(`${MOD}+Alt+k`);
     await expect(
       page.getByRole("dialog", { name: "Type a command or ask AI..." }),

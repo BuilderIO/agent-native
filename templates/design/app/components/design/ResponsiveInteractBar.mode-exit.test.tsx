@@ -10,9 +10,6 @@ import {
   type ResponsiveInteractBarProps,
 } from "./ResponsiveInteractBar";
 
-// Only the keys this bar reads — full catalog coverage across locales is
-// verified by `guard:i18n-catalogs`, not here (same convention as
-// BreakpointBar.test.tsx).
 const CATALOG_MESSAGES = {
   designEditor: {
     modes: {
@@ -55,9 +52,6 @@ function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
   );
 }
 
-// Hiding the bottom toolbar during Interact closed the two-view bypass but
-// left "Exit responsive preview" as the only way out — Edit and Annotate were
-// not in the DOM at all. This bar carries them instead.
 describe("ResponsiveInteractBar mode exits", () => {
   it("offers Edit and Annotate alongside Close", () => {
     const markup = renderBar();
@@ -69,9 +63,6 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain("tabler-icon-scribble");
   });
 
-  // Reported gap: the only way out of Interact was an icon-only Close button
-  // discoverable solely by hovering for its tooltip. The exit control now
-  // carries its own visible text so it doesn't depend on discovery.
   it("shows the exit control's label as visible text, not just a tooltip", () => {
     const markup = renderBar();
     const exitButtonStart = markup.indexOf(
@@ -85,13 +76,6 @@ describe("ResponsiveInteractBar mode exits", () => {
     );
   });
 
-  // Reported gap #2: the docked bar's own Close can get clipped by its
-  // column's `overflow-hidden` when a wide left rail leaves little room
-  // (see DesignEditor.tsx's pinned ResponsiveInteractExitButton, which
-  // covers Close for that case instead). `showClose={false}` is how a
-  // caller opts a render out of the in-bar Close so there's exactly one
-  // interactive Close control on screen, while an invisible label-sized
-  // spacer keeps the scrollable controls clear of that pinned control.
   it("reserves the pinned Close width without rendering a second control", () => {
     const markup = renderBar({ showClose: false });
 

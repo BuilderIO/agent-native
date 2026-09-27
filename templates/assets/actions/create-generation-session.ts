@@ -56,8 +56,6 @@ export default defineAction({
       reuseLabels,
     };
     const draftAccess = await assertCanDraft(args.libraryId);
-    // Attaching a candidate or run to a session republishes it through the
-    // session read path, so inputs answer to the same author rule as reads.
     const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     if (args.collectionId) {

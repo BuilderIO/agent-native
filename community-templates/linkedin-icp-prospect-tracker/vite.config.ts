@@ -15,10 +15,6 @@ const coreRequire = createRequire(
 
 export default defineConfig({
   optimizeDeps: {
-    // React Router discovers route modules outside Vite's default HTML crawl.
-    // Scan the shell and Chat route before accepting requests so a cold
-    // standalone consumer does not leave the browser waiting on the full
-    // composer/editor graph one module at a time.
     entries: [
       "app/entry.client.tsx",
       "app/root.tsx",
@@ -28,8 +24,6 @@ export default defineConfig({
     ],
   },
   resolve: {
-    // Core and toolkit both use assistant-ui contexts. Keep published and
-    // linked graphs on one store so the agent sidebar can compose reliably.
     dedupe: [
       "@assistant-ui/react",
       "@assistant-ui/core",
@@ -66,8 +60,6 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
     }),
   ],

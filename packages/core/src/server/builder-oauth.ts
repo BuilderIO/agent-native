@@ -22,15 +22,7 @@ const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdFo
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
-/** Enforced by Builder's `/api/v1/upload/*` endpoints; without it, no uploads. */
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
-// Requested as one grant covering every Builder surface this app calls,
-// rather than incrementally per feature: a missing scope on an existing
-// session makes resolveBuilderRequestAuthorization throw a reconnect error
-// (see builder-api-auth.ts), and reconnecting re-runs this same full scope
-// list — there is no narrower "add one more scope" flow to fall back to. So
-// under-requesting here just means every user reconnects again the next time
-// a call site starts requiring a scope that shipped after they connected.
 export const BUILDER_OAUTH_SCOPES = [
   BUILDER_OAUTH_SCOPE,
   "builder:agents:run",
@@ -43,14 +35,8 @@ export const BUILDER_OAUTH_SCOPES = [
 ] as const;
 export type BuilderOAuthPermissionScope = (typeof BUILDER_OAUTH_SCOPES)[number];
 
-// Folded with the owner so each owner gets their own (provider, account_id)
-// row; a bare shared key would let only the first connector hold a grant.
 const BUILDER_OAUTH_KEY = "builder-general-resource-v1";
 
-// Builder's general AI resource metadata lives at a non-default path; the
-// default api.builder.io well-known describes its Figma integration instead.
-// Point discovery here so live metadata resolves to the api.builder.io resource
-// and the mcp.builder.io authorization server.
 const BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA =
   "https://mcp.builder.io/.well-known/oauth-protected-resource/api";
 
@@ -100,9 +86,6 @@ function userOwnerOptions(ownerEmail: string) {
   };
 }
 
-// Read paths try a member's personal grant first, then the org grant. An
-// explicit orgId wins over the user's active org so background work stays
-// bound to the organization that authorized it.
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -222,8 +205,6 @@ export async function startBuilderOAuthAuthorization(input: {
   redirectUri: string;
   state: string;
 }): Promise<{ authorizationUrl: string; pending: BuilderOAuthPendingFlow }> {
-  // Start scopes nothing, so it validates the email without an org lookup;
-  // the org scope is resolved when the grant is stored and read.
   normalizeOwnerEmail(input.ownerEmail);
   const started = await startMcpOAuthAuthorization({
     serverUrl: BUILDER_OAUTH_RESOURCE,
@@ -337,9 +318,6 @@ export async function getBuilderOAuthSession(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored === null) continue;
-    // Delegates refresh single-flight and reconnect latching to the shared
-    // credential lifecycle; a null token covers expired-unrefreshable and
-    // reconnect_required alike, so an org fallback can still be used.
     const accessToken = await getMcpOAuthAccessToken(options);
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
@@ -379,9 +357,6 @@ export async function hasBuilderOAuthSession(
       options.key,
       `${options.scope}:${options.scopeId}`,
     );
-    // An unreadable encrypted row parses as `{}`. It is still retained for
-    // disconnect/reconnect handling, but it cannot claim the OAuth lane and
-    // block a usable org-scoped Builder key pair.
     if (
       stored !== null &&
       typeof stored === "object" &&

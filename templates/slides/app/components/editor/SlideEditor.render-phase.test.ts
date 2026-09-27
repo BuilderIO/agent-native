@@ -4,15 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Exiting inline edit used to flush `onUpdateSlide` (and mutate the edited
- * DOM node) from inside a `setEditingEl` updater. Updaters run in the render
- * phase, so the flush updated DeckProvider while SlideEditor was rendering:
- * "Cannot update a component (DeckProvider) while rendering a different
- * component (SlideEditor)". `editingElRef` exists so exit paths can read the
- * edited element outside render; these assertions are what stop the updater
- * shape from coming back.
- */
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
@@ -139,7 +130,6 @@ describe("SlideEditor render-phase safety", () => {
     const domAt = serializeBody.indexOf("stripBuilderIds(clone.innerHTML)");
 
     expect(mergeAt).toBeGreaterThan(-1);
-    // The DOM is stored only for Markdown roots, which have no source map.
     expect(
       serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
     ).toContain('hasAttribute("data-slide-autofit-root")');
@@ -152,9 +142,6 @@ describe("SlideEditor render-phase safety", () => {
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
 
-    // The baseline is what the canvas saves before the session touches the
-    // element, so an untouched edit merges back to it exactly and a
-    // just-placed box is part of it.
     expect(enterBody).not.toContain("captureInlineEditDraft(");
     const baselineAt = enterBody.indexOf(
       "const entryContent = readCurrentSlideContentHtml();",
@@ -164,7 +151,6 @@ describe("SlideEditor render-phase safety", () => {
       baselineAt,
     );
 
-    // A no-op exit calls onUpdateSlide only through the changed-content gate.
     const exitStart = source.indexOf("const exitInlineEdit = useCallback");
     const exitEnd = source.indexOf("const commitInlineEditForAgent", exitStart);
     const exitBody = source.slice(exitStart, exitEnd);
@@ -176,7 +162,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(writes).toHaveLength(1);
     expect(writes[0].index).toBeGreaterThan(gateAt);
 
-    // A typed-and-deleted draft is the entry content, not a new write.
     const captureStart = source.indexOf("const captureInlineEditDraft");
     const captureEnd = source.indexOf(
       "const scheduleInlineEditDraftCapture",
@@ -191,7 +176,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain(
       "if (textSessionRef.current) exitInlineEditRef.current();",
     );
-    // Drafts are written mid-session, so they bypass the committing wrapper.
     const persistStart = source.indexOf("const persistInlineEditDraft");
     const persistEnd = source.indexOf(
       "const captureInlineEditDraft",
@@ -393,9 +377,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
     expect(source).toContain("persistSlideObjectZOrderFromDom(source");
     expect(source).toContain("function isZIndexedSlideLayer");
-    // Arrange means stacking order. Reordering the DOM here moved the layer
-    // down the `.fmd-slide` flex column instead of changing what it paints
-    // over, which is what made send-to-front look like it did nothing.
     expect(source).not.toContain("function reorderSlideLayerInParent");
     expect(source).not.toContain("function arrangeFlowSlideLayerInParent");
   });

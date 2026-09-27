@@ -13,7 +13,6 @@ export function resolveDraftWorkingLocation(
 } {
   return {
     workingLocationType: draft.workingLocationType ?? "homeOffice",
-    // Drafts initialize `location` to "", so `??` would drop the Other name.
     workingLocationLabel: (
       draft.workingLocationLabel ||
       draft.location ||

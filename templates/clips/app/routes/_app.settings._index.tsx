@@ -59,7 +59,6 @@ async function loadSettings(): Promise<ClipsUserSettings> {
     const res = await fetch(agentNativePath("/_agent-native/clips/user-prefs"));
     if (!res.ok) return {};
     const json = await res.json();
-    // The store's GET returns the stored object directly, not wrapped.
     if (json && typeof json === "object" && !("error" in json)) {
       return json as ClipsUserSettings;
     }
@@ -120,8 +119,6 @@ export default function SettingsIndexRoute() {
     }),
     [t],
   );
-  // Organization identity (name, logo, brand color) belongs with membership,
-  // so it rides on the framework's Organization tab rather than a second one.
   const settingsTabs = useMemo(
     () => [
       notificationSettingsTab,
@@ -242,8 +239,6 @@ export default function SettingsIndexRoute() {
     }
   }
 
-  // Hashes match the row ids below, so a search hit still scrolls to the
-  // individual setting now that the one-control cards are rows in a group.
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
       {

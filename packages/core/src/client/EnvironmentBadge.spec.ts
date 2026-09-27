@@ -31,10 +31,6 @@ describe("EnvironmentBadge", () => {
       betaHost: "beta.chat.agent-native.com",
       productionHost: "chat.agent-native.com",
     });
-    // Regression pin for the Design template's reported broken beta
-    // Google sign-in: the automatic lane redirect only fires for a host
-    // resolved here, so Design falling out of this map would silently
-    // disable the fix that returns a signed-out beta arrival to production.
     expect(resolveEnvironmentTargets("design.agent-native.com")).toEqual({
       betaHost: "beta.design.agent-native.com",
       productionHost: "design.agent-native.com",
@@ -72,8 +68,6 @@ describe("EnvironmentBadge", () => {
   });
 
   it("marks an automatic beta redirect but leaves a manual switch unmarked", () => {
-    // Beta can only undo a redirect nobody asked for if the two are told
-    // apart at the source.
     expect(
       buildAutomaticBetaRedirectUrl(
         "https://plan.agent-native.com/projects/42?tab=activity#runs",

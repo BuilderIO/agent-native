@@ -53,15 +53,9 @@ export function PageDraftRecovery({
       ])
     : null;
   const queryClient = useQueryClient();
-  // Optimistic creation navigates to /page/<id> before create-document commits,
-  // so while that mark is set the row does not exist yet. Querying then fails
-  // with 403/404 and the error sticks — this query has retry: false and nothing
-  // refetches it after create succeeds.
   const creationPending = isDocumentCreationPending(document);
   const drafts = usePreviewDocumentDraft(document.id, {
     enabled: !creationPending,
-    // Lets the read ride out a row that is still settling after its own create
-    // without also retrying a genuinely revoked share.
     createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
@@ -120,7 +114,6 @@ export function PageDraftRecovery({
       documentBodyHydrationIsPending(document)
     )
       return;
-    // The draft action has already checked this session's editor access.
     const accountId = session?.email?.trim().toLowerCase();
     if (!accountId) return;
     const scope = {
@@ -165,7 +158,6 @@ export function PageDraftRecovery({
       return;
     }
     if (draft && !sameAsSqlDraft) {
-      // Settle an existing SQL draft first; the local entry stays intact.
       setJournalState("waiting_sql");
       return;
     }
@@ -492,8 +484,6 @@ export function PageDraftRecovery({
       });
       if (result.status !== "deleted")
         throw new Error("The saved draft changed during recovery.");
-      // Mount the live editor only after both the restore and the exact draft
-      // deletion are acknowledged; a failed CAS must leave the draft available.
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
     } catch {

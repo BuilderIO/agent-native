@@ -5,10 +5,6 @@ import { meetingHasEnded, nowMarkerIndex } from "./agenda-card";
 const T14_00 = Date.parse("2026-08-14T14:00:00.000Z");
 
 describe("meetingHasEnded", () => {
-  // Regression: agenda intentionally shows meetings that already finished
-  // today, but relativeStartLabel's "soon" window (up to 2h after start)
-  // doesn't know that — without this check a call that ended an hour ago
-  // rendered as "Now" with live Join/Open-notes controls.
   it("is true once scheduledEnd has passed, even within relativeStartLabel's 2h soon window", () => {
     expect(
       meetingHasEnded(

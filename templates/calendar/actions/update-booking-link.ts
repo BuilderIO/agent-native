@@ -109,7 +109,6 @@ export default defineAction({
         savedConferencing.config.type === "zoom");
 
     if (mayHaveZoomBookings && args.conferencing?.type !== "zoom") {
-      // Preserve the review gate before the booking link loses its Zoom type.
       await getDb()
         .update(schema.bookings)
         .set({ zoomNeedsReview: true })

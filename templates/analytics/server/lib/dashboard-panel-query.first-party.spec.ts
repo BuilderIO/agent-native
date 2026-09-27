@@ -63,8 +63,6 @@ describe("dashboard-panel-query: first-party source", () => {
     expect(result.backend).toBe("bigquery");
     expect(result.construct).toBe("date_trunc('month', ...)");
     expect(result.message).toContain("date_trunc('month', ...)");
-    // The whole point: an unrunnable panel must never look like a query that
-    // ran and matched nothing.
     expect(result).not.toHaveProperty("rows");
   });
 

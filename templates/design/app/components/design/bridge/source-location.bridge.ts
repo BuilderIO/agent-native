@@ -79,22 +79,10 @@
     ".vite": true,
   };
 
-  // React 19 captures _debugStack inside the JSX runtime itself, so its
-  // module is always the top frame; recognised by a runtime module name
-  // INSIDE a Vite optimizer deps directory (`deps`/`deps_ssr`/`deps_temp_*`
-  // — the optimizer always writes pre-bundles there, even under a custom
-  // cacheDir with no node_modules segment) — never by basename alone, since
-  // an authored file that happens to be named react.js or jsx-runtime.js
-  // outside a deps directory is a real local file.
   var REACT_RUNTIME_MODULE_RE =
     /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\.development|\.production(?:\.min)?)?\.(?:m?js|cjs)$/;
   var VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
 
-  // localServedOutput (a /@fs/ frame) exempts dist/build only — a locally
-  // built package is a real local file. node_modules stays noise even
-  // through /@fs/: Vite resolves symlinks, so a linked workspace package
-  // never carries a node_modules segment, and third-party code always
-  // arrives here by its real path.
   function isNoisePath(path: string, localServedOutput: boolean): boolean {
     var segments = path.split("/");
     for (var i = 0; i < segments.length - 1; i += 1) {
@@ -142,8 +130,6 @@
     }
   }
 
-  // Keep in sync with parseReactStackFrame in
-  // ../../../pages/design-editor/source-location.ts.
   var STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
@@ -159,10 +145,6 @@
     var rawUrl = match[2]!;
     var resolved = resolveFrameUrl(rawUrl);
     if (!resolved) return null;
-    // A Vite /@fs/ frame is a real local file even when its path contains
-    // dist/ or build/ — but node_modules stays noise even through /@fs/, so a
-    // classic-transform createElement frame served from a symlinked
-    // dependency (react.development.js) never becomes element provenance.
     if (isNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
       return null;
     }
@@ -273,8 +255,6 @@
         ownerLine?: number;
         ownerColumn?: number;
         ownerComponentName?: string;
-        // The owner site's own tier — an authored data-attribute element can
-        // still owe its owner line to a transformed React 19 owner stack.
         ownerMethod?: "debug-source" | "debug-stack";
         ownerKey?: string;
       }
@@ -320,8 +300,6 @@
   }
 
   function resolveFromFiber(el: Element): SourceLocationOutcome {
-    // The selected node owns the element location. An ancestor can identify
-    // the enclosing component, but it must never lend its line to this node.
     var leafFiber = getFiberFromDom(el);
     if (!leafFiber) return { status: "unavailable", reason: "not-framework" };
 
@@ -480,9 +458,6 @@
   function resolveSourceLocation(el: Element): SourceLocationOutcome {
     var fromAttributes = resolveFromDataAttributes(el);
     if (!fromAttributes) return resolveFromFramework(el);
-    // A build-time source plugin stamps the element's OWN location and never
-    // the owner call site, so keep walking Fiber for owner provenance instead
-    // of short-circuiting — the owner site is what separates `.map()` siblings.
     var fromFiber = resolveFromFiber(el);
     if (
       fromAttributes.status === "resolved" &&

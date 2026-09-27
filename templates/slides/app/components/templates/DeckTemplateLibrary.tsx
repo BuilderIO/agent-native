@@ -32,7 +32,13 @@ import { DeckTemplateStage } from "./DeckTemplateStage";
 
 const LazySlideRenderer = lazy(() => import("@/components/deck/SlideRenderer"));
 
-export function DeckTemplateLibrary({ search = "" }: { search?: string }) {
+export function DeckTemplateLibrary({
+  search = "",
+  enabled = true,
+}: {
+  search?: string;
+  enabled?: boolean;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const { reloadDecksWithStatus } = useDecks();
@@ -40,12 +46,16 @@ export function DeckTemplateLibrary({ search = "" }: { search?: string }) {
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("templateId");
   const previewTriggerRef = useRef<HTMLElement | null>(null);
-  const query = useActionQuery("list-deck-templates", {
-    page: 1,
-    pageSize: 24,
-    includePreview: "true",
-    search: search.trim() || undefined,
-  });
+  const query = useActionQuery(
+    "list-deck-templates",
+    {
+      page: 1,
+      pageSize: 24,
+      includePreview: "true",
+      search: search.trim() || undefined,
+    },
+    { enabled },
+  );
   const create = useActionMutation("create-deck-from-template");
   const retryIds = useRef(new Map<string, string>());
   const pending = useRef(false);

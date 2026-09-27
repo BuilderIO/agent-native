@@ -8,9 +8,6 @@ export function meta() {
 }
 
 export default function FormBuilderRoute() {
-  // Remount per form: the builder keeps local field/selection state, and a
-  // reused instance would publish the previous form's selected field under
-  // the new form id until its fields synchronized.
   const { id } = useParams();
   return <FormBuilderPage key={id} />;
 }

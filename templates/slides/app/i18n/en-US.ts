@@ -824,7 +824,11 @@ const messages = {
       invalidPdf: "Choose a PDF file.",
       invalidPptx: "Choose a PPTX file.",
       invalidFile: "Choose a PDF or PPTX file.",
+      networkFailed:
+        "The import request timed out or lost its network connection. Check your connection and retry.",
       notStarted: "Complete any required sign-in, then retry the import.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
     },
     importDeck: "Import Deck",
     context: {
@@ -863,6 +867,8 @@ const messages = {
       notReady:
         "Context is still loading or unavailable. Retry or remove it before sending.",
       emptySource: "This source returned no usable context.",
+      figmaReadFailed:
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
       designCategory: "Design",

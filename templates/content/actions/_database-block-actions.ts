@@ -121,8 +121,6 @@ const mutateDatabaseBlockOperationSchema = z.discriminatedUnion("operation", [
 
 type MutationInput = z.infer<typeof mutateDatabaseBlockOperationSchema>;
 
-// Agent tool registration requires a top-level object schema. Keep the
-// discriminated union as the exact validator for operation-specific fields.
 export const mutateDatabaseBlockSchema = z
   .object({
     ...mutationEnvelopeSchema.shape,

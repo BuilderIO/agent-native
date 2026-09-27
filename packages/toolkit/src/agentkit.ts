@@ -1,10 +1,3 @@
-/**
- * The narrow Toolkit surface consumed by AgentKit's React package.
- *
- * Keeping this boundary explicit lets browser tooling precompile the complete
- * Chat UI graph as one coherent unit without treating Toolkit's unrelated
- * editor, dashboard, and collaboration surfaces as AgentKit dependencies.
- */
 export { writeClipboardText } from "./clipboard.js";
 export {
   AgentSuggestionBar,

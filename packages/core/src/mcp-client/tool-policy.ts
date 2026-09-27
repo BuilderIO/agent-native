@@ -59,13 +59,6 @@ const WRITE_OPERATIONS = new Set([
   "upload",
 ]);
 
-/**
- * Classify an MCP call using both the declared tool and its runtime arguments.
- * Runtime inspection is necessary for combined computer tools whose `action`
- * selects between observation (for example `screenshot`) and mutation (for
- * example `click`). Unknown computer/browser operations intentionally remain
- * unknown so read-only callers can fail closed.
- */
 export function classifyMcpToolCall(
   tool: McpTool,
   args: Record<string, unknown>,
@@ -112,8 +105,6 @@ export function evaluateMcpToolCallPolicy(
     return { ...classification, allowed: true };
   }
 
-  // Plan mode is fail-closed. Unannotated tools remain available only when
-  // their declared operation name is an explicitly recognized read verb.
   const allowed = classification.effect === "read";
   return { ...classification, allowed };
 }

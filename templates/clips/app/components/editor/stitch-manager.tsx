@@ -34,7 +34,6 @@ import { cn } from "@/lib/utils";
 export interface StitchManagerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When the source recording is known, pre-seed the list with it. */
   seedRecordingId?: string;
 }
 
@@ -85,7 +84,6 @@ export function StitchManager({
     return rows.filter((r) => !queue.some((q) => q.id === r.id));
   }, [listQuery.data, queue]);
 
-  // Pre-seed the queue with the current recording when provided.
   useEffect(() => {
     if (!open || !seedRecordingId) return;
     const rows: RecordingLite[] = (listQuery.data?.recordings ??
@@ -139,7 +137,6 @@ export function StitchManager({
     setBusy(true);
     setProgress(0);
     try {
-      // 1) Client-side ffmpeg concat.
       const { blob, width, height } = await exportConcat(
         queue.map((r) => ({
           url: r.videoUrl!,
@@ -150,7 +147,6 @@ export function StitchManager({
         (p) => setProgress(p.progress),
       );
 
-      // 2) Upload the combined video.
       const destinationRecordingId = crypto.randomUUID();
       const upload = await uploadFileClient(
         blob,
@@ -161,7 +157,6 @@ export function StitchManager({
         throw new Error(t("stitchManager.connectStorage"));
       }
 
-      // 3) Create the stitched recording row.
       const totalDuration = queue.reduce((sum, r) => sum + r.durationMs, 0);
       const result = await stitch.mutateAsync({
         recordingId: destinationRecordingId,

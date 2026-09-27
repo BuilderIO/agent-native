@@ -61,8 +61,6 @@ export default defineAction({
 
     if (operation === "delete") {
       await resourceDelete(resource.id);
-      // Names are reusable; history left behind would surface as the run
-      // history of whatever job is next created under this name.
       await deleteAutomationRuns(resource.owner, name);
       return { deleted: true, name };
     }

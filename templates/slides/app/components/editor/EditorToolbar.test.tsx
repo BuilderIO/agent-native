@@ -15,8 +15,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   shareButton: vi.fn(() => null),
+  exportMenu: vi.fn(),
   registerEditorCommands: vi.fn(),
   creativeContextLabEnabled: { value: true },
+  uploadPromptFiles: vi.fn(),
+  cleanupUploadedPromptFiles: vi.fn(),
+  formatPromptUploadFailure: vi.fn(
+    (_error: unknown, description: string) => description,
+  ),
+  isPromptUploadAuthRequiredError: vi.fn(() => false),
+  isPromptUploadLimitError: vi.fn(() => false),
+  isPromptUploadNetworkError: vi.fn(() => false),
+  isPromptUploadStorageStatusError: vi.fn(() => false),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -63,8 +73,21 @@ vi.mock("@/lib/utils", () => ({
       .join(" "),
 }));
 
+vi.mock("@/lib/prompt-file-uploads", () => ({
+  uploadPromptFiles: mocks.uploadPromptFiles,
+  cleanupUploadedPromptFiles: mocks.cleanupUploadedPromptFiles,
+  formatPromptUploadFailure: mocks.formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError: mocks.isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError: mocks.isPromptUploadLimitError,
+  isPromptUploadNetworkError: mocks.isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError: mocks.isPromptUploadStorageStatusError,
+}));
+
 vi.mock("./ExportMenu", () => ({
-  ExportMenu: () => null,
+  ExportMenu: (props: { hasSlides?: boolean }) => {
+    mocks.exportMenu(props);
+    return null;
+  },
   ExportStatusDialog: () => null,
 }));
 
@@ -144,7 +167,15 @@ const deck: Deck = {
 };
 const deckWithSlides: Deck = {
   ...deck,
-  slides: [{ id: "slide-1", content: "", notes: "", layout: "blank" }],
+  slides: [
+    {
+      id: "slide-1",
+      content: "",
+      notes: "",
+      layout: "blank",
+      transition: "instant",
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -157,6 +188,63 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it.each([
+    [200, { slideCount: 2 }],
+    [500, { error: "Import failed" }],
+  ])(
+    "cleans up uploaded import files after action status %i",
+    async (status, body) => {
+      const uploaded = {
+        path: "uploads/import.pdf",
+        originalName: "import.pdf",
+        filename: "import.pdf",
+        type: "application/pdf",
+        size: 3,
+      };
+      const file = new File(["pdf"], "import.pdf", { type: "application/pdf" });
+      mocks.uploadPromptFiles.mockResolvedValue([uploaded]);
+      mocks.cleanupUploadedPromptFiles.mockResolvedValue(undefined);
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(new Response(JSON.stringify(body), { status })),
+      );
+      render(
+        <TooltipProvider>
+          <EditorToolbar
+            deck={deck}
+            deckId="deck-1"
+            deckTitle="Test deck"
+            onTitleChange={vi.fn()}
+            currentSlideIndex={0}
+            sidebarOpen={true}
+            onToggleSidebar={vi.fn()}
+            onGenerateImage={vi.fn()}
+            onOpenAssetLibrary={vi.fn()}
+            onShowHistory={vi.fn()}
+            historyButtonRef={createRef<HTMLButtonElement>()}
+          />
+        </TooltipProvider>,
+      );
+      const input = document.querySelector<HTMLInputElement>(
+        'input[type="file"][accept=".pptx,.docx,.pdf"]',
+      )!;
+
+      fireEvent.change(input, { target: { files: [file] } });
+
+      await waitFor(() =>
+        expect(mocks.cleanupUploadedPromptFiles).toHaveBeenCalledWith([
+          uploaded,
+        ]),
+      );
+      expect(mocks.uploadPromptFiles).toHaveBeenCalledWith(
+        [file],
+        "home.referenceFileStorageUnavailable",
+      );
+    },
+  );
+
   it("registers the editor actions in the Cmd+K palette", () => {
     const onAddEmptySlide = vi.fn();
     const onToggleTextBoxMode = vi.fn();
@@ -319,6 +407,57 @@ describe("<EditorToolbar>", () => {
       expect.arrayContaining(["shape-rectangle", "shape-circle"]),
     );
     expect(onSelectShape).not.toHaveBeenCalled();
+  });
+
+  it("disables export and Present actions when the deck has no slides", async () => {
+    const onPresent = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+          onExportGoogleSlides={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentButton = screen.getByRole("button", {
+      name: "editorToolbar.present",
+    });
+    expect((presentButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(presentButton);
+    expect(onPresent).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "editorToolbar.more" }),
+      { button: 0, ctrlKey: false },
+    );
+    await screen.findByRole("menu");
+    expect(mocks.exportMenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ hasSlides: false }),
+    );
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string }>)
+      | undefined;
+    expect((source?.() ?? []).map((command) => command.id)).not.toEqual(
+      expect.arrayContaining([
+        "download-html",
+        "export-pdf",
+        "export-pptx",
+        "export-to-google-slides",
+      ]),
+    );
   });
 
   it("surfaces history from the top-right overflow menu", async () => {
