@@ -14,6 +14,7 @@ interface QuestionFlowProps {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  isSubmitting?: boolean;
 }
 
 const DESIGN_SYSTEM_COLOR_KEYS: Array<
@@ -63,6 +64,7 @@ export function QuestionFlow({
   description,
   skipLabel,
   submitLabel,
+  isSubmitting,
 }: QuestionFlowProps) {
   const visibleQuestions = useMemo(
     () =>
@@ -93,6 +95,7 @@ export function QuestionFlow({
         }
         skipLabel={skipLabel}
         submitLabel={submitLabel}
+        isSubmitting={isSubmitting}
       />
     </div>
   );

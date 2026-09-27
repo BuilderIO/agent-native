@@ -7,6 +7,13 @@ import { DesignSystemSetup } from "./DesignSystemSetup";
 
 const mocks = vi.hoisted(() => ({
   tierLimit: null as Record<string, unknown> | null,
+  uploadFigma: vi.fn(),
+  pollDecode: vi.fn(),
+}));
+
+vi.mock("./builder-design-system-upload", () => ({
+  uploadAndIndexFigmaFiles: mocks.uploadFigma,
+  pollDecodeJobStatus: mocks.pollDecode,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -123,5 +130,111 @@ describe("Slides DesignSystemSetup tier-limit gating", () => {
       .map((node) => node.closest("button"))
       .find((button): button is HTMLButtonElement => button !== null);
     expect(codeRow?.getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("places expanded source fields directly below their row", () => {
+    mocks.tierLimit = {
+      status: "ok",
+      plan: "enterprise",
+      current: 1,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: true,
+    };
+
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
+
+    fireEvent.click(
+      screen.getByText("designSystemSetup.otherSources").closest("button")!,
+    );
+    const companyRow = screen
+      .getAllByText("designSystemSetup.companyBrand")
+      .map((node) => node.closest("button"))
+      .find((button): button is HTMLButtonElement => button !== null)!;
+    fireEvent.click(companyRow);
+
+    const companyPanel = document.getElementById(
+      "slides-design-system-brand-source",
+    );
+    expect(companyRow.nextElementSibling).toBe(companyPanel);
+    expect(
+      document.querySelectorAll('[id="slides-design-system-brand-source"]'),
+    ).toHaveLength(1);
+    expect(
+      screen.getByLabelText("designSystemSetup.companyBrand").className,
+    ).toContain("placeholder:text-foreground/60");
+
+    const notesRow = screen
+      .getByText("designSystemSetup.additionalNotes")
+      .closest("button")!;
+    fireEvent.click(notesRow);
+
+    const notesPanel = document.getElementById(
+      "slides-design-system-context-source",
+    );
+    expect(notesRow.nextElementSibling).toBe(notesPanel);
+    expect(
+      screen.getAllByText("designSystemSetup.additionalNotes"),
+    ).toHaveLength(1);
+    expect(
+      screen.getByLabelText("designSystemSetup.additionalNotes").className,
+    ).toContain("placeholder:text-foreground/60");
+  });
+
+  it("re-enables Figma uploads when resetting a preview during indexing", async () => {
+    mocks.tierLimit = {
+      status: "ok",
+      plan: "enterprise",
+      current: 1,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: true,
+    };
+    mocks.uploadFigma.mockResolvedValueOnce({
+      ok: true,
+      source: "builder",
+      suggestedTitle: "Brand",
+      projectId: "project-1",
+      jobId: "job-1",
+      designSystemId: "system-1",
+      builderUrl: "https://builder.io/design-system/system-1",
+      status: "in-progress",
+    });
+    mocks.pollDecode.mockImplementationOnce((_jobId, { signal, onUpdate }) => {
+      onUpdate({
+        status: "pending",
+        branchUrl: "https://builder.io/design-system/system-1",
+        error: null,
+        framesProcessed: 0,
+        totalFrames: 1,
+      });
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    });
+
+    render(<DesignSystemSetup open onClose={() => {}} onComplete={() => {}} />);
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"][accept=".fig"]',
+    );
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: { files: [new File(["figma"], "brand.fig")] },
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "designSystemSetup.chooseAnotherFile",
+      }),
+    );
+
+    const uploadButton = document
+      .getElementById("slides-design-system-figma-source")
+      ?.querySelector("button");
+    expect(uploadButton?.hasAttribute("disabled")).toBe(false);
   });
 });

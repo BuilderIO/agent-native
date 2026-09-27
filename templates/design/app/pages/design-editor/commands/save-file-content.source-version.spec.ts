@@ -36,6 +36,198 @@ describe("runSaveFileContent source version", () => {
     __clearVersionHistoryWarningsForTests();
   });
 
+  it("waits for the queued outbox entry and keeps it replayable after a failed save", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-outbox-stall",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: sourceContentHash("<main>original</main>"),
+    };
+    const entries = new Map<string, DesignSaveOutboxEntry>();
+    const storage: DesignSaveOutboxStorage = {
+      putLatest: async (entry) => {
+        entries.set(entry.key, structuredClone(entry));
+      },
+      deleteIfRevision: async (entry) => {
+        const current = entries.get(entry.key);
+        if (
+          current?.operationSource !== entry.operationSource ||
+          current.operationRevision !== entry.operationRevision
+        ) {
+          return false;
+        }
+        entries.delete(entry.key);
+        return true;
+      },
+      list: async (designId, actorScope) =>
+        [...entries.values()].filter(
+          (entry) =>
+            entry.designId === designId && entry.actorScope === actorScope,
+        ),
+      pruneOlderThan: async () => 0,
+    };
+    const entry = createDesignSaveOutboxEntry({
+      designId: "design-1",
+      actorScope: "user-1",
+      actionName: "update-file",
+      resourceId: pending.id,
+      operationSource: pending.operationSource,
+      operationRevision: pending.operationRevision,
+      payload: {
+        id: pending.id,
+        content: pending.content,
+        syncCollab: pending.syncCollab,
+        operationSource: pending.operationSource,
+        operationRevision: pending.operationRevision,
+        expectedVersionHash: pending.expectedVersionHash,
+      },
+    });
+    const journal = deferred<void>();
+    const journalOutboxEntry = vi.fn(
+      async (queuedEntry: DesignSaveOutboxEntry) => {
+        await journal.promise;
+        await storage.putLatest(queuedEntry);
+        return true;
+      },
+    );
+    const outboxJournalPromise = journalOutboxEntry(entry);
+    const fileSaveChainsRef: SaveFileContentArgs["fileSaveChainsRef"] = {
+      current: {},
+    };
+    const mutateAsync = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const acknowledgeOutboxEntry = vi.fn(
+      async (acknowledgedEntry: DesignSaveOutboxEntry) => {
+        await storage.deleteIfRevision(acknowledgedEntry);
+      },
+    );
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry,
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => entry),
+      fileSaveChainsRef,
+      journalOutboxEntry,
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync,
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry: vi.fn(),
+    };
+
+    const save = runSaveFileContent(args, pending, outboxJournalPromise);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mutateAsync).not.toHaveBeenCalled();
+    journal.resolve();
+
+    await expect(save).resolves.toBe("retryable");
+    expect(journalOutboxEntry).toHaveBeenCalledOnce();
+    expect(mutateAsync).toHaveBeenCalledOnce();
+    expect(acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(entries.get(entry.key)).toEqual(entry);
+
+    const replay = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      storage,
+      invokeAction: async () => ({
+        updated: true,
+        versionHash: sourceContentHash(pending.content),
+      }),
+    });
+
+    expect(replay.failed).toEqual([]);
+    expect(replay.saved).toEqual([entry]);
+    expect(entries.size).toBe(0);
+  });
+
+  it("does not claim an offline save will retry when journaling failed", async () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-unavailable-outbox",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: "base",
+    };
+    const warnChangesWillRetry = vi.fn();
+    const errorToast = vi
+      .spyOn(toast, "error")
+      .mockImplementation(() => "test-toast");
+    vi.stubGlobal("navigator", { onLine: false });
+    const mutateAsync = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const args: SaveFileContentArgs = {
+      acknowledgeOutboxEntry: vi.fn(async () => {}),
+      canEditDesignRef: { current: true },
+      createFileSaveOutboxEntry: vi.fn(() => null),
+      fileSaveChainsRef: { current: {} },
+      journalOutboxEntry: vi.fn(async () => false),
+      latestFileSaveForUnloadRef: { current: {} },
+      rollbackPendingLocalFileContent: vi.fn(),
+      markPendingLocalFileContent: vi.fn(),
+      queryClient: { invalidateQueries: vi.fn() } as unknown as QueryClient,
+      setPatchProof: vi.fn(),
+      t: (key) => key,
+      updateFileMutation: {
+        mutateAsync,
+      } as unknown as SaveFileContentArgs["updateFileMutation"],
+      warnChangesWillRetry,
+    };
+
+    try {
+      await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+      expect(mutateAsync).toHaveBeenCalledOnce();
+      expect(warnChangesWillRetry).not.toHaveBeenCalled();
+      expect(errorToast).toHaveBeenCalledWith("common.genericError", {
+        id: `design-save-error:${pending.id}`,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      errorToast.mockRestore();
+    }
+  });
+
+  it("reuses the queued outbox promise for pagehide keepalive saves", () => {
+    const pending: FileContentSaveRequest = {
+      id: "screen-queued-keepalive",
+      content: "<main>saved</main>",
+      syncCollab: true,
+      operationSource: "tab-a",
+      operationRevision: 1,
+      expectedVersionHash: "base",
+    };
+    const journalOutboxEntry = vi.fn(async () => true);
+    const sendKeepalive = vi.fn(() => ({
+      accepted: true as const,
+      completion: Promise.reject(new TypeError("Failed to fetch")),
+    }));
+
+    runFileContentSaveKeepalive(
+      {
+        acknowledgeOutboxEntry: vi.fn(async () => {}),
+        createFileSaveOutboxEntry: vi.fn(() => ({}) as never),
+        journalOutboxEntry,
+        latestFileSaveForUnloadRef: { current: { [pending.id]: pending } },
+        outboxJournalPromise: Promise.resolve(true),
+        sendKeepalive,
+      },
+      pending,
+    );
+
+    expect(journalOutboxEntry).not.toHaveBeenCalled();
+    expect(sendKeepalive).toHaveBeenCalledOnce();
+  });
+
   it("replays from the oldest base when a successor keepalive races a missing predecessor", async () => {
     const baseContent = "<main>original</main>";
     const predecessorContent = "<main>predecessor</main>";

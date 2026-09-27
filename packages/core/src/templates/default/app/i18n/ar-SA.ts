@@ -702,6 +702,7 @@ const messages = {
     reviewFeedback: "الملاحظات",
     reviewOutput: "مراجعة الإجابة",
     reviewPreview: "معاينة الإجابة",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     closePreview: "إخفاء المعاينة",
     addFeedback: "إضافة ملاحظات",
     draftInstruction: "صياغة تعليمات",
@@ -723,6 +724,7 @@ const messages = {
     saveUpdate: "حفظ مسودة التحديث",
     draftSaved: "تم حفظ المسودة",
     noReviews: "لا توجد إجابات وكيل للمراجعة حتى الآن",
+    summarizeWithAgent: "لخّص باستخدام الوكيل",
   },
   error: {
     genericTitle: "حدث خطأ",

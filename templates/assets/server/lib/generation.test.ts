@@ -755,6 +755,11 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("recovers when a transient Builder retry succeeds", async () => {
+    resolveBuilderGatewayAuthMock.mockResolvedValue({
+      authorization: "Bearer bpk-builder-key",
+      spaceId: "space-test",
+      userId: "builder-user-123",
+    });
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
         const href = requestUrl(url);
@@ -807,6 +812,7 @@ describe("generateWithManagedImageProvider", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer bpk-builder-key",
           "x-builder-api-key": "space-test",
+          "x-builder-user-id": "builder-user-123",
         }),
       }),
     ]);

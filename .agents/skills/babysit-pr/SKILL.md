@@ -11,11 +11,9 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
-CI and no new feedback. When invoked by `/ship`, persist and honor its
-`ship_mode` on every durable wake: `merge-authorized` continues through the
-10-minute gate and guarded admin merge; `ready-only` continues until the PR is
-ready, then leaves it open and cleans up. Never infer standalone mode from a
-resumed `/babysit-pr` prompt.
+CI and no new feedback. When invoked by `/ship`, honor its inherited
+`ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
+foreground-only; do not create or resume a durable watcher or use PR leases.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -44,153 +42,47 @@ merging, except when the user explicitly invokes `/ship-now`.
 
 ## Setup
 
-Before creating or resuming a heartbeat, query the live PR with
-`gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
-If it is closed but unmerged, do not create or resume a watcher; if this task
-already owns one, clean it up and report the unsuccessful shipment. If it is
-already merged under inherited `ship_mode=merge-authorized`, do not create or
-reactivate a watcher: continue the post-merge path in the foreground, leaving
-an existing owned watcher active until ancestry proof and branch disposition
-finish. Standalone and ready-only invocations clean up and report an unexpected
-merge without rotating. If the query fails or is ambiguous, stay
-foreground-only until the PR state is known.
+At the start and on every resumed tick, query the PR:
 
-If the user asks not to create scheduled tasks, keep this invocation in the
-foreground and do not create or resume a heartbeat. Continue ticking here with
-interruptible waits until a stop condition is reached.
+```bash
+gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit
+```
 
-1. Carry the parent `/ship` authorization into every durable wake-up. When
-   invoked under `/ship`, put exactly one explicit mode marker in the
-   task-scoped heartbeat prompt and preserve it on every update:
-   `ship_mode=merge-authorized` (the normal `/ship` default) or
-   `ship_mode=ready-only` (after the user explicitly declines merge). Also
-   state that the inherited mode survives resumed ticks and name its endpoint.
-   Do not rely on the parent transcript alone. On every wake, read this marker
-   before applying any stop rule. If an older `/ship` watcher has no marker,
-   recover the mode from the active ship goal and parent transcript; never
-   downgrade an authorized shipment to standalone. If the mode cannot be
-   recovered, stay foreground-only and do not merge or stop under the
-   standalone timer. A user changing the merge decision updates both the ship
-   goal and this persisted marker before the next scheduled wake.
+If the query fails or is ambiguous, stay foreground-only until its state is
+known. A closed, unmerged PR ends babysitting and is reported as unsuccessful.
+If a PR is already merged under inherited `ship_mode=merge-authorized`,
+continue the post-merge path here. Standalone and ready-only invocations report
+an unexpected merge without rotating.
 
-   Establish a durable self-re-arming tick loop before yielding. Do ONE tick
-   (see "Each tick"), then schedule the next one with the host's durable
-   wake-up facility using this same `/babysit-pr <number> …` invocation. In
-   Codex, derive a task-scoped watcher name
-   `babysit-pr-<number>-<this task's threadId>` and use
-   `mcp__codex_app__automation_update` with a complete heartbeat payload:
-   `mode`, `kind: heartbeat`, `name: <watcher-name>`, `prompt`,
-   `rrule: FREQ=MINUTELY;INTERVAL=2`, `status: ACTIVE`,
-   `targetThreadId: <this task's threadId>`, and
-   `notificationPolicy: failed_runs_only`; update that exact task-scoped
-   automation on later ticks. For example, a merge-authorized prompt must say
-   `ship_mode=merge-authorized; continue this /ship through guarded merge,
-   origin/main proof, and branch disposition; never use the standalone quiet
-   stop`. A ready-only prompt names the open, ready-PR gate and explicitly says
-   to leave it open and not rotate. The task-scoped name prevents different
-   invocations from overwriting the same record, but it does not select one
-   durable babysitter for the PR. Immediately before any create/resume/update
-   that sets `ACTIVE`, re-query the PR and require `OPEN`; a terminal state or
-   failed query must not schedule the next tick. First inspect the exact legacy
-   heartbeat. If
-   it is ACTIVE, leave it untouched, do not claim a lease or create any watcher
-   for this PR, and continue this invocation in the foreground. This is a
-   terminal foreground-only branch for this invocation, so skip the
-   missing-watcher create or resume path below.
+1. Run one foreground tick immediately and continue until this mode's endpoint.
+   Do not create or mutate automations for this workflow.
+2. Before each PR write, reread the live state. Push normally (never force).
+   On a non-fast-forward rejection, fetch and verify the remote PR head. If it
+   does not already contain the local commits, confirm the tree is clean and
+   those commits belong to this PR, merge the refreshed `origin/<branch>` into
+   the current branch, resolve and test, then recheck the live head before
+   pushing. Never retry the same stale push, rebase, or force-push. Guard PR
+   merges with `--match-head-commit <live_head_oid>`; a stale-head rejection is
+   a retry signal, not a reason to stop the requested work.
+3. Track the last actionable item: new human/bot feedback, a CI fix, conflict
+   resolution, or an intentional commit/push.
+4. For standalone `/babysit-pr`, stop after 30 minutes with green GitHub Actions
+   CI and no new actionable item. Under `/ship` with `ship_mode=merge-authorized`,
+   keep working through the 10-minute merge gate and guarded merge. With
+   `ship_mode=ready-only`, fix CI and review feedback until the ready-PR gate
+   holds, then leave the PR open.
 
-   When no ACTIVE legacy heartbeat is present, use the remote Git ref
-   `refs/heads/agent-native-babysit-lock-<number>` as the concrete serialized
-   PR lease coordinator. Its tip is a lease-record commit, not application
-   code, and must record the PR, owner thread, version, expiry, and the
-   observed legacy-heartbeat version plus a one-way `legacy_retired` fence.
-   Create a
-   fresh record with `git commit-tree`, then claim an absent ref with a normal
-   non-force `git push origin <record-oid>:<lease-ref>`; ref creation is the
-   atomic create-if-absent operation. Read the lease with `git ls-remote` plus
-   `git fetch`/`git show`; only an expired or released record may be replaced.
-   To renew or take over such a record, build the next record with the observed
-   lease commit as its parent and use
-   `git push --force-with-lease=<lease-ref>:<observed-oid> origin
-   <record-oid>:<lease-ref>`. A rejected push is a failed claim or renewal:
-   never update the heartbeat and remain foreground-only. If the lease ref
-   reports another active owner, the atomic claim fails and this invocation
-   remains foreground-only. The lease ref is the single source of truth for
-   new watchers, so do not enumerate or infer foreign task-scoped automation
-   names. An ACTIVE legacy watcher is conservatively treated as an existing
-   holder. A task-scoped heartbeat is valid only while its owner holds the
-   current lease.
-
-   Never create a task-scoped watcher before this task's PR-scoped lease claim
-   succeeds. Only after the claim succeeds may this invocation create or resume
-   its own task-scoped watcher. Never use the legacy shared
-   `babysit-pr-<number>` identity as a new invocation's heartbeat. The lease
-   ref's `git push --force-with-lease` is the atomic precondition for every
-   claim, renewal, and release. The ordinary `automation_update` call is made
-   only after this task holds the lease, for this task's exact watcher name and
-   `targetThreadId`; do not invent unsupported CAS fields for that API. Never
-   use a read followed by an unconditional lease write. After every successful
-   mutation, reread and verify the owner and version.
-
-   If this invocation successfully claims the lease but any later setup check
-   selects the foreground-only path, or creating/resuming the task-scoped
-   heartbeat fails, release the lease immediately with the same-owner/version
-   `git push --force-with-lease` operation before continuing foreground work.
-   Retry a failed release from a freshly observed lease version while ownership
-   is still this invocation's; if ownership moved, never release the new
-   owner's lease. This setup cleanup is required even when no heartbeat was
-   created, and must not wait for the stop conditions.
-
-   The legacy-heartbeat check is part of the same serialized handoff, not an
-   independent preflight. Inspect the exact legacy record before the lease
-   claim. When it is quiescent, include its observed version in the atomic
-   lease record and set `legacy_retired=true`; reread the legacy record
-   immediately after a successful claim and immediately before
-   `automation_update`. A legacy record that becomes ACTIVE, changes version,
-   or cannot be read fences task-scoped creation; release this invocation's
-   lease with its owner/version precondition and remain foreground-only. Once
-   the retirement fence is published, no compliant invocation may activate or
-   update the legacy shared heartbeat: it must first hold the same PR lease
-   and use the task-scoped path. A legacy implementation that cannot honor
-   that fence is treated as an unknown active holder, so leave it untouched
-   and never create a second watcher. This prevents a late legacy start from
-   racing the new watcher during migration.
-
-   Choose a lease expiry at least three times the two-minute cadence. At the
-   start of every tick, after the required fetch, make the lease fence the
-   first Step 0 action: read the current record and atomically renew it with
-   the expected owner and version before any PR checks. Renew again immediately
-   before slow local validation, after validation if it may have consumed the
-   TTL, and immediately before scheduling the next heartbeat. A failed renewal
-   fences this invocation: do no PR work or heartbeat mutation, attempt the
-   same-owner pause of its exact task-scoped record when applicable, and remain
-   foreground-only. Only an expired or released record may be taken over with
-   `--force-with-lease` against the freshly observed lease oid; the old owner's
-   next wake must fence itself and pause its own task-scoped watcher before
-   exiting. A text-only wake-up reminder is not enough. If no durable wake-up
-   tool is available, keep the foreground loop running and do not stop after PR
-   creation.
-2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
-3. For standalone `/babysit-pr` without inherited `/ship` authorization, after
-   30 minutes of no new actionable items with GitHub Actions CI green, cancel
-   the loop and report "All clear". In `ship_mode=merge-authorized`, this is
-   not a stop condition: the 10-minute clean merge gate is a trigger to merge,
-   and the watcher remains active until merge or terminal PR state. In
-   `ship_mode=ready-only`, keep fixing CI/review feedback until the PR is open,
-   required checks are green, every review item is addressed, GitHub reports
-   `MERGEABLE`, no new actionable feedback arrived since the final review scan,
-   the worktree is clean, and no commits are unpushed. Revalidate that gate
-   once, then leave the PR open and clean up the watcher and lease; do not
-   merge, rotate, or wait for the 10-minute merge soak.
-
-After an actionable fix or push, reset the applicable clock: the 30-minute
-quiet-green timer for standalone babysitting, or `/ship`'s 10-minute merge soak.
-The `/ship` soak starts only after every merge condition below is simultaneously
-true; it never waits for 30 minutes of quiet.
+After an actionable fix or push, reset the applicable clock: standalone's
+30-minute quiet-green timer or `/ship`'s 10-minute merge soak. The `/ship` soak
+starts only once every merge condition below holds; it never waits for 30
+minutes of quiet.
 
 ### Loop discipline — read this, it is the part people get wrong
 
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
-- **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a durable scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule the heartbeat fallback** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
+- **Keep the foreground loop moving.** Do not end `/ship` because CI, review, or
+  a background command is pending. Use short interruptible waits and check
+  again in this task.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
@@ -208,12 +100,11 @@ if ! git fetch origin --quiet; then
 fi
 ```
 
-After a successful fetch, renew the PR lease fence before any other work.
 Immediately query the live PR state with
 `gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
-If the query fails, do not run the branch/review/CI checks or schedule another
-tick until live state is available. A closed but unmerged PR goes to cleanup
-and is reported as an unsuccessful merge-authorized shipment. A merged PR is a
+If the query fails, do not run branch, review, or CI checks; retry on the next
+foreground tick. A closed but unmerged PR ends babysitting and is reported as
+unsuccessful. A merged PR is a
 terminal state for standalone `/babysit-pr` and inherited `ship_mode=ready-only`
 (report the unexpected merge and do not rotate). Under inherited
 `ship_mode=merge-authorized`, continue the `/ship` post-merge path below before
@@ -375,8 +266,7 @@ in the recap rather than treating it as no findings.
 
 6. Apply the active mode's endpoint: standalone uses the 30-minute quiet-green
    stop, `ship_mode=merge-authorized` continues to the guarded merge, and
-   `ship_mode=ready-only` cleans up at the verified ready-PR gate without
-   merging.
+   `ship_mode=ready-only` stops at the verified ready-PR gate without merging.
 
 ## Responding to feedback
 
@@ -432,9 +322,9 @@ Fix issues that are:
 ## Merging
 
 In `ship_mode=merge-authorized`, `/babysit-pr` inherits `/ship`'s merge
-authorization; do not return "All clear" or stop the watcher while its PR is
-open. In `ship_mode=ready-only`, never merge; stop at the verified ready-PR
-endpoint, leave the PR open, and clean up the watcher and lease.
+authorization; do not return "All clear" or stop this foreground task while its
+PR is open. In `ship_mode=ready-only`, never merge; stop at the verified ready
+PR endpoint and leave the PR open.
 
 Never enable GitHub auto-merge. In `ship_mode=merge-authorized`, admin-merge
 when the `/ship` gates hold. For standalone `/babysit-pr`, merge only when the
@@ -463,20 +353,10 @@ required checks green, all review items addressed, no new actionable feedback,
 clean worktree, and no unpushed commits. If any condition changed or cannot be
 verified, reset the soak and continue monitoring. Capture the head oid from
 that final check. Before merging under `/ship`, persist it as
-`ship_merge_head_oid=<verified-head-oid>`. In Codex, update and verify the
-active task-scoped heartbeat prompt when a watcher is active. In a
-foreground-only run with no watcher, keep the marker in the task transcript
-and continue without yielding through post-merge disposition. If an active
-Codex watcher cannot be updated, pause and verify that exact watcher before
-continuing foreground-only with the marker in the task transcript; if its pause
-cannot be verified, do not merge yet. In Claude Code, put the marker in the
-active `/goal` transcript when one exists; without an active goal, keep it in
-the foreground task transcript and do not yield before post-merge disposition.
-A missing watcher or `/goal` never blocks the authorized merge. Preserve this
-exact value on every later prompt or goal update; never replace it with a live
-`headRefOid` read after merge. If the OID is unavailable after merge, retain
-the source branch rather than guessing.
-
+`ship_merge_head_oid=<verified-head-oid>` in the task transcript or active goal.
+Keep this exact value through post-merge verification;
+never replace it with a live `headRefOid` read after merge. If it is unavailable
+after merge, retain the source branch rather than guessing.
 Then run:
 
 ```bash
@@ -495,69 +375,44 @@ mutable live head ref.
 - For standalone `/babysit-pr` only: no new actionable feedback and GitHub
   Actions green for 30 consecutive minutes
 - In `ship_mode=ready-only`: the verified ready-PR endpoint above
-- A merged PR completes the standalone watcher; in inherited
-  `ship_mode=merge-authorized`, it starts the post-merge ship continuation
+- A merged PR completes standalone babysitting; in inherited
+  `ship_mode=merge-authorized`, continue through the post-merge ship endpoint
 - A closed but unmerged PR ends babysitting, but never completes the ship goal
 
 In `ship_mode=merge-authorized`, never stop at the 30-minute quiet-green
-condition. Keep checking and fixing CI/review feedback, merge as soon as the
-10-minute gate holds. Then continue through `origin/main` verification and
-branch disposition before cleanup. A closed but unmerged PR is a terminal PR
-state, not a successful merge-authorized ship; report it without marking the
-goal complete. In `ship_mode=ready-only`, stop only at the verified ready-PR
-endpoint above, leave the PR open, and complete cleanup without a merge or
-branch rotation. Never stop because a resumed wake lost its mode.
+condition. Keep checking and fixing CI/review feedback in this task, merge as
+soon as the 10-minute gate holds, then verify `origin/main` and finish branch
+disposition. A closed but unmerged PR is a terminal state, not a successful
+shipment. In `ship_mode=ready-only`, stop at the verified ready-PR endpoint,
+leave the PR open, and do not merge or rotate.
 
 ### Post-merge `/ship` continuation
 
-When a durable wake finds the PR merged under inherited
+When the foreground task finds the PR merged under inherited
 `ship_mode=merge-authorized`, use the immutable `ship_merge_head_oid` saved
 before merge and `mergeCommit.oid` from GitHub or the merge result. Never use
 the current live `headRefOid` as the merged head. If the saved head marker is
-missing, preserve the source branch. Continue the parent `/ship` endpoint
-before pausing the watcher or releasing its lease:
+missing, preserve the source branch. Continue through:
 
 1. Fetch origin and verify `mergeCommit.oid` is an ancestor of `origin/main`.
-   If it has not arrived yet, keep this continuation in the foreground and
-   retry at an interruptible cadence of at most 60 seconds until the proof is
-   available. Before each retry, fetch origin, verify this invocation still
-   owns the PR lease, renew it with the observed-version compare-and-swap, and
-   verify the renewed record before checking ancestry. Do not depend on another
-   scheduled tick or reactivate a watcher after the PR is terminal. If renewal
-   fails or ownership changed, stop audits and branch disposition. Pause and
-   verify only this invocation's task-scoped watcher when its targetThreadId
-   still matches this task; leave any foreign lease untouched. Continue in the
-   foreground and read-only until this invocation can safely reacquire the
-   lease under the normal claim rules.
-2. Before any branch disposition, fetch origin and renew/verify this
-   invocation's lease with the observed-version compare-and-swap. If renewal
-   fails, do no audits or checkout mutations; wait read-only and resume only
-   after safely reacquiring under the normal lease rules. Then rerun both final
-   review audits described below. If new actionable feedback appears after
-   merge, record it as a post-merge follow-up, retain the source branch, and do
-   not restart this PR's merge soak.
-3. If Step 2 recorded a post-merge follow-up, retain the source branch and skip
-   branch mutation. Otherwise, complete `/ship`'s authorized post-merge branch
-   disposition, passing the saved `ship_merge_head_oid` to `/new-branch`.
-   Compare both local and remote source-branch tips. Renew and verify the lease
-   immediately before any branch mutation, including a checkout switch. If
-   fencing fails, keep the source checkout unchanged; otherwise rotate only
-   when its safety checks pass, retaining the source branch and reporting why
-   when they do not.
-4. Once ancestry proof and branch disposition (including retaining the source
-   branch for a post-merge follow-up) are complete and both audits have been
-   run, clean up the watcher and lease. A recorded post-merge follow-up is a
-   terminal disposition for this shipment; do not keep its watcher or lease
-   active waiting for the already-merged PR to be fixed.
+   If it has not arrived yet, retry in the foreground at an interruptible
+   cadence of at most 60 seconds.
+2. Rerun both final review audits below. If new actionable feedback appears
+   after merge, record a post-merge follow-up and retain the source branch.
+3. If there is no post-merge follow-up, retain the source branch unless the
+   user explicitly requested its exact rotation in this task. If requested,
+   follow `/new-branch` safety checks and compare local and remote tips before
+   any branch operation.
 
-PR merge by itself is not a watcher stop, parent handoff completion, or goal
-completion. If the exact head OID is unavailable, preserve the source branch
-and report that safe disposition rather than guessing.
+The foreground task owns this continuation; no watcher or lease is required.
 
-Before the guarded merge or ready-only cleanup, and at Step 2 of the post-merge
-continuation before branch disposition, re-run the unaddressed inline-comments
-command and inspect every review body while this task still owns its watcher
-and lease:
+PR merge by itself is not parent handoff or goal completion. If the exact head
+OID is unavailable, preserve the source branch and report that safe disposition
+rather than guessing.
+
+Before the guarded merge or ready-only endpoint, and before post-merge branch
+disposition, re-run the unaddressed inline-comments command and inspect every
+review body in this task:
 
 ```bash
 gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
@@ -570,38 +425,13 @@ inline thread. New review feedback resets the merge soak. Do not stop in
 `ready-only` mode or merge in `merge-authorized` mode until both the inline
 thread audit and review-body audit are clear. "I replied earlier" is not
 sufficient; bots may have posted new rounds since. If either final audit finds
-new actionable feedback, keep the watcher and lease, fix it, and restart the
-soak while the PR is still open. If it is already merged, record a
+new actionable feedback, fix it in the foreground and restart the soak while
+the PR is still open. If it is already merged, record a
 post-merge follow-up, retain the source branch, and do not restart the merged
-PR's soak. Pause/release ownership after the endpoint is reached and both
-audits have a disposition. A post-merge follow-up with the source branch
-retained is a valid final disposition and does not keep the watcher active.
+PR's soak. Stop only after the endpoint is reached and both audits have a disposition.
+A post-merge follow-up with the source branch retained is a valid final
+disposition.
 
-## Cleanup
+## Final state
 
-Cleanup has two mutually exclusive paths. If this invocation claimed the PR
-lease but did not create or resume its task-scoped heartbeat, release that lease
-first with the same owner/version `git push --force-with-lease` operation;
-retry a failed release from a fresh version while the foreground loop remains
-active, and verify that the lease is released or has moved before stopping.
-Do not attempt to pause a heartbeat that this invocation never created or
-resumed. If this invocation did create or resume its task-scoped heartbeat,
-retain the PR lease while rereading that exact
-`babysit-pr-<number>-<this task's threadId>` heartbeat and capturing its current
-version, then update it to `PAUSED` and verify the result. The automation update
-must include the complete persisted definition, changing only `status`; a
-status-only update is rejected. Preserve its exact id, kind, name, prompt,
-cadence, target thread, notification policy, and any other stored fields. If
-the pause fails,
-do not stop: reread the lease and heartbeat, renew the lease when it is still
-ours, and retry the same-owner pause from the fresh version. If the lease has
-moved to another owner, never mutate or release that owner's lease; only pause
-this task's uniquely named heartbeat when its `targetThreadId` still matches
-this task, and remain foreground-only until cleanup is confirmed. If the
-heartbeat host is unavailable, keep retrying in the foreground rather than
-claiming completion. After the heartbeat pause succeeds, mark the PR lease
-released with `git push --force-with-lease` and the same owner/version
-precondition. Never pause or release the legacy shared per-PR identity or
-another owner's lease.
-Verify the PR's final state. Never leave a heartbeat or lease owned by this
-task running after completion.
+Verify the PR's final state.

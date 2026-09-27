@@ -72,6 +72,46 @@ describe("startDeckGeneration", () => {
     expect(requestedSlideCount("Create a deck about launches")).toBeUndefined();
   });
 
+  it("correlates the generating route with its submitted chat run", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockResolvedValue(undefined);
+    const deck = {
+      id: "deck-correlated-run",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const navigate = vi.fn();
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create a deck",
+        files: [],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate,
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const route = new URL(
+      String(navigate.mock.calls[0]?.[0] ?? ""),
+      "https://slides.test",
+    );
+    const routeSubmitId = route.searchParams.get("generationSubmitId");
+    expect(route.searchParams.get("generating")).toBe("1");
+    expect(routeSubmitId).toBeTruthy();
+    expect(agentSubmit.mock.calls[0]?.[2]?.submitMessageId).toBe(routeSubmitId);
+  });
+
   it("treats an implicit improvement prompt as source-preserving", () => {
     expect(
       isSourceImprovementRequest("Make this prettier", [

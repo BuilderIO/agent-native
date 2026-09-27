@@ -25,6 +25,7 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
@@ -81,6 +82,7 @@ export interface ScreenTextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -95,6 +97,7 @@ export interface ScreenTextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
@@ -140,6 +143,8 @@ export function runScreenTextContentChange(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ): TextCommitStatus {
   const overviewScreen = overviewScreens.find(

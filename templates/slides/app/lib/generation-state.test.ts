@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
+  shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
   slideBeingFilledInPlace,
@@ -14,7 +16,7 @@ describe("new deck generation state", () => {
         generating: true,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(true);
 
@@ -23,7 +25,7 @@ describe("new deck generation state", () => {
         generating: true,
         isNewDeckCreation: true,
         slideCount: 1,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(false);
 
@@ -32,7 +34,7 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: true,
+        phase: "started",
       }),
     ).toBe(false);
 
@@ -41,7 +43,7 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
-        generationStarted: false,
+        phase: "pending",
       }),
     ).toBe(true);
   });
@@ -50,7 +52,8 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: false,
+        waitingOnQuestions: false,
+        phase: "pending",
       }),
     ).toBe(false);
   });
@@ -66,7 +69,8 @@ describe("new deck generation state", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: true,
-        generationStarted: true,
+        waitingOnQuestions: false,
+        phase: "started",
       }),
     ).toBe(false);
   });
@@ -133,19 +137,179 @@ describe("new deck generation state", () => {
     ).toBeNull();
   });
 
-  it("clears new-deck generating state only when observed work finishes", () => {
+  it("clears new-deck generating state once a run that started stops", () => {
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: true,
+        waitingOnQuestions: false,
+        phase: "started",
       }),
     ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: false,
+        waitingOnQuestions: false,
+        phase: "pending",
       }),
     ).toBe(false);
+  });
+
+  it("keeps run correlation after timeout until generation actually finishes", () => {
+    const abandoned = {
+      generating: false,
+      waitingOnQuestions: false,
+      phase: "abandoned" as const,
+    };
+    expect(shouldClearNewDeckGeneratingState(abandoned)).toBe(true);
+    expect(shouldClearNewDeckGenerationRun(abandoned)).toBe(false);
+    expect(
+      shouldClearNewDeckGenerationRun({
+        ...abandoned,
+        phase: "started" as const,
+      }),
+    ).toBe(true);
+  });
+
+  describe("nextNewDeckGenerationPhase", () => {
+    it("reloading a dead ?generating=1 deck (no run, no questions) abandons after the wait lapses, and that clears the stuck state", () => {
+      // A page load that never observes a run and isn't blocked on
+      // questions must eventually leave "pending" — otherwise the overlay
+      // and the url param that re-seeds it persist forever.
+      const phase = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: false,
+        waitingOnQuestions: false,
+        waitExpired: true,
+      });
+      expect(phase).toBe("abandoned");
+      expect(
+        shouldShowNewDeckGeneratingOverlay({
+          generating: false,
+          isNewDeckCreation: true,
+          slideCount: 0,
+          phase,
+        }),
+      ).toBe(false);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: false,
+          phase,
+        }),
+      ).toBe(true);
+    });
+
+    it("does not abandon while the wait window hasn't lapsed yet", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "pending",
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("pending");
+    });
+
+    it("survives an expired wait while pre-generation questions are pending", () => {
+      // Intent can legitimately arrive after mount, through the question
+      // flow the empty editor shows — the wait must not lapse underneath it
+      // even once the plain time bound would otherwise have expired.
+      const phase = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: false,
+        waitingOnQuestions: true,
+        waitExpired: true,
+      });
+      expect(phase).toBe("pending");
+      expect(
+        shouldShowNewDeckGeneratingOverlay({
+          generating: false,
+          isNewDeckCreation: true,
+          slideCount: 0,
+          phase,
+        }),
+      ).toBe(true);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: true,
+          phase,
+        }),
+      ).toBe(false);
+    });
+
+    it("moves to started as soon as a run is observed, even mid-wait", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "pending",
+          generating: true,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("started");
+    });
+
+    it("normal path: once started, later expiry inputs are ignored, and clearing waits for generating to stop", () => {
+      const started = nextNewDeckGenerationPhase({
+        phase: "pending",
+        generating: true,
+        waitingOnQuestions: false,
+        waitExpired: false,
+      });
+      expect(started).toBe("started");
+
+      // Terminal: further calls (e.g. `generating` flickering, a stray
+      // expiry) never move it back to pending or to abandoned.
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: started,
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: true,
+        }),
+      ).toBe("started");
+
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          waitingOnQuestions: false,
+          phase: started,
+        }),
+      ).toBe(false);
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: false,
+          waitingOnQuestions: false,
+          phase: started,
+        }),
+      ).toBe(true);
+    });
+
+    it("revives an abandoned route when a run starts late", () => {
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "abandoned",
+          generating: true,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("started");
+      expect(
+        shouldClearNewDeckGeneratingState({
+          generating: true,
+          waitingOnQuestions: false,
+          phase: "abandoned",
+        }),
+      ).toBe(false);
+      expect(
+        nextNewDeckGenerationPhase({
+          phase: "abandoned",
+          generating: false,
+          waitingOnQuestions: false,
+          waitExpired: false,
+        }),
+      ).toBe("abandoned");
+    });
   });
 });

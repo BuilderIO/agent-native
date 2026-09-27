@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildPastedSvgLayer,
@@ -96,6 +96,60 @@ describe("buildPastedSvgLayer", () => {
     expect(layer.html).not.toMatch(/script|onclick|alert/);
   });
 
+  it("accepts mixed-case SVG roots and removes mixed-case unsafe elements", () => {
+    let importedRoot: SVGSVGElement | undefined;
+    let stylesheet = "";
+    const layer = buildPastedSvgLayer(
+      '<SVG width="10" height="10"><STYLE>.logo { fill: url(https://evil.example/paint.svg); stroke: red }</STYLE><path class="logo" d="M0 0h10"/><SCRIPT>alert(1)</SCRIPT><ANIMATETRANSFORM/></SVG>',
+      "Logo",
+      (root) => {
+        importedRoot = root;
+        stylesheet =
+          Array.from(root.querySelectorAll("*")).find(
+            (element) => element.localName.toLowerCase() === "style",
+          )?.textContent ?? "";
+        return measureAll(fill("red"))(root);
+      },
+    );
+
+    expect(layer).not.toBeNull();
+    expect(importedRoot?.localName.toLowerCase()).toBe("svg");
+    expect(
+      Array.from(importedRoot!.querySelectorAll("*")).some((element) =>
+        ["script", "animatetransform"].includes(
+          element.localName.toLowerCase(),
+        ),
+      ),
+    ).toBe(false);
+    expect(stylesheet).not.toContain("evil.example");
+    expect(stylesheet).toContain("stroke: red");
+  });
+
+  it.each(["IMAGE", "foreignOBJECT", "TEXT", "USE"])(
+    "rejects unsupported mixed-case <%s> elements",
+    (tag) => {
+      expect(
+        buildPastedSvgLayer(
+          `<svg width="10" height="10"><path d="M0 0h10"/><${tag}/></svg>`,
+          "Logo",
+          measureAll(fill("red")),
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("strips editor metadata from drawable and cloned definition elements", () => {
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><path d="M0 0h10" clip-path="url(#clip)" data-an-open-fill-opacity="forged" data-agent-native-node-id="forged"/><defs><clipPath id="clip"><path d="M0 0h10" data-an-open-fill-opacity="forged" data-agent-native-node-id="forged"/></clipPath></defs></svg>',
+      "Logo",
+      measureAll(fill("red")),
+    )!;
+
+    expect(layer.html).not.toContain("data-an-open-fill-opacity");
+    expect(layer.html).not.toContain('data-agent-native-node-id="forged"');
+    expect(layer.html).toContain("clipPath");
+  });
+
   it("falls back to an image upload for SVGs with embedded rasters", () => {
     expect(
       buildPastedSvgLayer(
@@ -155,6 +209,237 @@ describe("buildPastedSvgLayer", () => {
     expect(groups[0]!.getAttribute("filter")).toMatch(/^url\(#.+-shadow\)$/);
     expect(groups[1]!.getAttribute("clip-path")).toMatch(/^url\(#.+-clip0\)$/);
     expect(doc.querySelectorAll("clipPath, filter")).toHaveLength(2);
+  });
+
+  it("removes external URLs but keeps safe inline style declarations", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><rect width="10" height="10" filter="url(https://example.com/filter.svg#f)" style="clip-path:url(https://example.com/clip.svg#c);stroke:red"/></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    )!;
+
+    const measuredRoot = measuredRoots[0];
+    const measuredRect = Array.from(
+      measuredRoot?.querySelectorAll("*") ?? [],
+    ).find((element) => element.tagName.toLowerCase() === "rect");
+    expect(measuredRect?.hasAttribute("filter")).toBeFalsy();
+    expect(measuredRect?.getAttribute("style")).toContain("stroke: red");
+    expect(measuredRect?.getAttribute("style")).not.toContain("clip-path");
+    expect(layer.html).not.toContain("https://example.com");
+  });
+
+  it("removes external URLs obscured by CSS escaped newlines", () => {
+    for (const lineBreak of ["\n", "\r\n"]) {
+      const lineContinuation = "\\" + lineBreak;
+      const measuredRoots: SVGSVGElement[] = [];
+      buildPastedSvgLayer(
+        `<svg width="10" height="10">
+        <style>.shape { fill: u${lineContinuation}rl(https://example.com/paint.svg); stroke: red }</style>
+        <rect class="shape" width="10" height="10"
+          filter="url(${lineContinuation}https://example.com/filter.svg)"
+          style="clip-path:u${lineContinuation}rl(https://example.com/clip.svg);stroke:blue" />
+      </svg>`,
+        "Logo",
+        (root) => {
+          measuredRoots.push(root);
+          return measureAll(fill("red"))(root);
+        },
+      );
+
+      const root = measuredRoots[0]!;
+      const rect = root.querySelector("rect")!;
+      expect(rect.hasAttribute("filter")).toBe(false);
+      expect(rect.getAttribute("style")).toContain("stroke: blue");
+      expect(rect.getAttribute("style")).not.toContain("clip-path");
+      expect(
+        root.ownerDocument.querySelector("style")?.textContent,
+      ).not.toContain("example.com");
+      expect(root.ownerDocument.querySelector("style")?.textContent).toContain(
+        "stroke: red",
+      );
+    }
+  });
+
+  it("removes external URLs after a hex escape with a CRLF terminator", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    buildPastedSvgLayer(
+      '<svg width="10" height="10"><rect width="10" height="10"/><style>.shape { fill: u\\72&#13;&#10;l(https://example.com/payload.svg); stroke: red }</style></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    );
+
+    const css =
+      measuredRoots[0]?.ownerDocument.querySelector("style")?.textContent;
+    expect(css).not.toContain("https://example.com/payload.svg");
+    expect(css).toContain("stroke: red");
+  });
+
+  it("imports namespace-less clipboard SVG markup into the SVG namespace", () => {
+    const importNode = vi.spyOn(document, "importNode");
+    let importedRoot: SVGSVGElement | undefined;
+    try {
+      buildPastedSvgLayer(
+        '<svg data-title="a > b"><path d="M0 0h10" /></svg>',
+        "Logo",
+      );
+      importedRoot = importNode.mock.results[0]?.value as
+        | SVGSVGElement
+        | undefined;
+    } finally {
+      importNode.mockRestore();
+    }
+
+    expect(importedRoot?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(importedRoot?.getAttribute("data-title")).toBe("a > b");
+    expect(importedRoot?.firstElementChild?.namespaceURI).toBe(
+      "http://www.w3.org/2000/svg",
+    );
+  });
+
+  it("keeps a multiline default namespace when the root has quoted greater-than attributes", () => {
+    const importNode = vi.spyOn(document, "importNode");
+    let importedRoot: SVGSVGElement | undefined;
+    try {
+      buildPastedSvgLayer(
+        '<svg data-title="a > b"\n  xmlns\n    = "http://www.w3.org/2000/svg"><path d="M0 0h10" /></svg>',
+        "Logo",
+      );
+      importedRoot = importNode.mock.results[0]?.value as
+        | SVGSVGElement
+        | undefined;
+    } finally {
+      importNode.mockRestore();
+    }
+
+    expect(importedRoot?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(importedRoot?.getAttribute("xmlns")).toBe(
+      "http://www.w3.org/2000/svg",
+    );
+    expect(importedRoot?.getAttribute("data-title")).toBe("a > b");
+    expect(importedRoot?.firstElementChild?.namespaceURI).toBe(
+      "http://www.w3.org/2000/svg",
+    );
+  });
+
+  it("measures namespace-less clipboard shapes as SVG elements", () => {
+    let measuredShape: Element | undefined;
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><path d="M0 0H10" fill="#123456" /></svg>',
+      "Logo",
+      (root) => {
+        const shape = root.querySelector("path")!;
+        measuredShape = shape;
+        return new Map([
+          [
+            shape,
+            {
+              box: { x: 0, y: 0, width: 10, height: 10 },
+              userBox: { x: 0, y: 0, width: 10, height: 10 },
+              paint: fill("#123456"),
+              opacity: 1,
+              transform: "",
+            },
+          ],
+        ]);
+      },
+    );
+
+    expect(measuredShape?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(layer?.html).toContain('data-an-primitive="path"');
+  });
+
+  it("keeps safe stylesheet declarations and rules around external URLs", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    buildPastedSvgLayer(
+      '<svg width="10" height="10"><rect class="shape" width="10" height="10"/><style>.shape { fill: url(https://example.com/paint.svg#p); stroke: red } .safe { fill: blue }</style></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    );
+
+    const measuredRoot = measuredRoots[0];
+    const css = Array.from(
+      measuredRoot?.ownerDocument.getElementsByTagName("style") ?? [],
+      (style) => style.textContent ?? "",
+    ).join("\n");
+    expect(css).toContain("stroke: red");
+    expect(css).toContain(".safe");
+    expect(css).not.toContain("https://example.com");
+    expect(css).not.toContain("fill: url");
+  });
+
+  it("preserves local URL references and ordinary attributes", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    const layer = buildPastedSvgLayer(
+      '<svg width="10" height="10"><defs><clipPath id="clip"><rect width="8" height="8"/></clipPath></defs><rect width="10" height="10" clip-path="url(#clip)" data-label="kept"/></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    )!;
+    const measuredRoot = measuredRoots[0];
+    const doc = new DOMParser().parseFromString(layer.html, "text/html");
+    expect(
+      doc.querySelector("rect[clip-path]")?.getAttribute("clip-path"),
+    ).toMatch(/^url\(#.+-clip\)$/);
+    expect(
+      measuredRoot
+        ?.querySelector("rect[data-label]")
+        ?.getAttribute("data-label"),
+    ).toBe("kept");
+  });
+
+  it("removes remote hrefs and CSS URLs after CSS parsing", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    buildPastedSvgLayer(
+      '<svg width="10" height="10" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="10" height="10" href="https://example.com/a.svg" xlink:href="https://example.com/b.svg" data-local="#safe" aria-label="safe" data-safe-href="#local" style="fill:url(#inline) URL( https://example.com/a.svg );stroke:red"/><style>@import "https://example.com/import.css";.shape{fill:u\\72 l(https://example.com/escaped.svg);stroke:blue}.mixed{fill:url(#local) url(https://example.com/mixed.svg);stroke:purple}.commented{fill:u/**/rl(https://example.com/comment.svg);stroke:teal}.safe{fill:url(#local);stroke:green}</style></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    );
+    const rect = measuredRoots[0]?.querySelector("rect");
+    expect(rect?.hasAttribute("href")).toBe(false);
+    expect(rect?.hasAttribute("xlink:href")).toBe(false);
+    expect(rect?.getAttribute("data-local")).toBe("#safe");
+    expect(rect?.getAttribute("data-safe-href")).toBe("#local");
+    expect(rect?.getAttribute("style")).toContain("stroke: red");
+    expect(rect?.getAttribute("style")).toContain("url(#inline)");
+    expect(rect?.getAttribute("style")).not.toMatch(/example\.com/i);
+
+    const css = Array.from(
+      measuredRoots[0]?.ownerDocument.querySelectorAll("style") ?? [],
+      (style) => style.textContent ?? "",
+    ).join("\n");
+    expect(css).not.toMatch(/@import|example\.com/i);
+    expect(css).toContain("stroke:green");
+    expect(css).toContain("url(#local)");
+    expect(css).toContain("stroke:purple");
+    expect(css).toContain("stroke:teal");
+  });
+
+  it("drops malformed stylesheets containing external references", () => {
+    const measuredRoots: SVGSVGElement[] = [];
+    buildPastedSvgLayer(
+      '<svg width="10" height="10"><rect width="10" height="10"/><style>.safe{stroke:red}.broken{fill:url(https://example.com/a.svg)</style></svg>',
+      "Logo",
+      (root) => {
+        measuredRoots.push(root);
+        return measureAll(fill("red"))(root);
+      },
+    );
+    expect(measuredRoots[0]?.ownerDocument.querySelector("style")).toBeNull();
   });
 
   it("gives every Vector its own defs, with ids unique per paste", () => {

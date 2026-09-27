@@ -1,9 +1,6 @@
-// Contract: the marketing panel's "New to <app>? Learn more" link, its
-// top-right placement, and the shared two-panel auth treatment
-// were deleted as dead code twice in one day. This spec renders the real
-// onboarding HTML for every entry in BUILT_IN_AUTH_MARKETING and asserts the
-// structural contract directly, so a future deletion fails a test instead of
-// flipping a unit expectation.
+// Contract: every built-in auth page keeps its marketing links and shared
+// two-panel treatment. Render the real onboarding HTML so accidental deletion
+// fails here instead of becoming a visual regression.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
@@ -54,14 +51,22 @@ describe("built-in auth marketing layout contract", () => {
         html.indexOf('class="marketing-panel"'),
       );
 
-      // (b) the learn-more link renders with a non-empty href and text
+      // (b) Learn more follows the description and precedes the GitHub badge
       const linkMatch = html.match(
-        /<a class="auth-marketing-learn-more"[^>]*href="([^"]+)"/,
+        /<a class="auth-marketing-description-link"[^>]*href="([^"]+)"/,
       );
       expect(linkMatch?.[1]).toBeTruthy();
-      const shortName = marketing.appName.replace(/^Agent-Native\s+/i, "");
-      expect(html).toContain(`New to ${shortName}?`);
+      expect(html.indexOf('class="auth-marketing-description"')).toBeLessThan(
+        html.indexOf('class="auth-marketing-description-link"'),
+      );
+      expect(
+        html.indexOf('class="auth-marketing-description-link"'),
+      ).toBeLessThan(html.indexOf('class="oss-badge"'));
+      expect(html).not.toContain("New to ");
       expect(html).toContain(">Learn more<");
+      expect(html).toContain(
+        '<a class="oss-badge" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">',
+      );
     },
   );
 
@@ -70,9 +75,12 @@ describe("built-in auth marketing layout contract", () => {
       requestHost: "slides.agent-native.com",
     });
 
-    // Desktop placement of the learn-more link
     expect(html).toMatch(
-      /\.auth-marketing-top-right\s*{[^}]*justify-content:\s*flex-end;[^}]*top:/,
+      /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*min-height:\s*100vh;[^}]*display:\s*flex;/,
+    );
+    expect(html).toMatch(/body\.has-marketing\s*{[^}]*padding:\s*0;/);
+    expect(html).toMatch(
+      /\.auth-marketing-home \.auth-marketing-description-link\s*{[^}]*text-decoration:\s*underline;/,
     );
     expect(html).toMatch(
       /\.auth-marketing-home \.form-panel\s*{[^}]*flex:\s*1 1 50%;[^}]*max-width:\s*none;/,
@@ -89,16 +97,28 @@ describe("built-in auth marketing layout contract", () => {
     expect(mobileEnd).toBeGreaterThan(mobileStart);
     const mobileCss = html.slice(mobileStart, mobileEnd);
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.auth-marketing-top-right\s*{[^}]*display:\s*none;/,
-    );
-    expect(mobileCss).toMatch(
       /\.auth-marketing-home \.auth-marketing-layout\s*{[^}]*flex-direction:\s*column;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*3rem 1rem 5rem;/,
+      /\.auth-marketing-home\s*{[^}]*min-height:\s*100vh;[^}]*min-height:\s*100svh;/,
     );
     expect(mobileCss).toMatch(
-      /\.auth-marketing-home \.marketing-panel\s*{[^}]*order:\s*2;/,
+      /\.auth-marketing-home \.form-panel\s*{[^}]*order:\s*1;[^}]*padding:\s*max\(1\.5rem, env\(safe-area-inset-top\)\) 1\.25rem max\(1\.5rem, env\(safe-area-inset-bottom\)\);/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.marketing-panel\s*{[^}]*display:\s*none;/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.card h1\s*{[^}]*font-size:\s*clamp\(1\.625rem, 6vw, 2rem\);/,
+    );
+    expect(mobileCss).toMatch(
+      /\.auth-marketing-home \.card button\s*{[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(mobileCss).toMatch(
+      /body\.has-marketing \.locale-trigger\s*{[^}]*min-width:\s*2\.75rem;[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(html).not.toMatch(
+      /\.auth-marketing-home \.form-panel\s*{[^}]*border-top:/,
     );
     expect(html).toContain("overflow-x: clip;");
     expect(html).toContain("overflow: clip;");

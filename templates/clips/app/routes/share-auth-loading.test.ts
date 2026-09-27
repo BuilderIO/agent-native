@@ -398,4 +398,28 @@ describe("authenticated recording route loading", () => {
     );
     expect(attributionSrc).toContain('if (panel) params.set("panel", panel);');
   });
+
+  it("sends signed-in viewers to the app shell instead of the marketing page", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    // appPath("/") is the public marketing shell (see root.tsx), never a
+    // valid signed-in destination - every home link must gate on session.
+    expect(shareRoute).toContain(
+      'const homeHref = session ? appPath("/home") : appPath("/");',
+    );
+
+    expect(shareRoute).toContain("homeHref: string;");
+    expect(shareRoute).toContain(
+      '<a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>',
+    );
+    expect(shareRoute).not.toContain('<a href={appPath("/")}>');
+
+    expect(shareRoute.match(/homeHref=\{homeHref\}/g)).toHaveLength(6);
+
+    // The brand/logo link is a "go to the marketing site" affordance, not
+    // back-navigation, so it stays ungated on session for every viewer.
+    expect(shareRoute).toContain(
+      'to={appPath("/")}\n              aria-label={t("navigation.brand")}',
+    );
+  });
 });

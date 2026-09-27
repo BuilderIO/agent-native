@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestRunContext } from "./request-context.js";
+import { getRequestContext, getRequestRunContext } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
@@ -440,6 +440,127 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ error: "Forbidden" });
     expect(event._status).toBe(403);
+  });
+
+  it("adds a Better Auth id resolved directly from the trusted owner context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let observedAuthUserId: string | undefined;
+    const run = vi.fn(async () => {
+      observedAuthUserId = getRequestContext()?.authUserId;
+      return { ok: true };
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        test: {
+          http: { method: "POST" },
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+        getAuthUserIdFromEvent: async () => "better-auth-user-1",
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(observedAuthUserId).toBe("better-auth-user-1");
+  });
+
+  it("continues the action and reports failed optional identity resolution", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let observedAuthUserId: string | undefined;
+    const run = vi.fn(async () => {
+      observedAuthUserId = getRequestContext()?.authUserId;
+      return { ok: true };
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        test: {
+          http: { method: "POST" },
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+        getAuthUserIdFromEvent: async () => {
+          throw new Error("private resolver details");
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(observedAuthUserId).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-actions] Could not resolve canonical tracking identity; continuing without auth_user_id.",
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("private resolver details"),
+    );
+  });
+
+  it("does not infer the Better Auth id from a matching email", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      authUserId: "must-not-be-inferred-by-email",
+    });
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let observedAuthUserId: string | undefined;
+    const run = vi.fn(async () => {
+      observedAuthUserId = getRequestContext()?.authUserId;
+      return { ok: true };
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        test: {
+          http: { method: "POST" },
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "owner@example.com" },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(observedAuthUserId).toBeUndefined();
   });
 
   it("preserves typed action contract conflicts without exposing arbitrary errors", async () => {
@@ -3158,7 +3279,7 @@ describe("mountWebMcpActionRoutes", () => {
     expect(compatibilityManifest.instructions).not.toContain("hidden");
   });
 
-  it("resolves getRequestRunContext().browserTabId from X-Agent-Native-Browser-Tab, on both the webmcp and /mcp/tool paths, and leaves it undefined without the header", async () => {
+  it("resolves browser tab and canonical auth identity for WebMCP actions", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     // The action itself reads the context — same helper
@@ -3166,6 +3287,7 @@ describe("mountWebMcpActionRoutes", () => {
     // to scope app state to the calling tab.
     const run = vi.fn(async () => ({
       browserTabId: getRequestRunContext()?.browserTabId,
+      authUserId: getRequestContext()?.authUserId,
     }));
     const nitroApp = {
       use: vi.fn((path: string, handler: any) =>
@@ -3173,13 +3295,24 @@ describe("mountWebMcpActionRoutes", () => {
       ),
     };
 
-    mountWebMcpActionRoutes(nitroApp, {
-      eligible: {
-        tool: { description: "Eligible", parameters: { type: "object" } },
-        run,
-        readOnly: true,
-      } as any,
-    });
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          readOnly: true,
+        } as any,
+      },
+      {
+        getOwnerContextFromEvent: async () => ({
+          owner: "owner@example.com",
+          name: "Owner",
+          anonymous: false,
+          authUserId: "canonical-auth-user-1",
+        }),
+      },
+    );
 
     const webMcpRoute = mounted.find(
       ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
@@ -3194,7 +3327,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+    ).resolves.toEqual({
+      browserTabId: "tab-abc123",
+      authUserId: "canonical-auth-user-1",
+    });
 
     await expect(
       mcpToolRoute?.handler({
@@ -3202,7 +3338,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: { "x-agent-native-browser-tab": "tab-abc123" },
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: "tab-abc123" });
+    ).resolves.toEqual({
+      browserTabId: "tab-abc123",
+      authUserId: "canonical-auth-user-1",
+    });
 
     // No header sent (CLI/external-agent callers that predate tab scoping):
     // no id is fabricated, it just stays undefined.
@@ -3212,7 +3351,10 @@ describe("mountWebMcpActionRoutes", () => {
         _headers: {},
         req: { json: async () => ({}) },
       }),
-    ).resolves.toEqual({ browserTabId: undefined });
+    ).resolves.toEqual({
+      browserTabId: undefined,
+      authUserId: "canonical-auth-user-1",
+    });
   });
 
   it("serves only explicitly public read-only actions to anonymous pages", async () => {

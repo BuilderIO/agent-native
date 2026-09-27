@@ -26,9 +26,13 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;padding:20px">
 <div data-agent-native-node-id="C" data-agent-native-layer-name="C" style="position:absolute;left:20px;top:20px;width:160px;height:160px;background:blue"></div>
 <div data-agent-native-node-id="D" data-agent-native-layer-name="D" style="position:absolute;left:20px;top:20px;width:160px;height:160px;background:purple"></div>
 </div>
-<div data-agent-native-node-id="auto" data-agent-native-layer-name="Auto" style="display:flex;gap:12px;margin-top:20px">
-<div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="width:80px;height:40px;background:red"></div>
-<div data-agent-native-node-id="second" data-agent-native-layer-name="Second" style="width:80px;height:40px;background:blue"></div>
+<div data-agent-native-node-id="auto" data-agent-native-layer-name="Auto" style="display:flex;gap:12px;padding:12px;margin-top:20px">
+<div data-agent-native-node-id="first" data-agent-native-layer-name="First" style="width:100px;height:40px;background:red"></div>
+<div data-agent-native-node-id="second" data-agent-native-layer-name="Second" style="width:100px;height:40px;background:blue"></div>
+</div>
+<div data-agent-native-node-id="flow" data-agent-native-layer-name="Flow" style="width:160px;margin-top:20px">
+<div data-agent-native-node-id="under" data-agent-native-layer-name="Under" style="height:160px;background:red"></div>
+<div data-agent-native-node-id="over" data-agent-native-layer-name="Over" style="height:160px;margin-top:-80px;background:blue"></div>
 </div></body></html>`;
 
 const BOARD_SCREEN_FIXTURE = `<!doctype html><html><body style="margin:0;min-height:600px"><main data-agent-native-node-id="screen-root" style="position:relative;min-height:600px"></main></body></html>`;
@@ -233,6 +237,39 @@ async function topNodeAt(page: Page, parentId: string): Promise<string | null> {
     });
 }
 
+/** Children painted at the parent's +100,+100 point, bottom to top. */
+async function paintedOrder(
+  page: Page,
+  parentId: string,
+): Promise<(string | null)[]> {
+  return designFrame(page)
+    .locator(`[data-agent-native-node-id="${parentId}"]`)
+    .evaluate((parent) => {
+      const rect = parent.getBoundingClientRect();
+      const children = new Set<Element>(Array.from(parent.children));
+      return document
+        .elementsFromPoint(rect.left + 100, rect.top + 100)
+        .filter((node) => children.has(node))
+        .map((node) => node.getAttribute("data-agent-native-node-id"))
+        .reverse();
+    });
+}
+
+async function renderedRect(page: Page, nodeId: string) {
+  return designFrame(page)
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const parent = element.parentElement!.getBoundingClientRect();
+      return {
+        x: Math.round(rect.left - parent.left),
+        y: Math.round(rect.top - parent.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    });
+}
+
 async function renderedOrder(page: Page, parentId: string): Promise<string[]> {
   return designFrame(page)
     .locator(`[data-agent-native-node-id="${parentId}"]`)
@@ -299,6 +336,35 @@ test("Figma G8 multi-selection preserves native order, painted order, and one-st
       )
       .toEqual(["S", "A", "B", "C", "D"]);
     await expect.poll(() => topNodeAt(page, "stack")).toBe("D");
+
+    for (const step of [
+      { key: `${PRIMARY}+BracketRight`, expected: ["S", "B", "A", "D", "C"] },
+      { key: `${PRIMARY}+BracketLeft`, expected: ["A", "S", "C", "B", "D"] },
+    ]) {
+      await page.keyboard.press(step.key);
+      await expect
+        .poll(() =>
+          indexHtml(request, designId).then((html) =>
+            childNodeIds(html, "stack"),
+          ),
+        )
+        .toEqual(step.expected);
+      await expect
+        .poll(() => paintedOrder(page, "stack"))
+        .toEqual(step.expected);
+
+      await pressZ(page, true);
+      await expect
+        .poll(() =>
+          indexHtml(request, designId).then((html) =>
+            childNodeIds(html, "stack"),
+          ),
+        )
+        .toEqual(["S", "A", "B", "C", "D"]);
+      await expect
+        .poll(() => paintedOrder(page, "stack"))
+        .toEqual(["S", "A", "B", "C", "D"]);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -314,8 +380,12 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
     await expandAllLayers(page);
     await enterDirectMode(page);
     await selectLayer(page, "First");
+    expect((await renderedRect(page, "first")).x).toBe(12);
 
     await page.keyboard.press("]");
+    await expect
+      .poll(async () => (await renderedRect(page, "first")).x)
+      .toBe(124);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
@@ -324,10 +394,55 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
 
     await pressZ(page, true);
     await expect
+      .poll(async () => (await renderedRect(page, "first")).x)
+      .toBe(12);
+    await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
       )
       .toEqual(["first", "second"]);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Bring to Front on a block-flow layer paints above its sibling without moving it", async ({
+  page,
+  request,
+}) => {
+  const designId = await createDesign(request);
+  const rect = { x: 0, y: 0, width: 160, height: 160 };
+  const persisted = async () => {
+    const html = await indexHtml(request, designId);
+    const tag = /<[^>]*data-agent-native-node-id="under"[^>]*>/.exec(html)?.[0];
+    if (!tag) throw new Error("under missing from the persisted file");
+    return {
+      order: childNodeIds(html, "flow"),
+      relative: /position:\s*relative/.test(tag),
+      zIndex: /z-index:\s*(-?\d+)/.exec(tag)?.[1] ?? null,
+    };
+  };
+  try {
+    await gotoEditor(page, designId);
+    await expandAllLayers(page);
+    await enterDirectMode(page);
+    await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
+    expect(await renderedRect(page, "under")).toEqual(rect);
+    await selectLayer(page, "Under");
+
+    await page.keyboard.press("]");
+    await expect.poll(() => topNodeAt(page, "flow")).toBe("under");
+    expect(await renderedRect(page, "under")).toEqual(rect);
+    await expect
+      .poll(persisted)
+      .toEqual({ order: ["under", "over"], relative: true, zIndex: "1" });
+
+    await pressZ(page, true);
+    await expect.poll(() => topNodeAt(page, "flow")).toBe("over");
+    expect(await renderedRect(page, "under")).toEqual(rect);
+    await expect
+      .poll(persisted)
+      .toEqual({ order: ["under", "over"], relative: false, zIndex: null });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -342,9 +457,9 @@ test("Figma arrange keyboard commands use physical brackets and persist across r
   const cases = [
     { node: "A", key: "]", expected: ["S", "B", "C", "D", "A"] },
     {
-      node: "C",
+      node: "B",
       key: `${PRIMARY}+BracketRight`,
-      expected: ["S", "A", "B", "D", "C"],
+      expected: ["S", "A", "C", "B", "D"],
     },
     { node: "D", key: "[", expected: ["D", "S", "A", "B", "C"] },
     {
@@ -400,17 +515,20 @@ test("Figma overview board arrange commands measure, persist, and support contex
 }) => {
   const designId = await createBoardDesign(request);
   const initialOrder = ["red", "blue", "green"];
+  // Front/back cases move an end layer two steps, so a one-step move fails.
   const cases = [
-    { key: "]", expected: ["red", "green", "blue"] },
+    { node: "Red", key: "]", expected: ["blue", "green", "red"] },
     {
+      node: "Red",
       key: `${PRIMARY}+BracketRight`,
-      expected: ["red", "green", "blue"],
-    },
-    { key: "[", expected: ["blue", "red", "green"] },
-    {
-      key: `${PRIMARY}+BracketLeft`,
       expected: ["blue", "red", "green"],
     },
+    {
+      node: "Green",
+      key: `${PRIMARY}+BracketLeft`,
+      expected: ["red", "green", "blue"],
+    },
+    { node: "Green", key: "[", expected: ["green", "red", "blue"] },
   ] as const;
   try {
     await gotoEditor(page, designId);
@@ -424,7 +542,7 @@ test("Figma overview board arrange commands measure, persist, and support contex
     ).toBeVisible();
 
     for (const [index, testCase] of cases.entries()) {
-      await selectLayer(page, "Blue");
+      await selectLayer(page, testCase.node);
       await page.keyboard.press(testCase.key);
       await expect
         .poll(() =>
@@ -473,7 +591,7 @@ test("Figma overview board arrange commands measure, persist, and support contex
       }
     }
 
-    await rightClickBoardNode(page, "green");
+    await rightClickBoardNode(page, "blue");
     await page
       .getByRole("menu")
       .last()
@@ -485,10 +603,10 @@ test("Figma overview board arrange commands measure, persist, and support contex
           childNodeIds(html, "board-stage"),
         ),
       )
-      .toEqual(["green", "blue", "red"]);
+      .toEqual(["blue", "green", "red"]);
     await expect
       .poll(() => boardTreeOrder(page))
-      .toEqual(["Red", "Blue", "Green"]);
+      .toEqual(["Red", "Green", "Blue"]);
 
     await rightClickBoardNode(page, "blue");
     await page

@@ -259,6 +259,35 @@ export default {
     weekStartLabel: "Wochenbeginn",
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
+    eventRules: "Einladungsregeln",
+    eventRuleAccept: "Automatisch annehmen",
+    eventRuleDecline: "Automatisch ablehnen",
+    eventRuleHide: "Automatisch ausblenden",
+    eventRulePlaceholderAccept:
+      "Beispiel: Einzelgespräche mit meinem Team annehmen",
+    eventRulePlaceholderDecline:
+      "Beispiel: Produktvorführungen und Termine nach Feierabend ablehnen",
+    eventRulePlaceholderHide:
+      "Beispiel: Fokuszeiten und Erinnerungen ausblenden",
+    eventRulesSave: "Regeln speichern",
+    eventRulesRecentActivity: "Letzte Aktivitäten",
+    eventRulesNoActivity: "Noch keine Aktivitäten",
+    eventRuleActivityAccepted: "Angenommen",
+    eventRuleActivityDeclined: "Abgelehnt",
+    eventRuleActivityHidden: "Ausgeblendet",
+    eventRuleUndoDone: "Aktion rückgängig gemacht",
+    eventRuleUndoFailed: "Aktion konnte nicht rückgängig gemacht werden",
+    eventRulesActive:
+      "Regeln laufen alle 5 Minuten in den primären Kalendern verbundener Konten.",
+    eventRulesDisabled:
+      "Aktiviere RUN_BACKGROUND_JOBS=1 auf einem dauerhaft laufenden Calendar-Worker.",
+    eventRulesDeploymentDisabled:
+      "Geplante Automatisierung ist für dieses Deployment deaktiviert.",
+    eventRulesChecking: "Automatisierungsstatus wird geprüft…",
+    eventRulesConflict:
+      "Eine Einladung wurde übersprungen, weil Annahme- und Ablehnungsregel übereinstimmten.",
+    eventRulesUnregistered:
+      "Die Calendar-Automatisierung ist auf diesem Server nicht registriert.",
   },
   eventDialog: {
     eventUpdated: "Ereignis aktualisiert",

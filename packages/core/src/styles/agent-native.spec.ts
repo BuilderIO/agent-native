@@ -27,6 +27,16 @@ describe("agent-native shell surface tokens", () => {
     expect(css).not.toContain("margin-bottom: -1.25rem");
   });
 
+  it("keeps the composer surface opaque while preserving its muted blend", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-composer-root\s*\{[^}]*background:\s*color-mix\(\s*in srgb,\s*var\(--agent-kit-subtle-surface\) 45%,\s*var\(--agent-kit-recessed-surface\)\s*\);/s,
+    );
+  });
+
   it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

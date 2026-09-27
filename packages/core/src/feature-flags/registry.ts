@@ -47,8 +47,7 @@ export const CONNECT_APPS_FLAG = defineFeatureFlag({
 export const BUILDER_CREDIT_USAGE_REPORTING_FLAG = defineFeatureFlag({
   key: "billing.builder-credit-usage-reporting",
   displayName: "Builder credit usage reporting",
-  description:
-    "Use the Builder gateway's reported credit charges in usage reports.",
+  description: "Use Builder-reported credit usage and account limits in Usage.",
 });
 
 /** Define a small app-owned feature-flag registry. */

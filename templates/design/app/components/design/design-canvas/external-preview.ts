@@ -222,6 +222,7 @@ const EDITABLE_INLINE_IFRAME_SANDBOX =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-same-origin";
 const READ_ONLY_INLINE_IFRAME_SANDBOX =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
+const VISUAL_EDIT_SNAPSHOT_IFRAME_SANDBOX = "allow-scripts";
 
 export function isTrustedCrossOriginPreviewUrl(
   previewUrl: string | null | undefined,
@@ -251,9 +252,11 @@ export function isTrustedCrossOriginPreviewUrl(
 export function getDesignCanvasIframeSandbox(args: {
   externalPreview: boolean;
   readOnly: boolean;
+  snapshotOnly?: boolean;
   previewUrl?: string | null;
   parentOrigin?: string;
 }): string {
+  if (args.snapshotOnly) return VISUAL_EDIT_SNAPSHOT_IFRAME_SANDBOX;
   if (args.externalPreview) {
     // Keep loopback previews opaque: a local page with scripts and
     // allow-same-origin could navigate to the editor origin and remove its

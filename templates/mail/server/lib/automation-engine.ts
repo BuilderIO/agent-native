@@ -3,6 +3,7 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
+import { resolveCredential } from "@agent-native/core/credentials";
 import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
@@ -32,6 +33,7 @@ import {
 } from "@shared/ai-filter.js";
 import {
   AI_PRIORITY_DEFAULT_INSTRUCTION,
+  aiPriorityEmailKey,
   type AiPriorityEmail,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
@@ -101,6 +103,11 @@ interface RuleRecord {
 async function resolveAnthropicKey(
   ownerEmail: string,
 ): Promise<string | undefined> {
+  const credential = await resolveCredential("ANTHROPIC_API_KEY", {
+    userEmail: ownerEmail,
+  });
+  if (credential?.trim()) return credential.trim();
+
   const userKey = (await getUserSetting(ownerEmail, "anthropic-api-key")) as
     | string
     | { key?: string }
@@ -109,7 +116,7 @@ async function resolveAnthropicKey(
   if (userKey && typeof userKey === "object" && userKey.key?.trim()) {
     return userKey.key.trim();
   }
-  return process.env.ANTHROPIC_API_KEY || undefined;
+  return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
 }
 
 // ─── Token helpers ───────────────────────────────────────────────────────────
@@ -849,7 +856,6 @@ async function evaluatePriorityWithJev(
         to: email.to,
         subject: email.subject,
         snippet: email.snippet,
-        labels: email.labelIds,
         date: email.date,
       })),
     },
@@ -963,36 +969,52 @@ export async function previewAutomationPriority(
     model: TYPESAFE_AUTOMATION_MODEL,
   };
 
-  const messages: EmailSummary[] = emails
+  const messages = emails
     .filter(
       (email) =>
         !email.isArchived &&
         !email.isTrashed &&
         mailLabelsInclude(email.labelIds, "inbox"),
     )
-    .map((email) => ({
-      id: email.id,
-      threadId: email.threadId,
-      from: email.from,
-      to: email.to,
-      subject: email.subject,
-      snippet: email.snippet,
-      labelIds: email.labelIds,
-      date: email.date,
+    .map((email, index) => ({
+      key: aiPriorityEmailKey(email.accountEmail, email.id),
+      summary: {
+        id: `priority-${index}`,
+        threadId: email.threadId,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labelIds: email.labelIds,
+        date: email.date,
+      },
     }));
 
   const scores = new Map<string, PriorityScore>();
-  for (let i = 0; i < messages.length; i += 50) {
+  const batches = Array.from(
+    { length: Math.ceil(messages.length / 50) },
+    (_, i) => messages.slice(i * 50, (i + 1) * 50),
+  );
+  for (let i = 0; i < batches.length; i += 3) {
     signal?.throwIfAborted();
-    const batch = messages.slice(i, i + 50);
-    const batchScores = await evaluatePriorityWithJev(
-      batch,
-      instruction,
-      ownerEmail,
-      jevCredentials,
-      signal,
+    const wave = batches.slice(i, i + 3);
+    const batchScores = await Promise.all(
+      wave.map((batch) =>
+        evaluatePriorityWithJev(
+          batch.map(({ summary }) => summary),
+          instruction,
+          ownerEmail,
+          jevCredentials,
+          signal,
+        ),
+      ),
     );
-    for (const [emailId, score] of batchScores) scores.set(emailId, score);
+    for (const [batchIndex, batch] of wave.entries()) {
+      for (const { key, summary } of batch) {
+        const score = batchScores[batchIndex].get(summary.id);
+        if (score) scores.set(key, score);
+      }
+    }
   }
   return { scores, model };
 }

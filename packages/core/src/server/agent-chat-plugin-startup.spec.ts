@@ -131,6 +131,21 @@ describe("agent chat startup", () => {
     expect(sweepRoute).not.toContain(".catch(() => {})");
   });
 
+  it("runs registered app handlers from the signed durable sweep and fails visibly", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const sweepRoute = source.slice(
+      source.indexOf("          RECURRING_JOBS_SWEEP_PATH,\n"),
+      source.indexOf("        if (disableRecurringJobsRuntime) {"),
+    );
+
+    expect(sweepRoute).toContain("runRecurringSweepHandlers");
+    expect(sweepRoute).toContain("appSweepHandlers.failed.length > 0");
+    expect(sweepRoute).toContain("setResponseStatus(event, 500)");
+  });
+
   it("does not swallow the in-process stale reap either", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),

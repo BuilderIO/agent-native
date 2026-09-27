@@ -5,10 +5,15 @@ import { applyInvitationAppRoles } from "./app-roles.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isMissingOrganizationTableError } from "./membership.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import { trackInviteAccepted } from "./track-invite-accepted.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isMissingInvitationTableError(error: unknown): boolean {
   const candidate = error as { message?: unknown };
@@ -105,6 +110,11 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   const accepted: AcceptPendingResult["accepted"] = [];
+  // Callers here are signup/SSO hooks with no request event to register a
+  // `waitUntil` with, and a serverless function can freeze as soon as the
+  // response flushes. A short bounded wait keeps `invite_accepted` from being
+  // dropped without adding more than one fixed delay to signup.
+  const telemetryPromises: Promise<void>[] = [];
   for (const inv of rows) {
     if (inv.federated) {
       let federationEnabled = false;
@@ -165,11 +175,28 @@ export async function acceptPendingInvitationsForEmail(
       );
       continue;
     }
-    await db.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await db.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [inv.id],
     });
+    if (Number(updated.rowsAffected ?? 0) !== 1) continue;
     accepted.push({ invitationId: inv.id, orgId: inv.orgId });
+    telemetryPromises.push(
+      trackInviteAccepted({
+        email,
+        orgId: inv.orgId,
+        role: inv.role,
+        invitedBy: inv.invitedBy,
+        federated: inv.federated,
+      }),
+    );
+  }
+
+  if (telemetryPromises.length > 0) {
+    // One bounded wait total, not one per invitation, capped like
+    // `flushSignupTracking`. Each promise includes the provider flush; a cap
+    // cannot guarantee delivery, it only bounds what signup pays for it.
+    await Promise.race([Promise.all(telemetryPromises), sleep(1500)]);
   }
 
   // Set active-org-id to the most recent invite so the user lands in a

@@ -5,7 +5,11 @@ import {
   useAgentEngineConfigured,
   type AgentSidebarStateChangeDetail,
 } from "@agent-native/core/client/agent-chat";
-import { track, trackEvent } from "@agent-native/core/client/analytics";
+import {
+  track,
+  trackAnonymousEvent,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -24,13 +28,19 @@ import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
+  useOrgRole,
+  useSetOrgDomain,
 } from "@agent-native/core/client/org";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  fetchOrgMemberPage,
+  ShareButton,
+} from "@agent-native/core/client/sharing";
 import {
   buildSignInReturnHref,
   ErrorReportActions,
   type ErrorReportDebugItem,
 } from "@agent-native/core/client/ui";
+import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -190,6 +200,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -285,6 +296,7 @@ import {
   type CommentDraft,
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
+import { hasSameDomainCoworkerInPages } from "@/lib/plan-invite-suggestion";
 import {
   fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
@@ -2022,6 +2034,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [planShareSucceededId, setPlanShareSucceededId] = useState<
+    string | null
+  >(null);
   const [localBridgeCommentPending, setLocalBridgeCommentPending] =
     useState(false);
   const [pendingAnnotation, setPendingAnnotation] =
@@ -5041,6 +5056,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                     localShareUrl={planShareUrl}
                     hostedPlanId={bundle.plan.hostedPlanId}
                     hostedPlanUrl={bundle.plan.hostedPlanUrl}
+                    firstShare={planShareSucceededId === bundle.plan.id}
+                    onShareSuccess={() =>
+                      setPlanShareSucceededId(bundle.plan.id)
+                    }
                     onOpenChange={(open) => {
                       if (open) closeInlineComment();
                     }}
@@ -6152,6 +6171,8 @@ function PlanShareControl({
   localShareUrl,
   hostedPlanId,
   hostedPlanUrl,
+  firstShare = false,
+  onShareSuccess,
   onOpenChange,
 }: {
   planId: string;
@@ -6160,6 +6181,8 @@ function PlanShareControl({
   localShareUrl?: string;
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
+  firstShare?: boolean;
+  onShareSuccess?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
@@ -6254,6 +6277,7 @@ function PlanShareControl({
             url: result.hostedPlanUrl ?? result.url,
             hostedPlanId: result.hostedPlanId,
           });
+          onShareSuccess?.();
           setAuthPrompt(null);
           // Tag the freshly-minted public link so signups from it are
           // attributed. The publisher is the owner, so `via` is their userId.
@@ -6268,12 +6292,12 @@ function PlanShareControl({
         },
       },
     );
-  }, [copyPublishedUrl, planId, publishPlan, session?.userId]);
+  }, [copyPublishedUrl, onShareSuccess, planId, publishPlan, session?.userId]);
 
   // Logged-in / local-dev: manage shares for the plan in this app instance.
   if (canManageLocalShares) {
     if (!managedShareUrl) return null;
-    return (
+    const shareButton = (
       <ShareButton
         resourceType="plan"
         resourceId={managedShareResourceId}
@@ -6294,7 +6318,19 @@ function PlanShareControl({
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
+        onShareSuccess={onShareSuccess}
       />
+    );
+    return session?.userId ? (
+      <PlanInviteSuggestion
+        key={session.userId}
+        userId={session.userId}
+        firstShare={firstShare}
+      >
+        {shareButton}
+      </PlanInviteSuggestion>
+    ) : (
+      shareButton
     );
   }
 
@@ -6423,6 +6459,215 @@ function PlanShareControl({
           </Button>
         )}
       </PopoverContent>
+    </Popover>
+  );
+}
+
+function PlanInviteSuggestion({
+  userId,
+  firstShare,
+  children,
+}: {
+  userId: string;
+  firstShare: boolean;
+  children: ReactNode;
+}) {
+  const { org, isOwner, canInviteMembers, isLoading } = useOrgRole();
+  const email = org?.email ?? "";
+  const emailParts = email.trim().toLowerCase().split("@");
+  const domain = emailParts[emailParts.length - 1] ?? "";
+  const canOfferDomainJoin =
+    isOwner &&
+    !org?.allowedDomain &&
+    domain.length > 0 &&
+    !isFreeEmailProvider(domain);
+
+  if (isLoading) return <div className="inline-flex">{children}</div>;
+  if (!canInviteMembers) return <div className="inline-flex">{children}</div>;
+
+  if (canOfferDomainJoin) {
+    return (
+      <PlanDomainInviteSuggestion
+        userId={userId}
+        orgId={org?.orgId ?? ""}
+        email={email}
+        domain={domain}
+        firstShare={firstShare}
+      >
+        {children}
+      </PlanDomainInviteSuggestion>
+    );
+  }
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare}
+      domain={null}
+    >
+      {children}
+    </PlanInviteSuggestionCard>
+  );
+}
+
+function PlanDomainInviteSuggestion({
+  userId,
+  orgId,
+  email,
+  domain,
+  firstShare,
+  children,
+}: {
+  userId: string;
+  orgId: string;
+  email: string;
+  domain: string;
+  firstShare: boolean;
+  children: ReactNode;
+}) {
+  const membersQuery = useQuery({
+    queryKey: ["plan-domain-coworker", orgId, email.toLowerCase(), domain],
+    queryFn: ({ signal }) =>
+      hasSameDomainCoworkerInPages(email, (offset) =>
+        fetchOrgMemberPage({ search: domain, limit: 100, offset, signal }),
+      ),
+    enabled: Boolean(orgId),
+  });
+
+  return (
+    <PlanInviteSuggestionCard
+      userId={userId}
+      firstShare={firstShare}
+      domain={membersQuery.data ? domain : null}
+    >
+      {children}
+    </PlanInviteSuggestionCard>
+  );
+}
+
+function PlanInviteSuggestionCard({
+  userId,
+  firstShare,
+  domain,
+  children,
+}: {
+  userId: string;
+  firstShare: boolean;
+  domain: string | null;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const setOrgDomain = useSetOrgDomain();
+  const reason = firstShare
+    ? "first_share"
+    : domain
+      ? "same_domain_coworkers"
+      : null;
+  const storageKey = `plan.invite-suggestion.shown.v1.${userId}`;
+  const shownRef = useRef(false);
+  const actionCloseRef = useRef(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || shownRef.current || !reason) return;
+    try {
+      if (window.localStorage.getItem(storageKey)) {
+        shownRef.current = true;
+        return;
+      }
+      window.localStorage.setItem(storageKey, "1");
+    } catch (error) {
+      console.warn(
+        "Plan invite suggestion skipped because local storage is unavailable.",
+        error,
+      );
+      return;
+    }
+    shownRef.current = true;
+    setVisible(true);
+    trackAnonymousEvent("plan_invite_suggestion_shown", { trigger: reason });
+  }, [reason, storageKey]);
+
+  const trackAction = (event: string, action?: string) => {
+    if (!reason) return;
+    trackAnonymousEvent(event, {
+      trigger: reason,
+      ...(action ? { action } : {}),
+    });
+  };
+
+  const inviteTeammates = () => {
+    trackAction("plan_invite_suggestion_clicked", "invite_teammates");
+    trackAction("plan_invite_suggestion_accepted", "invite_teammates");
+    actionCloseRef.current = true;
+    setVisible(false);
+    navigate("/settings#team");
+  };
+
+  const enableDomainJoin = async () => {
+    if (!domain || setOrgDomain.isPending) return;
+    trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
+    try {
+      await setOrgDomain.mutateAsync(domain);
+    } catch {
+      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+      return;
+    }
+    trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
+    actionCloseRef.current = true;
+    setVisible(false);
+  };
+
+  return (
+    <Popover
+      open={visible}
+      onOpenChange={(open) => {
+        if (!open && visible) {
+          if (!actionCloseRef.current) {
+            trackAction("plan_invite_suggestion_dismissed");
+          }
+          actionCloseRef.current = false;
+        }
+        setVisible(open);
+      }}
+    >
+      <PopoverAnchor asChild>
+        <div className="inline-flex">{children}</div>
+      </PopoverAnchor>
+      {visible && (
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={8}
+          className="flex w-[min(360px,calc(100vw-1.5rem))] flex-wrap items-center gap-2"
+        >
+          <p className="px-1 text-xs text-muted-foreground">
+            {t("plansPage.share.teammateSuggestion.message")}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={inviteTeammates}
+          >
+            {t("plansPage.share.teammateSuggestion.invite")}
+          </Button>
+          {domain && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={enableDomainJoin}
+              disabled={setOrgDomain.isPending}
+            >
+              {t("plansPage.share.teammateSuggestion.enableDomain", {
+                domain,
+              })}
+            </Button>
+          )}
+        </PopoverContent>
+      )}
     </Popover>
   );
 }

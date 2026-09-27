@@ -546,6 +546,57 @@ describe("runChangeSelectedZIndex — rendered multi-selection order", () => {
     );
   });
 
+  // {A, C} passes with the no-hop guard removed or the loop reversed; an
+  // adjacent pair is what exposes both.
+  it.each([
+    ["forward", ["S", "A", "D", "B", "C"]],
+    ["backward", ["S", "B", "C", "A", "D"]],
+  ] as const)(
+    "moves an adjacent selection %s one slot without splitting it",
+    (mode, expected) => {
+      const { args, applyLocalContentUpdate } = multiHarness(
+        G8_CONTENT,
+        ["B", "C"],
+        {
+          rendered: {
+            B: { computedStyles: { position: "absolute", zIndex: "auto" } },
+            C: { computedStyles: { position: "absolute", zIndex: "auto" } },
+          },
+        },
+      );
+
+      expect(runChangeSelectedZIndex(args, mode)).toEqual({
+        status: "applied",
+      });
+      expect(applyLocalContentUpdate).toHaveBeenCalledOnce();
+      expect(
+        directChildNames(applyLocalContentUpdate.mock.calls[0]![0]),
+      ).toEqual(expected);
+    },
+  );
+
+  it.each([
+    ["forward", ["C", "D"]],
+    ["backward", ["S", "A"]],
+  ] as const)(
+    "does not hop %s over a selected neighbour pinned at the edge",
+    (mode, selected) => {
+      const absolute = {
+        computedStyles: { position: "absolute", zIndex: "auto" },
+      };
+      const { args, applyLocalContentUpdate } = multiHarness(
+        G8_CONTENT,
+        [...selected],
+        { rendered: { [selected[0]]: absolute, [selected[1]]: absolute } },
+      );
+
+      expect(runChangeSelectedZIndex(args, mode)).toEqual({
+        status: "unchanged",
+      });
+      expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    },
+  );
+
   it("reorders an auto-layout child instead of adding a z-index", () => {
     const content = `<div data-agent-native-node-id="screen" style="display:flex">
 <div data-agent-native-node-id="first">First</div>

@@ -179,6 +179,21 @@ describe("settings store", () => {
       "builder-connect-pending:b",
     ]);
   });
+
+  it("bounds and orders prefix reads when requested", async () => {
+    await putSetting("dashboard:c", { id: "c" });
+    await putSetting("dashboard:a", { id: "a" });
+    await putSetting("dashboard:b", { id: "b" });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
+
+    expect(rows.map((row) => row.key)).toEqual(["dashboard:a", "dashboard:b"]);
+    expect(rawClient.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("ORDER BY key ASC LIMIT ?"),
+      args: ["dashboard:%", 2],
+    });
+  });
 });
 
 it("reads settings through a supplied transaction without another connection", async () => {

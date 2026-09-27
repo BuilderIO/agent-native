@@ -7,6 +7,7 @@ import type {
 } from "@shared/inbox-threads";
 import {
   keepPreviousData,
+  skipToken,
   useQuery,
   useQueries,
   useQueryClient,
@@ -22,6 +23,79 @@ export const INBOX_THREADS_QUERY_KEY = ["action", "list-inbox-threads"];
 
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
+const INBOX_THREADS_STALE_TIME_MS = IDLE_POLL_MS;
+
+export type InboxOverview = Pick<
+  ListInboxThreadsResult,
+  "tabs" | "syncing" | "accounts" | "labels"
+> & { clientSnapshotId: number };
+
+type InboxPageCountSnapshot = Pick<
+  ListInboxThreadsResult,
+  "activeTabId" | "tabs"
+> & { clientSnapshotId: number };
+
+export function mergeOptimisticInboxTabCounts(
+  overview: Pick<InboxOverview, "tabs" | "clientSnapshotId">,
+  base: InboxPageCountSnapshot | undefined,
+  projected: InboxPageCountSnapshot | undefined,
+) {
+  if (
+    !base ||
+    !projected ||
+    base.clientSnapshotId !== overview.clientSnapshotId ||
+    projected.clientSnapshotId !== overview.clientSnapshotId ||
+    base.activeTabId !== projected.activeTabId
+  ) {
+    return overview.tabs;
+  }
+  const baseTab = base.tabs.find((tab) => tab.id === base.activeTabId);
+  const projectedTab = projected.tabs.find(
+    (tab) => tab.id === projected.activeTabId,
+  );
+  if (!baseTab || !projectedTab) return overview.tabs;
+
+  const totalDelta = projectedTab.total - baseTab.total;
+  const unreadDelta = projectedTab.unread - baseTab.unread;
+  if (totalDelta === 0 && unreadDelta === 0) return overview.tabs;
+
+  return overview.tabs.map((tab) =>
+    tab.id === projectedTab.id
+      ? {
+          ...tab,
+          total: Math.max(0, tab.total + totalDelta),
+          unread: Math.max(0, tab.unread + unreadDelta),
+        }
+      : tab,
+  );
+}
+
+export function inboxOverviewQueryKey(accountEmails?: readonly string[]) {
+  const accounts = accountEmails
+    ? [...accountEmails].map((email) => email.toLowerCase()).sort()
+    : undefined;
+  return ["mail-inbox-overview", accounts] as const;
+}
+
+export function publishInboxOverview(
+  qc: QueryClient,
+  accountEmails: readonly string[] | undefined,
+  incoming: InboxOverview,
+) {
+  const queryKey = inboxOverviewQueryKey(accountEmails);
+  const current = qc.getQueryData<InboxOverview>(queryKey);
+  if (current && current.clientSnapshotId >= incoming.clientSnapshotId) return;
+  qc.setQueryData(queryKey, incoming);
+}
+
+/** Shared metadata is populated by the active tab query and never fetches separately. */
+export function useInboxOverview(accountEmails?: readonly string[]) {
+  return useQuery<InboxOverview>({
+    queryKey: inboxOverviewQueryKey(accountEmails),
+    queryFn: skipToken,
+    staleTime: Infinity,
+  });
+}
 
 // Not yet re-exported for template use from
 // packages/core/src/client/create-query-client.ts's isTerminalAuthFailure.
@@ -124,6 +198,13 @@ function fetchInboxThreads(
     { method: "GET", signal },
   ).then((data) => {
     const incoming = { ...data, clientSnapshotId };
+    publishInboxOverview(qc, input.accountEmails, {
+      tabs: incoming.tabs,
+      syncing: incoming.syncing,
+      accounts: incoming.accounts,
+      labels: incoming.labels,
+      clientSnapshotId,
+    });
     const current = qc.getQueryData<InboxQueryResult>(queryKey);
     return keepLatestInboxSnapshot(current, incoming);
   });
@@ -151,6 +232,7 @@ export function useInboxThreads(
     // window-focus refetch fans out across every mounted instance (bar +
     // list) and isn't worth the added request-storm risk.
     refetchInterval: inboxThreadsRefetchInterval,
+    staleTime: INBOX_THREADS_STALE_TIME_MS,
     // Tab switches must never blank the list while the new tab's page loads.
     placeholderData: keepPreviousData,
     select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,

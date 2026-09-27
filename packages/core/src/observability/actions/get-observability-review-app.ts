@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { fail, defineAction } from "../../action.js";
 import { getOutputReviewAppForRun } from "../reviews.js";
+import { requireObservabilityOrgAdmin } from "./authorization.js";
 
 export default defineAction({
   description:
@@ -13,13 +14,11 @@ export default defineAction({
   readOnly: true,
   parallelSafe: true,
   run: async (args, ctx) => {
-    const userId = ctx?.userEmail;
-    if (!userId)
-      fail("Sign in to view saved review apps.", { statusCode: 401 });
+    const { orgId } = await requireObservabilityOrgAdmin(ctx);
 
     const result = await getOutputReviewAppForRun({
       runId: args.runId,
-      userId,
+      orgId,
     });
     if (!result.found)
       fail("That agent output is no longer available.", { statusCode: 404 });

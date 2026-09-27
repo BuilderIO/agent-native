@@ -47,6 +47,8 @@ vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
 const runWithRequestContext = vi.hoisted(() => vi.fn());
 vi.mock("./request-context.js", () => ({
   runWithRequestContext: (...args: unknown[]) => runWithRequestContext(...args),
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 vi.mock("./framework-request-handler.js", () => ({

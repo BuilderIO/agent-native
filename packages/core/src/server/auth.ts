@@ -318,6 +318,8 @@ function headersWithSignupAttribution(
 export interface AuthSession {
   email: string;
   userId?: string;
+  /** Better Auth's canonical user id. Never populated by legacy or custom auth. */
+  authUserId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
@@ -4651,6 +4653,7 @@ function mapBetterAuthSession(baSession: {
 }): AuthSession {
   return {
     email: baSession.user.email,
+    authUserId: baSession.user.id,
     ...(typeof baSession.user.emailVerified === "boolean"
       ? { emailVerified: baSession.user.emailVerified }
       : {}),
@@ -4753,10 +4756,13 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
+      // Custom auth may have a userId, but it is not a Better Auth identity.
+      const safeSession = { ...session };
+      delete safeSession.authUserId;
       if (trustCustomEmailVerification && session.emailVerified === undefined) {
-        return { ...session, emailVerified: true };
+        return { ...safeSession, emailVerified: true };
       }
-      return session;
+      return safeSession;
     }
 
     const bearerSession = await getBearerSession(event);

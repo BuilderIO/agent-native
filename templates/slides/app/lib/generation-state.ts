@@ -1,18 +1,51 @@
+/** "pending" covers both "about to start" and "waiting to start" — the two
+ *  states a boolean `generationStarted` could never tell apart, which is why
+ *  a run that died before its first event looked identical to one still
+ *  warming up and stayed stuck forever. A late run can still revive an
+ *  "abandoned" route while its editor remains mounted. */
+export type NewDeckGenerationPhase = "pending" | "started" | "abandoned";
+
+/** How long we wait, after `?generating=1` promises a run, for that run to
+ *  actually start before treating it as abandoned instead of still warming
+ *  up. Reload, a bookmark, a shared link, and a dead run all leave
+ *  `generating` false forever; this bound is what tells them apart from a
+ *  run that just hasn't sent its first event yet. */
+export const NEW_DECK_GENERATION_START_TIMEOUT_MS = 20_000;
+
+export function nextNewDeckGenerationPhase({
+  phase,
+  generating,
+  waitingOnQuestions,
+  waitExpired,
+}: {
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  waitExpired: boolean;
+}): NewDeckGenerationPhase {
+  if (generating) return "started";
+  if (phase !== "pending") return phase;
+  // Pre-generation questions answered from the empty editor are a
+  // legitimate reason nothing has started yet; never expire underneath them.
+  if (waitingOnQuestions) return "pending";
+  return waitExpired ? "abandoned" : "pending";
+}
+
 export function shouldShowNewDeckGeneratingOverlay({
   generating,
   isNewDeckCreation,
   slideCount,
-  generationStarted,
+  phase,
 }: {
   generating: boolean;
   isNewDeckCreation: boolean;
   slideCount?: number | null;
-  generationStarted: boolean;
+  phase: NewDeckGenerationPhase;
 }): boolean {
   return (
     isNewDeckCreation &&
     (slideCount ?? 0) === 0 &&
-    (generating || !generationStarted)
+    (generating || phase === "pending")
   );
 }
 
@@ -53,10 +86,28 @@ export function slideBeingFilledInPlace({
 
 export function shouldClearNewDeckGeneratingState({
   generating,
-  generationStarted,
+  waitingOnQuestions,
+  phase,
 }: {
   generating: boolean;
-  generationStarted: boolean;
+  waitingOnQuestions: boolean;
+  phase: NewDeckGenerationPhase;
 }): boolean {
-  return generationStarted && !generating;
+  return (
+    !generating &&
+    !waitingOnQuestions &&
+    (phase === "started" || phase === "abandoned")
+  );
+}
+
+export function shouldClearNewDeckGenerationRun({
+  generating,
+  waitingOnQuestions,
+  phase,
+}: {
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  phase: NewDeckGenerationPhase;
+}): boolean {
+  return !generating && !waitingOnQuestions && phase === "started";
 }

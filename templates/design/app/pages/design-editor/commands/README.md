@@ -145,7 +145,7 @@ a module breaks those — re-point the spec in the same commit.
 
 | Module                           | Does                                            |
 | -------------------------------- | ----------------------------------------------- |
-| `save-file-content.ts`           | Perform one file-content save request           |
+| `save-file-content.ts`           | Queue, journal, and perform file-content saves  |
 | `apply-file-content-update.ts`   | Apply a server-confirmed file content update    |
 | `apply-local-content-update.ts`  | Apply a local content update and record history |
 | `apply-design-editor-command.ts` | Execute a URL/agent-driven editor command       |

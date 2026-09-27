@@ -670,6 +670,7 @@ const messages = {
     reviewFeedback: "피드백",
     reviewOutput: "답변 검토",
     reviewPreview: "답변 미리보기",
+    reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     closePreview: "미리보기 숨기기",
     addFeedback: "피드백 추가",
     draftInstruction: "지침 초안",
@@ -691,6 +692,7 @@ const messages = {
     saveUpdate: "업데이트 초안 저장",
     draftSaved: "초안 저장됨",
     noReviews: "아직 검토할 에이전트 답변이 없습니다",
+    summarizeWithAgent: "에이전트로 요약",
   },
   error: {
     genericTitle: "문제가 발생했습니다",

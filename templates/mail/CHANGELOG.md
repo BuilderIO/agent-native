@@ -7,7 +7,19 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Add an All inbox tab that shows every inbox thread and can be hidden in tab settings.
+- Priority sort keeps results when switching inbox tabs, and loading tabs show a skeleton
+- The composer keeps its taller layout in a narrower window.
 - The compose window opens larger, leaving more room to write with quieter toolbar icons.
+
+### Fixed
+
+- Gmail inboxes refresh reliably when push notifications are delayed.
+- Priority sorting stays in place when you return to the inbox
+
+### Security
+
+- Mail automations no longer fall back to shared deployment LLM keys; connect a provider in Settings to enable them.
 
 ## 2026-09-23
 

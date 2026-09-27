@@ -59,6 +59,10 @@ function renderEntry(
 
   const table = compact(entry.table, 240);
   if (table) lines.push(`  - table: ${table}`);
+  const source = compact(entry.source, 240);
+  if (source) lines.push(`  - source: ${source}`);
+  const action = compact(entry.action, 160);
+  if (action) lines.push(`  - query action: ${action}`);
   const columns = compact(entry.columnsUsed, 360);
   if (columns) lines.push(`  - columns: ${columns}`);
   const cuts = compact(entry.cuts, 240);

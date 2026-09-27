@@ -1412,7 +1412,11 @@ export default function RecordingPage() {
                 recordingId,
                 url: recording?.sourceWindowTitle,
               }
-            : { id: recordingId },
+            : {
+                id: recordingId,
+                uploadAttemptId: recording?.uploadAttemptId ?? null,
+                uploadGenerationId: recording?.uploadGenerationId ?? null,
+              },
         ),
       });
       const body = (await res.json()) as {

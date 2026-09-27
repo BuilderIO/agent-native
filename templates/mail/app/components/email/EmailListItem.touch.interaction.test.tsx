@@ -90,6 +90,21 @@ describe("EmailListItem touch swipe interactions", () => {
     vi.useRealTimers();
   });
 
+  it("shows trash for trashable rows and the importance menu when supplied", () => {
+    renderRow({ canTrash: true, onTrash: vi.fn() });
+    expect(screen.getByLabelText("mail.actions.moveToTrash")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeNull();
+
+    cleanup();
+    renderRow({ onImportanceFeedback: vi.fn() });
+    expect(
+      screen.getByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("mail.actions.moveToTrash")).toBeNull();
+  });
+
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {
     const onSwipeArchive = vi.fn();
     const { row, props } = renderRow({ onSwipeArchive });
@@ -252,8 +267,7 @@ describe("EmailListItem touch swipe interactions", () => {
       canArchive: true,
       onSnooze: vi.fn(),
       canSnooze: true,
-      onTrash: vi.fn(),
-      canTrash: true,
+      onImportanceFeedback: vi.fn(),
       onSendNow: vi.fn(),
       onCancelSchedule: vi.fn(),
       scheduledJobId: "scheduled-1",
@@ -266,7 +280,7 @@ describe("EmailListItem touch swipe interactions", () => {
       "mail.snooze.snooze",
       "mail.sendLater.sendNow",
       "mail.sendLater.cancelScheduledSend",
-      "mail.actions.moveToTrash",
+      "mail.sort.priorityFeedbackLabel",
       "mail.actions.star",
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();

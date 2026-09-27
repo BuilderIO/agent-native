@@ -382,6 +382,12 @@ const messages = {
       shareAria: "Share {{noun}}",
       share: "Share {{noun}}",
       shareThis: "Share this {{noun}}",
+      teammateSuggestion: {
+        message: "Bring teammates into Plan.",
+        invite: "Invite teammates",
+        enableDomain: "Let anyone at @{{domain}} join",
+        enableFailed: "Could not enable domain joining. Try again.",
+      },
       hostedCopy:
         "This local {{noun}} has a hosted copy for sharing. Open the hosted {{noun}} to manage access.",
       publishDescription:

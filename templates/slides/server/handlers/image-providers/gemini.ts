@@ -1,4 +1,7 @@
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "@agent-native/core/server";
 
 import type {
   ImageProvider,
@@ -11,7 +14,7 @@ export class GeminiProvider implements ImageProvider {
   name = "gemini";
 
   isConfigured(): boolean {
-    return !!process.env.GEMINI_API_KEY;
+    return !!readDeployCredentialEnv("GEMINI_API_KEY");
   }
 
   async isConfiguredForRequest(): Promise<boolean> {

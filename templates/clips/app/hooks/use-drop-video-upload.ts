@@ -3,6 +3,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
+  classifyUploadResponseError,
   chunkUploadParallelism,
   chunkUploadUrl,
   UPLOAD_SLICE_BYTES,
@@ -13,6 +14,7 @@ import { toast } from "sonner";
 
 import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import { defaultRecordingTitle } from "@/lib/recording-title";
+import { isMobileRecorderRuntime } from "@/lib/recording-visibility";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
@@ -112,6 +114,9 @@ export function useDropVideoUpload(scope: {
             titleSource: "upload",
             hasCamera: false,
             hasAudio: true,
+            recordingPlatform: isMobileRecorderRuntime(navigator)
+              ? "mobile"
+              : "web",
             width: meta.width,
             height: meta.height,
             spaceIds: spaceId ? [spaceId] : undefined,
@@ -201,9 +206,25 @@ export function useDropVideoUpload(scope: {
               abort.abort();
               return;
             }
-            if (!chunkRes.ok) {
-              uploadError = new Error(
-                `Upload failed at chunk ${item.index + 1}/${totalChunks} (${chunkRes.status})`,
+            const chunkBody = await chunkRes.text();
+            const responseError = classifyUploadResponseError({
+              contentType: chunkRes.headers.get("content-type"),
+              body: chunkBody,
+              status: chunkRes.status,
+              stage: "chunk_upload",
+            });
+            if (!chunkRes.ok || responseError.isHtml) {
+              uploadError = Object.assign(
+                new Error(
+                  responseError.isHtml
+                    ? `Upload failed at chunk ${item.index + 1}/${totalChunks}: HTML error response (${chunkRes.status})`
+                    : `Upload failed at chunk ${item.index + 1}/${totalChunks} (${chunkRes.status})`,
+                ),
+                {
+                  status: responseError.status,
+                  failureCode: responseError.failureCode,
+                  failureStage: responseError.failureStage,
+                },
               );
               abort.abort();
               return;
@@ -239,6 +260,7 @@ export function useDropVideoUpload(scope: {
           waitingForStorage?: boolean;
         } | null = null;
         let finalRes: Response | null = null;
+        let finalResponseText = "";
         try {
           finalRes = await uploadChunkRequest({
             url: finalChunkDesc.url,
@@ -250,17 +272,35 @@ export function useDropVideoUpload(scope: {
           finalResult = await recoverFinalization();
           if (!finalResult) throw error;
         }
-        if (finalRes && !finalRes.ok) {
-          const error = new Error(
-            `Upload failed at the final chunk (${finalRes.status})`,
-          );
-          if (finalRes.status === 413) throw error;
-          finalResult = await recoverFinalization();
-          if (!finalResult) throw error;
-        } else if (finalRes?.ok) {
-          finalResult = (await finalRes.json()) as NonNullable<
-            typeof finalResult
-          >;
+        if (finalRes) {
+          finalResponseText = await finalRes.text();
+          const responseError = classifyUploadResponseError({
+            contentType: finalRes.headers.get("content-type"),
+            body: finalResponseText,
+            status: finalRes.status,
+            stage: "chunk_upload",
+          });
+          if (!finalRes.ok || responseError.isHtml) {
+            const error = Object.assign(
+              new Error(
+                responseError.isHtml
+                  ? `Upload failed at the final chunk: HTML error response (${finalRes.status})`
+                  : `Upload failed at the final chunk (${finalRes.status})`,
+              ),
+              {
+                status: responseError.status,
+                failureCode: responseError.failureCode,
+                failureStage: responseError.failureStage,
+              },
+            );
+            if (finalRes.status === 413) throw error;
+            finalResult = await recoverFinalization();
+            if (!finalResult) throw error;
+          } else {
+            finalResult = JSON.parse(finalResponseText) as NonNullable<
+              typeof finalResult
+            >;
+          }
         }
         if (finalResult?.ok !== true) {
           throw new Error("Upload finalization returned no success result.");
@@ -291,10 +331,30 @@ export function useDropVideoUpload(scope: {
           err instanceof Error ? err.message : t("recordRoute.uploadFailed");
         console.warn("[clips] dropped video upload failed", err);
         if (createdId) {
+          const details =
+            err && typeof err === "object"
+              ? (err as Record<string, unknown>)
+              : {};
+          const httpStatus =
+            Number.isInteger(details.status) &&
+            Number(details.status) >= 100 &&
+            Number(details.status) <= 599
+              ? Number(details.status)
+              : undefined;
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reason: message }),
+            body: JSON.stringify({
+              reason: message,
+              failureCode:
+                details.failureCode === "chunk_html_error"
+                  ? "chunk_html_error"
+                  : "upload_failed",
+              ...(details.failureStage === "chunk_upload"
+                ? { failureStage: "chunk_upload" }
+                : {}),
+              ...(httpStatus ? { httpStatus } : {}),
+            }),
           }).catch((abortError) => {
             console.warn("[clips] dropped-upload cleanup failed", abortError);
           });

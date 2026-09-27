@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import {
   emailMessageMatchesSearch,
@@ -12,7 +12,6 @@ import { z } from "zod";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
-  OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
   pinnedTriageLabels,
   inboxThreadKey,
@@ -34,17 +33,20 @@ import {
   readInboxThreads,
 } from "../server/lib/inbox-store.js";
 import {
+  buildLocalInboxItems,
   partitionInboxItems,
   resolveActiveTabId,
   resolveInboxTabs,
 } from "../server/lib/inbox-tabs-server.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
+import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
 import {
   listQueuedDrafts,
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
-import type { EmailMessage } from "../shared/types.js";
+import type { InboxThreadItem } from "../shared/inbox-threads.js";
+import type { EmailMessage, Label } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 // Keep automatic screen context within the page-tool budget; list-emails is
@@ -142,31 +144,47 @@ async function fetchEmailList(
     const shouldReadSettings =
       googleConnected ||
       Boolean(requestedFilterId) ||
-      (view === "inbox" &&
-        !search &&
-        (activeInboxTab === OTHER_INBOX_TAB_PARAM || Boolean(label)));
+      (view === "inbox" && !search);
     const settings = shouldReadSettings
       ? await readSettings(ownerEmail)
       : undefined;
-    const savedFilter = requestedFilterId
-      ? settings?.savedFilters?.find(
-          (filter) => filter.id === requestedFilterId,
-        )
-      : undefined;
-    const effectiveSearch = requestedFilterId ? savedFilter?.query : search;
-    const effectiveView = savedFilter ? "all" : view;
     const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
     const triageLabels = pinnedTriageLabels(pinnedLabels);
+    const inboxTabs =
+      view === "inbox" && !search
+        ? resolveInboxTabs(
+            {
+              pinnedLabels,
+              savedFilters: settings?.savedFilters ?? [],
+              labelAliases: settings?.labelAliases ?? {},
+              combineInbox: settings?.combineInbox === true,
+              showAllTab: settings?.showAllTab,
+            },
+            new Map(),
+          )
+        : [];
+    const activeTabId = resolveActiveTabId(activeInboxTab, inboxTabs);
+    const activeTab = inboxTabs.find((tab) => tab.id === activeTabId);
+    const activeFilterId =
+      requestedFilterId ??
+      (activeTab?.kind === "filter" ? activeTab.id : undefined);
+    const savedFilter = activeFilterId
+      ? settings?.savedFilters?.find((filter) => filter.id === activeFilterId)
+      : undefined;
+    const effectiveSearch = activeFilterId ? savedFilter?.query : search;
+    const effectiveView = savedFilter && view !== "inbox" ? "all" : view;
     const activeTriageTab =
       effectiveView === "inbox" && !effectiveSearch
-        ? activeInboxTab === OTHER_INBOX_TAB_PARAM
+        ? activeTab?.kind === "other"
           ? null
-          : label &&
-              triageLabels.includes(label) &&
-              isInboxScopedAppLabel(label)
-            ? label
-            : undefined
+          : activeTab?.kind === "important" || activeTab?.kind === "label"
+            ? activeTab.id
+            : label &&
+                triageLabels.includes(label) &&
+                isInboxScopedAppLabel(label)
+              ? label
+              : undefined
         : undefined;
     const savedFilterQueries =
       settings?.savedFilters?.map((filter) => filter.query) ?? [];
@@ -217,6 +235,9 @@ async function fetchEmailList(
             )
           : prepared;
       if (effectiveView !== "inbox" || effectiveSearch || label) {
+        return filtered;
+      }
+      if (activeTab?.kind === "all" || activeTab?.kind === "inbox") {
         return filtered;
       }
       const savedFilterThreads = savedFilterThreadIds(
@@ -328,50 +349,43 @@ async function fetchEmailList(
     }
 
     // Fallback: local store
-    const data = await getSetting("local-emails");
-    if (data && Array.isArray((data as any).emails)) {
-      let emails = (data as any).emails;
-      switch (effectiveView) {
-        case "inbox":
-          emails = emails.filter(
-            (e: any) =>
-              !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-          );
-          break;
-        case "unread":
-          emails = emails.filter(
-            (e: any) =>
-              !e.isRead &&
-              !e.isArchived &&
-              !e.isTrashed &&
-              !e.isDraft &&
-              !e.isSent,
-          );
-          break;
-        case "starred":
-          emails = emails.filter((e: any) => e.isStarred && !e.isTrashed);
-          break;
-        case "sent":
-          emails = emails.filter((e: any) => e.isSent && !e.isTrashed);
-          break;
-        case "drafts":
-          emails = emails.filter((e: any) => e.isDraft);
-          break;
-        case "archive":
-          emails = emails.filter((e: any) => e.isArchived && !e.isTrashed);
-          break;
-        case "trash":
-          emails = emails.filter((e: any) => e.isTrashed);
-          break;
-      }
-      if (effectiveSearch) {
-        emails = emails.filter((e: any) =>
-          emailMessageMatchesSearch(e, effectiveSearch),
+    let emails = await readLocalEmails(ownerEmail);
+    switch (effectiveView) {
+      case "inbox":
+        emails = buildLocalInboxItems(emails);
+        break;
+      case "unread":
+        emails = emails.filter(
+          (e: any) =>
+            !e.isRead &&
+            !e.isArchived &&
+            !e.isTrashed &&
+            !e.isDraft &&
+            !e.isSent,
         );
-      }
-      return boundEmailPreview(applyActiveInboxTab(emails));
+        break;
+      case "starred":
+        emails = emails.filter((e: any) => e.isStarred && !e.isTrashed);
+        break;
+      case "sent":
+        emails = emails.filter((e: any) => e.isSent && !e.isTrashed);
+        break;
+      case "drafts":
+        emails = emails.filter((e: any) => e.isDraft);
+        break;
+      case "archive":
+        emails = emails.filter((e: any) => e.isArchived && !e.isTrashed);
+        break;
+      case "trash":
+        emails = emails.filter((e: any) => e.isTrashed);
+        break;
     }
-    return boundEmailPreview([]);
+    if (effectiveSearch) {
+      emails = emails.filter((e: any) =>
+        emailMessageMatchesSearch(e, effectiveSearch),
+      );
+    }
+    return boundEmailPreview(applyActiveInboxTab(emails));
   } catch (error) {
     return {
       ...boundEmailPreview([]),
@@ -439,9 +453,9 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
 }
 
 /**
- * Inbox tab bar + active tab id, from the same store-backed partition
- * `list-inbox-threads` uses — bounded to counts (no row bodies) so it's
- * cheap to include on every inbox screen snapshot. Never throws: a store
+ * Inbox tab bar + active tab id, from the same backend-specific rows and
+ * partition `list-inbox-threads` uses — bounded to counts (no row bodies) so
+ * it's cheap to include on every inbox screen snapshot. Never throws: a store
  * hiccup just omits `tabs` from the screen rather than failing view-screen.
  */
 async function buildInboxTabsSummary(
@@ -449,21 +463,40 @@ async function buildInboxTabsSummary(
   requestedTab: string | undefined,
 ): Promise<{ tabs: unknown[]; activeTabId: string } | null> {
   try {
-    const [googleConnected, settings, rows, { labels, labelMapByAccount }] =
-      await Promise.all([
-        isConnected(ownerEmail),
-        readSettings(ownerEmail),
+    const [googleConnected, settings] = await Promise.all([
+      isConnected(ownerEmail),
+      readSettings(ownerEmail),
+    ]);
+    let items: InboxThreadItem[];
+    let labels: Label[];
+    if (googleConnected) {
+      const [rows, cachedLabels] = await Promise.all([
         readInboxThreads(ownerEmail),
         readCachedLabels(ownerEmail),
       ]);
-    const items = rows.map((row) =>
-      inboxRowToItem(row, labelMapByAccount.get(row.accountEmail)),
-    );
+      items = rows.map((row) =>
+        inboxRowToItem(
+          row,
+          cachedLabels.labelMapByAccount.get(row.accountEmail),
+        ),
+      );
+      labels = cachedLabels.labels;
+    } else {
+      const [emails, localSettings] = await Promise.all([
+        readLocalEmails(ownerEmail),
+        getUserSetting(ownerEmail, "labels"),
+      ]);
+      items = buildLocalInboxItems(emails);
+      labels = Array.isArray(localSettings?.labels)
+        ? (localSettings.labels as Label[])
+        : [];
+    }
     const config = {
       pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, googleConnected),
       savedFilters: settings.savedFilters ?? [],
       labelAliases: settings.labelAliases ?? {},
       combineInbox: settings.combineInbox,
+      showAllTab: settings.showAllTab,
     };
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
     const tabs = resolveInboxTabs(config, labelNameById);
@@ -547,7 +580,7 @@ export default defineAction({
           nav.view,
           nav.search,
           nav.label,
-          nav.activeInboxTab,
+          nav.tab ?? nav.activeInboxTab ?? nav.label,
           nav.activeAccounts,
           nav.filter,
         );

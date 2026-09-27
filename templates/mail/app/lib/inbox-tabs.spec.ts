@@ -1,3 +1,4 @@
+import { ALL_TAB_ID, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
@@ -170,18 +171,19 @@ describe("labelTabHref", () => {
 });
 
 describe("resolveDefaultMailHref", () => {
-  it("selects Important by default on fresh install", () => {
+  it("selects All by default on fresh install", () => {
     expect(
       resolveDefaultMailHref({
         pinnedLabels: undefined,
         isGoogleConnected: true,
       }),
-    ).toBe("/inbox?label=important");
+    ).toBe("/inbox?tab=__inbox_all__");
   });
 
-  it("selects the first top label by default when labels are pinned", () => {
+  it("selects the first top label when All is hidden", () => {
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["important", "work"],
         isGoogleConnected: true,
       }),
@@ -189,6 +191,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["work", "important"],
         isGoogleConnected: true,
       }),
@@ -196,6 +199,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["starred", "important"],
         isGoogleConnected: true,
       }),
@@ -212,6 +216,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: [],
         isGoogleConnected: true,
       }),
@@ -221,10 +226,17 @@ describe("resolveDefaultMailHref", () => {
   it("selects the first saved filter if no pinned labels exist", () => {
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: [],
         savedFilters: [{ id: "urgent-filter" }],
       }),
     ).toBe("/inbox?filter=urgent-filter");
+  });
+});
+
+describe("All inbox tab deep links", () => {
+  it("uses the public all parameter for the built-in tab id", () => {
+    expect(inboxTabHref(ALL_TAB_ID)).toBe("/inbox?tab=__inbox_all__");
   });
 });
 

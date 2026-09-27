@@ -26,6 +26,7 @@ const messages = {
     team: "Team",
   },
   settings: {
+    agentObservability: "Agent Observability",
     title: "Settings",
     description: "Language and workspace preferences for this app.",
     labs: "Labs",
@@ -699,6 +700,10 @@ const messages = {
       "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
     keepEditing: "Keep editing",
     leaveWithoutSaving: "Exit without saving",
+    editorMarkupNotSaved:
+      "This edit wasn't saved because it would have added editor markup to the slide.",
+    textEditConflictNotSaved:
+      "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",

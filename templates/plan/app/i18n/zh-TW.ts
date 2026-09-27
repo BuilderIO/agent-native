@@ -679,6 +679,12 @@ const messages = {
       share: "分享{{noun}}",
       shareAria: "分享{{noun}}",
       shareThis: "分享這個 {{noun}}",
+      teammateSuggestion: {
+        message: "邀請團隊成員加入 Plan。",
+        invite: "邀請團隊成員",
+        enableDomain: "允許 @{{domain}} 的任何人加入",
+        enableFailed: "無法啟用網域加入，請再試一次。",
+      },
       signedInRetry: "我已登入 - 重試",
       updateLink: "更新連結",
       updating: "更新中",

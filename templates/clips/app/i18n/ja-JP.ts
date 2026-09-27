@@ -429,6 +429,12 @@ const messages = {
     agentEmptyTitle: "会話に参加する",
     agentEmptyDescription:
       "無料の Clips アカウントを作成して、このクリップにコメント、リアクション、質問を追加できます。",
+    commentSignupTitle: "AIエージェントに全体像を伝える",
+    commentSignupContext:
+      "文字起こしとタイムスタンプ付きフレームを1つのリンクで共有",
+    commentSignupFeedback:
+      "録画したフィードバックを明確な次のアクションに変える",
+    commentSignupDebug: "コンソールエラーと失敗したリクエストを記録",
     agentEmptySignInPrompt: "アカウントをお持ちですか？",
     signUp: "登録",
     ownerInsights: "所有者インサイト",

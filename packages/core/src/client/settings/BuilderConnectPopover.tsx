@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 
@@ -18,6 +19,7 @@ type BuilderConnectTrigger = React.ReactElement<{
 
 export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
+    cancel?: BuilderConnectFlow["cancel"];
     agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
     /**
@@ -149,9 +151,31 @@ export function BuilderConnectPopover({
     },
   });
 
-  if (!showPopover) return trigger;
+  const cancelAction =
+    flow.connecting && flow.cancel ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="shrink-0 text-xs font-normal text-muted-foreground"
+        onClick={flow.cancel}
+      >
+        {t("common.cancel")}
+      </Button>
+    ) : null;
 
-  return (
+  if (!showPopover) {
+    return cancelAction ? (
+      <span className="inline-flex max-w-full items-center gap-2">
+        {trigger}
+        {cancelAction}
+      </span>
+    ) : (
+      trigger
+    );
+  }
+
+  const popover = (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
@@ -234,5 +258,14 @@ export function BuilderConnectPopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+
+  return cancelAction ? (
+    <span className="inline-flex max-w-full items-center gap-2">
+      {popover}
+      {cancelAction}
+    </span>
+  ) : (
+    popover
   );
 }

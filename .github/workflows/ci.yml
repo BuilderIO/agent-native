@@ -798,8 +798,8 @@ jobs:
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 
-      - name: Build Content template (Cloudflare Pages preset)
-        run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
+      - name: Build Content template (Cloudflare Workers preset)
+        run: NITRO_PRESET=cloudflare_module pnpm --filter content build
 
       # Three templates, one per size class, because building all 17 per PR is
       # too slow: Plan covers diagram-heavy SSR, Clips covers public-share SSR,

@@ -132,6 +132,36 @@ describe("get-layout-overflows", () => {
     });
   });
 
+  it("keeps legacy FNV measurements unknown until the browser remeasures", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": {
+              ...measurement(slideAContent),
+              contentHash: "1ca88cd3",
+            },
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      slideCount: 2,
+      unknownSlideIds: ["slide-a"],
+      overflows: [],
+      canClaimDeckFits: false,
+    });
+  });
+
   it("rejects a matching hash from an older persisted write", async () => {
     const currentRevision = "write-2";
     mockResolveAccess.mockResolvedValue({

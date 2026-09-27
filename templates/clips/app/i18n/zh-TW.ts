@@ -401,6 +401,10 @@ const messages = {
     agentEmptyTitle: "加入對話",
     agentEmptyDescription:
       "建立免費的 Clips 帳號，即可留言、回應並詢問此剪輯。",
+    commentSignupTitle: "讓 AI 代理掌握完整脈絡",
+    commentSignupContext: "透過一個連結分享逐字稿和附有時間戳記的畫面",
+    commentSignupFeedback: "將錄製的回饋轉化為明確的後續步驟",
+    commentSignupDebug: "擷取主控台錯誤和失敗的請求",
     agentEmptySignInPrompt: "已經有帳號了嗎？",
     signUp: "註冊",
     ownerInsights: "擁有者洞察",

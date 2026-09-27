@@ -6,6 +6,7 @@ const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: <T>(action: T) => action,
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
   putSetting: putSettingMock,
   putUserSetting: putUserSettingMock,
 }));
@@ -30,6 +32,13 @@ describe("update-settings timezone validation", () => {
     getUserSettingMock.mockResolvedValue(null);
     putSettingMock.mockResolvedValue(undefined);
     putUserSettingMock.mockResolvedValue(undefined);
+    mutateUserSettingMock.mockImplementation(
+      async (
+        _email: string,
+        _key: string,
+        updater: (current: null) => unknown,
+      ) => updater(null),
+    );
   });
 
   it("rejects an invalid IANA timezone at the action boundary", () => {
@@ -51,11 +60,12 @@ describe("update-settings timezone validation", () => {
     };
 
     const saved = { ...settings, weekStart: "sunday" };
-    await expect(action.run(settings)).resolves.toEqual(saved);
-    expect(putUserSettingMock).toHaveBeenCalledWith(
+    await expect(action.run(settings)).resolves.toMatchObject(saved);
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
       "owner@example.com",
       "calendar-settings",
-      saved,
+      expect.any(Function),
     );
+    expect(putUserSettingMock).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const mockTrackInviteAccepted = vi.fn();
+
 /**
  * Regression coverage for the `acceptPendingInvitationsForEmail` TOCTOU race
  * (packages/core/src/org/accept-pending.ts): a SELECT-then-INSERT check with
@@ -73,6 +75,9 @@ async function loadAcceptPendingWithPglite(
   vi.doMock("../settings/user-settings.js", () => ({
     putUserSetting: vi.fn(async () => {}),
   }));
+  vi.doMock("./track-invite-accepted.js", () => ({
+    trackInviteAccepted: mockTrackInviteAccepted,
+  }));
   const mod = await import("./accept-pending.js");
   return mod;
 }
@@ -82,6 +87,8 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../settings/user-settings.js");
+    vi.doUnmock("./track-invite-accepted.js");
+    mockTrackInviteAccepted.mockReset();
   });
 
   it("processing the same invitation twice concurrently yields exactly one membership row", async () => {
@@ -112,11 +119,15 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
       acceptPendingInvitationsForEmail("a@b.com"),
     ]);
 
-    // Neither call throws (previously the race's loser hit a raw UNIQUE
-    // constraint violation).
-    for (const r of results) {
-      expect(r.accepted).toEqual([{ invitationId: "inv1", orgId: "org1" }]);
-    }
+    // A conditional status update makes the row transition, result, and
+    // telemetry single-winner even when both callers read it as pending.
+    expect(
+      results.filter((result) => result.accepted.length === 1),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.accepted.length === 0),
+    ).toHaveLength(1);
+    expect(mockTrackInviteAccepted).toHaveBeenCalledTimes(1);
 
     const { count } = (await pglite
       .prepare(`SELECT COUNT(*) as count FROM org_members`)
@@ -133,7 +144,7 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     });
 
     await pglite.close();
-  });
+  }, 15_000);
 
   it("a case-variant duplicate row does not block idempotent acceptance", async () => {
     const pglite = await createTestPglite();
@@ -176,5 +187,5 @@ describe("acceptPendingInvitationsForEmail (real pglite, concurrency)", () => {
     expect(count).toBe(1);
 
     await pglite.close();
-  });
+  }, 15_000);
 });

@@ -31,7 +31,7 @@ function hydratedEditorChromeBridgeScript(): string {
 const FIXTURE = `<!doctype html><html><body>
   <main>
     <div data-agent-native-node-id="first">First</div>
-    <div data-agent-native-node-id="subject"><span>Subject</span></div>
+    <div data-agent-native-node-id="subject" style="opacity: .65 !important; pointer-events: auto; transition: opacity 2s"><span>Subject</span></div>
     <div data-agent-native-node-id="last">Last</div>
   </main>
 </body></html>`;
@@ -62,7 +62,59 @@ describe("delete-element / visual-structure-ack undo", () => {
           content: hydratedEditorChromeBridgeScript(),
         });
 
+        const subject = page.locator('[data-agent-native-node-id="subject"]');
+        const computedStyle = (property: string) =>
+          subject.evaluate(
+            (element, name) => getComputedStyle(element).getPropertyValue(name),
+            property,
+          );
         await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "pending-delete-element",
+              selector: '[data-agent-native-node-id="subject"]',
+              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+              requestId: "delete-1",
+            },
+            "*",
+          );
+        });
+        expect(await computedStyle("opacity")).toBe("0");
+        expect(await computedStyle("pointer-events")).toBe("none");
+        expect(await computedStyle("transition")).toBe("none");
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "cancel-pending-delete-element",
+              selector: '[data-agent-native-node-id="subject"]',
+              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+              requestId: "delete-1",
+            },
+            "*",
+          );
+        });
+        expect(await computedStyle("opacity")).toBe("0.65");
+        expect(await computedStyle("pointer-events")).toBe("auto");
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            ),
+        );
+        expect(await computedStyle("transition")).toBe("opacity 2s");
+
+        // The accepted move stays concealed until removal. Undo restores the
+        // original inline declaration, not the temporary editor-only mask.
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "pending-delete-element",
+              selector: '[data-agent-native-node-id="subject"]',
+              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+              requestId: "delete-1",
+            },
+            "*",
+          );
           window.postMessage(
             {
               type: "delete-element",
@@ -81,6 +133,15 @@ describe("delete-element / visual-structure-ack undo", () => {
         await page.evaluate(() => {
           window.postMessage(
             {
+              type: "cancel-pending-delete-element",
+              selector: '[data-agent-native-node-id="subject"]',
+              selectorCandidates: ['[data-agent-native-node-id="subject"]'],
+              requestId: "delete-1",
+            },
+            "*",
+          );
+          window.postMessage(
+            {
               type: "visual-structure-ack",
               requestId: "delete-1",
               applied: false,
@@ -91,6 +152,27 @@ describe("delete-element / visual-structure-ack undo", () => {
 
         const restored = page.locator('[data-agent-native-node-id="subject"]');
         expect(await restored.count()).toBe(1);
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            ),
+        );
+        expect(
+          await restored.evaluate(
+            (element) => getComputedStyle(element).opacity,
+          ),
+        ).toBe("0.65");
+        expect(
+          await restored.evaluate(
+            (element) => getComputedStyle(element).pointerEvents,
+          ),
+        ).toBe("auto");
+        expect(
+          await restored.evaluate(
+            (element) => getComputedStyle(element).transition,
+          ),
+        ).toBe("opacity 2s");
         expect(
           await page.evaluate(() =>
             Array.from(document.querySelector("main")!.children).map((child) =>

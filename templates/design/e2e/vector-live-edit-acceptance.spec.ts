@@ -17,6 +17,8 @@ const GROUPED_EDITABLE_SVG =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0L30 0L30 30Z" fill="#f97316"/><path d="M50 0L80 0L80 30Z" fill="#16a34a"/></g></svg>';
 const OPEN_PASTED_SVG =
   '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="none" stroke="#111827" stroke-width="2" /></svg>';
+const OPEN_PASTED_SVG_WITH_AUTHORED_OPACITY =
+  '<svg width="120" height="80" viewBox="0 0 120 80"><path d="M10 30L70 30" fill="#f97316" fill-opacity="0.4" style="fill-opacity: 0.4" stroke="#111827" stroke-width="2" /></svg>';
 const PEN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;min-height:600px"><main data-agent-native-node-id="main" style="position:relative;min-height:600px"><div data-agent-native-node-id="frame" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:40px;top:120px;width:600px;height:400px"><div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:80px;top:70px;width:280px;height:200px;transform:translate(10px,5px)"><svg data-agent-native-node-id="nested-path" data-agent-native-layer-name="Nested path" data-an-primitive="path" data-an-pen-nodes='[1,[0,0,null,null,null,null],[100,0,null,null,null,null],[100,80,null,null,null,null],[0,80,null,null,null,null]]' viewBox="0 0 100 80" preserveAspectRatio="none" style="position:absolute;left:15.25px;top:20.5px;width:100px;height:80px;overflow:visible;opacity:0.5;filter:drop-shadow(0 1px 2px #000)"><path d="M 0 0 L 100 0 L 100 80 L 0 80 Z" fill="#336699" stroke="none" /></svg></div></div></main></body></html>`;
 
 async function action(
@@ -209,14 +211,10 @@ test("grouped clipboard SVG keeps path identities and edits only the selected si
     await hex.press("Enter");
     await expect(target).toHaveCSS("fill", "rgb(59, 130, 246)");
     await expect(sibling).toHaveCSS("fill", siblingBefore);
-    const source = await page.request
-      .get(
-        appPath(
-          `/_agent-native/actions/read-source-file?designId=${encodeURIComponent(designId)}&path=screen.html`,
-        ),
-      )
-      .then((response) => response.json());
-    const html = source.content ?? "";
+    await expect
+      .poll(() => readSource(page, designId))
+      .toMatch(/fill:\s*#3b82f6/i);
+    const html = await readSource(page, designId);
     expect(html).toContain(pathIds[0]!);
     expect(html).toMatch(/fill:\s*#3b82f6/i);
     await page.reload();
@@ -274,7 +272,9 @@ test("a pasted SVG path can be edited, undone, redone, and reopened", async ({
     await page.mouse.up();
     await expect.poll(() => path.getAttribute("d")).not.toBe(originalPathData);
     const editedPathData = await path.getAttribute("d");
-    expect(await readSource(page, designId)).toContain(editedPathData);
+    await expect
+      .poll(() => readSource(page, designId))
+      .toContain(editedPathData);
     await page.keyboard.press("Enter");
 
     const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
@@ -327,6 +327,7 @@ test("a grouped pasted SVG edits only the selected path through undo and reload"
     );
     if (!targetPathBefore || !targetPathId)
       throw new Error("grouped target path identity was not persisted");
+    await expect.poll(() => readSource(page, designId)).toContain(targetPathId);
     const originalSource = await readSource(page, designId);
 
     const layers = page.getByRole("tree", { name: "Layers" });
@@ -443,6 +444,9 @@ test("an open pasted SVG continues from its endpoint and closes without adding a
       'svg[data-agent-native-layer-name="Pasted SVG"] path',
     );
     await expect(path).toHaveAttribute("d", "M10 30L70 30");
+    await expect
+      .poll(() => readSource(page, designId))
+      .toMatch(/data-an-pen-nodes=/);
     const originalSource = await readSource(page, designId);
     const originalNodes = pastedPathNodes(originalSource);
 
@@ -613,9 +617,12 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
   try {
     await gotoEditor(page, designId);
     await enterDirectMode(page);
+    const frame = designFrame(page, screenId);
+    await expect(
+      frame.locator('[data-agent-native-node-id="nested-path"] path'),
+    ).toBeVisible();
     await expandAllLayers(page);
     await selectLayer(page, "Nested path");
-    const frame = designFrame(page, screenId);
     const originalSource = await readSource(page, designId);
     const contentUpdates: Array<Record<string, unknown>> = [];
     page.on("request", (request) => {
@@ -689,6 +696,162 @@ test("per-anchor radius previews, commits, and survives undo, redo, and reload",
     await expect
       .poll(async () => nestedPathNodes(await readSource(page, designId))[2][6])
       .toBe(14);
+  } finally {
+    await action(page, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("closing an edited pasted SVG restores authored fill opacity through history and reload", async ({
+  page,
+}) => {
+  const { designId, screenId } = await createDesign(page);
+  try {
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await page
+      .locator(
+        `[data-screen-shell][data-frame-id="${screenId}"] [data-frame-title]`,
+      )
+      .click();
+    expect(
+      await pasteSvg(
+        page.locator("body"),
+        OPEN_PASTED_SVG_WITH_AUTHORED_OPACITY,
+      ),
+    ).toBe(true);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+
+    const frame = designFrame(page, screenId);
+    const path = frame.locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] path',
+    );
+    await expect(path).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(async () => pastedPathMarkup(await readSource(page, designId)).d)
+      .toBe("M10 30L70 30");
+    const originalSource = await readSource(page, designId);
+    const anchors = page.locator("[data-vector-anchor]");
+
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-vector-edit-overlay]")).toBeVisible();
+    const terminalAnchorBox = await anchors.nth(1).boundingBox();
+    if (!terminalAnchorBox) {
+      throw new Error("pasted path anchors have no bounds");
+    }
+    const terminalAnchor = {
+      x: terminalAnchorBox.x + terminalAnchorBox.width / 2,
+      y: terminalAnchorBox.y + terminalAnchorBox.height / 2,
+    };
+    await page.mouse.move(terminalAnchor.x, terminalAnchor.y);
+    await page.mouse.down();
+    await page.mouse.move(terminalAnchor.x + 18, terminalAnchor.y + 10, {
+      steps: 4,
+    });
+    await expect
+      .poll(() =>
+        page
+          .locator("[data-vector-edit-overlay] svg path")
+          .first()
+          .getAttribute("d"),
+      )
+      .not.toBe("M10 30L70 30");
+    expect(await readSource(page, designId)).toBe(originalSource);
+    await page.mouse.up();
+    await expect
+      .poll(() => readSource(page, designId))
+      .not.toBe(originalSource);
+    await expect
+      .poll(() =>
+        path.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0");
+    await expect
+      .poll(() =>
+        path.evaluate((element) =>
+          (element as SVGPathElement).style.getPropertyPriority("fill-opacity"),
+        ),
+      )
+      .toBe("important");
+    const movedTerminalAnchorBox = await anchors.nth(1).boundingBox();
+    if (!movedTerminalAnchorBox) {
+      throw new Error("moved pasted path endpoint has no bounds");
+    }
+    const movedTerminal = {
+      x: movedTerminalAnchorBox.x + movedTerminalAnchorBox.width / 2,
+      y: movedTerminalAnchorBox.y + movedTerminalAnchorBox.height / 2,
+    };
+
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Pen", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.click(movedTerminal.x, movedTerminal.y);
+    await expect
+      .poll(() =>
+        page.locator("[data-pen-path-overlay] [data-pen-anchor]").count(),
+      )
+      .toBe(2);
+    const penAnchors = await page
+      .locator("[data-pen-path-overlay] [data-pen-anchor]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect();
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }),
+      );
+    const closeTarget = penAnchors[0];
+    if (!closeTarget) throw new Error("pen start anchor has no bounds");
+    await page.mouse.move(closeTarget.x, closeTarget.y);
+    await page.mouse.down();
+    await expect
+      .poll(() =>
+        page
+          .locator("[data-pen-path-overlay] svg path")
+          .first()
+          .getAttribute("d"),
+      )
+      .toMatch(/Z\s*$/i);
+    await page.mouse.up();
+    await expect.poll(() => readSource(page, designId)).toMatch(/d="[^"]*Z"/i);
+
+    const closedSource = await readSource(page, designId);
+    const closedPath = frame.locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] path',
+    );
+    await expect.poll(() => closedPath.getAttribute("d")).toMatch(/Z\s*$/i);
+    await expect(closedPath).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(() =>
+        closedPath.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0.4");
+
+    const undo = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+    const redo =
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
+    await page.keyboard.press(undo);
+    await expect.poll(() => readSource(page, designId)).not.toBe(closedSource);
+    await page.keyboard.press(redo);
+    await expect.poll(() => readSource(page, designId)).toBe(closedSource);
+    await expect(closedPath).toHaveAttribute("fill-opacity", "0.4");
+    await expect
+      .poll(() =>
+        closedPath.evaluate((element) => getComputedStyle(element).fillOpacity),
+      )
+      .toBe("0.4");
+
+    await page.reload();
+    await enterDirectMode(page);
+    await expandAllLayers(page);
+    await selectLayer(page, "Pasted SVG");
+    const reloadedPath = designFrame(page, screenId).locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"] path',
+    );
+    await expect(reloadedPath).toHaveAttribute("fill-opacity", "0.4");
+    await expect(reloadedPath).toHaveAttribute("d", /Z\s*$/i);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

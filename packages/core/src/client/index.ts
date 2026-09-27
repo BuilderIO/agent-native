@@ -75,6 +75,10 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
+  useLaunchDarklyFlag,
+  useLaunchDarklyFlags,
+} from "./launchdarkly/index.js";
+export {
   LabsSettings,
   useLab,
   useLabState,
@@ -130,6 +134,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackAnonymousEvent,
   trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,

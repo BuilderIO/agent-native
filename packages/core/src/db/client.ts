@@ -118,6 +118,8 @@ function hasCloudflareRuntime(): boolean {
  * app ID automatically.
  */
 export function getDatabaseUrl(fallback = ""): string {
+  const testUrl = getIsolatedTestDatabaseUrl();
+  if (testUrl) return testUrl;
   const appName = getAppEnvPrefix();
   if (appName) {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
@@ -167,7 +169,20 @@ function usableRuntimeDatabaseValue(key: string): string | undefined {
   return value && isUsableRuntimeDatabaseUrl(value) ? value : undefined;
 }
 
+// Test fixtures set DATABASE_URL, but may inherit deployment aliases that would
+// otherwise send their migrations and writes to a hosted database.
+export function getIsolatedTestDatabaseUrl(): string | undefined {
+  const isTestProcess =
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1";
+  const url = isTestProcess ? envDatabaseValue("DATABASE_URL") : undefined;
+  return url && isPgliteUrl(url) ? url : undefined;
+}
+
 function resolveRuntimeDatabase(fallback = ""): RuntimeDatabaseResolution {
+  const testUrl = getIsolatedTestDatabaseUrl();
+  if (testUrl) return { url: testUrl, source: "DATABASE_URL" };
   const appName = getAppEnvPrefix();
   if (appName) {
     const appUnpooled = usableRuntimeDatabaseValue(
@@ -273,7 +288,10 @@ function getAppEnvPrefix(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const url = getConfiguredUnpooledDatabaseUrl() || getDatabaseUrl();
+  const url =
+    getIsolatedTestDatabaseUrl() ||
+    getConfiguredUnpooledDatabaseUrl() ||
+    getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple

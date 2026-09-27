@@ -1657,6 +1657,7 @@ async function armRecording(args: {
       title: tab.title || "Untitled recording",
       titleSource: tab.title ? "context" : "default",
       sourceAppName: "Chrome",
+      recordingPlatform: "extension",
       sourceWindowTitle: tab.title ?? null,
       hasCamera: cameraInvolved,
       hasAudio: settings.includeMicrophone,
@@ -2104,6 +2105,8 @@ async function cancelRecording(force = false) {
   await sendOffscreenMessage({
     type: "CLIPS_OFFSCREEN_CANCEL",
     sessionId: recording.sessionId,
+    failureCode: "user_cancelled",
+    reason: "Recording cancelled by user",
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
   await postAction(settingsFromRecording(recording), "trash-recording", {

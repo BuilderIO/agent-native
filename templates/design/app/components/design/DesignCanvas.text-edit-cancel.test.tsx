@@ -90,6 +90,8 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
         sourceType="localhost"
         bridgeUrl={bridgeUrl}
         previewToken="text-edit-cancel-preview-token"
+        liveEditCapability="text-edit-cancel-live-capability"
+        liveEditRegistrationCapability="text-edit-cancel-registration-capability"
         zoom={100}
         deviceFrame="none"
         editMode
@@ -216,6 +218,8 @@ async function mountCanvas(
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
             previewToken={previewToken}
+            liveEditCapability="text-edit-cancel-live-capability"
+            liveEditRegistrationCapability="text-edit-cancel-registration-capability"
             previewFrameId={options.previewFrameId}
             zoom={100}
             deviceFrame="none"

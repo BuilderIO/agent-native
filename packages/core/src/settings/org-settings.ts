@@ -74,18 +74,22 @@ export async function deleteAllOrgSettings(
 }
 
 /**
- * List all settings keys for an org with an optional sub-prefix.
+ * List settings keys for an org with an optional sub-prefix and result limit.
  * Returns a map of `<key>` (without the org prefix) to value.
  */
 export async function listOrgSettings(
   orgId: string,
   subPrefix?: string,
+  options?: { limit?: number },
 ): Promise<Record<string, Record<string, unknown>>> {
   // Narrow in SQL, then apply the same checks as before. Reading this with
   // `getAllSettings()` pulled and JSON-parsed every org's rows into the caller
   // to keep one org's, putting the whole deployment's settings table on the
   // critical path of any org-scoped list read.
-  const scoped = await listSettingsByPrefix(`o:${orgId}:${subPrefix ?? ""}`);
+  const scoped = await listSettingsByPrefix(
+    `o:${orgId}:${subPrefix ?? ""}`,
+    options,
+  );
   const out: Record<string, Record<string, unknown>> = {};
   for (const { key: fullKey, value } of scoped) {
     const m = ORG_PREFIX_RE.exec(fullKey);

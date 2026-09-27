@@ -3,6 +3,24 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-25
+
+### Improved
+
+- Shared clips remember your sidebar choice and help new viewers understand why to sign up.
+
+## 2026-09-24
+
+### Improved
+
+- Recording actions are easier to find and align clearly.
+- Share links appear after uploads finish, when clips are ready to view.
+
+### Fixed
+
+- Signed-in viewers see shared recordings in the Clips app shell with library breadcrumbs.
+- The camera bubble stays visible while you reposition it before recording, then the popover resumes its inactive auto-hide after the drag ends.
+
 ## 2026-09-23
 
 ### Improved

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 
-const state = vi.hoisted(() => ({ status: 0 }));
+const state = vi.hoisted(() => ({ status: 0, hasGoogleSecret: true }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -26,7 +26,7 @@ vi.mock("../credentials/index.js", () => ({
 }));
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: async ({ key }: { key: string }) =>
-    key === "GOOGLE_APPLICATION_CREDENTIALS"
+    key === "GOOGLE_APPLICATION_CREDENTIALS" && state.hasGoogleSecret
       ? { key, value: '{"type":"service_account"}' }
       : null,
   readAppSecrets: async () => new Map(),
@@ -56,6 +56,8 @@ async function post() {
 describe("google realtime session credential gate", () => {
   beforeEach(() => {
     state.status = 0;
+    state.hasGoogleSecret = true;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     delete process.env.BUILDER_GATEWAY_TOKEN;
     // Pinned rather than inherited: the deploy-lane predicate reads these, and a
     // runner with a preview/hosted value set takes the owner path, so the visitor
@@ -80,6 +82,17 @@ describe("google realtime session credential gate", () => {
     const result = await post();
 
     expect(result.error).toContain("Builder must be connected");
+    expect(state.status).toBe(400);
+  });
+
+  it("does not use a deployment Google credential in a hosted preview", async () => {
+    state.hasGoogleSecret = false;
+    process.env.FUSION_ENVIRONMENT = "preview";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = '{"type":"service_account"}';
+
+    const result = await post();
+
+    expect(result.error).toContain("Configure GOOGLE_APPLICATION_CREDENTIALS");
     expect(state.status).toBe(400);
   });
 

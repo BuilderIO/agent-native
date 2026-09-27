@@ -11,9 +11,11 @@ import {
   appendPendingVisualStyleUndoEntry,
   formatPendingVisualStylePrompt,
   formatVisualEditClipboardPrompt,
+  isVisualEditHandoffAcknowledged,
   mergePendingLiveNonStyleEdit,
   nextPendingLiveEditTimestamp,
   pendingLiveLayerNameUndoRevertValue,
+  relativeOperationsForStyles,
   pendingVisualStyleRouteMatches,
   pendingVisualStyleGestureIdForPhase,
   resolveOverviewScreenSourceType,
@@ -103,6 +105,39 @@ describe("resolveOverviewScreenSourceType", () => {
         bridgeUrl: "http://localhost:7331",
       }),
     ).toBe("inline");
+  });
+});
+
+describe("relative selected-screen style intent", () => {
+  it("keeps only changed properties from a batched relative scrub", () => {
+    expect(
+      relativeOperationsForStyles(
+        { marginLeft: "calc(4px + var(--step))", marginRight: "8px" },
+        {
+          relativeDelta: 2,
+          relativeDeltaProperties: ["marginLeft", "marginRight", "gap"],
+        },
+      ),
+    ).toEqual({
+      marginLeft: { kind: "delta", delta: 2 },
+      marginRight: { kind: "delta", delta: 2 },
+    });
+  });
+
+  it("preserves authored expressions rather than recording the DOM result", () => {
+    expect(
+      relativeOperationsForStyles(
+        { width: "248px" },
+        {
+          relativeExpression: {
+            expression: "+8",
+            unit: "px",
+          },
+        },
+      ),
+    ).toEqual({
+      width: { kind: "expression", expression: "+8", unit: "px" },
+    });
   });
 });
 
@@ -397,15 +432,24 @@ describe("appendPendingLiveNonStyleUndoEntry", () => {
 });
 
 describe("formatVisualEditClipboardPrompt", () => {
-  it("uses the page-local WebMCP handoff inside supported hosts", () => {
+  it("uses the hosted MCP handoff in coding agents", () => {
     const prompt = "Apply the exact source edits from this canvas.";
-    expect(formatVisualEditClipboardPrompt(prompt, "chatgpt")).toContain(
-      "get-visual-edit-prompt",
-    );
-    expect(formatVisualEditClipboardPrompt(prompt, "claude")).toContain(
-      "get-visual-edit-prompt",
-    );
-    expect(formatVisualEditClipboardPrompt(prompt, "webmcp")).toContain(
+    for (const host of ["chatgpt", "claude", "codex"] as const) {
+      const copied = formatVisualEditClipboardPrompt(
+        prompt,
+        host,
+        false,
+        "design-1",
+      );
+      expect(copied).toContain("get-visual-edit-pending");
+      expect(copied).toContain('{ designId: "design-1" }');
+      expect(copied).toContain("acknowledging that revision");
+      expect(copied).not.toContain("get-visual-edit-prompt");
+    }
+  });
+
+  it("uses page-local WebMCP only for browser-capable hosts", () => {
+    expect(formatVisualEditClipboardPrompt("Apply edits.", "webmcp")).toContain(
       "get-visual-edit-prompt",
     );
   });
@@ -414,6 +458,43 @@ describe("formatVisualEditClipboardPrompt", () => {
     expect(formatVisualEditClipboardPrompt("Apply these edits.", null)).toBe(
       "Apply these edits.",
     );
+  });
+
+  it("copies full implementation instructions and the detailed handoff", () => {
+    const prompt = "Apply these exact edits to the connected app source.";
+    const copied = formatVisualEditClipboardPrompt(
+      prompt,
+      "claude",
+      true,
+      "design-1",
+    );
+    expect(copied).toContain("Design ID: design-1");
+    expect(copied).toContain("idiomatic code changes");
+    expect(copied).toContain("Verify the running app after HMR");
+    expect(copied).toContain("get-visual-edit-pending");
+    expect(copied).toContain(prompt);
+  });
+});
+
+describe("isVisualEditHandoffAcknowledged", () => {
+  it("clears only the exact locally pending revision", () => {
+    const base = {
+      currentRevision: 8,
+      pendingEditCount: 3,
+      status: "empty",
+      revision: 8,
+    } as const;
+
+    expect(isVisualEditHandoffAcknowledged(base)).toBe(true);
+    expect(isVisualEditHandoffAcknowledged({ ...base, revision: 7 })).toBe(
+      false,
+    );
+    expect(isVisualEditHandoffAcknowledged({ ...base, status: "ready" })).toBe(
+      false,
+    );
+    expect(
+      isVisualEditHandoffAcknowledged({ ...base, pendingEditCount: 0 }),
+    ).toBe(false);
   });
 });
 
@@ -464,6 +545,34 @@ describe("formatPendingVisualStylePrompt", () => {
     expect(prompt).toContain("never hand off inline-style mutations");
     expect(prompt).not.toContain('style="color: blue"');
     expect(prompt).toContain('"screen": "/clips"');
+  });
+
+  it("makes relative CSS intent authoritative over an absolute live preview value", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [
+        {
+          ...styleEdit(".card", { width: "248px" }),
+          originalStyles: { width: "calc(100% - var(--gutter))" },
+          relativeOperations: {
+            width: {
+              kind: "expression",
+              expression: "+8",
+              unit: "px",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"width": "calc(100% - var(--gutter))"');
+    expect(prompt).toContain('"width": "248px"');
+    expect(prompt).toContain('"kind": "expression"');
+    expect(prompt).toContain('"expression": "+8"');
+    expect(prompt).toContain(
+      "relativeOperations entry is the authoritative source intent",
+    );
+    expect(prompt).toContain("do not replace calc(), var()");
   });
 
   it("hands live layer renames off as metadata with source provenance", () => {

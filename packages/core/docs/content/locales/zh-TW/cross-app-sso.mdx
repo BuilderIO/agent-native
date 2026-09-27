@@ -7,9 +7,9 @@ description: "區分組織 OIDC 或 SAML 登入與跨應用程式身分聯邦。
 
 組織 SSO 透過公司的 OIDC 或 SAML 身分提供者驗證使用者登入單一 Agent-Native 部署。跨應用程式聯邦則在不同部署間傳遞已驗證的身分或組織內容。兩者的設定與信任邊界不同。
 
-瀏覽器中的「Sign in with Agent-Native」選項和自動瀏覽器跳轉已移除。對於
-Web 使用者，每個應用程式獨立登入仍是預設方式。本頁只介紹剩餘的明確
-Desktop 流程和伺服器端聯邦協定。
+精確註冊的 Agent-Native 應用程式登入頁提供「Continue with Agent-Native」明確
+操作。它會啟動 Dispatch 現有的已驗證電子郵件流程。本頁介紹瀏覽器、Desktop
+和伺服器端聯邦。
 
 ## 跨應用程式聯邦
 
@@ -33,8 +33,8 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 
 ### 伺服器端聯邦
 
-剩餘的 broker 和伺服器端呼叫方使用短時、由伺服器驗證的協定。它不會
-作為瀏覽器登入控制項提供：
+broker 和伺服器端呼叫方使用短時、由伺服器驗證的協定。精確註冊的第一方
+應用程式登入頁也可在使用者選擇「Continue with Agent-Native」後啟動相同協定：
 
 1. 呼叫方要求一個精確的已註冊應用程式繫結。
 2. Dispatch 驗證工作區身分並返回短時的一次性授權碼。
@@ -73,9 +73,11 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 
 ## 設定
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> 僅用於剩餘的伺服器端和 Desktop
-路徑。自我託管應用程式需要指定 Dispatch 部署時才設定它。它不會新增
-瀏覽器登入選項或自動瀏覽器跳轉。
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> 用於在自我託管應用程式需要明確設定
+時，指定伺服器端和瀏覽器路徑使用的 Dispatch。精確註冊的第一方應用程式登入頁
+會提供「Continue with Agent-Native」明確操作。<code>browser.identity-sso</code>
+發布旗標仍控制靜默 <code>prompt=none</code> 登入和本機登入後的初始化。普通
+本機登入仍可作為備援。
 
 對於自我託管的 Dispatch，請透過
 
@@ -90,14 +92,15 @@ false 仍然表示退出。如果旗標、偏好設定、註冊或資格檢查�
 部署後：
 
 1. 驗證瀏覽器中的電子郵件、密碼、魔法連結和已設定的提供者登入仍然有效。
-2. 驗證瀏覽器驗證頁面不提供 Agent-Native 登入選項。
+2. 驗證頁面提供「Continue with Agent-Native」操作，同時本機登入仍可使用。
+   關閉 <code>browser.identity-sso</code> 時，確認這兩種登入方式仍可使用。
+   啟用後，確認靜默 <code>prompt=none</code> 登入和本機表單備援正常。
 3. 如果啟用了 Desktop SSO，從 Desktop 設定中的明確操作驗證一個精確註冊的應用程式。
 4. 如果啟用了組織聯邦，驗證目標應用程式中的精確組織 ID 和成員角色。
 
-要回滾剩餘路徑，請關閉相應功能旗標，並從自我託管部署移除
-
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>，然後重新部署。已新增的身分和
-組織記錄會保留，可繼續用於普通本機驗證。
+要回滾靜默瀏覽器登入或 Desktop 路徑，請關閉相應功能旗標。要從自我託管應用程式
+移除瀏覽器明確操作，請移除 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> 或其精確
+應用程式註冊，然後重新部署。本機登入仍可使用，已新增的身分和組織記錄也會保留。
 
 ## 相關文件
 

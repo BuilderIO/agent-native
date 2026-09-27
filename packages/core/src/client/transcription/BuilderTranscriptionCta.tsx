@@ -6,12 +6,15 @@
  * Drop this next to transcript displays in any template.
  */
 
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconBolt, IconLoader2 } from "@tabler/icons-react";
 
+import { useT } from "../i18n.js";
 import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
+  const t = useT();
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "builder_transcription_cta",
@@ -43,7 +46,18 @@ export function BuilderTranscriptionCta() {
         <span className="text-destructive text-[10px]">{flow.error}</span>
       )}
       {flow.connecting ? (
-        <IconLoader2 size={12} className="shrink-0 animate-spin" />
+        <>
+          <IconLoader2 size={12} className="shrink-0 animate-spin" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 shrink-0 px-2 py-1 text-[10px]"
+            onClick={flow.cancel}
+          >
+            {t("common.cancel")}
+          </Button>
+        </>
       ) : (
         <DeferredBuilderConnectPopover flow={flow}>
           <button

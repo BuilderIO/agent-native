@@ -115,6 +115,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
+  "design:design_visual_edit_snapshot_blob_cleanup":
+    "private snapshot blob cleanup outbox processed by Design actions",
   "forms:responses": "public submissions scoped through forms",
   "forms:response_deliveries":
     "internal delivery ledger scoped through form responses",

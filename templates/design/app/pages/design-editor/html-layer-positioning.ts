@@ -284,6 +284,7 @@ export function setAbsolutePositioningForNodeInHtml(
   nodeAttrId: string,
   point: { x: number; y: number },
   pointerOffset?: { x: number; y: number },
+  computedSize?: { width?: number; height?: number },
 ): string {
   return patchNodeStyleInHtml(content, nodeAttrId, (element) => {
     element.style.position = "absolute";
@@ -293,6 +294,20 @@ export function setAbsolutePositioningForNodeInHtml(
     element.style.removeProperty("bottom");
     for (const prop of FLEX_ITEM_PROPS) {
       element.style.removeProperty(prop);
+    }
+    if (
+      computedSize?.width !== undefined &&
+      Number.isFinite(computedSize.width) &&
+      computedSize.width >= 0
+    ) {
+      element.style.width = `${computedSize.width}px`;
+    }
+    if (
+      computedSize?.height !== undefined &&
+      Number.isFinite(computedSize.height) &&
+      computedSize.height >= 0
+    ) {
+      element.style.height = `${computedSize.height}px`;
     }
   });
 }

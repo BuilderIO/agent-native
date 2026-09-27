@@ -28,6 +28,7 @@ import {
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { hidePenPathFill } from "./pen-path-paint";
 import type { DesignFile } from "./types";
 
 export { normalizedDesignFileType };
@@ -478,7 +479,7 @@ export function appendCanvasPrimitiveToHtml(
       // Figma fills only closed regions: a fill added to an open path stays in
       // the file for when it closes, but must not paint the chord meanwhile.
       if (explicitPathData && !isClosedPathData(explicitPathData)) {
-        path.setAttribute("fill-opacity", "0");
+        hidePenPathFill(path);
       }
       path.setAttribute("stroke", paint.stroke);
       path.setAttribute("stroke-width", String(paint.strokeWidth));

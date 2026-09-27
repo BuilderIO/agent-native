@@ -318,7 +318,11 @@ import {
   initializeMultiFrontierAppIntegration,
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
-import { createOAuthPopupCloser } from "./oauth-popup-close";
+import {
+  createOAuthPopupAttemptWindows,
+  createOAuthPopupCloser,
+  watchOAuthSystemBrowserReturnForContents,
+} from "./oauth-popup-close";
 import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   isQuickPromptActive,
@@ -13044,6 +13048,19 @@ registerShortcutsIpc({
 registerInterAppIpc();
 
 // ---------- OAuth handling ----------
+const oauthPopupAttemptWindows = createOAuthPopupAttemptWindows<
+  Electron.WebContents,
+  BrowserWindow
+>();
+
+ipcMain.on(
+  IPC.OAUTH_POPUP_CANCEL,
+  (event: IpcMainEvent, attemptId: unknown) => {
+    if (typeof attemptId !== "string" || !attemptId) return;
+    oauthPopupAttemptWindows.close(event.sender, attemptId);
+  },
+);
+
 // OAuth providers we recognize and keep out of app webviews. Depending on the
 // provider and flow, the URL is opened in an Electron BrowserWindow or the
 // system browser. Signed Builder app-webview connects can use the system
@@ -13438,14 +13455,38 @@ function openMatchedOAuthUrl(
   parsed: URL,
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
-  sourceUrl?: string,
+  sourceUrl: string | undefined,
+  sourceContents: Electron.WebContents,
 ) {
+  const attemptId = parsed.searchParams.get("_an_connect_attempt");
   if (shouldOpenOAuthInSystemBrowser(provider, parsed)) {
+    if (attemptId) {
+      watchOAuthSystemBrowserReturnForContents(
+        sourceContents,
+        (contents) => BrowserWindow.fromWebContents(contents),
+        attemptId,
+        (returnedAttemptId) => {
+          if (!sourceContents.isDestroyed()) {
+            sourceContents.send(
+              IPC.OAUTH_SYSTEM_BROWSER_RETURNED,
+              returnedAttemptId,
+            );
+          }
+        },
+      );
+    }
     openExternalUrl(url);
     return;
   }
   routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
-    openOAuthWindow(boundUrl, callbackSession, provider, sourceUrl),
+    openOAuthWindow(
+      boundUrl,
+      callbackSession,
+      provider,
+      sourceUrl,
+      sourceContents,
+      attemptId,
+    ),
   );
 }
 
@@ -13477,7 +13518,9 @@ function openOAuthWindow(
   url: string,
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
-  sourceUrl?: string,
+  sourceUrl: string | undefined,
+  sourceContents: Electron.WebContents,
+  attemptId: string | null = null,
 ) {
   const injectionTarget = getOAuthInjectionTarget(sourceSession, sourceUrl);
   rememberOAuthStateFromNavigation(provider, url, injectionTarget);
@@ -13500,6 +13543,15 @@ function openOAuthWindow(
       contextIsolation: true,
       ...(sourceSession ? { session: sourceSession } : {}),
     },
+  });
+  const removePopupAttempt = attemptId
+    ? oauthPopupAttemptWindows.track(sourceContents, attemptId, oauthWin)
+    : () => {};
+
+  oauthWin.on("closed", () => {
+    removePopupAttempt();
+    if (sourceContents.isDestroyed()) return;
+    sourceContents.send(IPC.OAUTH_POPUP_CLOSED, attemptId);
   });
 
   void oauthWin.loadURL(url);
@@ -13676,6 +13728,7 @@ function openOAuthFromWebviewNavigation(
       sourceContents.session,
       provider,
       sourceContents.getURL(),
+      sourceContents,
     );
     return true;
   } catch {
@@ -13907,6 +13960,7 @@ function handleWindowOpenForContents(
         contents.session,
         provider,
         contents.getURL(),
+        contents,
       );
     } else {
       openExternalUrl(url);

@@ -119,7 +119,7 @@ beforeEach(() => {
 });
 
 describe("list-inbox-threads action", () => {
-  it("defaults pinnedLabels to Important when unset, and defaults the active tab to the first tab", async () => {
+  it("shows All first by default and returns every inbox thread in it", async () => {
     mocks.readInboxThreads.mockResolvedValue([
       row({ threadId: "t1", latestMessageId: "m1", isAutomated: false }),
     ]);
@@ -129,10 +129,33 @@ describe("list-inbox-threads action", () => {
       undefined as any,
     );
 
-    expect(result.tabs.map((t) => t.id)).toEqual(["important", "other"]);
-    expect(result.activeTabId).toBe("important");
+    expect(result.tabs.map((t) => t.id)).toEqual([
+      "__inbox_all__",
+      "important",
+      "other",
+    ]);
+    expect(result.activeTabId).toBe("__inbox_all__");
     expect(result.items).toHaveLength(1);
     expect(result.total).toBe(1);
+    expect(result.tabs.find((t) => t.id === "__inbox_all__")?.total).toBe(1);
+  });
+
+  it("omits All when the user hides its tab", async () => {
+    mocks.readInboxThreads.mockResolvedValue([]);
+    mocks.readSettings.mockResolvedValue({
+      combineInbox: false,
+      showAllTab: false,
+      pinnedLabels: undefined,
+      savedFilters: [],
+      labelAliases: {},
+    });
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.tabs.map((t) => t.id)).toEqual(["important", "other"]);
   });
 
   it("falls back to the first tab for an unrecognized `tab` id (back-compat)", async () => {
@@ -143,7 +166,7 @@ describe("list-inbox-threads action", () => {
       undefined as any,
     );
 
-    expect(result.activeTabId).toBe("important");
+    expect(result.activeTabId).toBe("__inbox_all__");
   });
 
   it("still accepts the legacy 'other'/'important'/'inbox' tab ids", async () => {
@@ -307,6 +330,47 @@ describe("list-inbox-threads action — local mode (no connected Google account)
     expect(item.messageIds.sort()).toEqual(["m1", "m2"]);
   });
 
+  it("excludes sent-only threads but keeps sent replies in inbox threads", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      localEmail({
+        id: "sent-only",
+        threadId: "sent-only-thread",
+        isSent: true,
+        labelIds: ["sent"],
+      }),
+      localEmail({
+        id: "received",
+        threadId: "reply-thread",
+        labelIds: ["inbox"],
+        date: "2024-01-01T00:00:00Z",
+      }),
+      localEmail({
+        id: "reply",
+        threadId: "reply-thread",
+        isSent: true,
+        labelIds: ["sent"],
+        date: "2024-01-02T00:00:00Z",
+      }),
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id: "reply",
+      threadId: "reply-thread",
+      messageCount: 2,
+      messageIds: ["received", "reply"],
+    });
+    expect(result.tabs.find((tab) => tab.id === "__inbox_all__")?.total).toBe(
+      1,
+    );
+  });
+
   it("runs the same tab partition: a promotions-labeled message lands in Other", async () => {
     mocks.readLocalEmails.mockResolvedValue([
       localEmail({
@@ -321,8 +385,12 @@ describe("list-inbox-threads action — local mode (no connected Google account)
       undefined as any,
     );
 
-    expect(result.tabs.map((t) => t.id)).toEqual(["important", "other"]);
-    expect(result.activeTabId).toBe("important");
+    expect(result.tabs.map((t) => t.id)).toEqual([
+      "__inbox_all__",
+      "important",
+      "other",
+    ]);
+    expect(result.activeTabId).toBe("__inbox_all__");
     expect(result.tabs.find((t) => t.id === "other")?.total).toBe(1);
     expect(result.tabs.find((t) => t.id === "important")?.total).toBe(0);
   });

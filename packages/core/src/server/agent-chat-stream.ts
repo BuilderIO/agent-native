@@ -15,6 +15,7 @@ const AGENT_CHAT_STREAM_TOKEN_TYPE = "agent-native-agent-chat-stream";
 export interface AgentChatStreamPrincipal {
   ownerEmail: string;
   orgId: string | null;
+  authUserId?: string;
 }
 
 function streamTokenIssuer(): string {
@@ -65,13 +66,24 @@ export function readAgentChatStreamBearerToken(
 export async function createAgentChatStreamToken(input: {
   ownerEmail: string;
   orgId?: string | null;
+  authUserId?: string;
 }): Promise<string> {
   const ownerEmail = validateOwnerEmail(input.ownerEmail);
+  const authUserId = input.authUserId?.trim();
+  if (
+    input.authUserId !== undefined &&
+    (!authUserId ||
+      authUserId.length > 256 ||
+      /[\u0000-\u001f\u007f]/.test(authUserId))
+  ) {
+    throw new Error("Agent-chat stream auth user id is invalid.");
+  }
   const issuer = streamTokenIssuer();
   return new jose.SignJWT({
     token_type: AGENT_CHAT_STREAM_TOKEN_TYPE,
     sub: ownerEmail,
     org_id: input.orgId ?? null,
+    ...(authUserId ? { auth_user_id: authUserId } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuer(issuer)
@@ -102,9 +114,20 @@ export async function verifyAgentChatStreamToken(
     }
     const orgId = payload.org_id;
     if (orgId !== null && typeof orgId !== "string") return null;
+    const authUserId = payload.auth_user_id;
+    if (
+      authUserId !== undefined &&
+      (typeof authUserId !== "string" ||
+        !authUserId.trim() ||
+        authUserId.length > 256 ||
+        /[\u0000-\u001f\u007f]/.test(authUserId))
+    ) {
+      return null;
+    }
     return {
       ownerEmail: validateOwnerEmail(payload.sub),
       orgId,
+      ...(authUserId ? { authUserId } : {}),
     };
     // coercion-ok: signature, issuer, audience, and expiry failures mean invalid authorization.
   } catch {

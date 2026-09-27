@@ -109,6 +109,34 @@ async function fileList(
   return (record.files ?? []).map((f: any) => f.filename);
 }
 
+async function fileId(
+  request: APIRequestContext,
+  designId: string,
+  filename: string,
+): Promise<string> {
+  const record = await designRecord(request, designId);
+  const file = (record.files ?? []).find((f: any) => f.filename === filename);
+  if (!file) throw new Error(`no file ${filename} in design ${designId}`);
+  return file.id;
+}
+
+// A duplicated file reaches the server before the client records its undo
+// entry. selectedScreenIds flips in the same synchronous block as that
+// record, so it is the wait signal; a toast auto-dismisses and can be missed.
+async function selectionContext(
+  request: APIRequestContext,
+): Promise<{ selectedScreenIds?: string[] }> {
+  const res = await request.get(
+    `${BASE_URL}/_agent-native/application-state/design-selection`,
+  );
+  if (!res.ok()) {
+    throw new Error(
+      `could not read design-selection: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return res.json();
+}
+
 function layersTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -658,22 +686,23 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       )
       .toBe(filesBefore.length + 1);
     const dup1 = filesAfter.find((f) => !filesBefore.includes(f));
-    expect(dup1, "duplicated screen file should exist").toBeTruthy();
+    expect(dup1, "duplicated screen file should exist").toBe("index-copy.html");
+    const dup1Id = await fileId(request, designId, dup1!);
+    // Figma selects the new copy after Cmd+D.
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds, {
+        timeout: 10_000,
+        message:
+          "Cmd+D should select the new copy (Figma parity) once its history entry lands",
+      })
+      .toEqual([dup1Id]);
     // Duplicating a screen regenerates every node id (like paste), so assert
     // on the content signature, not the source id.
     const dup1Content = await fileContent(request, designId, dup1!);
     expect(dup1Content).toContain('data-agent-native-component="Navigation"');
     expect(dup1Content).toContain("Wordmark");
 
-    // A second Cmd+D on the original produces a second independent copy —
-    // "Home" and "Case study" in the tutorial.
-    await page
-      .locator("[data-screen-shell]")
-      .first()
-      .locator("[data-screen-card]")
-      .first()
-      .click({ force: true });
-    await page.waitForTimeout(400);
+    // The second Cmd+D chains onto the selected copy, dup1.
     await focusCanvas(page);
     await page.keyboard.press(`${MOD}+d`);
     await expect
@@ -685,8 +714,26 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         { timeout: 10_000 },
       )
       .toBe(filesBefore.length + 2);
+    const dup2 = filesAfter.find((f) => !filesBefore.includes(f) && f !== dup1);
+    // The copy is named after its source, so only a duplicate of dup1 reads
+    // "index-copy-copy"; re-duplicating the original gives "index-copy-2".
+    expect(dup2, "the second Cmd+D should duplicate dup1").toBe(
+      "index-copy-copy.html",
+    );
+    const dup2Id = await fileId(request, designId, dup2!);
+    await expect
+      .poll(async () => (await selectionContext(request)).selectedScreenIds, {
+        timeout: 10_000,
+        message:
+          "the second Cmd+D should select its own copy too (Figma parity)",
+      })
+      .toEqual([dup2Id]);
+    const dup2Content = await fileContent(request, designId, dup2!);
+    expect(dup2Content).toContain('data-agent-native-component="Navigation"');
+    expect(dup2Content).toContain("Wordmark");
 
-    // One undo removes the most recent duplicate only.
+    // One undo removes the most recent duplicate only. The count drops by one
+    // whichever copy is removed, so assert which one survives.
     await page.keyboard.press(`${MOD}+z`);
     let filesAfterUndo: string[] = [];
     await expect
@@ -702,6 +749,14 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         },
       )
       .toBe(filesBefore.length + 1);
+    expect(
+      filesAfterUndo.includes(dup1!),
+      `undo should keep the FIRST duplicate (${dup1}) — files after undo: ${JSON.stringify(filesAfterUndo)}`,
+    ).toBe(true);
+    expect(
+      filesAfterUndo.includes(dup2!),
+      `undo should remove the SECOND (most recent) duplicate (${dup2}), not the first — files after undo: ${JSON.stringify(filesAfterUndo)}`,
+    ).toBe(false);
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({

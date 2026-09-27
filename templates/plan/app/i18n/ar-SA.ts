@@ -384,6 +384,12 @@ const messages = {
       shareAria: "مشاركة {{noun}}",
       share: "مشاركة {{noun}}",
       shareThis: "شارك هذا {{noun}}",
+      teammateSuggestion: {
+        message: "ادعُ فريقك إلى Plan.",
+        invite: "دعوة الفريق",
+        enableDomain: "السماح لأي شخص من @{{domain}} بالانضمام",
+        enableFailed: "تعذّر تفعيل الانضمام عبر النطاق. حاول مرة أخرى.",
+      },
       hostedCopy:
         "يحتوي {{noun}} المحلي على نسخة مستضافة للمشاركة. افتح {{noun}} المستضاف لإدارة الوصول.",
       publishDescription:

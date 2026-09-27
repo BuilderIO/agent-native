@@ -1020,6 +1020,41 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("preserves resolved dimensions only when a drop converts auto layout to absolute positioning", () => {
+    const sourceContent = `<!DOCTYPE html><html><body><section style="display:flex"><div data-agent-native-node-id="flow-child" style="flex:0 0 100px;height:50px"></div></section></body></html>`;
+    const styleSnapshot = {
+      version: 1 as const,
+      nodes: [
+        {
+          path: [],
+          styles: { flex: "0 0 100px", height: "50px" },
+        },
+      ],
+    };
+    const absoluteDrop = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="flow-child"]',
+        sourceNodeId: "flow-child",
+        sourceProvenance: { uniqueNodeId: "flow-child" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetLocalPoint: { x: 180, y: 240 },
+        sourceComputedSize: { width: 100, height: 50 },
+        styleSnapshot,
+      },
+    });
+    const movedAbsolute = new DOMParser()
+      .parseFromString(absoluteDrop.writes.get("target")!, "text/html")
+      .querySelector('[data-agent-native-node-id="flow-child"]') as HTMLElement;
+
+    expect(movedAbsolute.style.position).toBe("absolute");
+    expect(movedAbsolute.style.width).toBe("100px");
+    expect(movedAbsolute.style.height).toBe("50px");
+    expect(movedAbsolute.style.flex).toBe("");
+  });
+
   it("absolute-places a move dropped onto an empty screen root", () => {
     const selection = runStoredCrossScreenDrop({
       sourceContent: `<!DOCTYPE html>

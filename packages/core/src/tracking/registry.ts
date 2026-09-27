@@ -64,6 +64,8 @@ export function listTrackingProviders(): string[] {
 
 export interface TrackingMeta {
   userId?: string;
+  /** Canonical id from a validated Better Auth session, never event properties. */
+  authUserId?: string;
   anonymousId?: string;
   /** Overrides the ambient request's browser session. */
   sessionId?: string;
@@ -100,6 +102,7 @@ function isActionRunContext(
 
 function resolveTrackingSource(source: TrackingSource | undefined): {
   userId?: string;
+  authUserId?: string;
   anonymousId?: string;
   sessionId?: string;
   occurredAt?: number;
@@ -107,21 +110,40 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
 } {
   // The browser session rides the request, not the caller's arguments, so it
   // resolves the same way whether the UI called the action or the agent did.
-  const ambientSessionId = getRequestContext()?.browserSessionId;
+  const requestContext = getRequestContext();
+  const ambientSessionId = requestContext?.browserSessionId;
   if (!source) {
-    return { sessionId: ambientSessionId, telemetryOrigin: "server" };
-  }
-  if (isActionRunContext(source)) {
     return {
-      userId: source.userEmail,
+      authUserId: requestContext?.authUserId,
       sessionId: ambientSessionId,
       telemetryOrigin: "server",
     };
   }
+  if (isActionRunContext(source)) {
+    const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
+    return {
+      userId: source.userEmail,
+      ...(callerMatchesRequest
+        ? { authUserId: requestContext?.authUserId }
+        : {}),
+      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
+      telemetryOrigin: "server",
+    };
+  }
+  const canUseAmbientIdentity = source.userId
+    ? source.userId === requestContext?.userEmail
+    : !source.anonymousId;
+  const canUseAmbientSession =
+    canUseAmbientIdentity &&
+    (!source.authUserId || source.authUserId === requestContext?.authUserId);
   return {
     userId: source.userId,
+    authUserId:
+      source.authUserId ??
+      (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId ?? ambientSessionId,
+    sessionId:
+      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };
@@ -132,14 +154,24 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { userId, anonymousId, sessionId, occurredAt, telemetryOrigin } =
-    resolveTrackingSource(source);
+  const {
+    userId,
+    authUserId,
+    anonymousId,
+    sessionId,
+    occurredAt,
+    telemetryOrigin,
+  } = resolveTrackingSource(source);
   if (isTrackingSuppressed(userId, properties)) return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
+  const safeProperties = { ...(properties ?? {}) };
+  delete safeProperties.auth_user_id;
+  delete safeProperties.authUserId;
+  if (authUserId) safeProperties.auth_user_id = authUserId;
   const trackedProperties = withCanonicalTrackingProperties({
-    ...(properties ?? {}),
+    ...safeProperties,
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(actionContext?.userEmail

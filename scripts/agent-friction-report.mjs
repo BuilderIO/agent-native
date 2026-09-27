@@ -74,6 +74,15 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+// ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
+const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
+  [
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
+    String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
+  ].join("|"),
+  "i",
+);
+
 const STALE_PR_WATCHER_RE = new RegExp(
   [
     String.raw`\b(?:stop|remove|delete|pause|cancel|disable|turn off)\b[^.!?\n]{0,100}\b(?:ship[- ]watchdog|PR|pull request)\b[^.!?\n]{0,100}\b(?:monitor|watcher|babysitter|heartbeat)\b`,
@@ -598,6 +607,51 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
+  [true, "Codex couldn't renew the PR lease and then stopped working."],
+  [true, "Codex couldn't renew the PR lease, so it stopped."],
+  [true, "I couldn't renew the PR lease, so I stopped working."],
+  [true, "This task couldn't renew the PR lease, so it stopped."],
+  [true, "I told the threads to finish shipping and ignore the lease stuff."],
+  [
+    true,
+    "I had to tell at the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I did not ask the threads to finish shipping and ignore lease stuff.",
+  ],
+  [false, "Don't ask the threads to finish shipping and ignore lease stuff."],
+  [
+    true,
+    "Codex sessions couldn't get leases or lease renewal so would just stop.",
+  ],
+  [false, "The PR lease coordinates durable watchers."],
+  [false, "The lease failed, but this task continued in the foreground."],
+  [false, "A file lock prevented the build from running."],
+  [false, "Codex could not renew the lease, so it did not stop."],
+  [
+    false,
+    "Codex couldn't renew the lease, so it stopped because GitHub was down.",
+  ],
+  [false, "Codex couldn't renew the lease; it stopped because CI failed."],
+  [false, "If Codex could not renew the lease, then stop working."],
+  [false, "Work stopped because GitHub was down after the lease expired."],
+  [false, "The lease failed, so work stopped because GitHub was down."],
+  [
+    false,
+    "The lease expired then the task stopped because CI was unavailable.",
+  ],
+  [
+    false,
+    "Work stopped because the lease expired, but GitHub was the actual cause.",
+  ],
+  [false, "The lease blocked no work."],
+  [false, "No active lease prevented the task from continuing."],
+  [false, "Work stopped, not because of the lease."],
+  [false, "Work was not stopped because the lease expired."],
+];
+
 const STALE_PR_WATCHER_REGEX_CASES = [
   [true, "PR #6329 is merged; please stop this scheduled task."],
   [
@@ -881,6 +935,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...STALE_PR_WATCHER_REGEX_CASES.filter(
       ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
     ),
@@ -918,7 +978,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -942,6 +1002,12 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "babysit-lease-blocks-work",
+    label: "Had to ask for requested work to continue after a lease failure",
+    fixedBy: ".agents/skills/babysit-pr foreground fallback (2026-09-25)",
+    re: BABYSIT_LEASE_BLOCKS_WORK_RE,
   },
   {
     key: "stale-pr-watchers",

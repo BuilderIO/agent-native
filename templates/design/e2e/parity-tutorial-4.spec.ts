@@ -216,6 +216,14 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
+// While the Stroke section is empty, its clickable title and its "+" both
+// carry aria-label "Add stroke", so a role/name query matches two buttons.
+function addStrokeButton(section: Locator): Locator {
+  return section
+    .locator('[data-inspector-action-rail] button[aria-label="Add stroke"]')
+    .first();
+}
+
 function layerTree(page: Page): Locator {
   return page.getByRole("tree", { name: "Layers" });
 }
@@ -294,7 +302,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   // Step 2: Add stroke weight 2, remove fill.
   await test.step("Add stroke sets weight 2; Remove layer on Fill clears the fill", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.getByRole("button", { name: "Add stroke" }).click();
+    await addStrokeButton(strokeSection).click();
     const weightField = strokeSection.getByLabel("Weight").first();
     await expect(weightField).toBeVisible({ timeout: 10_000 });
     await weightField.fill("2");
@@ -352,7 +360,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   // Step 5: stroke weight 2 on the handle; Figma's "endpoints: Round" cap.
   await test.step("stroke weight 2 applies to the handle; Round line-cap has no control (finding)", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
-    await strokeSection.getByRole("button", { name: "Add stroke" }).click();
+    await addStrokeButton(strokeSection).click();
     const weightField = strokeSection.getByLabel("Weight").first();
     await expect(weightField).toBeVisible({ timeout: 10_000 });
     await weightField.fill("2");
@@ -362,14 +370,23 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         const content = await fileContent(page, "index.html");
         return page.evaluate((html) => {
           const doc = new DOMParser().parseFromString(html, "text/html");
-          return (
-            doc
-              .querySelector('svg[data-agent-native-layer-name="Vector"]')
-              ?.getAttribute("style") ?? ""
+          const svg = doc.querySelector(
+            'svg[data-agent-native-layer-name="Vector"]',
           );
+          if (!svg) throw new Error("no Vector svg in index.html");
+          // Vector paint (stroke, stroke-width) lives on the painted element
+          // inside the svg, not on the svg's own geometry style.
+          return [svg, ...Array.from(svg.querySelectorAll("*"))]
+            .map(
+              (element) =>
+                `${element.getAttribute("style") ?? ""};stroke-width:${element.getAttribute("stroke-width") ?? ""}`,
+            )
+            .join(";");
         }, content);
       })
-      .toMatch(/2px/);
+      // Adding a stroke writes 1px; only the typed weight produces 2px. A bare
+      // /2px/ also matched geometry such as top:102px.
+      .toMatch(/(?:^|;)\s*stroke-width:\s*2(?:px)?(?:;|$)/);
     // No cap/endpoint control exists anywhere in the Stroke section.
     const capControl = strokeSection.getByRole("button", { name: /round/i });
     await expect(capControl).toHaveCount(0);
@@ -383,6 +400,34 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toHaveCount(2);
+
+    const preGroupEllipseId = await layerRowButton(
+      page,
+      "Ellipse",
+    ).getAttribute("data-layer-node-id");
+    const preGroupVectorId = await layerRowButton(page, "Vector").getAttribute(
+      "data-layer-node-id",
+    );
+    if (!preGroupEllipseId || !preGroupVectorId) {
+      throw new Error(
+        `expected Ellipse/Vector layer rows to carry data-layer-node-id, got ${preGroupEllipseId}/${preGroupVectorId}`,
+      );
+    }
+
+    const preGroupNodeIds = await page.evaluate(
+      (html) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return ["Ellipse", "Vector"].map((name) => {
+          const node = doc.querySelector(
+            `[data-agent-native-layer-name="${name}"]`,
+          );
+          const id = node?.getAttribute("data-agent-native-node-id");
+          if (!id) throw new Error(`${name} has no data-agent-native-node-id`);
+          return { id, name };
+        });
+      },
+      await fileContent(page, "index.html"),
+    );
 
     const unionButton = page.getByRole("button", { name: /union/i });
     await expect(
@@ -405,18 +450,26 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toHaveCount(1);
     await expect(selectedLayerRow(page)).toContainText(/Group/i);
-    const content = await fileContent(page, "index.html");
-    const groupChildren = await page.evaluate((html) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      return Array.from(
-        doc.querySelector('[data-agent-native-layer-name="Group"]')?.children ??
-          [],
-      ).map((child) => child.getAttribute("data-agent-native-layer-name"));
-    }, content);
-    expect(groupChildren).toEqual(
-      expect.arrayContaining(["Ellipse", "Vector"]),
-    );
-    expect(groupChildren).toHaveLength(2);
+    const groupChildren = async () => {
+      const html = await fileContent(page, "index.html");
+      return page.evaluate((source) => {
+        const doc = new DOMParser().parseFromString(source, "text/html");
+        const group = doc.querySelector(
+          '[data-agent-native-layer-name="Group"]',
+        );
+        if (!group) throw new Error("no Group in index.html");
+        return Array.from(group.children)
+          .map((child) => ({
+            id: child.getAttribute("data-agent-native-node-id"),
+            name: child.getAttribute("data-agent-native-layer-name"),
+          }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      }, html);
+    };
+    expect(
+      await groupChildren(),
+      "Cmd+G must wrap the two original nodes, not re-minted copies",
+    ).toEqual(preGroupNodeIds);
 
     await page.keyboard.press(undoShortcut);
     await expect
@@ -446,10 +499,30 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
           .sort(),
       );
     expect(selectedLayerNames).toEqual(["Ellipse", "Vector"]);
+    const selectedLayerIdsAfterUndo = await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      )
+      .evaluateAll((nodes) =>
+        nodes
+          .map((node) => node.getAttribute("data-layer-node-id"))
+          .filter((id): id is string => Boolean(id))
+          .sort(),
+      );
+    expect(selectedLayerIdsAfterUndo).toEqual(
+      [preGroupEllipseId, preGroupVectorId].sort(),
+    );
+    await expect(layerRowButton(page, "Vector")).toHaveAttribute(
+      "data-layer-node-id",
+      preGroupVectorId,
+    );
+    await expect(layerRowButton(page, "Ellipse")).toHaveAttribute(
+      "data-layer-node-id",
+      preGroupEllipseId,
+    );
 
-    // Redo the group so later steps have it again.
-    await layerRowButton(page, "Ellipse").click();
-    await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
+    // Group again straight from the selection undo restored, so later steps
+    // have it; it must wrap the same two original nodes.
     await page.keyboard.press(groupShortcut);
     await expect
       .poll(async () => {
@@ -461,6 +534,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
         }, c);
       })
       .toBe(1);
+    expect(await groupChildren()).toEqual(preGroupNodeIds);
   });
 
   // Step 7: align the merged shape centered "within equal padding". A

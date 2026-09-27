@@ -316,7 +316,7 @@ test.describe("tutorial 7 — card and container system", () => {
     designId = "";
   });
 
-  test("step 1 [in-screen]: Cmd+D duplicates the title text directly above it, same name and position, one undo restores", async ({
+  test("step 1 [in-screen]: Cmd+D duplicates the title text directly above it, same name and position; a second Cmd+D duplicates only the new copy (not the original too), two undos restore", async ({
     page,
     request,
   }) => {
@@ -382,21 +382,115 @@ test.describe("tutorial 7 — card and container system", () => {
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toContainText("Project title");
+    // Original and copy share a name; pin the selection to the copy's own row.
+    const titleRows = layersTree(page)
+      .locator("[data-layer-row-button][data-layer-node-id]")
+      .filter({ has: page.locator('span[title="Project title"]') });
+    await expect(titleRows).toHaveCount(2);
+    const titleRowIds = await titleRows.evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-layer-node-id")),
+    );
+    expect(titleRowIds).toContain(originalSelectionId);
+    const copyLayerNodeId = titleRowIds.find(
+      (rowId) => rowId !== originalSelectionId,
+    );
+    expect(copyLayerNodeId, "the copy has no distinct Layers row").toBeTruthy();
     await expect(
-      page
-        .locator(
-          '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
-        )
-        .first(),
-    ).not.toHaveAttribute("data-layer-node-id", originalSelectionId!);
+      page.locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
+      ),
+      "Cmd+D must select the COPY's own Layers row, not merely avoid the original's",
+    ).toHaveAttribute("data-layer-node-id", copyLayerNodeId!);
 
+    // Figma: a chained Cmd+D duplicates the selected copy, so exactly one new
+    // node lands directly above the copy. A duplicate command that handed
+    // setSelectedLayerIdsState the original's id is healed by the editor's
+    // selectedElement effect before this keypress, so e2e cannot see it —
+    // duplicate-selection.selection.test.ts is the net for that case.
+    await page.keyboard.press(`${MOD}+d`);
+    let html2 = "";
+    await expect
+      .poll(
+        async () => {
+          html2 = await indexHtml(request, designId);
+          return tagsWithLayerName(html2, "Project title").length;
+        },
+        {
+          timeout: 10_000,
+          message: `a second Cmd+D should add exactly one more "Project title" node — trace: ${JSON.stringify(await dump(page))}`,
+        },
+      )
+      .toBe(3);
+    const secondOccurrences = tagsWithLayerName(html2, "Project title");
+    const idsAfterSecondDuplicate = secondOccurrences.map((o) => o.id);
+    expect(
+      idsAfterSecondDuplicate,
+      "the original must be untouched by the second Cmd+D",
+    ).toContain(original.id);
+    expect(
+      idsAfterSecondDuplicate,
+      "the first copy must be untouched by the second Cmd+D",
+    ).toContain(copy!.id);
+    const secondCopy = secondOccurrences.find(
+      (o) => o.id !== original.id && o.id !== copy!.id,
+    );
+    expect(
+      secondCopy,
+      'second Cmd+D must add a third, distinct "Project title" node',
+    ).toBeTruthy();
+    // "Above" is whichever DOM direction the first Cmd+D placed its copy.
+    const aboveMeansHigherIndex = copy!.index > original.index;
+    const copyInHtml2 = secondOccurrences.find((o) => o.id === copy!.id)!;
+    expect(
+      aboveMeansHigherIndex
+        ? secondCopy!.index > copyInHtml2.index
+        : secondCopy!.index < copyInHtml2.index,
+      "second Cmd+D must insert the new node directly above the COPY, not re-duplicate the original (which would land it between the original and the copy instead)",
+    ).toBe(true);
+
+    // Each Cmd+D is its own undo step, newest first.
+    await page.keyboard.press(`${MOD}+z`);
+    let htmlAfterFirstUndo = "";
+    await expect
+      .poll(
+        async () => {
+          htmlAfterFirstUndo = await indexHtml(request, designId);
+          return tagsWithLayerName(htmlAfterFirstUndo, "Project title").length;
+        },
+        {
+          timeout: 10_000,
+          message:
+            "undo of the second Cmd+D did not remove the second duplicate",
+        },
+      )
+      .toBe(2);
+    // Two nodes remain whichever copy undo removed, so assert which one.
+    const idsAfterFirstUndo = tagsWithLayerName(
+      htmlAfterFirstUndo,
+      "Project title",
+    ).map((o) => o.id);
+    expect(
+      idsAfterFirstUndo,
+      "undo of the second Cmd+D must remove the MOST RECENT copy, not an older history entry",
+    ).not.toContain(secondCopy!.id);
+    expect(
+      idsAfterFirstUndo,
+      "undo of the second Cmd+D must keep the first copy intact",
+    ).toContain(copy!.id);
+    expect(
+      htmlAfterFirstUndo,
+      "undo of the second Cmd+D must restore exactly the document as it existed right after the first Cmd+D",
+    ).toBe(html);
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(
         async () =>
           tagsWithLayerName(await indexHtml(request, designId), "Project title")
             .length,
-        { timeout: 10_000, message: "one undo did not remove the duplicate" },
+        {
+          timeout: 10_000,
+          message: "undo of the first Cmd+D did not remove the first duplicate",
+        },
       )
       .toBe(1);
     await expect(indexHtml(request, designId)).resolves.toBe(originalHtml);

@@ -678,6 +678,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
     reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
     closePreview: "Hide preview",
     addFeedback: "Add feedback",
     draftInstruction: "Draft instruction",
@@ -700,6 +701,7 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
   },
   error: {
     genericTitle: "Something went wrong",

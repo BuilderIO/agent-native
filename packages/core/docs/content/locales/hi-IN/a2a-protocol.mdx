@@ -599,7 +599,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 बेयरर सत्यापन अनुरोध सीमा पर चलता है - JSON-RPC हैंडलर में - एजेंट लूप द्वारा संदेश देखने से पहले। `packages/core/src/a2a/auth-policy.ts` में साझा सहायक तय करते हैं कि तैनाती के लिए क्या आवश्यक है:
 
-- `isA2AProductionRuntime()` Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly, और Cloud Run पर `true` लौटाता है - तब भी जब `NODE_ENV` `"production"` नहीं है। कुछ सर्वर रहित प्रदाता लगातार `NODE_ENV` सेट नहीं करते हैं, इसलिए नीति प्रदाता-विशिष्ट फ़्लैग भी पढ़ती है।
+- `isA2AProductionRuntime()` Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly, और Cloud Run पर `true` लौटाता है - तब भी जब `NODE_ENV` `"production"` नहीं है। कुछ सर्वर रहित प्रदाता लगातार `NODE_ENV` सेट नहीं करते हैं, इसलिए नीति प्रदाता-विशिष्ट फ़्लैग भी पढ़ती है।
 - `A2A_SECRET` सेट होने पर `hasConfiguredA2ASecret()` `true` लौटाता है।
 - `shouldAdvertiseJwtA2AAuth()` वह है जिसका उपयोग एजेंट कार्ड यह तय करने के लिए करता है कि `jwtBearer` सुरक्षा योजना प्रकाशित की जाए या नहीं।
 

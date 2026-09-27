@@ -42,21 +42,28 @@ const mocks = vi.hoisted(() => {
   };
   txMemberSelectChain.from.mockReturnValue(txMemberSelectChain);
   txMemberSelectChain.where.mockReturnValue(txMemberSelectChain);
+  const txSnapshotSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+  };
+  txSnapshotSelectChain.from.mockReturnValue(txSnapshotSelectChain);
+  txSnapshotSelectChain.where.mockReturnValue(txSnapshotSelectChain);
 
   const txDeleteChain = { where: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
   const tx = {
-    select: vi.fn((selection) =>
-      selection?.data === "designs.data"
-        ? txDesignSelectChain
-        : selection?.id === "designShares.id"
-          ? txShareSelectChain
-          : selection?.id === "orgMembers.id"
-            ? txMemberSelectChain
-            : txSelectChain,
-    ),
+    select: vi.fn((selection) => {
+      if (selection?.blobHandle === "visualEditSnapshots.blobHandle") {
+        return txSnapshotSelectChain;
+      }
+      if (selection?.data === "designs.data") return txDesignSelectChain;
+      if (selection?.id === "designShares.id") return txShareSelectChain;
+      if (selection?.id === "orgMembers.id") return txMemberSelectChain;
+      return txSelectChain;
+    }),
     delete: vi.fn(() => txDeleteChain),
     update: vi.fn(() => txUpdateChain),
     execute: vi.fn().mockResolvedValue({ rows: [] }),
@@ -76,6 +83,7 @@ const mocks = vi.hoisted(() => {
     txDesignSelectChain,
     txShareSelectChain,
     txMemberSelectChain,
+    txSnapshotSelectChain,
     orgMembers: {
       id: "orgMembers.id",
       orgId: "orgMembers.orgId",
@@ -98,6 +106,8 @@ const mocks = vi.hoisted(() => {
       (result: { rowCount?: unknown } | undefined) => result?.rowCount,
     ),
     lockDesignFilesTable: vi.fn(),
+    deleteVisualEditSnapshotBlobs: vi.fn(),
+    queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
   };
 });
 
@@ -153,6 +163,11 @@ vi.mock("../server/db/index.js", () => ({
       id: "designVersions.id",
       designId: "designVersions.designId",
     },
+    designVisualEditSnapshots: {
+      designId: "visualEditSnapshots.designId",
+      fileId: "visualEditSnapshots.fileId",
+      blobHandle: "visualEditSnapshots.blobHandle",
+    },
   },
 }));
 
@@ -169,6 +184,11 @@ vi.mock("../server/source-workspace.js", () => ({
     `agent-native:design-source:${designId}`,
   lockDesignFilesTable: mocks.lockDesignFilesTable,
   lockDesignSourceMutation: vi.fn(),
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction:
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
 import action from "./delete-file.js";
@@ -245,6 +265,8 @@ describe("delete-file", () => {
     ]);
     mocks.txShareSelectChain.for.mockResolvedValue([]);
     mocks.txMemberSelectChain.for.mockResolvedValue([]);
+    mocks.txSnapshotSelectChain.for.mockResolvedValue([]);
+    mocks.deleteVisualEditSnapshotBlobs.mockReset();
     mocks.txSelectChain.limit.mockResolvedValue([]);
     mocks.txDesignSelectChain.from.mockReturnValue(mocks.txDesignSelectChain);
     mocks.txDesignSelectChain.where.mockReturnValue(mocks.txDesignSelectChain);
@@ -499,6 +521,27 @@ describe("delete-file", () => {
     expect(mocks.tx.delete).toHaveBeenCalled();
   });
 
+  it("removes the committed snapshot blobs after deleting the screens", async () => {
+    const blobHandle = JSON.stringify({
+      id: "snapshot-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    });
+    mocks.txSnapshotSelectChain.for.mockResolvedValue([{ blobHandle }]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      blobHandle,
+    ]);
+    expect(
+      mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
+    ).toHaveBeenCalledWith(mocks.tx, [blobHandle]);
+  });
+
   it("reports an already-missing row without pruning its metadata", async () => {
     mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 0 });
 
@@ -535,6 +578,10 @@ describe("delete-file", () => {
         return null;
       },
     );
+    mocks.txSnapshotSelectChain.for.mockImplementation(async () => {
+      events.push("snapshot-blobs");
+      return [];
+    });
     mocks.lockDesignFilesTable.mockImplementation(async () => {
       events.push("table");
     });
@@ -567,6 +614,7 @@ describe("delete-file", () => {
       "files",
       "design",
       "snapshot",
+      "snapshot-blobs",
       "delete",
     ]);
     expect(

@@ -29,6 +29,7 @@ import {
   deckTitle,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 
 export default defineAction({
   description:
@@ -62,6 +63,7 @@ export default defineAction({
       throw deckHttpError(400, "Deck must have an id");
     }
     assertValidAspectRatio(deck);
+    assertNoDeckRenderArtifacts(null, deck);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {

@@ -344,6 +344,9 @@ export async function generateWithBuilderImageApi(
       ...(builderAuth.spaceId
         ? { "x-builder-api-key": builderAuth.spaceId }
         : {}),
+      ...(builderAuth.userId
+        ? { "x-builder-user-id": builderAuth.userId }
+        : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),

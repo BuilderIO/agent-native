@@ -30,7 +30,8 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const { builderCreditsFromCostCents, recordUsage } = await import("./store.js");
-const { listAppUsageMetrics } = await import("./metrics-store.js");
+const { canViewWorkspaceUsage, listAppUsageMetrics } =
+  await import("./metrics-store.js");
 
 const TABLE_SQL = `CREATE TABLE IF NOT EXISTS token_usage (
   id BIGINT PRIMARY KEY,
@@ -78,6 +79,7 @@ beforeEach(async () => {
   await pglite.exec(ORG_MEMBERS_SQL);
   for (const [orgId, email, role] of [
     ["org-1", "a@example.com", "owner"],
+    ["org-1", "admin@example.com", "admin"],
     ["org-1", "peer@example.com", "member"],
     // `peer@example.com` also belongs to org-2, so their unattributed rows
     // cannot be shown to belong to org-1.
@@ -101,6 +103,26 @@ beforeEach(async () => {
 afterEach(async () => {
   await pglite.close();
   vi.restoreAllMocks();
+});
+
+describe("workspace credit usage access", () => {
+  it("allows only organization owners and admins", async () => {
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "A@EXAMPLE.COM", orgId: "org-1" }),
+    ).resolves.toBe(true);
+    await expect(
+      canViewWorkspaceUsage({
+        ownerEmail: "admin@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "peer@example.com", orgId: "org-1" }),
+    ).resolves.toBe(false);
+    await expect(
+      canViewWorkspaceUsage({ ownerEmail: "peer@example.com", orgId: null }),
+    ).resolves.toBe(false);
+  });
 });
 
 function recordInOrg(orgId: string, inputTokens: number) {

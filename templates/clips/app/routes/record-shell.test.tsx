@@ -30,6 +30,23 @@ describe("record route lifecycle shell", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the shared classifier and sanitized body for dropped-file uploads", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const uploadStart = source.indexOf("const uploadFile = useCallback");
+    const uploadEnd = source.indexOf("const doStop = useCallback", uploadStart);
+    const uploadFlow = source.slice(uploadStart, uploadEnd);
+
+    expect(uploadStart).toBeGreaterThan(-1);
+    expect(uploadEnd).toBeGreaterThan(uploadStart);
+    expect(uploadFlow).toContain("classifyUploadResponseError");
+    expect(uploadFlow).toContain("responseError.responseText");
+    expect(uploadFlow).toContain("failureCode: responseError.failureCode");
+    expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
+  });
+
   it("announces real progress without including action controls", () => {
     act(() => {
       root.render(

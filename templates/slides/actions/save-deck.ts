@@ -46,6 +46,7 @@ import {
   nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function shouldSnapshotDeckWrite(
@@ -119,6 +120,7 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(deckDesignSystemId(deck));
+        assertNoDeckRenderArtifacts(null, deck);
         try {
           await db.insert(schema.decks).values({
             id: deckId,
@@ -154,6 +156,7 @@ export default defineAction({
           ? deckDesignSystemId(deck)
           : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
+        assertNoDeckRenderArtifacts(access.resource.data, deck);
         if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
           return { ...deck, updatedAt: access.resource.updatedAt };
         }

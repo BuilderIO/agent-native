@@ -333,15 +333,17 @@ export function FillProperties({
     (isTextFillElement && isMixedValue(styles.backgroundClip));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
-  const authoredFill = element.inlineStyles?.[fillProperty]
-    ?.trim()
-    .toLowerCase();
-  const hasBaseFill =
-    isTextFillElement ||
-    colorHasVisibleAlpha(fillValue) ||
-    Boolean(
-      authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
-    );
+  const authoredFill = authoredFillValue?.trim().toLowerCase();
+  const isOpenPenPath =
+    element.tagName.toLowerCase() === "svg" &&
+    element.primitiveKind === "path" &&
+    element.vectorStrokeCanAlign === false;
+  const hasAuthoredFill = Boolean(
+    authoredFill && authoredFill !== "transparent" && authoredFill !== "none",
+  );
+  const hasBaseFill = isOpenPenPath
+    ? hasAuthoredFill
+    : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
   const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
   const pendingConversion = pendingConvertedLayerRef.current;
   if (

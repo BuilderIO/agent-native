@@ -152,40 +152,69 @@ function deckDeepLink(deckId: string): string {
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
+    "Read a Slides deck or selected slides. Pass the deck ID as `id` or `deckId` (either name works); pass `slideId` for one targeted read or `slideIds` with compact=false for one full read of several slides, including each slide's HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
   timeoutMs: 60_000,
-  schema: z.object({
-    id: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Deck ID. `deckId` is accepted as an alias; pass either one."),
-    deckId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
-      ),
-    slideId: z
-      .string()
-      .optional()
-      .describe(
-        "Optional stable slide ID. When set, return only that slide for a targeted read.",
-      ),
-    compact: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId default to compact output.",
-      ),
-    format: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
-      ),
-  }),
+  schema: z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. `deckId` is accepted as an alias; pass either one.",
+        ),
+      deckId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
+        ),
+      slideId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional stable slide ID. When set, return only that slide for a targeted read.",
+        ),
+      slideIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .optional()
+        .describe(
+          "Optional ordered stable slide IDs. With compact=false, return the full source for only these slides in one read.",
+        ),
+      compact: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId or slideIds default to compact output.",
+        ),
+      format: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
+        ),
+    })
+    .superRefine((args, context) => {
+      if (args.slideId !== undefined && args.slideIds !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "Pass slideId or slideIds, not both",
+        });
+      }
+      if (
+        args.slideIds &&
+        new Set(args.slideIds).size !== args.slideIds.length
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "slideIds must not contain duplicates",
+        });
+      }
+    }),
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,
@@ -221,16 +250,34 @@ export default defineAction({
 
     const selectedSlide =
       selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
+    const slideIndexesById = new Map(
+      slides.map((slide: any, index: number) => [slide?.id, index] as const),
+    );
+    const selectedSlideIndices = (args.slideIds ?? []).map((slideId) => {
+      const index = slideIndexesById.get(slideId);
+      if (index === undefined) {
+        throw Object.assign(new Error(`Slide not found: ${slideId}`), {
+          statusCode: 404,
+        });
+      }
+      return index;
+    });
     const slideEntries: Array<{ slide: any; index: number }> =
       selectedSlideIndex >= 0
         ? [{ slide: selectedSlide, index: selectedSlideIndex }]
-        : slides.map((slide: any, index: number) => ({ slide, index }));
+        : selectedSlideIndices.length > 0
+          ? selectedSlideIndices.map((index) => ({
+              slide: slides[index],
+              index,
+            }))
+          : slides.map((slide: any, index: number) => ({ slide, index }));
 
     const compact =
       args.compact === "true" ||
       (args.compact === undefined &&
         ctx?.caller === "tool" &&
-        selectedSlideIndex < 0);
+        selectedSlideIndex < 0 &&
+        selectedSlideIndices.length === 0);
     const sourceImport = sourceImportForDeck(data?.sourceImport);
     const sourceCoverage = sourceImportCoverage(
       sourceImport,
@@ -274,6 +321,7 @@ export default defineAction({
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
         ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+        ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
         slides: slideEntries.map(({ slide: s, index: i }) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
@@ -329,6 +377,7 @@ export default defineAction({
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
       ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+      ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
       slides: fullSlides,
     };
   },

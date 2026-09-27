@@ -101,11 +101,15 @@ async function chunkKeys(): Promise<string[]> {
 
 async function statusOf(id: string) {
   const { rows } = await execute(client, {
-    sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
+    sql: `SELECT status, failure_reason, failure_code FROM recordings WHERE id = ?`,
     args: [id],
   });
   const row = rows[0] as any;
-  return { status: row?.status, failure_reason: row?.failure_reason };
+  return {
+    status: row?.status,
+    failure_reason: row?.failure_reason,
+    failure_code: row?.failure_code,
+  };
 }
 
 describe("upload lease", () => {
@@ -118,6 +122,9 @@ describe("upload lease", () => {
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
+      upload_attempt_id TEXT,
+      recording_platform TEXT,
+      failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
       upload_generation_id TEXT,
@@ -169,6 +176,7 @@ describe("upload lease", () => {
     expect(await statusOf("dead")).toEqual({
       status: "failed",
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
+      failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
   });

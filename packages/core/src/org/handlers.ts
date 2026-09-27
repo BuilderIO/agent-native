@@ -71,6 +71,10 @@ import {
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
+import {
+  registerBackgroundWork,
+  trackInviteAccepted,
+} from "./track-invite-accepted.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
@@ -144,22 +148,7 @@ function scheduleFederatedOrgSync(
     pendingFederatedOrgSyncs.delete(key);
   });
   pendingFederatedOrgSyncs.set(key, sync);
-  const waitUntil = (
-    event as H3Event & {
-      waitUntil?: (promise: Promise<unknown>) => void;
-    }
-  ).waitUntil;
-  if (typeof waitUntil === "function") {
-    try {
-      waitUntil.call(event, sync);
-      return;
-    } catch (error) {
-      // Some local adapters expose a non-functional placeholder. Continue the
-      // best-effort path without turning an org read into an outage.
-      void error;
-    }
-  }
-  void sync;
+  registerBackgroundWork(event, sync);
 }
 
 function normalizeWorkspaceAppDefaultVisibility(
@@ -774,6 +763,32 @@ async function inviteOne(
     args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
   });
 
+  // Lazy import: an eager `tracking/registry.js` import here has previously
+  // regressed cold start on code that loads during auth/signup. Never let a
+  // tracking failure block or reject an invite. Registered with the
+  // request's `waitUntil` (see `registerBackgroundWork`) so a serverless
+  // runtime doesn't freeze the function before the dynamic import resolves.
+  try {
+    const inviteSentPromise = import("../tracking/registry.js")
+      .then(async ({ track, flushTracking }) => {
+        const app = getAppConfig().app.slug ?? "unknown";
+        track(
+          "invite_sent",
+          { app, template: app, org_id: ctx.orgId, role },
+          { userId: ctx.email },
+        );
+        // `track()` only dispatches; hold `waitUntil` until providers deliver.
+        await flushTracking();
+      })
+      .catch(() => {});
+    // coercion-ok: telemetry must never block or fail an invite.
+    registerBackgroundWork(event, inviteSentPromise);
+  } catch (error) {
+    // Tracking must never block or fail an invite, but a swallowed failure
+    // here should still be visible instead of silently disappearing.
+    console.warn("[org] Could not emit invite_sent telemetry", error);
+  }
+
   let emailSent = false;
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
@@ -981,10 +996,20 @@ export const acceptInvitationHandler = defineEventHandler(
         email,
         updatedBy: String(inv.invitedBy ?? inv.invited_by),
       });
-      await e.execute({
-        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+      const updated = await e.execute({
+        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
         args: [invitationId],
       });
+      if (Number(updated.rowsAffected ?? 0) === 1) {
+        trackInviteAccepted({
+          email,
+          orgId: invOrgId,
+          role: inv.role == null ? null : String(inv.role),
+          invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
+          federated: Boolean(linked),
+          event,
+        });
+      }
       await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
@@ -1069,10 +1094,20 @@ export const acceptInvitationHandler = defineEventHandler(
       updatedBy: inviterEmail,
     });
 
-    await e.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await e.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [invitationId],
     });
+    if (Number(updated.rowsAffected ?? 0) === 1) {
+      trackInviteAccepted({
+        email,
+        orgId: invOrgId,
+        role: inv.role == null ? null : String(inv.role),
+        invitedBy: inviterEmail,
+        federated: Boolean(linked),
+        event,
+      });
+    }
 
     await setActiveOrgId(email, invOrgId, "accepted invitation");
 

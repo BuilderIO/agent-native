@@ -650,6 +650,7 @@ const messages = {
     reviewFeedback: "回饋",
     reviewOutput: "審核回答",
     reviewPreview: "預覽回答",
+    reviewPreviewUnavailable: "無法預覽",
     closePreview: "隱藏預覽",
     addFeedback: "新增回饋",
     draftInstruction: "草擬指示",
@@ -671,6 +672,7 @@ const messages = {
     saveUpdate: "儲存更新草稿",
     draftSaved: "草稿已儲存",
     noReviews: "目前沒有可審核的代理回答",
+    summarizeWithAgent: "使用代理程式摘要",
   },
   error: {
     genericTitle: "出了點問題",

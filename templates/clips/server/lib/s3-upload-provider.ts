@@ -183,6 +183,13 @@ function objectUri(cfg: S3Config, key: string): string {
   return `/${cfg.bucket}/${key.split("/").map(rfc3986).join("/")}`;
 }
 
+export class S3MultipartStartError extends Error {
+  constructor(readonly status: number) {
+    super(`S3 CreateMultipartUpload failed (${status})`);
+    this.name = "S3MultipartStartError";
+  }
+}
+
 function canonicalQueryString(query: Record<string, string>): string {
   return Object.entries(query)
     .map(([key, value]) => [rfc3986(key), rfc3986(value)] as const)
@@ -683,9 +690,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
       });
       const body = await res.text().catch(() => "");
       if (!res.ok) {
-        throw new Error(
-          `S3 CreateMultipartUpload failed (${res.status}): ${body || res.statusText}`,
-        );
+        throw new S3MultipartStartError(res.status);
       }
       const uploadId = xmlElement(body, "UploadId");
       if (!uploadId) {

@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { observabilityConfig } from "../app-config/observability.js";
 import {
@@ -6,6 +6,7 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
+import * as traceStore from "./store.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
   type AgentSpan,
@@ -43,6 +44,29 @@ describe("redactSensitiveFields", () => {
       apiKey: "sk-123",
       api_key: "sk-456",
       "api-key": "sk-789",
+      jwt: "eyJ.fake.jwt",
+      providerJwt: "provider.jwt.value",
+      client_secret: "client-secret-value",
+      clientSecret: "client-secret-camel",
+      googleClientSecret: "provider-client-secret",
+      google_oauth_client_secret: "namespaced-client-secret",
+      gcp_service_account_private_key: "service-account-private-key",
+      providerPrivateKey: "provider-private-key",
+      openaiApiKey: "provider-api-key",
+      "request.headers.authorization": "Bearer nested-key",
+      "x-goog-api-key": "provider-key",
+      "Proxy-Authorization": "Basic proxy-credentials",
+      subscriptionKey: "subscription-key",
+      oauth_token: "oauth-token",
+      oauthToken: "camel-oauth-token",
+      googleOAuthToken: "provider-oauth-token",
+      session_token: "session-token",
+      providerSecret: "provider-secret-field",
+      dbPassword: "database-password-field",
+      aws_secret_access_key: "aws-secret-access-key-field",
+      awsSecretAccessKey: "camel-aws-secret-access-key-field",
+      private_key: "private-key-value",
+      privateKey: "private-key-camel",
       password: "hunter2",
       secret: "shh",
       token: "tok",
@@ -59,6 +83,29 @@ describe("redactSensitiveFields", () => {
       apiKey: "[REDACTED]",
       api_key: "[REDACTED]",
       "api-key": "[REDACTED]",
+      jwt: "[REDACTED]",
+      providerJwt: "[REDACTED]",
+      client_secret: "[REDACTED]",
+      clientSecret: "[REDACTED]",
+      googleClientSecret: "[REDACTED]",
+      google_oauth_client_secret: "[REDACTED]",
+      gcp_service_account_private_key: "[REDACTED]",
+      providerPrivateKey: "[REDACTED]",
+      openaiApiKey: "[REDACTED]",
+      "request.headers.authorization": "[REDACTED]",
+      "x-goog-api-key": "[REDACTED]",
+      "Proxy-Authorization": "[REDACTED]",
+      subscriptionKey: "[REDACTED]",
+      oauth_token: "[REDACTED]",
+      oauthToken: "[REDACTED]",
+      googleOAuthToken: "[REDACTED]",
+      session_token: "[REDACTED]",
+      providerSecret: "[REDACTED]",
+      dbPassword: "[REDACTED]",
+      aws_secret_access_key: "[REDACTED]",
+      awsSecretAccessKey: "[REDACTED]",
+      private_key: "[REDACTED]",
+      privateKey: "[REDACTED]",
       password: "[REDACTED]",
       secret: "[REDACTED]",
       token: "[REDACTED]",
@@ -122,13 +169,11 @@ describe("redactSensitiveFields", () => {
       tokenizer: "bert",
       passwordHash: "hashed",
       secretsCount: 3,
-      mySecret: "still keep — substring match doesn't trigger",
     });
     expect(out).toEqual({
       tokenizer: "bert",
       passwordHash: "hashed",
       secretsCount: 3,
-      mySecret: "still keep — substring match doesn't trigger",
     });
   });
 
@@ -250,6 +295,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     activeClock = null;
     __resetAgentTracerCache();
     unregisterTrackingProvider("qa-ai-generation");
+    vi.restoreAllMocks();
   });
 
   // A run cut off at an `auto_continue` boundary never reaches the loop's
@@ -868,6 +914,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
   it("redacts and gates tool failure detail on tool spans", async () => {
     const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
@@ -887,7 +938,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
     // A tool result echoing an upstream response with credentials in it.
     const leakyResult =
-      "Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000";
+      'Error: upstream rejected: key=sk-not-a-real-key-000000000 client_secret="compound-secret" private_key=compound-private-key googleClientSecret="provider-camel-secret" providerClientSecret="first-line-secret\nsecond-line-secret" providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token JWT=jwt-error-secret providerJwt=provider-jwt-error-secret privateKey="-----BEGIN PRIVATE KEY-----\nnot-a-real-private-key\n-----END PRIVATE KEY-----"\nAuthorization: Bearer abcdef123456, key=sk-not-a-real-key-000000000\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
 
     const run = (captureToolResults: boolean) =>
       instrumentAgentLoop({
@@ -930,20 +981,71 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
     ).toContain("withheld");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
+    expect(JSON.stringify(events[0])).not.toContain("compound-secret");
+    expect(JSON.stringify(events[0])).not.toContain("compound-cookie-secret");
+    expect(JSON.stringify(events[0])).not.toContain("compound-auth-signature");
+    expect(JSON.stringify(events[0])).not.toContain("bracketed-auth-signature");
+    expect(JSON.stringify(events[0])).not.toContain("bracketed-cookie-secret");
+    expect(JSON.stringify(events[0])).not.toContain("provider-secret-leak");
+    expect(JSON.stringify(events[0])).not.toContain("database-password-leak");
+    expect(JSON.stringify(events[0])).not.toContain("aws-access-key-leak");
+    expect(JSON.stringify(events[0])).not.toContain("camel-oauth-token");
+    expect(JSON.stringify(events[0])).not.toContain("provider-token");
+    expect(JSON.stringify(events[0])).not.toContain("provider-camel-secret");
+    expect(JSON.stringify(events[0])).not.toContain("second-line-secret");
+    expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
     // The output side says withheld rather than going absent: an empty
     // `$ai_output_state` reads as a tool that returned nothing, which is a
     // different fact about the run than one whose answer we chose not to ship.
     expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
+    expect(
+      persistedSpans.find((span) => span.spanType === "tool_call")
+        ?.errorMessage,
+    ).toBeNull();
 
     events.length = 0;
+    persistedSpans.length = 0;
     await run(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(events).toHaveLength(1);
     const serialized = JSON.stringify(events[0]);
     expect(serialized).toContain("REDACTED");
+    expect(serialized).not.toContain("jwt-error-secret");
+    expect(serialized).not.toContain("provider-jwt-error-secret");
     expect(serialized).not.toContain("abcdef123456");
     expect(serialized).not.toContain("sk-not-a-real-key-000000000");
+    expect(serialized).not.toContain("provider-secret-leak");
+    expect(serialized).not.toContain("database-password-leak");
+    expect(serialized).not.toContain("aws-access-key-leak");
+    const persistedError = persistedSpans.find(
+      (span) => span.spanType === "tool_call",
+    )?.errorMessage;
+    expect(persistedError).toContain("REDACTED");
+    expect(persistedError).not.toContain("abcdef123456");
+    expect(persistedError).not.toContain("sk-not-a-real-key-000000000");
+    expect(persistedError).not.toContain("compound-secret");
+    expect(persistedError).not.toContain("compound-private-key");
+    expect(persistedError).not.toContain("provider-camel-secret");
+    expect(persistedError).not.toContain("second-line-secret");
+    expect(persistedError).not.toContain("not-a-real-private-key");
+    expect(persistedError).not.toContain("compound-cookie-secret");
+    expect(persistedError).not.toContain("compound-auth-signature");
+    expect(persistedError).not.toContain("bracketed-auth-signature");
+    expect(persistedError).not.toContain("bracketed-cookie-secret");
+    expect(persistedError).not.toContain("provider-secret-leak");
+    expect(persistedError).not.toContain("database-password-leak");
+    expect(persistedError).not.toContain("aws-access-key-leak");
+    expect(persistedError).not.toContain("camel-oauth-token");
+    expect(persistedError).not.toContain("provider-token");
+    expect(persistedError).not.toContain("jwt-error-secret");
+    expect(persistedError).not.toContain("provider-jwt-error-secret");
+    expect(persistedError).toContain("oauthToken=[REDACTED]");
+    expect(persistedError).toContain("providerToken=[REDACTED]");
+    expect(persistedError).toContain("JWT=[REDACTED]");
+    expect(persistedError).toContain("providerJwt=[REDACTED]");
+    expect(persistedError).toContain('client_secret="[REDACTED]"');
+    expect(persistedError).toContain("private_key=[REDACTED]");
   });
 
   it("does not emit tool spans when captureLlmSpans is off", async () => {
@@ -1028,7 +1130,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           type: "tool_start",
           id: "a",
           tool: "search",
-          input: { query: "pricing", apiKey: "sk-should-not-appear" },
+          input: {
+            query: "pricing",
+            apiKey: "sk-should-not-appear",
+            jwt: "jwt-should-not-appear",
+            providerJwt: "provider-jwt-should-not-appear",
+          },
         });
         send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
         return {
@@ -1066,6 +1173,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(call?.function.arguments).toEqual({
       query: "pricing",
       apiKey: "[REDACTED]",
+      jwt: "[REDACTED]",
+      providerJwt: "[REDACTED]",
     });
   });
 
@@ -1479,6 +1588,73 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
   });
 
+  it("preserves capture state for interrupted tool spans", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    for (const captureToolResults of [false, true]) {
+      const runId = `run-interrupted-capture-${captureToolResults}`;
+      const { spans, runtime } = createRecordingTracer();
+      __setAgentTraceRuntimeForTests(runtime as any);
+
+      await expect(
+        instrumentAgentLoop({
+          runAgentLoop: async ({ send }) => {
+            send({
+              type: "tool_start",
+              id: "hung-call",
+              tool: "provider-read",
+              input: { googleClientSecret: "must-be-redacted" },
+            });
+            throw new Error("provider disconnected");
+          },
+          loopOpts: {
+            engine: {},
+            model: "claude-test",
+            systemPrompt: "",
+            tools: [],
+            messages: [],
+            actions: {},
+            send: () => {},
+            signal: new AbortController().signal,
+          } as any,
+          runId,
+          threadId: null,
+          userId: null,
+          config: {
+            ...DEFAULT_OBSERVABILITY_CONFIG,
+            enabled: true,
+            captureToolArgs: true,
+            captureToolResults,
+          },
+        }),
+      ).rejects.toThrow("provider disconnected");
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const toolOtelSpan = spans.find((span) => span.name === "tool.call");
+      expect(toolOtelSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+      expect(toolOtelSpan?.status?.message).toBe(
+        captureToolResults
+          ? "Tool call interrupted before completion"
+          : undefined,
+      );
+
+      const toolSpan = persistedSpans.find(
+        (span) => span.runId === runId && span.spanType === "tool_call",
+      );
+      expect(toolSpan?.errorMessage).toBe(
+        captureToolResults ? "Tool call interrupted before completion" : null,
+      );
+      expect(toolSpan?.metadata).toEqual({
+        input: { googleClientSecret: "[REDACTED]" },
+        ...(captureToolResults ? { __tool_error_capture_version: 1 } : {}),
+      });
+    }
+  });
+
   it.each([
     {
       event: {
@@ -1820,7 +1996,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(readSpan?.ended).toBe(true);
     expect(readSpan?.parent).toBe(runSpan);
     expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(dbSpan?.status?.message).toBe("Error: boom");
+    expect(dbSpan?.status?.message).toBeUndefined();
     expect(dbSpan?.ended).toBe(true);
     expect(dbSpan?.parent).toBe(runSpan);
 
@@ -1834,6 +2010,65 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(llmSpan.ended).toBe(true);
     expect(llmSpan.parent).toBe(runSpan);
+  });
+
+  it("gates and sanitizes tool error text in exported span statuses", async () => {
+    const leakyResult =
+      'Error: client_secret=compound-secret private_key=compound-private-key providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token JWT=jwt-error-secret providerJwt=provider-jwt-error-secret\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
+
+    for (const captureToolResults of [false, true]) {
+      const { spans, runtime } = createRecordingTracer();
+      __setAgentTraceRuntimeForTests(runtime as any);
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", id: "a", tool: "fetch", input: {} });
+          send({
+            type: "tool_done",
+            id: "a",
+            tool: "fetch",
+            result: leakyResult,
+            isError: true,
+          });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          };
+        },
+        loopOpts: {
+          engine: {},
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: `run-otel-error-${captureToolResults}`,
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+
+      const toolSpan = spans.find((span) => span.name === "tool.call");
+      expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
+      if (captureToolResults) {
+        expect(toolSpan?.status?.message).toBe(
+          'Error: client_secret=[REDACTED] private_key=[REDACTED] providerSecret="[REDACTED]" databasePassword="[REDACTED]" aws_secret_access_key=[REDACTED] oauthToken=[REDACTED] providerToken=[REDACTED] JWT=[REDACTED] providerJwt=[REDACTED]\nCookie: [REDACTED]\nAuthorization: [REDACTED]\nAuthorization: ["[REDACTED]"]\nCookie: ["[REDACTED]"]',
+        );
+      } else {
+        expect(toolSpan?.status?.message).toBeUndefined();
+      }
+      expect(JSON.stringify(spans)).not.toContain("compound-secret");
+      expect(JSON.stringify(spans)).not.toContain("compound-private-key");
+    }
   });
 
   it("exports each bracketed model call as a live child span", async () => {
@@ -2074,7 +2309,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const toolSpan = spans.find((span) => span.name === "tool.call");
     expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(toolSpan?.status?.message).toContain("Invalid action parameters");
+    expect(toolSpan?.status?.message).toBeUndefined();
 
     const runSpan = spans.find((span) => span.name === "agent.run");
     expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
@@ -2178,7 +2413,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       Record<string, unknown>
     >;
     expect(redactedTools[0]?.error_message).toBe(
-      "Provider failed: Authorization: [REDACTED]; api_key=[REDACTED]",
+      "Provider failed: Authorization: [REDACTED]",
     );
 
     events.length = 0;

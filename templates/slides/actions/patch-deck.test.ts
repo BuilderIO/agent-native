@@ -1,6 +1,7 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit";
 import {
@@ -21,6 +22,7 @@ import patchDeckAction from "./patch-deck";
 // ---------------------------------------------------------------------------
 vi.mock("../app/lib/normalize-slide-padding.js", () => ({
   normalizeSlidePadding: (html: string) => html,
+  normalizeSlidePaddingForWrite: (_previous: string, html: string) => html,
 }));
 
 // ---------------------------------------------------------------------------
@@ -145,6 +147,444 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe("<p>New</p>");
     expect(deck.slides[0].notes).toBe("note"); // unchanged
     expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
+  });
+
+  it("refuses content that adds editor-rendered markup", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: '<div class="fmd-slide"><p>Old</p></div>' },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="true">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+        details: {
+          slideId: "s1",
+          markers: ["scoped-style-selector", "contenteditable"],
+        },
+      }),
+    );
+    expect(deck.slides[0].content).toBe(
+      '<div class="fmd-slide"><p>Old</p></div>',
+    );
+  });
+
+  it("refuses an added slide carrying editor markup but keeps older scoped styles", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
+    expect(deck.slides).toHaveLength(1);
+    const restored =
+      '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>R</p></div>';
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s3",
+      fields: { content: restored },
+    });
+    expect(deck.slides[1].content).toBe(restored);
+    // A duplicate is an exact copy of a stored slide, whatever it carries.
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s4",
+      fields: { content: deck.slides[0].content },
+    });
+    expect(deck.slides).toHaveLength(3);
+  });
+
+  it("still saves content that already carried rendered markup", () => {
+    const flattened =
+      '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>';
+    const deck = { slides: [{ id: "s1", content: flattened }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: flattened.replace("Old", "New") },
+    });
+    expect(deck.slides[0].content).toBe(flattened.replace("Old", "New"));
+  });
+
+  it("rejects a stale per-slide hash without mutating the slide", () => {
+    const source = "<p>Current</p>";
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(
+        deck,
+        {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: "<p>Overwrite</p>" },
+          baseContentHash: "stale-hash",
+        },
+        { sourceContentHashes: new Map([["s1", hashSlideContent(source)]]) },
+      ),
+    ).toThrow(/changed since it was read/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("accepts CSS-only edits through styleOnly and preserves markup", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>',
+        },
+      ],
+    };
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>Keep this</p></div>';
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(deck.slides[0].content),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
+  it("rejects styleOnly edits that change protected layout CSS", () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide" style="background:#fff;padding:40px"><p>Keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    ["order", "0", "1"],
+    ["flex-flow", "row", "column"],
+    ["grid-auto-flow", "row", "column"],
+    ["all", "initial", "unset"],
+    ["inset-block-start", "0", "1px"],
+    ["inset-block-end", "0", "1px"],
+    ["inset-inline-start", "0", "1px"],
+    ["inset-inline-end", "0", "1px"],
+    ["border", "1px solid black", "4px solid black"],
+    ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
+    ["border-block-style", "solid", "none"],
+    ["border-block-start-style", "solid", "none"],
+    ["border-block-end-style", "solid", "none"],
+    ["border-inline-style", "solid", "none"],
+    ["border-inline-start-style", "solid", "none"],
+    ["border-inline-end-style", "solid", "none"],
+    ["border-top-style", "solid", "none"],
+    ["border-right-style", "solid", "none"],
+    ["border-bottom-style", "solid", "none"],
+    ["border-left-style", "solid", "none"],
+    ["border-left", "1px solid black", "4px solid black"],
+    ["border-block-start-width", "1px", "4px"],
+    ["font", "16px Arial", "20px Arial"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["text-wrap-mode", "wrap", "nowrap"],
+    ["text-wrap-style", "auto", "pretty"],
+    ["line-break", "auto", "loose"],
+    ["line-clamp", "2", "3"],
+    ["hyphens", "none", "manual"],
+    ["word-spacing", "0", "4px"],
+    ["float", "none", "left"],
+    ["clear", "none", "both"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
+    ["inline-size", "100px", "200px"],
+    ["min-inline-size", "100px", "200px"],
+    ["max-inline-size", "100px", "200px"],
+    ["block-size", "100px", "200px"],
+    ["min-block-size", "100px", "200px"],
+    ["max-block-size", "100px", "200px"],
+    ["grid-area", "title", "body"],
+    ["grid-template-areas", `\"title body\"`, `\"body title\"`],
+    ["place-items", "start", "center"],
+    ["place-self", "start", "center"],
+    ["translate", "none", "10px"],
+    ["transform-origin", "50% 50%", "0 0"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
+    ["columns", "1", "2"],
+    ["column-count", "1", "2"],
+    ["contain", "none", "layout"],
+    ["contain-intrinsic-size", "none", "100px"],
+    ["animation", "none", "move 1s"],
+  ])("rejects styleOnly edits that change %s", (property, before, after) => {
+    const source = `<div class="fmd-slide" style='${property}:${before}'><p>Keep this</p></div>`;
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content: `<div class="fmd-slide" style='${property}:${after}'><p>Keep this</p></div>`,
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each(["inline", "stylesheet"] as const)(
+    "rejects escaped %s properties that alias protected layout properties",
+    (scope) => {
+      const source =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="padding:10px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{padding:10px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const nextContent =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="p\\61 dding:20px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{p\\61 dding:20px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
+
+  it.each([
+    [
+      "reorders conflicting inline declarations",
+      '<div class="fmd-slide" style="padding:10px;padding-left:20px"></div>',
+      '<div class="fmd-slide" style="padding-left:20px;padding:10px"></div>',
+    ],
+    [
+      "reorders conflicting stylesheet declarations",
+      '<style>.fmd-slide{padding:10px;padding-left:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding-left:20px;padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "reorders duplicate stylesheet rules",
+      '<style>.fmd-slide{padding:10px}.fmd-slide{padding:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding:20px}.fmd-slide{padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a media condition",
+      '<style>@media (min-width: 600px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+      '<style>@media (min-width: 800px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a supports condition",
+      '<style>@supports (display: grid){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+      '<style>@supports (display: flex){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes declaration-free cascade layer order",
+      '<style>@layer base, theme; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+      '<style>@layer theme, base; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes an imported stylesheet",
+      '<style>@import url("layout-a.css");</style><div class="fmd-slide"></div>',
+      '<style>@import url("layout-b.css");</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes escaped cascade layer order",
+      '<style>@l\\61 yer base, theme; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+      '<style>@l\\61 yer theme, base; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a registered custom property's initial value",
+      '<style>@property --space { syntax: "<length>"; inherits: false; initial-value: 10px; } .fmd-slide { padding: var(--space); }</style><div class="fmd-slide"></div>',
+      '<style>@property --space { syntax: "<length>"; inherits: false; initial-value: 100px; } .fmd-slide { padding: var(--space); }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a font face source",
+      '<style>@font-face { font-family: Deck; src: url("a.woff2"); } .fmd-slide { font-family: Deck; }</style><div class="fmd-slide"></div>',
+      '<style>@font-face { font-family: Deck; src: url("b.woff2"); } .fmd-slide { font-family: Deck; }</style><div class="fmd-slide"></div>',
+    ],
+  ])("rejects styleOnly CSS that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("allows a media-query change around an unprotected color restyle", () => {
+    const source =
+      '<style>@media (min-width:600px){.fmd-slide{background:red}}</style><div class="fmd-slide"></div>';
+    const nextContent = source.replace("min-width:600px", "min-width:800px");
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(source),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
+  it.each([
+    ["font", "16px Arial", "20px Arial"],
+    ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["line-clamp", "2", "3"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
+    ["transform-origin", "50% 50%", "0 0"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
+    ["line-break", "auto", "loose"],
+    ["translate", "none", "10px"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
+    ["columns", "1", "2"],
+    ["contain", "none", "layout"],
+  ])(
+    "rejects stylesheet %s changes in styleOnly edits",
+    (property, before, after) => {
+      const source = `<style>.fmd-slide { ${property}: ${before}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const nextContent = `<style>.fmd-slide { ${property}: ${after}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
+
+  it("rejects activating a stylesheet animation that moves slide content", () => {
+    const source =
+      '<style>@keyframes move { from { top: 0; } to { top: 100px; } } .fmd-slide { position: relative; animation-name: none; }</style><div class="fmd-slide"><p>Keep this</p></div>';
+    const nextContent = source.replace(
+      "animation-name: none",
+      "animation-name: move",
+    );
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    [
+      "changes preformatted whitespace",
+      "<pre>Keep  this</pre>",
+      "<pre>Keep this</pre>",
+    ],
+    [
+      "removes literal style text",
+      '<pre>Visible style="color:red"</pre>',
+      "<pre>Visible</pre>",
+    ],
+  ])("rejects styleOnly edits that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/preserve text, markup, element order, and layout structure/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("does not move protected CSS between elements in a styleOnly patch", () => {
+    const source =
+      '<div class="fmd-slide"><p style="padding:1px">Keep this</p><p style="color:red">Also keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p>Keep this</p><p style="padding:1px;color:red">Also keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
   });
 
   it("ignores the op when the slide has been concurrently deleted", () => {
@@ -1016,6 +1456,10 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
     });
+    expect(slidePatch.properties.baseContentHash).toMatchObject({
+      type: "string",
+    });
+    expect(slidePatch.properties.styleOnly).toMatchObject({ type: "boolean" });
     expect(slideDelete.properties.slideId).toMatchObject({ type: "string" });
     expect(slideDelete.properties.allowEmpty).toMatchObject({
       type: "boolean",
@@ -1030,6 +1474,26 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  it("requires a content hash and content-only fields for styleOnly patches", () => {
+    const base = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { content: "<div style='color:red'>Slide</div>" },
+      styleOnly: true,
+    };
+    expect(OperationSchema.safeParse(base).success).toBe(false);
+    expect(
+      OperationSchema.safeParse({ ...base, baseContentHash: "abc123" }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        ...base,
+        baseContentHash: "abc123",
+        fields: { ...base.fields, notes: "notes" },
+      }).success,
+    ).toBe(false);
   });
 
   // An untyped `animations` array sends callers probing a live deck to learn
@@ -1264,6 +1728,218 @@ describe("run() — asynchronous layout fit metadata", () => {
       expect(lastUpdatedDeckData).toBeUndefined();
     },
   );
+
+  it("requires a source hash for every slide in an agent content batch", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Updated one</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Updated two</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("requires the contentHash read"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a stale single-slide hash before writing", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Overwritten</div>" },
+              baseContentHash: "stale-hash",
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("changed since it was read"),
+      statusCode: 409,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>One</p></div>';
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>One</p></div>';
+    const animations = [
+      { id: "reveal-1", elementIndex: 0, elementPath: [0], type: "fade" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source, animations }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).toMatchObject({
+      content: nextContent,
+      animations,
+    });
+  });
+
+  it("accepts formatted styleOnly batch input while hashing the raw source", async () => {
+    const source =
+      '<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style><div class="fmd-slide"><p>One</p></div>';
+    const formattedSource = await formatSlideHtml(source);
+    const nextContent = formattedSource.replace(
+      /background:\s*red/,
+      "background: blue",
+    );
+    expect(nextContent).not.toBe(formattedSource);
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toBe(
+      nextContent,
+    );
+  });
+
+  it("formats surrounding HTML without changing preformatted blocks", async () => {
+    const pre = '<pre class="code">  alpha\n    beta   \ngamma  </pre>';
+    const source = `<div class="fmd-slide"><p>Before</p>${pre}<p>After</p></div>`;
+
+    const formatted = await formatSlideHtml(source);
+
+    expect(formatted).not.toBe(source);
+    expect(formatted).toContain(pre);
+  });
+
+  it.each(["pre", "pre-wrap", "break-spaces"])(
+    "preserves text in elements with white-space: %s",
+    async (whiteSpace) => {
+      const text = "  alpha\n    beta   \ngamma  ";
+      const whitespaceOnly = "  \n    ";
+      const element = `<div style="white-space: ${whiteSpace}">${text}<span>${whitespaceOnly}</span>${whitespaceOnly}</div>`;
+      const formatted = await formatSlideHtml(
+        `<section><h1>Title</h1>${element}<p>After</p></section>`,
+      );
+
+      expect(formatted).toContain(element);
+    },
+  );
+
+  it("accepts formatted styleOnly batch CSS after formatter spacing changes", async () => {
+    const pre = "<pre>  alpha\n    beta   \ngamma  </pre>";
+    const whiteSpaceText =
+      '<div style="white-space: pre">  keep  these\n    spaces   </div>';
+    const source =
+      `<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style>` +
+      `<div class="fmd-slide">${pre}${whiteSpaceText}</div>`;
+    const formattedSource = await formatSlideHtml(source);
+    const nextContent = formattedSource.replace(
+      /background:\s*red/,
+      "background: blue",
+    );
+    const rawValidationError = (() => {
+      try {
+        applyOperation(
+          { slides: [{ id: "slide-1", content: source }] },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        );
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(rawValidationError).toMatchObject({
+      errorCode: "style_only_slide_structure_changed",
+    });
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toBe(
+      nextContent,
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(pre);
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(
+      whiteSpaceText,
+    );
+  });
 
   it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(
@@ -1821,6 +2497,7 @@ describe("run() — partial no-op deck restyle", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One restyled</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           // Byte-identical to what is already persisted: a no-op the agent
           // still believes it "beautified".
@@ -1828,11 +2505,13 @@ describe("run() — partial no-op deck restyle", () => {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-3",
             fields: { content: "<div>Three</div>" },
+            baseContentHash: hashSlideContent("<div>Three</div>"),
           },
         ],
       },
@@ -1882,11 +2561,13 @@ describe("run() — all-no-op deck restyle masked by animation clearing", () => 
               op: "patch-slide",
               slideId: "slide-1",
               fields: { content: "<div>One</div>" },
+              baseContentHash: hashSlideContent("<div>One</div>"),
             },
             {
               op: "patch-slide",
               slideId: "slide-2",
               fields: { content: "<div>Two</div>" },
+              baseContentHash: hashSlideContent("<div>Two</div>"),
             },
           ],
         },
@@ -1937,11 +2618,13 @@ describe("run() — no-op content patches leave the slide alone", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2312,16 +2995,19 @@ describe("run() — a content round-trip is not an edit", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2368,16 +3054,19 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-1",
             fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
@@ -2410,11 +3099,13 @@ describe("run() — derived state and lifecycle around net-zero edits", () => {
               content: "<div>One</div>",
               layoutWarningDismissed: false,
             },
+            baseContentHash: hashSlideContent("<div>One</div>"),
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
             fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
           },
         ],
       },
