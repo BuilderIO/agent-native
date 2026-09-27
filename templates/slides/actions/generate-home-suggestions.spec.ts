@@ -104,7 +104,7 @@ describe("generate-home-suggestions", () => {
 
   it("parses a valid JSON array wrapped in model prose", async () => {
     mocks.completeText.mockResolvedValue({
-      text: `Here are three ideas:\n${JSON.stringify(suggestions)}\nLet me know what you think.`,
+      text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
     });
 
     await expect(
