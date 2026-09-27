@@ -1744,7 +1744,12 @@ export function ResourcesPanel({
         .refetch()
         .then(processAttempt)
         .catch(() => {
-          if (probeEpoch !== uploadProbeEpochRef.current) return;
+          if (
+            probeEpoch !== uploadProbeEpochRef.current ||
+            attemptId <= handledUploadAttemptIdRef.current
+          ) {
+            return;
+          }
           setFileStorageSetupOpen(true);
         });
     },

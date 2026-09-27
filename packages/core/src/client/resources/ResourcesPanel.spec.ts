@@ -508,10 +508,7 @@ describe("ResourcesPanel storage retries", () => {
   });
 
   it("ignores an older probe after a later probe uploads both batches", async () => {
-    let resolveEarlierProbe!: (result: {
-      isError: boolean;
-      data?: { configured?: unknown };
-    }) => void;
+    let rejectEarlierProbe!: (error: Error) => void;
     let resolveLaterProbe!: (result: {
       isError: boolean;
       data?: { configured?: unknown };
@@ -519,8 +516,8 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.refetch
       .mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
-            resolveEarlierProbe = resolve;
+          new Promise((_resolve, reject) => {
+            rejectEarlierProbe = reject;
           }),
       )
       .mockImplementationOnce(
@@ -548,7 +545,7 @@ describe("ResourcesPanel storage retries", () => {
     expect(storageMocks.open).toBe(false);
 
     await act(async () => {
-      resolveEarlierProbe({ isError: true });
+      rejectEarlierProbe(new Error("probe failed"));
       await Promise.resolve();
     });
     renderPanel();
