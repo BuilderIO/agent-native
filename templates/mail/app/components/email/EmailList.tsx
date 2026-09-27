@@ -2672,6 +2672,16 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  importanceScore={
+                    view === "inbox" && currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   labelNames={labelNames}
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}
