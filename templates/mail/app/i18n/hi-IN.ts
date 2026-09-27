@@ -446,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",
+      connectionNotConfigured:
+        "इस ऐप के लिए Gmail कनेक्शन कॉन्फ़िगर नहीं है। इसे चालू करने के लिए अपने व्यवस्थापक से कहें या अभी यह चरण छोड़ दें।",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

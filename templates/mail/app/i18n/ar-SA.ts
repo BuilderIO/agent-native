@@ -446,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "ربط حساب Google",
+      connectionNotConfigured:
+        "اتصال Gmail غير مُعدّ لهذا التطبيق. اطلب من مسؤول النظام تفعيله أو تخطَّ هذه الخطوة الآن.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

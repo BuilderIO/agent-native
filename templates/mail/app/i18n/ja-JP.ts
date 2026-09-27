@@ -450,6 +450,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",
+      connectionNotConfigured:
+        "このアプリでは Gmail 接続が設定されていません。管理者に有効化を依頼するか、今はこの手順をスキップしてください。",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:

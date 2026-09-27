@@ -434,6 +434,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "連線你的 Google 帳號",
+      connectionNotConfigured:
+        "此應用尚未設定 Gmail 連線。請聯絡管理員啟用，或暫時略過此步驟。",
       heroDescription: "傳送和接收真實郵件。連線你的 Gmail 帳號即可開始。",
       setupIntro: "按照這些步驟連線你的 Google 帳號。大約需要 3 分鐘。",
       enableGmailApi: "啟用 Gmail API",

@@ -1,39 +1,33 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  googleStatus: {
-    data: undefined as { accounts: { email: string }[] } | undefined,
-    isLoading: false,
-  },
-}));
-
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
-}));
-
-vi.mock("@/components/GoogleConnectBanner", () => ({
-  GoogleConnectBanner: () => <div data-testid="gmail-connect" />,
-}));
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 
 vi.mock("./AiInboxSetup", () => ({
-  AiInboxSetup: () => <div data-testid="mail-triage-setup" />,
-}));
-
-vi.mock("@/hooks/use-google-auth", () => ({
-  useGoogleAuthStatus: () => mocks.googleStatus,
+  AiInboxSetup: ({
+    embedded,
+    forceOpen,
+    onComplete,
+    onSkipSetup,
+  }: {
+    embedded: boolean;
+    forceOpen: boolean;
+    onComplete: () => void;
+    onSkipSetup: () => void;
+  }) => (
+    <div
+      data-testid="mail-triage-setup"
+      data-embedded={String(embedded)}
+      data-force-open={String(forceOpen)}
+      data-has-complete={String(typeof onComplete === "function")}
+      data-has-skip={String(typeof onSkipSetup === "function")}
+    />
+  ),
 }));
 
 import { listFirstRunOnboardingExtensions } from "@agent-native/core/client/onboarding";
 
 import { MailTriageFirstRun } from "./register-first-run";
-
-beforeEach(() => {
-  mocks.googleStatus.data = undefined;
-  mocks.googleStatus.isLoading = false;
-});
 
 afterEach(() => cleanup());
 
@@ -43,24 +37,12 @@ it("registers Mail triage after core first-run onboarding", () => {
   );
 });
 
-it("offers Gmail connection or skip instead of a blank setup step", () => {
-  const onSkip = vi.fn();
-  render(<MailTriageFirstRun onComplete={vi.fn()} onSkip={onSkip} />);
-
-  expect(screen.getByTestId("gmail-connect")).not.toBeNull();
-  expect(screen.queryByTestId("mail-triage-setup")).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
-  );
-  expect(onSkip).toHaveBeenCalledOnce();
-});
-
-it("shows the shared triage flow when Gmail is already connected", () => {
-  mocks.googleStatus.data = {
-    accounts: [{ email: "mail-test@example.test" }],
-  };
+it("uses the same embedded triage flow for first-run setup", () => {
   render(<MailTriageFirstRun onComplete={vi.fn()} onSkip={vi.fn()} />);
 
-  expect(screen.getByTestId("mail-triage-setup")).not.toBeNull();
-  expect(screen.queryByTestId("gmail-connect")).toBeNull();
+  const setup = screen.getByTestId("mail-triage-setup");
+  expect(setup.getAttribute("data-embedded")).toBe("true");
+  expect(setup.getAttribute("data-force-open")).toBe("true");
+  expect(setup.getAttribute("data-has-complete")).toBe("true");
+  expect(setup.getAttribute("data-has-skip")).toBe("true");
 });

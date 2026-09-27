@@ -447,6 +447,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connect your Google account",
+      connectionNotConfigured:
+        "Gmail connection isn't configured for this app. Ask your administrator to enable it, or skip this step for now.",
       heroDescription:
         "Send and receive real email. Connect your Gmail account to get started.",
       setupIntro:
