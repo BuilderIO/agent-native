@@ -156,6 +156,25 @@ describe("Inbox navigation commands", () => {
     expect(source).not.toContain("refetchOnWindowFocus: false");
   });
 
+  it("keeps Jev refresh callbacks stable for the inbox header actions", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const { refetch: refetchJevAvailability } = jevAvailability;",
+    );
+    expect(source).toContain(
+      "const onJevAvailabilityChange = useCallback(() => {\n    void refetchJevAvailability();\n  }, [refetchJevAvailability]);",
+    );
+    expect(source).toContain("onJevConnected={onJevAvailabilityChange}");
+    expect(source).toContain("onJevRetry={onJevAvailabilityChange}");
+    expect(source).not.toContain(
+      "onJevConnected={() => void jevAvailability.refetch()}",
+    );
+    expect(source).not.toContain(
+      "onJevRetry={() => void jevAvailability.refetch()}",
+    );
+  });
+
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 

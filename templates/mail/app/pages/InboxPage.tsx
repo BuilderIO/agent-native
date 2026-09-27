@@ -358,8 +358,12 @@ export function InboxPage() {
       retry: 2,
     },
   );
+  const { refetch: refetchJevAvailability } = jevAvailability;
   const jevConfigured =
     !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const onJevAvailabilityChange = useCallback(() => {
+    void refetchJevAvailability();
+  }, [refetchJevAvailability]);
   const showPrioritySort =
     jevConfigured || (jevAvailability.isError && sortMode === "priority");
   const changeSortMode = useCallback((mode: MailSortMode) => {
@@ -1113,8 +1117,8 @@ export function InboxPage() {
               jevAvailability.isLoading || jevAvailability.isFetching
             }
             jevAvailabilityError={jevAvailability.isError}
-            onJevConnected={() => void jevAvailability.refetch()}
-            onJevRetry={() => void jevAvailability.refetch()}
+            onJevConnected={onJevAvailabilityChange}
+            onJevRetry={onJevAvailabilityChange}
             onSortModeChange={changeSortMode}
           />
         )}

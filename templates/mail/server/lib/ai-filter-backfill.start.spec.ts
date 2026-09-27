@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const database = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
   let id = 0;
+  let stateJsonWrites = 0;
   const advisoryLocks = new Map<string, Promise<void>>();
   let beforeNextTransaction: (() => Promise<void>) | undefined;
   const aiFilterBackfills = Object.fromEntries(
@@ -82,6 +83,8 @@ const database = vi.hoisted(() => {
     update: () => ({
       set: (values: Record<string, any>) => ({
         where: (condition: unknown) => {
+          if (Object.prototype.hasOwnProperty.call(values, "stateJson"))
+            stateJsonWrites += 1;
           const updated = rows.filter((row) => matches(condition, row));
           for (const row of updated)
             Object.assign(row, structuredClone(values));
@@ -144,6 +147,10 @@ const database = vi.hoisted(() => {
     nextId: () => `backfill-${++id}`,
     setBeforeNextTransaction: (callback: () => Promise<void>) => {
       beforeNextTransaction = callback;
+    },
+    getStateJsonWrites: () => stateJsonWrites,
+    resetStateJsonWrites: () => {
+      stateJsonWrites = 0;
     },
     resetId: () => {
       id = 0;
@@ -368,6 +375,7 @@ describe("startMailAiFilterBackfill", () => {
     mocks.evaluateAiFilterBackfillRules.mockReset();
     database.rows.splice(0, database.rows.length);
     database.resetId();
+    database.resetStateJsonWrites();
     mocks.rules = [];
     mocks.emails = [];
     mocks.getAiFilterState.mockResolvedValue({
@@ -535,6 +543,46 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(database.rows[0].stateJson);
     expect(saved.evaluations["local:thread-a"]).toEqual([]);
     expect(saved.processedThreads).toBe(1);
+  });
+
+  it("persists non-mutating progress once per backfill batch", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = { ...backfillState([activeRule]), evaluations: {} };
+    state.candidates = ["thread-a", "thread-b", "thread-c"].map(
+      (threadId, index) => ({
+        ...state.candidates[0],
+        key: `local:${threadId}`,
+        threadId,
+        email: {
+          ...state.candidates[0].email,
+          id: threadId,
+          threadId,
+        },
+        messageIds: [`message-${index}`],
+      }),
+    );
+    database.rows.push({
+      ...runningRow([activeRule]),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      new Map(
+        state.candidates.map((candidate: any) => [
+          aiPriorityEmailKey(undefined, candidate.email.id),
+          [],
+        ]),
+      ),
+    );
+    database.resetStateJsonWrites();
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(database.getStateJsonWrites()).toBe(2);
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(database.rows[0].status).toBe("completed");
+    expect(saved.candidateIndex).toBe(3);
+    expect(saved.processedThreads).toBe(3);
   });
 
   it("maps shared Gmail thread IDs back to the matching account candidate", async () => {

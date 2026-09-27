@@ -30,19 +30,22 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
   });
 
-  it("uses the stable router link for tooltip-wrapped tabs", () => {
+  it("uses stable router links for tooltip-wrapped tabs", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain("RouterSidebarLink,");
     expect(source).toContain("const link = ( <RouterSidebarLink");
-    expect(source).toContain(
-      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
-    );
     expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
   });
 
-  it("keeps the tab scrollport within the space before its settings cog", () => {
+  it("lets inbox tabs use available space before they scroll", () => {
     const source = appLayoutSource();
+    const tabStart = source.indexOf("data-mail-tab-list");
+    const tabBar = source.slice(tabStart, source.indexOf("</nav>", tabStart));
+    const tabsAndActions = source.slice(
+      source.indexOf("Primary tabs stay mounted"),
+      source.indexOf("{inboxSyncing &&"),
+    );
 
     expect(source).toContain(
       'className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar"',
@@ -53,6 +56,8 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       'cn("relative shrink-0", tabsLoading && "invisible")',
     );
+    expect(tabsAndActions).not.toContain('<div className="flex-1" />');
+    expect(tabBar).not.toMatch(/\bmax-w-/);
   });
 
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
@@ -78,36 +83,28 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain("labelThreadCounts");
   });
 
-  it("collapses the native rail while the per-app chat is open", () => {
+  it("keeps Mail navigation in a hamburger-controlled drawer", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
+      "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
     expect(source).toContain(
-      "(sidebarPinned\n      ? sidebarCollapsed\n      : perAppChatOpen && !sidebarExpandedWhileChatOpen)",
+      "<Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>",
     );
+    expect(source).toContain("<DialogTrigger asChild>");
+    expect(source).toContain("<DialogContent");
+    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain('<DialogTitle className="sr-only">');
+    expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
+    expect(source).not.toContain("mail-sidebar-pinned");
+    expect(source).not.toContain("railNavItems");
+    expect(source).not.toContain("showCollapsedSidebar");
   });
 
-  it("keeps the unpinned rail toggleable while per-app chat is open", () => {
+  it("reserves desktop content space while the drawer is open", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
-    );
-    expect(source).toContain("perAppChatOpen && !sidebarExpandedWhileChatOpen");
-    expect(source).toContain(
-      "sidebarPinned || (perAppChatOpen && showSidebar)",
-    );
-    expect(source).toContain(
-      "setSidebarExpandedWhileChatOpen((value) => !value)",
-    );
-  });
-
-  it("reserves desktop content space while the unpinned sidebar is open", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain("!isMobile &&\n              showSidebar &&");
     expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
   });
 
@@ -209,10 +206,10 @@ describe("AppLayout inbox tab bar", () => {
   });
 
   it("labels the hidden keyboard-shortcut target for Search", () => {
-    const source = appLayoutSource();
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
-      'id="mail-search"\n              aria-label={t("mail.search.label")}\n              className="sr-only"',
+      'id="mail-search" aria-label={t("mail.search.label")} className="sr-only"',
     );
   });
 
@@ -451,13 +448,13 @@ describe("AppLayout inbox tab bar", () => {
   });
 
   it("only shows the Google-connect takeover for a known mail view", () => {
-    const source = appLayoutSource();
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
       'import { isKnownMailView } from "@/routes/$view";',
     );
     expect(source).toContain(
-      "isKnownMailView(view) &&\n          (googleConfigured || canOfferGoogleOAuthSetup) ? (\n            <GoogleConnectBanner",
+      "isKnownMailView(view) && (googleConfigured || canOfferGoogleOAuthSetup) ? ( <GoogleConnectBanner",
     );
   });
 });
