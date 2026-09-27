@@ -442,9 +442,24 @@ describe("EmailList keyboard navigation interactions", () => {
     );
     expect(rows()[1].textContent).toContain("Subject first");
     expect(rows()[2].textContent).toContain("Subject last");
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.90" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.10" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.05" }),
+    ).toBeTruthy();
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+    rerender(
+      <Harness emails={secondTabEmails} showPrioritySort sortMode="newest" />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.priority 0.90" }),
+    ).toBeNull();
   });
 
   it("ranks a newly scored message that enters the priority window", async () => {

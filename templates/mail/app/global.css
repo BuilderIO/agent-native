@@ -56,6 +56,8 @@
   --mail-label-finance-text: 163 94% 24%;
   --mail-label-travel-bg: 187 85% 53% / 0.2;
   --mail-label-travel-text: 192 91% 36%;
+  --mail-importance-low: oklch(56% 0.17 25);
+  --mail-importance-high: oklch(50% 0.15 145);
 }
 
 .dark {
@@ -101,6 +103,8 @@
   --mail-label-forums-text: 199 95% 74%;
   --mail-label-finance-text: 152 76% 70%;
   --mail-label-travel-text: 188 86% 74%;
+  --mail-importance-low: oklch(78% 0.13 25);
+  --mail-importance-high: oklch(78% 0.13 145);
 }
 
 @layer base {
@@ -259,6 +263,16 @@
   position: relative;
   z-index: 3;
   flex: none;
+}
+.email-importance-score {
+  position: relative;
+  z-index: 3;
+  color: hsl(var(--foreground));
+  color: color-mix(
+    in oklch,
+    var(--mail-importance-low) calc(100% - var(--mail-importance-weight)),
+    var(--mail-importance-high) var(--mail-importance-weight)
+  );
 }
 .email-list-row.focused .hover-actions,
 .email-list-row:hover .hover-actions {

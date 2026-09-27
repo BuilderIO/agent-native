@@ -14,10 +14,18 @@ import {
   IconSquareCheck,
   IconSend,
   IconX,
+  IconThumbDown,
+  IconThumbUp,
 } from "@tabler/icons-react";
-import { memo, useRef, useState, useCallback } from "react";
+import { memo, useRef, useState, useCallback, type CSSProperties } from "react";
+import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +39,7 @@ import { cn, formatEmailDate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
+  importanceScore?: number;
   labelNames?: ReadonlyMap<string, string>;
   thread?: ThreadSummary;
   isSelected: boolean;
@@ -109,6 +118,7 @@ function getAccountColor(
 
 export const EmailListItem = memo(function EmailListItem({
   email,
+  importanceScore,
   labelNames,
   thread,
   isSelected,
@@ -145,6 +155,8 @@ export const EmailListItem = memo(function EmailListItem({
 
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [priorityScorePopoverOpen, setPriorityScorePopoverOpen] =
+    useState(false);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
@@ -614,6 +626,71 @@ export const EmailListItem = memo(function EmailListItem({
           <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
             {formatEmailDate(email.date)}
           </span>
+          {importanceScore !== undefined && (
+            <Popover
+              open={priorityScorePopoverOpen}
+              onOpenChange={setPriorityScorePopoverOpen}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
+                  className="email-importance-score mx-1 inline-flex h-6 w-10 shrink-0 items-center justify-end rounded px-1 text-[11px] font-medium tabular-nums hover:bg-accent"
+                  style={
+                    {
+                      "--mail-importance-weight": `${Math.round(importanceScore * 100)}%`,
+                    } as CSSProperties
+                  }
+                >
+                  {importanceScore.toFixed(2)}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-56 p-2"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <div className="mb-1 text-xs font-medium">
+                  {t("mail.sort.priority")} · {importanceScore.toFixed(2)}
+                </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {t("mail.sort.priorityScoreHelp")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbUp aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.importantMode")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("not-important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbDown aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.notImportantMode")}
+                </button>
+                <Link
+                  to="/settings?section=ai-filter"
+                  className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {t("mail.sort.priorityEditRules")}
+                </Link>
+              </PopoverContent>
+            </Popover>
+          )}
           {/* Hover actions overlay the preview while the time stays fixed. */}
           <div className="hover-actions gap-0.5">
             {onToggleRead && (
