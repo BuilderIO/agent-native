@@ -103,10 +103,7 @@ export default function Settings() {
     conflictsSkipped: boolean;
     reason: string | null;
     registered: boolean;
-  }>("get-event-rules-status", undefined, {
-    staleTime: 0,
-    refetchOnWindowFocus: true,
-  });
+  }>("get-event-rules-status");
   const jevConnectFlow = useBuilderConnectFlow({
     trackingSource: "calendar_jev_invitation_rules",
     trackingFlow: "connect_jev",

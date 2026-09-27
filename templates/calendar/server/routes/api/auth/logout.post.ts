@@ -1,4 +1,9 @@
-import { logout } from "@agent-native/core/server";
-import { defineEventHandler } from "h3";
+import { removeSession } from "@agent-native/core/server";
+import { defineEventHandler, deleteCookie, getCookie } from "h3";
 
-export default defineEventHandler(logout);
+export default defineEventHandler(async (event) => {
+  const cookie = getCookie(event, "an_session");
+  if (cookie) await removeSession(cookie);
+  deleteCookie(event, "an_session", { path: "/" });
+  return { ok: true };
+});
