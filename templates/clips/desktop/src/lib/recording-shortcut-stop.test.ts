@@ -115,12 +115,10 @@ describe("requestRecordingShortcutStop", () => {
   });
 
   it("keeps listener readiness inside the total fallback deadline", async () => {
-    let acknowledge!: (event: { payload: string }) => void;
     let finishRegistration!: (unlisten: () => void) => void;
     listen.mockImplementation(
-      async (_event, onAck) =>
+      async () =>
         new Promise((resolve) => {
-          acknowledge = onAck;
           finishRegistration = resolve;
         }),
     );
