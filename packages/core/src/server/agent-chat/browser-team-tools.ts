@@ -704,14 +704,18 @@ export function createTeamTools(deps: {
               )
             : undefined;
           const visibleTasks = await Promise.all(
-            tasks.map(async (task) => ({
-              ...task,
-              status: await agentTeamTaskStatus(
-                task.taskId,
-                task.status,
-                readDispatchState,
-              ),
-            })),
+            tasks.map(async (task, index) =>
+              index < MAX_AGENT_TEAM_PROGRESS_TASKS
+                ? {
+                    ...task,
+                    status: await agentTeamTaskStatus(
+                      task.taskId,
+                      task.status,
+                      readDispatchState,
+                    ),
+                  }
+                : task,
+            ),
           );
           return JSON.stringify(
             visibleTasks.map((t) => ({

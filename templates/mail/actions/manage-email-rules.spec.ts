@@ -201,6 +201,28 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
+  it("keeps a failed AI-rule backfill as an ordinary tool result", async () => {
+    mocks.startMailAiFilterBackfill.mockRejectedValueOnce(
+      new Error("backfill unavailable"),
+    );
+
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      name: "Newsletters",
+      condition: "from newsletters",
+      actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
+    });
+
+    expect(result).toMatchObject({
+      operation: "create",
+      backfillStatus: "failed",
+      backfillError:
+        "The rule was saved, but its recent-mail backfill could not start.",
+    });
+    expect(action.chatUI?.when?.({ action: "create" }, result)).toBe(false);
+  });
+
   it("updates label/archive rules through shared CRUD and starts a new backfill", async () => {
     mocks.listAutomationRules.mockResolvedValue([
       {

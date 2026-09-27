@@ -357,12 +357,12 @@ describe("createTeamTools progress cards", () => {
 
     expect(mocks.listTasks).toHaveBeenCalledTimes(1);
     expect(tasks).toHaveLength(5);
-    expect(mocks.getAgentTeamRunDispatchState).toHaveBeenCalledTimes(5);
+    expect(mocks.getAgentTeamRunDispatchState).toHaveBeenCalledTimes(3);
     expect(tasks.find((task) => task.taskId === "task-3")?.status).toBe(
       "queued",
     );
     expect(tasks.find((task) => task.taskId === "task-5")?.status).toBe(
-      "queued",
+      "running",
     );
     expect(chatUI?.when?.({ action: "list" }, rawResult)).toBe(true);
     expect(chatUI?.projectResult?.({ action: "list" }, rawResult)).toEqual({

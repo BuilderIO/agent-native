@@ -160,6 +160,12 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
                 args.action === "update" ||
                 args.action === "enable" ||
                 args.action === "disable") &&
+              !(
+                typeof result === "object" &&
+                result !== null &&
+                "backfillStatus" in result &&
+                result.backfillStatus === "failed"
+              ) &&
               normalizeActionChangeResult(result) !== null,
             projectResult: (_args: Record<string, unknown>, result: unknown) =>
               normalizeActionChangeResult(result),
