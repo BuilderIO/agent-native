@@ -122,14 +122,27 @@ export function documentMatchesModifiedAfter(
 /**
  * Maps every document to its topmost loaded ancestor, so scope filtering can
  * ask "is this document under this space's root?" without a per-document
- * `spaceId` field (list-documents doesn't return one). Memoize per
- * document-list change; the result is reused for every keystroke.
+ * `spaceId` field (list-documents doesn't return one). A top-level page has no
+ * `parentId`; it belongs to its space through membership in the space's Files
+ * collection, so the walk follows `databaseMembership.databaseDocumentId` when
+ * there is no loaded parent. Memoize per document-list change; the result is
+ * reused for every keystroke.
  */
 export function buildDocumentSpaceRootIndex(
-  documents: readonly Pick<Document, "id" | "parentId">[],
+  documents: readonly Pick<
+    Document,
+    "id" | "parentId" | "databaseMembership"
+  >[],
 ): ReadonlyMap<string, string> {
+  const loadedIds = new Set(documents.map((document) => document.id));
   const parentOf = new Map(
-    documents.map((document) => [document.id, document.parentId ?? null]),
+    documents.map((document) => {
+      const parentId =
+        document.parentId && loadedIds.has(document.parentId)
+          ? document.parentId
+          : (document.databaseMembership?.databaseDocumentId ?? null);
+      return [document.id, parentId === document.id ? null : parentId];
+    }),
   );
   const roots = new Map<string, string>();
   for (const document of documents) {

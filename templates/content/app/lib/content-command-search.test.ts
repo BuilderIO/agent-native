@@ -175,6 +175,58 @@ describe("buildDocumentSpaceRootIndex and documentMatchesSelectedScope", () => {
     expect(index.get("orphan")).toBe("orphan");
   });
 
+  it("follows Files-collection membership for top-level pages, as list-documents returns them", () => {
+    const membership = (databaseDocumentId: string) =>
+      ({
+        databaseId: `db-${databaseDocumentId}`,
+        databaseDocumentId,
+        databaseTitle: databaseDocumentId,
+        position: 0,
+        sourceId: null,
+        systemRole: "files",
+      }) as unknown as Document["databaseMembership"];
+    const documents = [
+      makeDocument({ id: "personal-files", parentId: null }),
+      makeDocument({ id: "org-files", parentId: null }),
+      makeDocument({
+        id: "top-level-page",
+        parentId: null,
+        databaseMembership: membership("personal-files"),
+      }),
+      makeDocument({
+        id: "nested-page",
+        parentId: "top-level-page",
+        databaseMembership: membership("personal-files"),
+      }),
+      makeDocument({
+        id: "org-page",
+        parentId: null,
+        databaseMembership: membership("org-files"),
+      }),
+    ];
+    const rootIndex = buildDocumentSpaceRootIndex(documents);
+    const personal = documentSpaceRootIds({
+      filesDocumentId: "personal-files",
+      catalogDocumentId: "personal-catalog",
+    });
+    for (const documentId of ["top-level-page", "nested-page"]) {
+      expect(
+        documentMatchesSelectedScope({
+          documentId,
+          rootIndex,
+          spaceRootIds: personal,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      documentMatchesSelectedScope({
+        documentId: "org-page",
+        rootIndex,
+        spaceRootIds: personal,
+      }),
+    ).toBe(false);
+  });
+
   it("breaks a parentId cycle instead of looping forever", () => {
     const documents = [
       makeDocument({ id: "a", parentId: "b" }),
