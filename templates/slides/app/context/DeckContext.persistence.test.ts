@@ -113,6 +113,7 @@ function setupFetch(options?: {
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
   let resolveDeferredPatch: (() => void) | null = null;
+  let rejectDeferredPatch: ((error: unknown) => void) | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
@@ -262,11 +263,12 @@ function setupFetch(options?: {
         attempts === 1
       ) {
         firstPatchSignal = init?.signal ?? undefined;
-        return new Promise<Response>((resolve) => {
+        return new Promise<Response>((resolve, reject) => {
           resolveDeferredPatch = () =>
             resolve(
               new Response(JSON.stringify({ ok: true }), { status: 200 }),
             );
+          rejectDeferredPatch = reject;
         });
       }
       if (
@@ -316,6 +318,8 @@ function setupFetch(options?: {
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
+    rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
+      rejectDeferredPatch?.(error),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
@@ -489,8 +493,20 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(patchCalls()).toHaveLength(2);
     expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
-    expect(actionCallBody(patchCalls()[1]?.[1])).toEqual(
-      actionCallBody(patchCalls()[0]?.[1]),
+    const { clientWrite: activeWrite, ...activePayload } = actionCallBody(
+      patchCalls()[0]?.[1],
+    );
+    const { clientWrite: keepaliveWrite, ...keepalivePayload } = actionCallBody(
+      patchCalls()[1]?.[1],
+    );
+    expect(keepalivePayload).toEqual(activePayload);
+    expect(keepaliveWrite).toMatchObject({
+      clientId: (activeWrite as { clientId: string }).clientId,
+      expectedUpdatedAt: (activeWrite as { expectedUpdatedAt: string })
+        .expectedUpdatedAt,
+    });
+    expect((keepaliveWrite as { sequence: number }).sequence).toBeGreaterThan(
+      (activeWrite as { sequence: number }).sequence,
     );
 
     resolveDeferredPatch();
@@ -614,6 +630,18 @@ describe("DeckContext deck creation persistence", () => {
       );
     expect(patchCalls()).toHaveLength(2);
     expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    const activeWrite = actionCallBody(patchCalls()[0]?.[1]).clientWrite as {
+      clientId: string;
+      sequence: number;
+      expectedUpdatedAt: string;
+    };
+    const keepaliveWrite = actionCallBody(patchCalls()[1]?.[1])
+      .clientWrite as typeof activeWrite;
+    expect(keepaliveWrite.clientId).toBe(activeWrite.clientId);
+    expect(keepaliveWrite.sequence).toBeGreaterThan(activeWrite.sequence);
+    expect(keepaliveWrite.expectedUpdatedAt).toBe(
+      activeWrite.expectedUpdatedAt,
+    );
     expect(actionCallBody(patchCalls()[1]?.[1])).toMatchObject({
       deckId: "flush-order-deck",
       operations: [
@@ -659,6 +687,76 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     await result.current.flushDeckSave("flush-order-deck");
+  });
+
+  it("does not retry an active patch after a newer keepalive replay succeeds", async () => {
+    window.history.pushState({}, "", "/deck/flush-replay-deck");
+    const {
+      fetchMock,
+      rejectDeferredPatch,
+      resolveDeferredKeepalivePatch,
+      setAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "flush-replay-deck",
+      title: "Flush replay deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Older" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.updateSlide(initial.id, "slide-1", {
+        content: "Newest",
+      });
+      flushPendingSaves();
+    });
+
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    rejectDeferredPatch(
+      Object.assign(new Error("stale deck revision"), { status: 409 }),
+    );
+
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(3);
+    expect(actionCallBody(patchCalls[2]?.[1]).operations).toEqual([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Newest" },
+      },
+    ]);
   });
 
   it("requeues a failed keepalive flush for a normal retry", async () => {
@@ -2389,6 +2487,43 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
     expect(result.current.getDeck(initial.id)?.designSystemId).toBeNull();
+  });
+
+  it("keeps a same-batch deck-field edit in the replacement snapshot", async () => {
+    window.history.pushState({}, "", "/deck/replacement-title-deck");
+    const initial: Deck = {
+      id: "replacement-title-deck",
+      title: "Before",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "old", notes: "", layout: "title" }],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateDeck(initial.id, { title: "After" });
+      result.current.setDeckSlides(
+        initial.id,
+        [{ id: "slide-2", content: "new", notes: "", layout: "content" }],
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
+    );
+    expect((actionCallBody(putCall?.[1]).deck as Deck).title).toBe("After");
+    expect(result.current.getDeck(initial.id)?.title).toBe("After");
   });
 
   it("persists immediate edits queued after a generated slide replacement", async () => {
