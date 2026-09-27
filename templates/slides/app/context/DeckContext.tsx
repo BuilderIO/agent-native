@@ -1,5 +1,4 @@
 import { captureError } from "@agent-native/core/client/analytics";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   createLocalOpUndoController,
   type LocalOpUndoController,
