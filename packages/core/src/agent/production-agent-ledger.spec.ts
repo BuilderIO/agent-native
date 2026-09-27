@@ -28,6 +28,7 @@ const writeLedgerMock = vi.hoisted(() =>
       result: string,
       artifacts: unknown[],
       resultIsString?: boolean,
+      chatUIResultJson?: string,
     ) => Promise<void>
   >(),
 );
@@ -36,6 +37,7 @@ const readLedgerMock = vi.hoisted(() =>
     () => Promise<{
       result: string;
       resultIsString?: boolean;
+      chatUIResult?: unknown;
       artifacts: Array<{
         kind: "image";
         id: string;
@@ -178,6 +180,7 @@ describe("tool-call result ledger", () => {
       "zombie-result",
       [],
       true,
+      undefined,
     );
   });
 
@@ -255,6 +258,7 @@ describe("tool-call result ledger", () => {
       expect.stringContaining('"payload"'),
       [receipt],
       false,
+      undefined,
     );
     const zombieWrite = writeLedgerMock.mock.calls.find(
       ([threadId]) => threadId === "thread-artifact",
@@ -328,10 +332,50 @@ describe("tool-call result ledger", () => {
       actions: { "manage-draft": action },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      threadId: "thread-structured-widget",
     });
 
     expect(events.find((event) => event.type === "tool_done")).toMatchObject({
       result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "mail.draft-created" },
+      chatUIResult: result,
+    });
+    expect(writeLedgerMock).toHaveBeenCalledWith(
+      "thread-structured-widget",
+      expect.stringContaining("manage-draft"),
+      JSON.stringify(result, null, 2),
+      [],
+      false,
+      JSON.stringify(result),
+    );
+  });
+
+  it("emits widgets when the transcript result is truncated", async () => {
+    const result = {
+      deepLink: "/_agent-native/open",
+      summary: "x".repeat(200),
+    };
+    const action = makeWriteAction();
+    action.maxResultChars = 32;
+    action.run = vi.fn(async () => result);
+    action.chatUI = { renderer: "mail.draft-created" };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: expect.stringContaining("...[truncated"),
       chatUI: { renderer: "mail.draft-created" },
       chatUIResult: result,
     });
@@ -445,19 +489,22 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("evaluates chatUI.when against a recovered structured action result", async () => {
+  it("evaluates chatUI.when against the full recovered result when the ledger summary is truncated", async () => {
     const input = {
       action: "create",
       subject: "Launch notes",
       to: "ana@example.test",
     };
+    const result = {
+      draft: { subject: input.subject, to: input.to },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+      detail: "x".repeat(12_000),
+    };
     readLedgerMock.mockResolvedValue({
-      result: JSON.stringify({
-        draft: { subject: input.subject, to: input.to },
-        deepLink: "/_agent-native/open?composeDraftId=draft-1",
-      }),
+      result: '{"draft":[ledger truncated at 8000 chars]',
       resultIsString: false,
       artifacts: [],
+      chatUIResult: result,
     });
 
     const action = makeWriteAction();
@@ -520,10 +567,7 @@ describe("tool-call result ledger", () => {
     expect(action.run).not.toHaveBeenCalled();
     const toolDone = events.find((event: any) => event.type === "tool_done");
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
-    expect(toolDone?.chatUIResult).toEqual({
-      draft: { subject: input.subject, to: input.to },
-      deepLink: "/_agent-native/open?composeDraftId=draft-1",
-    });
+    expect(toolDone?.chatUIResult).toEqual(result);
   });
 
   it("keeps a JSON-looking string result as a string during recovery", async () => {

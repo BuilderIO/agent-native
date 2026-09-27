@@ -506,6 +506,7 @@ export async function ensureRunTables(): Promise<void> {
           result_summary TEXT NOT NULL,
           result_is_string BOOLEAN,
           artifacts_json TEXT,
+          chat_ui_result_json TEXT,
           completed_at BIGINT NOT NULL,
           PRIMARY KEY (thread_id, tool_key)
         )
@@ -608,6 +609,11 @@ export async function ensureRunTables(): Promise<void> {
       );
       await ensureColumnExists(
         "agent_tool_ledger",
+        "chat_ui_result_json",
+        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
+      );
+      await ensureColumnExists(
+        "agent_tool_ledger",
         "result_is_string",
         `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
       );
@@ -667,6 +673,7 @@ export async function writeLedgerEntry(
   resultSummary: string,
   artifacts: ArtifactReceipt[] = [],
   resultIsString?: boolean,
+  chatUIResultJson?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -677,12 +684,13 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : resultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
               result_is_string = excluded.result_is_string,
+              chat_ui_result_json = excluded.chat_ui_result_json,
               completed_at = excluded.completed_at`,
       args: [
         threadId,
@@ -690,6 +698,7 @@ export async function writeLedgerEntry(
         capped,
         JSON.stringify(artifacts),
         resultIsString ?? null,
+        chatUIResultJson ?? null,
         Date.now(),
       ],
     });
@@ -709,12 +718,13 @@ export async function readLedgerEntry(
   result: string;
   artifacts: ArtifactReceipt[];
   resultIsString?: boolean;
+  chatUIResult?: unknown;
 } | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json, result_is_string FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
@@ -722,13 +732,31 @@ export async function readLedgerEntry(
       result_summary: string;
       artifacts_json?: string | null;
       result_is_string?: boolean | null;
+      chat_ui_result_json?: string | null;
     };
+    let chatUIResult: unknown;
+    let hasChatUIResult = false;
+    if (row.chat_ui_result_json != null) {
+      try {
+        chatUIResult = JSON.parse(row.chat_ui_result_json);
+        hasChatUIResult = true;
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            component: "agent-run-store",
+            operation: "parse-tool-ledger-chat-ui-result",
+          },
+          extra: { threadId, toolKey },
+        });
+      }
+    }
     return {
       result: row.result_summary,
       artifacts: parseLedgerArtifacts(row.artifacts_json, threadId, toolKey),
       ...(typeof row.result_is_string === "boolean"
         ? { resultIsString: row.result_is_string }
         : {}),
+      ...(hasChatUIResult ? { chatUIResult } : {}),
     };
   } catch {
     return null;

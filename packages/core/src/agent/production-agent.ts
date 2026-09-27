@@ -7137,12 +7137,16 @@ export async function runAgentLoop(opts: {
               ledgerResult.result,
               ledgerResult.resultIsString,
             );
-            const chatUI = recoveredActionResult
+            const recoveredChatUIResult =
+              "chatUIResult" in ledgerResult
+                ? { value: ledgerResult.chatUIResult }
+                : recoveredActionResult;
+            const chatUI = recoveredChatUIResult
               ? actionChatUIForResult(
                   toolCall.name,
                   actionEntry,
                   toolCall.input as Record<string, unknown>,
-                  recoveredActionResult.value,
+                  recoveredChatUIResult?.value,
                   false,
                 )
               : undefined;
@@ -7163,8 +7167,8 @@ export async function runAgentLoop(opts: {
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
               ...(chatUI ? { chatUI } : {}),
-              ...(chatUI && recoveredActionResult
-                ? { chatUIResult: recoveredActionResult.value }
+              ...(chatUI && recoveredChatUIResult
+                ? { chatUIResult: recoveredChatUIResult.value }
                 : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
@@ -7441,7 +7445,6 @@ export async function runAgentLoop(opts: {
 
         let result: string;
         let chatUIResult: unknown;
-        let chatUIResultFits = true;
         let isError = false;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -7561,12 +7564,22 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   toolCall.name,
                 );
+                const zombieChatUI = actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  zombieResultForAgent,
+                  false,
+                );
                 void writeLedgerEntry(
                   ledgerThreadId,
                   ledgerToolKey,
                   zombieStr,
                   zombieArtifacts,
                   typeof zombieResultForAgent === "string",
+                  zombieChatUI
+                    ? JSON.stringify(zombieResultForAgent)
+                    : undefined,
                 );
               })
               .catch(() => {
@@ -7646,8 +7659,7 @@ export async function runAgentLoop(opts: {
             typeof resultForAgent === "string"
               ? resultForAgent
               : JSON.stringify(resultForAgent, null, 2);
-          chatUIResultFits = resultStr.length <= toolMaxResultChars;
-          if (!chatUIResultFits) {
+          if (resultStr.length > toolMaxResultChars) {
             const truncated = resultStr.slice(0, toolMaxResultChars);
             resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
           }
@@ -7747,15 +7759,13 @@ export async function runAgentLoop(opts: {
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
 
-        const chatUI = chatUIResultFits
-          ? actionChatUIForResult(
-              toolCall.name,
-              actionEntry,
-              toolCall.input as Record<string, unknown>,
-              chatUIResult,
-              isError,
-            )
-          : undefined;
+        const chatUI = actionChatUIForResult(
+          toolCall.name,
+          actionEntry,
+          toolCall.input as Record<string, unknown>,
+          chatUIResult,
+          isError,
+        );
 
         // Auto-refresh the UI after a successful mutating tool call. Any call
         // that isn't read-only — by its own per-call Plan-mode effect, else the

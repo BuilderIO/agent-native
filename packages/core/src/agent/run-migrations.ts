@@ -75,4 +75,12 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN
     `,
   },
+  {
+    version: 5,
+    name: "agent-tool-ledger-chat-ui-result",
+    sql: `
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT;
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT
+    `,
+  },
 ];

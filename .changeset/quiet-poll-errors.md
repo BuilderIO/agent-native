@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve structured action results for live and reloaded chat widgets, and log framework request errors that escape Nitro's Vite middleware in development.
+Keep action widgets visible when transcript text is truncated, preserve full widget results through ledger recovery, add the missing release ledger columns, and log framework request errors that escape Nitro's Vite middleware in development.
