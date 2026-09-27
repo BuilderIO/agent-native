@@ -225,6 +225,18 @@ const messages = {
   "common.no": "No",
   "common.retry": "Retry",
   "common.chunkLoadFailed": "Couldn't load this. Please try again.",
+  "personalization.tab": "Personalization",
+  "personalization.customInstructions": "Custom instructions",
+  "personalization.customInstructionsHelp":
+    "Saved to your personal AGENTS.md and used in every conversation.",
+  "personalization.customInstructionsPlaceholder":
+    "Describe how you want the agent to work with you.",
+  "personalization.memoryInstructions": "Memory preferences",
+  "personalization.memoryInstructionsHelp":
+    "Tell the agent what to remember and what to leave out.",
+  "personalization.memoryInstructionsPlaceholder":
+    "For example: remember important contacts; skip one-off errands.",
+  "personalization.saved": "Saved",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
   "agents.provider": "Provider",

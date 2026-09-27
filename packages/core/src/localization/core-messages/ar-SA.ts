@@ -225,6 +225,18 @@ const messages: AgentChatTranslation = {
   "common.no": "لا",
   "common.retry": "إعادة المحاولة",
   "common.chunkLoadFailed": "تعذّر التحميل. يُرجى المحاولة مرة أخرى.",
+  "personalization.tab": "التخصيص",
+  "personalization.customInstructions": "تعليمات مخصصة",
+  "personalization.customInstructionsHelp":
+    "تُحفظ في ملف AGENTS.md الشخصي وتُطبّق في كل محادثة.",
+  "personalization.customInstructionsPlaceholder":
+    "صف كيف تريد من الوكيل أن يعمل معك.",
+  "personalization.memoryInstructions": "تفضيلات الذاكرة",
+  "personalization.memoryInstructionsHelp":
+    "أخبر الوكيل بما يجب تذكره وما يجب تجاهله.",
+  "personalization.memoryInstructionsPlaceholder":
+    "مثال: تذكّر جهات الاتصال المهمة وتجاهل المهام العابرة.",
+  "personalization.saved": "تم الحفظ",
   "common.save": "حفظ",
   "agents.hostedAgent": "وكيل مستضاف",
   "agents.provider": "المزوّد",
