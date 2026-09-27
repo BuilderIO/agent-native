@@ -504,7 +504,7 @@ for (const target of targets) {
           });
           await renderedText(signInPage, `${target.origin}/sign-in`);
           await fillMagicLinkEmail(signInPage, email);
-          const emailRequestedAt = Date.now();
+          const emailRequestedAt = Date.now() - 5_000;
           const emailResult = waitForVerificationEmail(
             email,
             emailRequestedAt,
@@ -624,6 +624,9 @@ for (const target of targets) {
         await expect(
           postLinkPage.getByRole("heading", { name: /API keys/i }),
         ).toBeVisible({ timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
+        await expect(postLinkPage.getByText(/No keys yet/i)).toBeVisible({
+          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+        });
         await expect
           .poll(
             () =>
