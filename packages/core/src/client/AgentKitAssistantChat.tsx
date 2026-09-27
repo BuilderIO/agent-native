@@ -414,6 +414,7 @@ function isRetryableDeferredProviderSubmissionError(error: unknown): boolean {
 interface AgentKitSurfaceContextValue {
   props: AgentKitAssistantChatProps;
   handoffSnapshot: AgentThreadSnapshot | null;
+  hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
@@ -1110,6 +1111,18 @@ const AgentKitAssistantChatBody = forwardRef<
   const [voiceTranscriptMessages, setVoiceTranscriptMessages] = useState<
     AgentMessage[]
   >([]);
+  const threadMessageIds = new Set(
+    thread.messages.map((message) => message.id),
+  );
+  const hasRenderedMessages =
+    thread.messages.length > 0 ||
+    getAgentKitThreadHandoffMessages(
+      thread,
+      props.threadRestore.status === "error" ? null : props.handoffSnapshot,
+    ).length > 0 ||
+    voiceTranscriptMessages.some(
+      (message) => !threadMessageIds.has(message.id),
+    );
   const voiceTranscriptsRef = useRef<RealtimeVoiceTranscriptMessage[]>([]);
   const seenEventsRef = useRef({
     threadId,
@@ -2438,6 +2451,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const surfaceContext: AgentKitSurfaceContextValue = {
     props,
     handoffSnapshot: props.handoffSnapshot,
+    hasRenderedMessages,
     canChat,
     setupMissing,
     providerStatus,
@@ -2671,7 +2685,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   );
   const showHomeSuggestions =
     surface.props.centerComposerWhenEmpty &&
-    thread.messages.length === 0 &&
+    !surface.hasRenderedMessages &&
     surface.threadRestore.status === "ready";
   const suggestionBar =
     surface.props.suggestionPlacement === "context-chips" &&
@@ -2962,6 +2976,7 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  hasRenderedMessages,
   threadRestore,
   suggestions,
   showSuggestions,
@@ -2994,6 +3009,7 @@ function AgentKitComposerSurface({
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
+  hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
@@ -3044,18 +3060,18 @@ function AgentKitComposerSurface({
   });
   const showHomeIntro =
     props.homeIntroSlot &&
-    thread.messages.length === 0 &&
+    !hasRenderedMessages &&
     threadRestore.status === "ready";
   const showHomeSuggestions =
     props.centerComposerWhenEmpty &&
-    thread.messages.length === 0 &&
+    !hasRenderedMessages &&
     threadRestore.status === "ready" &&
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
   const showAfterComposerSlot =
     props.afterComposerSlot &&
-    thread.messages.length === 0 &&
+    !hasRenderedMessages &&
     threadRestore.status === "ready";
   return (
     <div

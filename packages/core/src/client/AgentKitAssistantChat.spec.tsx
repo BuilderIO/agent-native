@@ -1734,6 +1734,11 @@ describe("AgentKitAssistantChat host behavior", () => {
             browserTabId,
             isNewThread: false,
             onSaveThread: savedSnapshots,
+            centerComposerWhenEmpty: true,
+            suggestionPlacement: "context-chips",
+            homeIntroSlot: <h1>What should we do?</h1>,
+            afterComposerSlot: <div data-testid="home-app-grid" />,
+            suggestions: ["Explore my apps"],
           })}
         />,
       );
@@ -1743,6 +1748,9 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).toContain(
       "Assistant answer survives handoff",
     );
+    expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+    expect(container.querySelector(".agentkit-home-suggestions")).toBeNull();
+    expect(container.querySelector(".agentkit-after-composer-slot")).toBeNull();
     expect(container.querySelector('[aria-busy="true"]')).toBeNull();
     const handoff = await chatMocks.rootProps.transport.getThreadSnapshot({
       threadId,
