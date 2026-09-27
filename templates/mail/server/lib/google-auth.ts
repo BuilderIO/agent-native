@@ -226,7 +226,9 @@ async function refreshAccessToken(
     ) {
       return tokens.access_token;
     }
-    throw err;
+    const retryableError = err instanceof Error ? err : new Error(String(err));
+    Object.assign(retryableError, { retryable: true });
+    throw retryableError;
   }
 
   const updatedTokens: GoogleTokens = {
@@ -457,7 +459,7 @@ export async function getClientsWithErrors(
   accountEmails?: string[],
 ): Promise<{
   clients: Array<{ email: string; accessToken: string; refreshToken: string }>;
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; retryable?: true }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
   const requested = accountEmails
@@ -517,6 +519,7 @@ export async function getClientsWithErrors(
           error: {
             email: accountId,
             error: err?.message || "Unknown refresh error",
+            ...(err?.retryable === true ? { retryable: true as const } : {}),
           },
         };
       }

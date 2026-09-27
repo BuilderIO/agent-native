@@ -37,6 +37,19 @@ const database = vi.hoisted(() => {
     if (condition?.op === "inArray")
       return condition.values.includes(row[condition.column.name]);
     if (condition?.op === "isNull") return row[condition.column.name] == null;
+    if (
+      condition?.strings?.join("").includes("retryAfterAt") &&
+      condition.values.some((value: unknown) => typeof value === "number")
+    ) {
+      const retryAfterAt = JSON.parse(row.stateJson).retryAfterAt;
+      const now = condition.values.find(
+        (value: unknown) => typeof value === "number",
+      );
+      return (
+        typeof now === "number" &&
+        (typeof retryAfterAt !== "number" || retryAfterAt <= now)
+      );
+    }
     return false;
   }
 
@@ -413,6 +426,92 @@ describe("startMailAiFilterBackfill", () => {
 
     expect(result).toMatchObject({ status: "queued" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("skips delayed retries before bounding worker queue candidates", async () => {
+    const delayedRules = Array.from({ length: 8 }, (_, index) =>
+      rule(`delayed-${index}`),
+    );
+    const readyRule = rule("ready-rule");
+    mocks.rules = [...delayedRules, readyRule];
+    const retryAfterAt = Date.now() + 60_000;
+    for (const [index, delayedRule] of delayedRules.entries()) {
+      const state = backfillState([delayedRule]) as Record<string, any>;
+      state.retryAfterAt = retryAfterAt;
+      state.candidates = [];
+      database.rows.push({
+        ...runningRow([delayedRule]),
+        id: `delayed-${index}`,
+        status: "queued",
+        stateJson: JSON.stringify(state),
+        createdAt: Date.now() + index,
+      });
+    }
+    const readyState = backfillState([readyRule]);
+    readyState.candidates = [];
+    const readyRun = {
+      ...runningRow([readyRule]),
+      id: "ready-run",
+      status: "queued",
+      stateJson: JSON.stringify(readyState),
+      createdAt: Date.now() + 100,
+    };
+    database.rows.push(readyRun);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(readyRun.status).toBe("completed");
+    expect(
+      database.rows
+        .slice(0, delayedRules.length)
+        .every((row) => row.status === "queued"),
+    ).toBe(true);
+  });
+
+  it("retries wrapped credential refresh failures in the worker", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [
+        {
+          email: "account@example.test",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+    const row = runningRow([activeRule]);
+    database.rows.push(row);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const state = JSON.parse(row.stateJson);
+    expect(state.retryCount).toBe(1);
+    expect(state.retryAfterAt).toBeGreaterThan(Date.now());
+  });
+
+  it("resets exhausted retries when an explicit undo is requested", async () => {
+    mocks.rules = [rule("rule-a")];
+    const started = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+    const row = database.rows[0];
+    const state = JSON.parse(row.stateJson);
+    state.retryCount = 6;
+    state.retryAfterAt = Date.now() + 60_000;
+    row.status = "failed";
+    row.stateJson = JSON.stringify(state);
+
+    await requestMailAiFilterBackfillUndo(
+      ownerEmail,
+      started.runId,
+      row.undoToken,
+    );
+
+    const undoState = JSON.parse(row.stateJson);
+    expect(row.status).toBe("undoing");
+    expect(undoState.retryCount).toBe(0);
+    expect(undoState).not.toHaveProperty("retryAfterAt");
   });
 
   it("rejects an omitted selection above the enabled-rule limit before inserting a run", async () => {

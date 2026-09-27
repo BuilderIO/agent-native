@@ -683,6 +683,18 @@ describe("AiInboxSetup", () => {
     ).toBeNull();
   });
 
+  it("keeps Settings setup visible while Jev availability loads", () => {
+    mocks.jevAvailability.isLoading = true;
+    const { container } = render(<AiInboxSetup forceOpen />);
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+  });
+
   it("advances through setup before completing from the final step", async () => {
     const onOpenChange = vi.fn();
     mocks.jevAvailability.data = undefined;

@@ -658,16 +658,24 @@ export function AiInboxSetup({
     (!customTagName.trim() || !customTagPrompt.trim());
 
   if (
-    embedded &&
     forceOpen &&
     (googleStatus.isLoading || (connected && jevAvailability.isLoading))
   ) {
     return (
-      <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-14 w-full" />
-        <Skeleton className="h-10 w-28" />
-      </div>
+      <SetupSurface
+        embedded={embedded}
+        visible
+        onClose={() => {
+          onOpenChange?.(false);
+          void complete();
+        }}
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-10 w-28" />
+        </div>
+      </SetupSurface>
     );
   }
 

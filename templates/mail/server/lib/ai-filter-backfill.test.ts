@@ -34,6 +34,13 @@ describe("backfill retry handling", () => {
       30_000,
     );
     expect(aiFilterBackfillRetryDelay(new Error("invalid rule"))).toBeNull();
+    expect(
+      aiFilterBackfillRetryDelay(
+        Object.assign(new Error("temporary credential refresh failure"), {
+          retryable: true,
+        }),
+      ),
+    ).toBe(30_000);
   });
 
   it("removes database parameter dumps from stored errors", () => {

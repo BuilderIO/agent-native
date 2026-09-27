@@ -326,7 +326,23 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
   if (error instanceof TypeError && error.message === "fetch failed") {
     return TRANSIENT_RETRY_DELAY_MS;
   }
+  if (
+    error instanceof Error &&
+    (error as Error & { retryable?: unknown }).retryable === true
+  ) {
+    return TRANSIENT_RETRY_DELAY_MS;
+  }
   return null;
+}
+
+function googleClientErrorsError(
+  message: string,
+  errors: Array<{ retryable?: boolean }>,
+): Error {
+  const error = new Error(message);
+  if (errors.some(({ retryable }) => retryable))
+    Object.assign(error, { retryable: true });
+  return error;
 }
 
 function retryAfterAtFromState(raw: string): number | undefined {
@@ -609,6 +625,8 @@ export async function requestMailAiFilterBackfillUndo(
 
     const state = parseState(row.stateJson);
     state.undoFailedKeys = [];
+    state.retryCount = 0;
+    delete state.retryAfterAt;
     delete state.error;
     await tx
       .update(schema.aiFilterBackfills)
@@ -861,8 +879,9 @@ async function captureCandidates(
 ): Promise<BackfillCandidate[]> {
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw new Error(
+    throw googleClientErrorsError(
       errors.map((error) => `${error.email}: ${error.error}`).join("; "),
+      errors,
     );
   }
   return clients.length > 0
@@ -1552,8 +1571,9 @@ async function processRunningBatch(
 
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw new Error(
+    throw googleClientErrorsError(
       errors.map((error) => `${error.email}: ${error.error}`).join("; "),
+      errors,
     );
   }
   const clientsByEmail = new Map(
@@ -1807,9 +1827,10 @@ async function restoreGmailSnapshot(
     (item) => item.email.toLowerCase() === accountEmail.toLowerCase(),
   );
   if (!client) {
-    throw new Error(
+    throw googleClientErrorsError(
       clients.errors.map((error) => error.error).join("; ") ||
         "Gmail account is unavailable.",
+      clients.errors,
     );
   }
   const current = await gmailGetThread(
@@ -2078,6 +2099,10 @@ export async function processMailAiFilterBackfills(
   ];
   if (ownerEmail)
     conditions.push(eq(schema.aiFilterBackfills.ownerEmail, ownerEmail));
+  // Exclude delayed retries before the bounded scan so they cannot starve newer runs.
+  conditions.push(
+    sql`COALESCE((${schema.aiFilterBackfills.stateJson}::jsonb ->> 'retryAfterAt')::bigint, 0) <= ${now}`,
+  );
   const rows = await db
     .select()
     .from(schema.aiFilterBackfills)

@@ -1287,6 +1287,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
         {
           email: "oauth@example.com",
           error: "temporary refresh failure",
+          retryable: true,
         },
       ],
     });
@@ -1330,6 +1331,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
         {
           email: "oauth@example.com",
           error: "temporary refresh failure",
+          retryable: true,
         },
       ],
     });
