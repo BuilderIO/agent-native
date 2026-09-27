@@ -80,6 +80,7 @@ export interface ComposerContextMenuProps {
   attachmentAccept?: string;
   onAttachmentError?: (message: string) => void;
   onDisabledFocus?: () => void;
+  contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
 }
 interface ComposerContextPage {
@@ -210,10 +211,12 @@ export function ComposerContextMenu({
   attachmentAccept,
   onAttachmentError,
   onDisabledFocus,
+  contextButtonTooltipDisabled = false,
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
   const [open, setOpen] = useState(false);
+  const [triggerTooltipOpen, setTriggerTooltipOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [path, setPath] = useState<string[]>([]);
   const pathRef = useRef(path);
@@ -242,6 +245,9 @@ export function ComposerContextMenu({
       setDialog(null);
     }
   }, [dialog, dialogAvailable]);
+  useEffect(() => {
+    if (contextButtonTooltipDisabled) setTriggerTooltipOpen(false);
+  }, [contextButtonTooltipDisabled]);
   const restoreFocusOnClose = useRef(true);
   const label = t("agentChat.composer.addContext", {
     defaultValue: "Add context",
@@ -479,7 +485,10 @@ export function ComposerContextMenu({
         />
       )}
       <DropdownMenu open={open} onOpenChange={changeOpen}>
-        <Tooltip>
+        <Tooltip
+          open={triggerTooltipOpen && !contextButtonTooltipDisabled}
+          onOpenChange={setTriggerTooltipOpen}
+        >
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button

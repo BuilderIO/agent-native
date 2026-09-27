@@ -11,6 +11,8 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
+      // shiki only runs in the AgentKit chat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
     }),
   ],

@@ -117,15 +117,16 @@ export function getSlidesAgentScopeLabel(
   selection: SlidesAgentSelection | null,
   deckId: string,
 ): SlidesAgentScopeLabel {
-  if (hasCurrentSlideSelection(selection, deckId)) {
-    return { key: "agent.currentSelection" };
-  }
-
   const slideNumber =
     selection?.deckId === deckId ? selection.slideNumber : undefined;
-  return typeof slideNumber === "number" &&
+  if (
+    typeof slideNumber === "number" &&
     Number.isSafeInteger(slideNumber) &&
     slideNumber >= 1
-    ? { key: "agent.slideNumber", number: slideNumber }
+  ) {
+    return { key: "agent.slideNumber", number: slideNumber };
+  }
+  return hasCurrentSlideSelection(selection, deckId)
+    ? { key: "agent.currentSelection" }
     : { key: "agent.thisSlide" };
 }

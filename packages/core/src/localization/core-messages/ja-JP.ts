@@ -22,6 +22,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
+  "activity.groupLabel": "エージェントのアクティビティ",
+  "activity.agents": "エージェントの連携",
+  "activity.tasks": "エージェントのタスク",
+  "agent.started": "作業を開始しました",
+  "agent.resumed": "作業を再開しました",
+  "agent.messaged": "メッセージを送信しました",
+  "agent.delegated": "作業を委任しました",
+  "agent.paused": "作業を一時停止しました",
+  "agent.completed": "完了しました",
+  "agent.failed": "対応が必要です",
+  "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
@@ -33,6 +44,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "拒否",
   "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
+  "approval.submit": "送信",
+  "approval.other": "その他",
+  "approval.otherPlaceholder": "回答を入力",
   "auth.expiredDescription":
     "セッションの有効期限が切れた可能性があります。再接続するには、ログアウトしてからもう一度ログインしてください。",
   "auth.expiredTitle": "セッションの有効期限が切れました",
@@ -157,6 +171,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "common.you": "あなた",
   "agentPanel.mode": "モード",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "キーの範囲",
@@ -490,6 +505,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "どのようにお手伝いできますか？",
   "error.afterDuration": "{{duration}} 後に{{headline}}",
   "error.failed": "エージェントでエラーが発生しました",
+  "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
     "エージェントとの接続が中断されました。接続を確認して再試行してください。",
@@ -562,6 +578,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "おすすめ",
   "integrations.subtitle": "エージェントが使用できるツールを接続します。",
+  "connection.connecting": "接続中…",
+  "connection.notNow": "今はしない",
+  "connection.failed": "接続に失敗しました",
+  "connection.adminRequired":
+    "このサービスを接続するには、ワークスペース管理者に依頼してください。",
   "limit.account": "アカウント",
   "limit.descriptionAll":
     "エージェントは使用可能なすべてのステップを使い切りました。新しいターンで続行するか、先に{{scope}}の上限を引き上げてください。",
@@ -580,8 +601,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "メッセージをコピー",
   "message.copyRequestId": "リクエスト ID をコピー",
   "message.requestIdUnavailable": "リクエスト ID を利用できません",
+  "message.unavailable": "この会話ではこのメッセージを利用できなくなりました。",
+  "message.navigationUnavailable": "会話のナビゲーションは利用できません。",
   "message.edit": "メッセージを編集",
   "message.forkChat": "チャットを分岐",
+  "message.mobileInteractiveTitle": "インタラクティブコンテンツ",
+  "message.mobileInteractiveDescription":
+    "このインタラクティブビューはWebチャットでは利用できますが、ネイティブチャットではまだ利用できません。",
   "message.missingFinal":
     "エージェントは最終メッセージを送信せずに停止しました。続行するよう依頼するか、再試行してください。",
   "message.messages": "メッセージ",
@@ -664,6 +690,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "計画の準備ができました",
   "plan.switchToAct": "実行モードに切り替え",
   "queue.count": "{{count}} 件が待機中",
+  "queue.label": "キュー内のメッセージ",
   "queue.followUp": "フォローアップを送信...",
   "queue.followUpWithCount": "{{count}} 件が待機中 — フォローアップを送信...",
   "queue.remove": "キューから削除",
@@ -676,6 +703,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
+  "recovery.deferredSubmissionFailed":
+    "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":
     "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
   "codeRequired.builderAgentNotConnected":
@@ -691,6 +720,12 @@ const messages: AgentChatTranslation = {
     "前回のバックグラウンドエージェント実行は、完了前に制限時間に達しました。途中の作業は保持されています。ここから続行するか、再試行してください。",
   "recovery.noProgress":
     "前回のエージェント実行は復元中に進行状況を表示しなくなったため、ループを続ける前に停止されました。",
+  "recovery.stuckTitle": "このチャットは停止しているようです。",
+  "recovery.stuckNoProgress":
+    "進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckWithDuration":
+    "{{seconds}}秒間進行がありません。サーバーのタイムアウトか接続切れの可能性があります。",
+  "recovery.stuckRetrying": "自動的に再試行しています。",
   "recovery.statusCheckFailed":
     "エージェントがまだ動作中か確認するためのサーバー接続に失敗しました。メッセージを再送信して再試行してください。",
   "recovery.streamEnded":
@@ -812,6 +847,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
   "status.working": "処理中",
+  "status.workingFor": "{{duration}} 作業中",
   "shell.chat": "チャット",
   "shell.loadingTerminal": "ターミナルを読み込み中...",
   "shell.toggleAgent": "エージェントの表示を切り替える",

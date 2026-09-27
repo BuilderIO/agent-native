@@ -27,6 +27,7 @@
 @import "./blocks.css";
 @import "./chat-history-list.css";
 @import "./tokens/agent-kit.css";
+@import "@agent-native/agentkit/react/styles.css";
 
 @import "@agent-native/toolkit/styles.css";
 

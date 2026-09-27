@@ -21,6 +21,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "संदर्भ बहुत बड़ा है। कोई आइटम हटाएँ या छोटा चयन संलग्न करें।",
   "activity.reasoning": "तर्क",
+  "activity.groupLabel": "एजेंट गतिविधि",
+  "activity.agents": "एजेंटों का सहयोग",
+  "activity.tasks": "एजेंट के कार्य",
+  "agent.started": "काम शुरू किया",
+  "agent.resumed": "काम फिर शुरू किया",
+  "agent.messaged": "संदेश भेजा",
+  "agent.delegated": "काम सौंपा",
+  "agent.paused": "काम रोक दिया",
+  "agent.completed": "काम पूरा किया",
+  "agent.failed": "ध्यान देने की ज़रूरत है",
+  "agent.closed": "बंद किया",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
   "approval.alwaysAllowAction": "इस कार्रवाई को हमेशा अनुमति दें",
@@ -31,6 +42,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "अस्वीकार करें",
   "approval.moreOptions": "अनुमति के और विकल्प",
   "approval.question": "क्या {{tool}} को चलाने की अनुमति दें?",
+  "approval.submit": "जमा करें",
+  "approval.other": "अन्य",
+  "approval.otherPlaceholder": "अपना जवाब लिखें",
   "auth.expiredDescription":
     "आपका सत्र समाप्त हो गया हो सकता है। दोबारा कनेक्ट करने के लिए लॉग आउट करके फिर लॉग इन करें।",
   "auth.expiredTitle": "सत्र समाप्त हो गया",
@@ -148,6 +162,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
   "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
+  "common.you": "आप",
   "agentPanel.mode": "मोड",
   "agentPanel.uiMode": "यूआई",
   "agentPanel.keyScope": "कुंजी का दायरा",
@@ -470,6 +485,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
   "error.failed": "एजेंट को एक त्रुटि मिली",
+  "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
     "एजेंट का कनेक्शन बाधित हो गया। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
@@ -540,6 +556,10 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "प्रबंधित करें",
   "integrations.recommended": "अनुशंसित",
   "integrations.subtitle": "वे टूल कनेक्ट करें जिन्हें आपका एजेंट उपयोग कर सकता है।",
+  "connection.connecting": "कनेक्ट हो रहा है…",
+  "connection.notNow": "अभी नहीं",
+  "connection.failed": "कनेक्शन विफल हुआ",
+  "connection.adminRequired": "इस सेवा को कनेक्ट करने के लिए अपने वर्कस्पेस एडमिन से कहें।",
   "limit.account": "आपके खाते",
   "limit.descriptionAll":
     "एजेंट ने सभी उपलब्ध चरणों का उपयोग कर लिया। नए टर्न में जारी रखें या पहले {{scope}} की सीमा बढ़ाएँ।",
@@ -560,8 +580,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "संदेश कॉपी करें",
   "message.copyRequestId": "अनुरोध ID कॉपी करें",
   "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
+  "message.unavailable": "यह संदेश अब इस बातचीत में उपलब्ध नहीं है।",
+  "message.navigationUnavailable": "बातचीत में नेविगेशन उपलब्ध नहीं है।",
   "message.edit": "संदेश संपादित करें",
   "message.forkChat": "चैट की नई शाखा बनाएँ",
+  "message.mobileInteractiveTitle": "इंटरैक्टिव सामग्री",
+  "message.mobileInteractiveDescription":
+    "यह इंटरैक्टिव दृश्य वेब चैट में उपलब्ध है, लेकिन अभी नेटिव चैट में उपलब्ध नहीं है।",
   "message.missingFinal":
     "एजेंट अंतिम संदेश भेजे बिना रुक गया। उसे जारी रखने के लिए कहें या फिर से प्रयास करें।",
   "message.messages": "संदेश",
@@ -644,6 +669,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "योजना तैयार है",
   "plan.switchToAct": "कार्य मोड पर जाएँ",
   "queue.count": "कतार में {{count}}",
+  "queue.label": "कतार में संदेश",
   "queue.followUp": "अगला संदेश भेजें...",
   "queue.followUpWithCount": "कतार में {{count}} — अगला संदेश भेजें...",
   "queue.remove": "कतार से हटाएँ",
@@ -656,6 +682,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.deferredSubmissionFailed":
+    "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":
     "मॉडल प्रदाता ने सहेजे गए क्रेडेंशियल अस्वीकार कर दिए। अपना Builder.io कनेक्शन या प्रदाता कुंजी अपडेट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "codeRequired.builderAgentNotConnected":
@@ -670,6 +698,12 @@ const messages: AgentChatTranslation = {
     "पिछला बैकग्राउंड एजेंट रन पूरा होने से पहले समय सीमा पर पहुँच गया। आंशिक काम सुरक्षित है; यहाँ से जारी रखें या फिर प्रयास करें।",
   "recovery.noProgress":
     "पिछले एजेंट रन ने रिकवरी के दौरान प्रगति दिखाना बंद कर दिया, इसलिए उसे लूप जारी रखने से पहले रोक दिया गया।",
+  "recovery.stuckTitle": "यह चैट अटकी हुई लगती है।",
+  "recovery.stuckNoProgress":
+    "कोई प्रगति नहीं हुई। सर्वर टाइमआउट या कनेक्शन टूटने की वजह से एजेंट रुक सकता है।",
+  "recovery.stuckWithDuration":
+    "{{seconds}} सेकंड से कोई प्रगति नहीं हुई। सर्वर टाइमआउट या कनेक्शन टूटने की वजह से एजेंट रुक सकता है।",
+  "recovery.stuckRetrying": "अपने आप फिर से प्रयास किया जा रहा है।",
   "recovery.statusCheckFailed":
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
@@ -789,6 +823,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
   "status.working": "काम जारी है",
+  "status.workingFor": "{{duration}} से काम कर रहा है",
   "shell.chat": "चैट",
   "shell.loadingTerminal": "टर्मिनल लोड हो रहा है...",
   "shell.toggleAgent": "एजेंट दिखाएँ या छिपाएँ",

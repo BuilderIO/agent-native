@@ -222,6 +222,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "home.googleSlidesImportLabel": "Slides",
       "home.googleSlidesReferenceTitle": "Google Slides",
       "home.googleSlidesReferenceUrl": "Paste a Google Slides link",
+      "onboarding.fileStorage.title": "Connect storage to upload files",
+      "onboarding.fileStorage.custom": "Custom keys",
+      "composer.connectBuilder": "Connect Builder.io",
       "raw.uploadFailed": "Upload failed",
       "raw.uploadAttachedFailed": "Upload failed",
       "raw.uploading": "Uploading...",
@@ -838,16 +841,14 @@ describe("uploadPromptFiles", () => {
     fireEvent.click(screen.getByTestId("prompt-composer-attach"));
 
     expect(
-      await screen.findByRole("heading", {
-        name: "onboarding.fileStorage.title",
+      await screen.findByRole("dialog", {
+        name: "Connect storage to upload files",
       }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "composer.connectBuilder" }),
+      screen.getByRole("button", { name: "Connect Builder.io" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "onboarding.fileStorage.custom" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Custom keys" })).toBeTruthy();
   });
 
   it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {

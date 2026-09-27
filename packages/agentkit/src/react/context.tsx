@@ -46,7 +46,9 @@ import { resolveAgentCapabilityAffordance } from "../protocol/index.js";
 export interface AgentKitRenderProps<T> {
   value: T;
   threadId: ThreadId;
+  /** True while this part belongs to the actively streaming run. */
   active?: boolean;
+  /** Stable key a renderer can use to reset state between streamed parts. */
   resetKey?: string;
 }
 
@@ -109,8 +111,11 @@ export interface AgentKitSlots {
   transcript?: ComponentType<AgentKitRegionRenderProps>;
   footer?: ComponentType<AgentKitRegionRenderProps>;
   message?: ComponentType<AgentKitRenderProps<AgentMessage>>;
+  /** Host-owned contextual UI rendered after message content and before actions. */
   messageSupplement?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   messageActions?: ComponentType<AgentKitRenderProps<AgentMessage>>;
+  /** Host-owned actions aligned with the trailing message-action group. */
+  messageActionsTrailing?: ComponentType<AgentKitRenderProps<AgentMessage>>;
   text?: ComponentType<
     AgentKitRenderProps<Extract<AgentMessagePart, { type: "text" }>>
   >;
@@ -200,6 +205,7 @@ export interface AgentKitLabels {
   queue: string;
   queueSteer: string;
   queueSteerHint: string;
+  queueMoveToTop: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
@@ -210,8 +216,30 @@ export interface AgentKitLabels {
   requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
+  feedbackSubmitted: string;
+  feedbackWhatWentWrong: string;
+  feedbackPlaceholder: string;
+  feedbackKeyboardHint: string;
+  feedbackSubmit: string;
   fork: string;
+  previousBranch: string;
+  nextBranch: string;
+  branchPosition: string;
   copyUnavailable: string;
+  messageUnavailable: string;
+  navigationUnavailable: string;
+  editMessage: string;
+  cancelEditing: string;
+  regenerateResponse: string;
+  expandMessage: string;
+  collapseMessage: string;
+  previewAttachment: string;
+  pastedText: string;
+  imagePreview: string;
+  closePreview: string;
+  dropFilesToAttach: string;
+  scrollToBottom: string;
+  formatTimestamp?: (createdAt: string) => string;
   error: string;
   renderError: string;
   runFailed: string;
@@ -260,6 +288,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   queue: "Queued messages",
   queueSteer: "Steer",
   queueSteerHint: "Send this message to the active run",
+  queueMoveToTop: "Move to top",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
@@ -270,8 +299,30 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
+  feedbackSubmitted: "Feedback submitted",
+  feedbackWhatWentWrong: "What went wrong?",
+  feedbackPlaceholder: "Describe what went wrong",
+  feedbackKeyboardHint: "Press {{shortcut}}+Enter to submit",
+  feedbackSubmit: "Submit feedback",
   fork: "Fork conversation",
+  previousBranch: "Previous branch",
+  nextBranch: "Next branch",
+  branchPosition: "{{index}}/{{count}}",
   copyUnavailable: "Copying is unavailable in this browser.",
+  messageUnavailable:
+    "The message is no longer available in this conversation.",
+  navigationUnavailable: "Conversation navigation is unavailable.",
+  editMessage: "Edit message",
+  cancelEditing: "Cancel editing",
+  regenerateResponse: "Regenerate response",
+  expandMessage: "Expand",
+  collapseMessage: "Collapse",
+  previewAttachment: "Preview {{name}}",
+  pastedText: "Pasted text",
+  imagePreview: "Image preview",
+  closePreview: "Close preview",
+  dropFilesToAttach: "Drop files to attach",
+  scrollToBottom: "Scroll to bottom",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
   runFailed: "Run failed",
@@ -289,6 +340,19 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   agentClosed: "closed",
 };
 
+export interface AgentKitBranchNavigation {
+  /** One-based position of the active sibling branch. */
+  index: number;
+  count: number;
+  onPrevious: () => void | Promise<void>;
+  onNext: () => void | Promise<void>;
+}
+
+export type AgentKitCopyMessageHandler = (input: {
+  message: AgentMessage;
+  text: string;
+}) => boolean | Promise<boolean>;
+
 export interface AgentKitProviderProps {
   controller: AgentKitController;
   threadId: ThreadId;
@@ -297,9 +361,16 @@ export interface AgentKitProviderProps {
   labels?: Partial<AgentKitLabels>;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
+  branchNavigation?: AgentKitBranchNavigation;
+  onCopyMessage?: AgentKitCopyMessageHandler;
+  /**
+   * Resolves a provider identifier through host-owned connection setup. The
+   * callback, never the agent-authored request, owns OAuth URLs and scopes.
+   */
   onConnectionRequest?: (
     request: AgentConnectionRequest,
   ) => Promise<AgentConnectionResponse>;
+  /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
@@ -317,6 +388,8 @@ export interface AgentKitContextValue {
   labels: AgentKitLabels;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
+  branchNavigation?: AgentKitBranchNavigation;
+  onCopyMessage?: AgentKitCopyMessageHandler;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
@@ -333,6 +406,8 @@ export function AgentKitProvider({
   labels,
   onOpenObject,
   onThreadForked,
+  branchNavigation,
+  onCopyMessage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -366,6 +441,8 @@ export function AgentKitProvider({
       labels: mergedLabels,
       onOpenObject,
       onThreadForked,
+      branchNavigation,
+      onCopyMessage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -379,6 +456,8 @@ export function AgentKitProvider({
       mergedLabels,
       onOpenObject,
       onThreadForked,
+      branchNavigation,
+      onCopyMessage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -429,6 +508,7 @@ export function AgentKitProvider({
   );
 }
 
+/** Coalesces same-turn transport bursts without dropping the latest snapshot. */
 function subscribeToAgentKitUpdate(
   controller: AgentKitController,
   listener: () => void,
@@ -545,6 +625,10 @@ export interface AgentKitMutation<TArgs extends unknown[], TResult> {
   reset(): void;
 }
 
+/**
+ * Gives custom AgentKit controls the same race-safe pending and error contract
+ * as the reference components. Only the latest invocation owns visible state.
+ */
 export function useAgentKitMutation<TArgs extends unknown[], TResult>(
   mutation: (...args: TArgs) => Promise<TResult>,
   scopeKey?: unknown,
@@ -701,7 +785,7 @@ export function useAgentThread(requestedThreadId?: ThreadId) {
 }
 
 export function useAgentKitControl(requestedThreadId?: ThreadId) {
-  const { controller, threadId: contextThreadId } = useAgentKit();
+  const { controller, labels, threadId: contextThreadId } = useAgentKit();
   const threadId = requestedThreadId ?? contextThreadId;
   return useMemo(
     () => ({
@@ -762,12 +846,22 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
         }),
       removeQueued: (messageId: string) =>
         controller.removeQueuedMessage(threadId, messageId),
+      moveQueuedMessageToTop: (messageId: string) =>
+        controller.moveQueuedMessageToTop
+          ? controller.moveQueuedMessageToTop(threadId, messageId)
+          : Promise.reject(new Error(labels.error)),
       steerQueued: (messageId: string) =>
         controller.steerQueuedMessage(threadId, messageId),
       submitFeedback: (
         messageId: string,
         value: "positive" | "negative" | "dismissed",
-      ) => controller.submitFeedback(threadId, messageId, value),
+        options?: NonNullable<
+          Parameters<AgentKitController["submitFeedback"]>[3]
+        >,
+      ) =>
+        options
+          ? controller.submitFeedback(threadId, messageId, value, options)
+          : controller.submitFeedback(threadId, messageId, value),
       fork: (fromMessageId: string) =>
         controller.forkThread(threadId, fromMessageId),
       updateThread: (
@@ -777,6 +871,6 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       uploadFiles: controller.uploadFiles.bind(controller, threadId),
       invokeAction: controller.invokeAction.bind(controller),
     }),
-    [controller, threadId],
+    [controller, labels.error, threadId],
   );
 }

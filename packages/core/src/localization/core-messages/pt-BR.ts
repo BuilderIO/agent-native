@@ -21,6 +21,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "O contexto é grande demais. Remova um item ou anexe uma seleção menor.",
   "activity.reasoning": "Raciocínio",
+  "activity.groupLabel": "Atividade do agente",
+  "activity.agents": "Colaboração entre agentes",
+  "activity.tasks": "Tarefas dos agentes",
+  "agent.started": "começou a trabalhar",
+  "agent.resumed": "retomou o trabalho",
+  "agent.messaged": "enviou uma mensagem",
+  "agent.delegated": "delegou trabalho",
+  "agent.paused": "pausou o trabalho",
+  "agent.completed": "concluiu",
+  "agent.failed": "precisa de atenção",
+  "agent.closed": "encerrou",
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",
   "approval.alwaysAllowAction": "Sempre permitir esta ação",
@@ -31,6 +42,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "Negar",
   "approval.moreOptions": "Mais opções de aprovação",
   "approval.question": "Aprovar a execução de {{tool}}?",
+  "approval.submit": "Enviar",
+  "approval.other": "Outro",
+  "approval.otherPlaceholder": "Digite sua resposta",
   "auth.expiredDescription":
     "Sua sessão pode ter expirado. Saia e entre novamente para restabelecer a conexão.",
   "auth.expiredTitle": "Sessão expirada",
@@ -157,6 +171,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
   "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
+  "common.you": "Você",
   "agentPanel.mode": "Modo",
   "agentPanel.uiMode": "Interface",
   "agentPanel.keyScope": "Escopo da chave",
@@ -278,6 +293,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "Como posso ajudar?",
   "error.afterDuration": "{{headline}} após {{duration}}",
   "error.failed": "O agente encontrou um erro",
+  "error.render": "Não foi possível exibir este conteúdo.",
   "error.stopped": "O agente parou antes de concluir",
   "header.switchToCli": "Mudar para a CLI",
   "history.active": "Ativo",
@@ -299,6 +315,11 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "Gerenciar",
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecte as ferramentas que seu agente pode usar.",
+  "connection.connecting": "Conectando…",
+  "connection.notNow": "Agora não",
+  "connection.failed": "Falha na conexão",
+  "connection.adminRequired":
+    "Peça a um administrador do espaço de trabalho para conectar este serviço.",
   "limit.account": "sua conta",
   "limit.descriptionAll":
     "O agente usou todas as etapas disponíveis. Continue em uma nova interação ou aumente primeiro o limite de {{scope}}.",
@@ -316,8 +337,14 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "Copiar mensagem",
   "message.copyRequestId": "Copiar ID da solicitação",
   "message.requestIdUnavailable": "ID da solicitação indisponível",
+  "message.unavailable": "A mensagem não está mais disponível nesta conversa.",
+  "message.navigationUnavailable":
+    "A navegação da conversa não está disponível.",
   "message.edit": "Editar mensagem",
   "message.forkChat": "Bifurcar chat",
+  "message.mobileInteractiveTitle": "Conteúdo interativo",
+  "message.mobileInteractiveDescription":
+    "Esta visualização interativa está disponível no chat da web, mas ainda não no chat nativo.",
   "message.missingFinal":
     "O agente parou sem enviar uma mensagem final. Peça para ele continuar ou tente novamente.",
   "message.messages": "Mensagens",
@@ -343,6 +370,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "Plano pronto",
   "plan.switchToAct": "Mudar para o modo de ação",
   "queue.count": "{{count}} na fila",
+  "queue.label": "Mensagens na fila",
   "queue.followUp": "Enviar uma mensagem de acompanhamento...",
   "queue.followUpWithCount":
     "{{count}} na fila — enviar uma mensagem de acompanhamento...",
@@ -356,6 +384,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "Conectando ao Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
+  "recovery.deferredSubmissionFailed":
+    "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":
     "O provedor do modelo rejeitou as credenciais salvas. Atualize sua conexão com o Builder.io ou a chave do provedor e tente enviar esta mensagem novamente.",
   "codeRequired.builderAgentNotConnected":
@@ -372,6 +402,12 @@ const messages: AgentChatTranslation = {
     "A execução anterior do agente em segundo plano atingiu o limite de tempo antes de terminar. O trabalho parcial foi preservado; continue ou tente novamente a partir daqui.",
   "recovery.noProgress":
     "A execução anterior do agente deixou de mostrar progresso durante a recuperação e foi interrompida antes de continuar em loop.",
+  "recovery.stuckTitle": "Este chat parece travado.",
+  "recovery.stuckNoProgress":
+    "Sem progresso. O agente pode ter atingido o tempo limite do servidor ou perdido a conexão.",
+  "recovery.stuckWithDuration":
+    "Sem progresso há {{seconds}} s. O agente pode ter atingido o tempo limite do servidor ou perdido a conexão.",
+  "recovery.stuckRetrying": "Tentando novamente automaticamente agora.",
   "recovery.statusCheckFailed":
     "Não foi possível acessar o servidor para verificar se o agente ainda está trabalhando. Envie a mensagem novamente para tentar de novo.",
   "recovery.streamEnded":
@@ -434,6 +470,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "Ainda trabalhando",
   "status.thinking": "Pensando",
   "status.working": "Trabalhando",
+  "status.workingFor": "Trabalhando há {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Carregando terminal...",
   "shell.toggleAgent": "Mostrar ou ocultar agente",

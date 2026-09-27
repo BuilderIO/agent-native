@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import {
   fetchAgentEngineStatus,
-  fetchBuilderStatus,
-  fetchEnvironmentStatus,
   invalidateClientStatusRequest,
   type ClientStatusResult,
 } from "./client-status-requests.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 
-const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
-
+/**
+ * Three distinct situations, never collapsed:
+ * - `configured` / `missing` are authoritative chat-eligibility answers.
+ * - `unknown` (first check in flight) and `unavailable` (the check failed, a
+ *   retry is scheduled) both mean *we do not know*. Neither is evidence that
+ *   chat is eligible, so the composer stays unavailable until a retry succeeds.
+ */
 export type AgentEngineConfiguredState =
   | "unknown"
   | "configured"
@@ -19,11 +21,15 @@ export type AgentEngineConfiguredState =
   | "unavailable";
 
 export interface UseAgentEngineConfiguredResult {
+  /** True only when the authoritative status confirms chat-eligible AI. */
+  canChat: boolean;
+  /** True only when the authoritative status says interactive chat is ineligible. */
   missing: boolean;
   state: AgentEngineConfiguredState;
 }
 
 export interface FetchAgentEngineConfiguredStateOptions {
+  /** Kept for API compatibility; readiness always comes from chatEligible. */
   missingFallback?: boolean;
   timeoutMs?: number;
 }
@@ -61,12 +67,14 @@ async function waitForStatus<T>(
   }
 }
 
-function hasConfiguredFlag(value: unknown): value is { configured: boolean } {
+function hasChatEligibleFlag(
+  value: unknown,
+): value is { chatEligible: boolean } {
   return (
     typeof value === "object" &&
     value !== null &&
-    "configured" in value &&
-    typeof (value as { configured?: unknown }).configured === "boolean"
+    "chatEligible" in value &&
+    typeof (value as { chatEligible?: unknown }).chatEligible === "boolean"
   );
 }
 
@@ -107,58 +115,44 @@ export async function fetchAgentEngineConfiguredState(
     timeoutMs,
   );
   if (
-    engineResult.state === "available" &&
-    hasConfiguredFlag(engineResult.value)
+    engineResult.state !== "available" ||
+    !hasChatEligibleFlag(engineResult.value)
   ) {
-    return engineResult.value.configured ? "configured" : "missing";
+    // A reachable legacy server may expose only the broad `configured` flag.
+    // It cannot prove this stricter chat-specific policy, so fail closed and
+    // let the existing retry loop refresh after the server is upgraded.
+    return "unavailable";
   }
-
-  const [envResult, builderResult] = await Promise.all([
-    waitForStatus(
-      fetchEnvironmentStatus(),
-      "/_agent-native/env-status",
-      timeoutMs,
-    ),
-    waitForStatus(
-      fetchBuilderStatus(),
-      "/_agent-native/builder/status",
-      timeoutMs,
-    ),
-  ]);
-  const envKeys = envResult.state === "available" ? envResult.value : undefined;
-  const builderStatus =
-    builderResult.state === "available" ? builderResult.value : undefined;
-  const envKeysKnown = Array.isArray(envKeys);
-  const builderStatusKnown = hasConfiguredFlag(builderStatus);
-  const keys = envKeysKnown
-    ? (envKeys as Array<{
-        key: string;
-        configured: boolean;
-      }>)
-    : [];
-  const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
-  const anyConfigured =
-    llmKeys.some((k) => k.configured) ||
-    (builderStatusKnown && builderStatus.configured);
-  if (anyConfigured) return "configured";
-
-  return envKeysKnown && builderStatusKnown ? "missing" : "unavailable";
+  return engineResult.value.chatEligible ? "configured" : "missing";
 }
 
+/**
+ * Shared interactive-chat gate — its status comes only from the canonical
+ * chat-specific eligibility field. Pass `enabled = false` to preserve the
+ * legacy status short-circuit; `canChat` remains false in that mode. A check
+ * without an authoritative answer retries on a backoff until it does.
+ */
 export function useAgentEngineConfigured(
   enabled = true,
   options?: UseAgentEngineConfiguredOptions,
 ): UseAgentEngineConfiguredResult {
   const [state, setState] = useState<AgentEngineConfiguredState>("unknown");
+  const [canChat, setCanChat] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    // Monotonic call counter: overlapping checks (mount + a
+    // `agent-engine:configured-changed` fired right after a key is saved) can
+    // resolve out of order; only the latest call may write state, or a slow
+    // stale "missing" response would overwrite the fresh "configured" one.
     let requestSeq = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
     const scheduleRetry = (delay: number) => {
       retryTimer = setTimeout(() => {
         if (document.hidden) {
+          // Tab is backgrounded — keep the same backoff instead of hitting
+          // the network; the visibilitychange listener below recovers fast.
           scheduleRetry(delay);
           return;
         }
@@ -174,19 +168,29 @@ export function useAgentEngineConfigured(
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
       setState(nextState === "unknown" ? "unavailable" : nextState);
+      setCanChat(enabled && nextState === "configured");
       if (nextState === "configured" || nextState === "missing") {
         retryAttempt = 0;
         return;
       }
+      // No authoritative answer yet. Keep asking: a failed probe that latched
+      // permanently is what left users staring at a dead composer with no way
+      // back short of a reload.
       const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
       retryAttempt += 1;
       scheduleRetry(delay);
     };
+    // The composer gate is not visible during first paint; defer the initial
+    // probe so it does not compete in the startup window. Event-driven
+    // re-checks below stay immediate.
     let initialCheckRan = false;
     const cancelInitialCheck = scheduleAfterPaint(() => {
       initialCheckRan = true;
       if (!cancelled) void check();
     });
+    // An event inside the deferral window consumes the scheduled initial
+    // probe, so one client-status request lands immediately instead of two
+    // when the window elapses.
     const checkNow: typeof check = (options) => {
       if (!initialCheckRan) {
         initialCheckRan = true;
@@ -201,6 +205,7 @@ export function useAgentEngineConfigured(
       if (!missingKeyEventMatchesScope(event, options)) return;
       if (!enabled) {
         setState("configured");
+        setCanChat(false);
         return;
       }
       checkNow({ missingFallback: true });
@@ -217,6 +222,8 @@ export function useAgentEngineConfigured(
       "agent-engine:configured-changed",
       onConfiguredChanged,
     );
+    // A stale failed stream can arrive after a reconnect succeeds. Re-check the
+    // current status before pinning the composer in setup.
     window.addEventListener("agent-chat:missing-api-key", onMissing);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
@@ -232,5 +239,9 @@ export function useAgentEngineConfigured(
     };
   }, [enabled, options?.tabId, options?.threadId]);
 
-  return { missing: state === "missing", state };
+  return {
+    canChat: enabled && canChat,
+    missing: state === "missing",
+    state,
+  };
 }

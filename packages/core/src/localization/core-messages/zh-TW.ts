@@ -21,6 +21,17 @@ const messages: AgentChatTranslation = {
   "composer.contextLimitExceeded":
     "上下文過大。請移除一項或附加較小的選取範圍。",
   "activity.reasoning": "推理",
+  "activity.groupLabel": "代理活動",
+  "activity.agents": "代理協作",
+  "activity.tasks": "代理任務",
+  "agent.started": "開始工作",
+  "agent.resumed": "恢復工作",
+  "agent.messaged": "傳送了訊息",
+  "agent.delegated": "已委派工作",
+  "agent.paused": "已暫停工作",
+  "agent.completed": "已完成",
+  "agent.failed": "需要注意",
+  "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
   "approval.alwaysAllowAction": "一律允許此動作",
@@ -31,6 +42,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "拒絕",
   "approval.moreOptions": "更多核准選項",
   "approval.question": "要核准執行 {{tool}} 嗎？",
+  "approval.submit": "提交",
+  "approval.other": "其他",
+  "approval.otherPlaceholder": "輸入你的回答",
   "auth.expiredDescription":
     "您的工作階段可能已過期。請登出後重新登入以恢復連線。",
   "auth.expiredTitle": "工作階段已過期",
@@ -145,6 +159,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "複製診斷資訊",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "代理",
+  "common.you": "你",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "介面",
   "agentPanel.keyScope": "金鑰範圍",
@@ -455,6 +470,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "我能如何協助您？",
   "error.afterDuration": "{{duration}} 後{{headline}}",
   "error.failed": "代理發生錯誤",
+  "error.render": "無法顯示此內容。",
   "error.stopped": "代理在完成前已停止",
   "errorMessages.agentConnection": "代理連線已中斷。請檢查網路連線後重試。",
   "errorMessages.attachmentPasswordProtected":
@@ -524,6 +540,10 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "推薦",
   "integrations.subtitle": "連線您的代理可以使用的工具。",
+  "connection.connecting": "連線中…",
+  "connection.notNow": "暫時不要",
+  "connection.failed": "連線失敗",
+  "connection.adminRequired": "請向工作區管理員提出連接此服務的要求。",
   "limit.account": "您的帳戶",
   "limit.descriptionAll":
     "代理已用完所有可用步驟。請在新的回合中繼續，或先提高{{scope}}的限制。",
@@ -542,8 +562,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "複製訊息",
   "message.copyRequestId": "複製要求 ID",
   "message.requestIdUnavailable": "要求 ID 無法使用",
+  "message.unavailable": "此訊息在此對話中已無法使用。",
+  "message.navigationUnavailable": "對話導覽無法使用。",
   "message.edit": "編輯訊息",
   "message.forkChat": "建立聊天分支",
+  "message.mobileInteractiveTitle": "互動式內容",
+  "message.mobileInteractiveDescription":
+    "此互動檢視可在網頁聊天中使用，但原生聊天目前尚不支援。",
   "message.missingFinal": "代理已停止，但未傳送最終訊息。請要求它繼續或重試。",
   "message.messages": "訊息",
   "message.nextBranch": "下一個分支",
@@ -625,6 +650,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "規劃已就緒",
   "plan.switchToAct": "切換到執行模式",
   "queue.count": "{{count}} 則排隊中",
+  "queue.label": "排隊中的訊息",
   "queue.followUp": "傳送後續訊息...",
   "queue.followUpWithCount": "{{count}} 則排隊中——傳送後續訊息...",
   "queue.remove": "從佇列中移除",
@@ -637,6 +663,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "正在連線至 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
+  "recovery.deferredSubmissionFailed":
+    "無法傳送這則訊息。請檢查連線或聊天設定，然後再試一次。",
   "recovery.credentialRejected":
     "模型供應商拒絕了已儲存的憑證。請更新 Builder.io 連線或供應商金鑰，然後重試這則訊息。",
   "codeRequired.builderAgentNotConnected":
@@ -651,6 +679,12 @@ const messages: AgentChatTranslation = {
     "上一次代理背景執行在完成前達到時間限制。部分工作已保留；請繼續或重試以從這裡接續。",
   "recovery.noProgress":
     "上一次代理執行在復原期間停止顯示進度，因此已在可能繼續循環前停止。",
+  "recovery.stuckTitle": "此聊天似乎卡住了。",
+  "recovery.stuckNoProgress":
+    "目前沒有進展。代理可能遇到伺服器逾時或連線中斷。",
+  "recovery.stuckWithDuration":
+    "已有 {{seconds}} 秒沒有進展。代理可能遇到伺服器逾時或連線中斷。",
+  "recovery.stuckRetrying": "正在自動重試。",
   "recovery.statusCheckFailed":
     "無法連線至伺服器以檢查代理是否仍在工作。請重新傳送訊息以重試。",
   "recovery.streamEnded":
@@ -767,6 +801,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "仍在處理",
   "status.thinking": "正在思考",
   "status.working": "正在處理",
+  "status.workingFor": "已工作 {{duration}}",
   "shell.chat": "聊天",
   "shell.loadingTerminal": "正在載入終端...",
   "shell.toggleAgent": "顯示或隱藏代理",

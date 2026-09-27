@@ -20,6 +20,17 @@ const messages: AgentChatTranslation = {
   "composer.retryContext": "重试 {{name}} 上下文",
   "composer.contextLimitExceeded": "上下文过大。请移除一项或附加更小的选区。",
   "activity.reasoning": "推理",
+  "activity.groupLabel": "智能体活动",
+  "activity.agents": "智能体协作",
+  "activity.tasks": "智能体任务",
+  "agent.started": "开始工作了",
+  "agent.resumed": "恢复了工作",
+  "agent.messaged": "发送了消息",
+  "agent.delegated": "委派了工作",
+  "agent.paused": "暂停了工作",
+  "agent.completed": "已完成",
+  "agent.failed": "需要关注",
+  "agent.closed": "已关闭",
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",
   "approval.alwaysAllowAction": "始终允许此操作",
@@ -30,6 +41,9 @@ const messages: AgentChatTranslation = {
   "approval.deny": "拒绝",
   "approval.moreOptions": "更多批准选项",
   "approval.question": "批准运行 {{tool}}？",
+  "approval.submit": "提交",
+  "approval.other": "其他",
+  "approval.otherPlaceholder": "输入你的回答",
   "auth.expiredDescription":
     "您的会话可能已过期。请退出登录后重新登录以恢复连接。",
   "auth.expiredTitle": "会话已过期",
@@ -143,6 +157,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "复制诊断信息",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
+  "common.you": "你",
   "agentPanel.mode": "模式",
   "agentPanel.uiMode": "界面",
   "agentPanel.keyScope": "密钥范围",
@@ -453,6 +468,7 @@ const messages: AgentChatTranslation = {
   "empty.prompt": "我能为您做些什么？",
   "error.afterDuration": "{{duration}} 后{{headline}}",
   "error.failed": "智能体遇到错误",
+  "error.render": "无法显示此内容。",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
   "errorMessages.attachmentPasswordProtected":
@@ -521,6 +537,10 @@ const messages: AgentChatTranslation = {
   "integrations.manage": "管理",
   "integrations.recommended": "推荐",
   "integrations.subtitle": "连接您的智能体可以使用的工具。",
+  "connection.connecting": "正在连接…",
+  "connection.notNow": "暂不",
+  "connection.failed": "连接失败",
+  "connection.adminRequired": "请联系工作区管理员连接此服务。",
   "limit.account": "您的账户",
   "limit.descriptionAll":
     "智能体已用完所有可用步骤。请在新的轮次中继续，或先提高{{scope}}的限制。",
@@ -539,8 +559,13 @@ const messages: AgentChatTranslation = {
   "message.copyMessage": "复制消息",
   "message.copyRequestId": "复制请求 ID",
   "message.requestIdUnavailable": "请求 ID 不可用",
+  "message.unavailable": "此消息在此对话中已不可用。",
+  "message.navigationUnavailable": "对话导航不可用。",
   "message.edit": "编辑消息",
   "message.forkChat": "创建聊天分支",
+  "message.mobileInteractiveTitle": "交互式内容",
+  "message.mobileInteractiveDescription":
+    "此交互式视图可在网页聊天中使用，但暂不支持原生聊天。",
   "message.missingFinal": "智能体已停止，但未发送最终消息。请让它继续或重试。",
   "message.messages": "消息",
   "message.nextBranch": "下一个分支",
@@ -621,6 +646,7 @@ const messages: AgentChatTranslation = {
   "plan.ready": "规划已就绪",
   "plan.switchToAct": "切换到执行模式",
   "queue.count": "{{count}} 条排队中",
+  "queue.label": "排队中的消息",
   "queue.followUp": "发送后续消息...",
   "queue.followUpWithCount": "{{count}} 条排队中——发送后续消息...",
   "queue.remove": "从队列中移除",
@@ -633,6 +659,8 @@ const messages: AgentChatTranslation = {
   "recovery.connectingBuilder": "正在连接 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.deferredSubmissionFailed":
+    "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":
     "模型提供商拒绝了已保存的凭据。请更新 Builder.io 连接或提供商密钥，然后重试此消息。",
   "codeRequired.builderAgentNotConnected":
@@ -647,6 +675,11 @@ const messages: AgentChatTranslation = {
     "上一次智能体后台运行在完成前达到时间限制。部分工作已保留；请继续或重试以从这里接续。",
   "recovery.noProgress":
     "上一次智能体运行在恢复期间停止显示进度，因此已在可能继续循环前停止。",
+  "recovery.stuckTitle": "此聊天似乎卡住了。",
+  "recovery.stuckNoProgress": "暂无进展。智能体可能遇到服务器超时或连接中断。",
+  "recovery.stuckWithDuration":
+    "已有 {{seconds}} 秒没有进展。智能体可能遇到服务器超时或连接中断。",
+  "recovery.stuckRetrying": "正在自动重试。",
   "recovery.statusCheckFailed":
     "无法连接服务器以检查智能体是否仍在工作。请重新发送消息以重试。",
   "recovery.streamEnded":
@@ -763,6 +796,7 @@ const messages: AgentChatTranslation = {
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",
   "status.working": "正在处理",
+  "status.workingFor": "已工作 {{duration}}",
   "shell.chat": "聊天",
   "shell.loadingTerminal": "正在加载终端...",
   "shell.toggleAgent": "显示或隐藏智能体",

@@ -31,7 +31,7 @@ import {
   setThreadArchived,
   threadScopeMismatch,
   setThreadPinned,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
 
@@ -159,7 +159,7 @@ describe("chat thread store", () => {
           thread_data: args[0],
           title: args[1],
           preview: args[2],
-          message_count: args[3],
+          message_count: args[3] === null ? row.message_count : args[3],
           updated_at: args[4],
         };
         return { rows: [], rowsAffected: 1 };
@@ -402,34 +402,58 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
-    row!.thread_data = JSON.stringify({
-      queuedMessages: [{ id: "queued-1", text: "next" }],
-      messages: [{ message: userMessage, parentId: null }],
+  it("reapplies queued-message appends after a cross-process CAS conflict", async () => {
+    const first = { id: "queued-1", text: "First" };
+    const concurrent = { id: "queued-2", text: "Second" };
+    const appended = { id: "queued-3", text: "Third", threadId: "thread-1" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [first] });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [first, concurrent] }),
+        updated_at: 2,
+      };
+    };
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: appended,
     });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      first,
+      concurrent,
+      appended,
+    ]);
+    expect(row!.preview).toBe("make this slide better");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("removes only the requested queue item after a concurrent append", async () => {
+    const removed = { id: "queued-1", text: "Remove this" };
+    const remaining = { id: "queued-2", text: "Keep this" };
+    const concurrent = { id: "queued-3", text: "Added in another tab" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [removed, remaining] });
 
     conflictOnce = () => {
       row = {
         ...row!,
         thread_data: JSON.stringify({
-          queuedMessages: [{ id: "queued-1", text: "next" }],
-          messages: [
-            { message: userMessage, parentId: null },
-            { message: assistantMessage, parentId: "user-1" },
-          ],
+          queuedMessages: [removed, remaining, concurrent],
         }),
-        message_count: 2,
         updated_at: 2,
       };
     };
 
-    await setThreadQueuedMessages("thread-1", []);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: removed.id,
+    });
 
-    const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toEqual([]);
-    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
-      "user-1",
-      "assistant-1",
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      remaining,
+      concurrent,
     ]);
   });
 
