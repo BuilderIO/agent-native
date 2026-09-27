@@ -2265,11 +2265,12 @@ describe("provider API runtime", () => {
         },
       },
     ]);
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ error: "invalid_grant" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      }),
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const runtime = createProviderApiRuntime({
       appId: "slides",

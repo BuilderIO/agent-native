@@ -919,7 +919,7 @@ describe("getValidAccessToken single-flight refresh", () => {
     mockExpiredAccount();
     const refreshToken = vi
       .fn()
-      .mockRejectedValueOnce(new Error("network error"))
+      .mockRejectedValueOnce(new TypeError("network error"))
       .mockResolvedValueOnce({
         access_token: "refreshed-token",
         expires_in: 3600,
@@ -1276,7 +1276,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
     ] as any);
     const refreshToken = vi
       .fn()
-      .mockRejectedValue(new Error("temporary refresh failure"));
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
     vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
 
     await expect(
@@ -1311,7 +1311,7 @@ describe("mixed OAuth and managed Gmail accounts", () => {
     ] as any);
     const refreshToken = vi
       .fn()
-      .mockRejectedValue(new Error("temporary refresh failure"));
+      .mockRejectedValue(new TypeError("temporary refresh failure"));
     vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
     vi.mocked(resolveWorkspaceConnectionForApp).mockResolvedValue({
       available: true,
@@ -1336,6 +1336,69 @@ describe("mixed OAuth and managed Gmail accounts", () => {
       ],
     });
   });
+
+  it("does not retry or use an unexpired token after a permanent HTTP refresh failure", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "oauth@example.com",
+        owner: OWNER,
+        tokens: {
+          access_token: "still-valid-token",
+          refresh_token: "oauth-refresh",
+          expiry_date: Date.now() + 2 * 60 * 1000,
+        },
+      },
+    ] as any);
+    const refreshError = Object.assign(new Error("invalid_scope"), {
+      response: { status: 400 },
+      status: 400,
+    });
+    const refreshToken = vi.fn().mockRejectedValue(refreshError);
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    await expect(
+      getClientsWithErrors(OWNER, ["oauth@example.com"]),
+    ).resolves.toEqual({
+      clients: [],
+      errors: [{ email: "oauth@example.com", error: "invalid_scope" }],
+    });
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 429, 503])(
+    "marks HTTP %i Google refresh failures retryable",
+    async (status) => {
+      vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+        {
+          accountId: "connected@example.com",
+          owner: "connected@example.com",
+          tokens: {
+            access_token: "stale-access-token",
+            refresh_token: "refresh-token",
+            expiry_date: Date.now() - 1000,
+          },
+        },
+      ] as any);
+      const refreshError = Object.assign(
+        new Error("temporary refresh failure"),
+        {
+          response: { status },
+          status,
+        },
+      );
+      vi.mocked(createOAuth2Client).mockReturnValue({
+        refreshToken: vi.fn().mockRejectedValue(refreshError),
+      } as any);
+
+      await expect(
+        getClientsWithErrors("connected@example.com"),
+      ).resolves.toMatchObject({
+        clients: [],
+        errors: [{ email: "connected@example.com", retryable: true }],
+      });
+    },
+  );
 });
 
 describe("managed Gmail request context", () => {

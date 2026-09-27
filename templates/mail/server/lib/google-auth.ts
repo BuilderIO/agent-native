@@ -195,6 +195,15 @@ export function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
+function isRetryableRefreshError(error: any): boolean {
+  const status = error?.response?.status ?? error?.status;
+  if (typeof status === "number") {
+    return status === 408 || status === 429 || (status >= 500 && status < 600);
+  }
+  if (error?.response) return false;
+  return error?.name === "AbortError" || error instanceof TypeError;
+}
+
 // Single-flight refresh per stored token row. Concurrent callers for the same
 // account (labels, emails, settings, google-status all fire on mount) must
 // await one in-flight `oauth2.refreshToken` instead of each racing their own
@@ -229,6 +238,7 @@ async function refreshAccessToken(
       await deleteOAuthTokens("google", accountId);
       throw err;
     }
+    if (!isRetryableRefreshError(err)) throw err;
     // Transient failure (network hiccup, 5xx, timeout). If the existing
     // token hasn't actually expired yet — we only entered this path
     // because we're inside the 5-minute pre-expiry buffer — fall back to
