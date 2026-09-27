@@ -259,8 +259,8 @@ Phase 0 already claimed these with `👀`. If this workflow earlier eyed
 something out of scope, keep our `👀`; do not add another reaction or post a
 compensating message.
 
-Search for eye-marked parents across identities, oldest-first, and follow
-`next_cursor` through every page to find older active claims:
+Every run, exhaust oldest-first `has::eyes:` pages. Revisit active/waiting
+claims at any age, even without replies; terminal claims reopen on new evidence:
 
 ```
 slack_search: has::eyes: in:<#CHANNEL>
@@ -554,6 +554,7 @@ on - that is how silence stays auditable.
 ```md
 ## Feedback sweep
 Start cursor: [Slack message](...)
+Reply scan cursor (next run's `after`): <last timestamp fully processed>
 Messages enumerated: N · Claimed: N · Answered since last run: N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
