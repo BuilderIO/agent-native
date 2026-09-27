@@ -408,6 +408,13 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
+    expect(promptProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        presentation: "inline",
+        disabled: false,
+        submissionDisabled: false,
+      }),
+    );
     expect(
       document.querySelector('[aria-busy="true"].skeleton-shimmer'),
     ).toBeNull();
