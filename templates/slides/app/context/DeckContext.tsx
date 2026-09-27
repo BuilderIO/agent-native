@@ -394,6 +394,7 @@ export function getDuplicateSourceSlides(deck: Deck): Slide[] {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
+const inFlightKeepaliveSaves = new Map<string, Promise<void>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
@@ -454,7 +455,10 @@ const serverSaveSnapshot: SaveStateSnapshot = {
 
 function recomputeSnapshot() {
   const saving =
-    pendingSaves.size > 0 || inFlightSaves.size > 0 || pendingOpsQueue.size > 0;
+    pendingSaves.size > 0 ||
+    inFlightSaves.size > 0 ||
+    inFlightKeepaliveSaves.size > 0 ||
+    pendingOpsQueue.size > 0;
   const hasUnsavedChanges = saving || failedSaveDecks.size > 0;
   if (
     saving !== cachedSnapshot.saving ||
@@ -490,6 +494,7 @@ export function hasUnsavedDeckChanges(deckId: string): boolean {
   return (
     pendingSaves.has(deckId) ||
     inFlightSaves.has(deckId) ||
+    inFlightKeepaliveSaves.has(deckId) ||
     pendingOpsQueue.has(deckId) ||
     failedSaveDecks.has(deckId)
   );
@@ -710,13 +715,49 @@ function drainPendingDeckOps(
 
   const active = inFlightSaveChains.get(deckId);
   if (active) {
+    const keepaliveAlreadyRequested =
+      immediateFlushRequests.get(deckId) === true;
     immediateFlushRequests.set(
       deckId,
       (immediateFlushRequests.get(deckId) ?? false) ||
         options?.keepalive === true,
     );
+    const activeOps = inFlightOpSlides.get(deckId);
+    const controller = inFlightSaveControllers.get(deckId);
+    if (
+      options?.keepalive &&
+      !keepaliveAlreadyRequested &&
+      !inFlightKeepaliveSaves.has(deckId) &&
+      activeOps?.length
+    ) {
+      const keepaliveSave = persistDeckOps(
+        deckId,
+        activeOps,
+        controller?.signal,
+        { keepalive: true },
+      ).then(
+        () => undefined,
+        (err) => {
+          if (!controller?.signal.aborted) {
+            console.error(`Failed to keepalive save deck ${deckId}:`, err);
+          }
+        },
+      );
+      inFlightKeepaliveSaves.set(deckId, keepaliveSave);
+      void keepaliveSave.then(() => {
+        if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
+          inFlightKeepaliveSaves.delete(deckId);
+          notifySaveListeners();
+        }
+      });
+    }
     notifySaveListeners();
     return active;
+  }
+
+  const activeKeepalive = inFlightKeepaliveSaves.get(deckId);
+  if (activeKeepalive) {
+    return activeKeepalive.then(() => drainPendingDeckOps(deckId, options));
   }
 
   const ops = pendingOpsQueue.get(deckId) ?? [];
@@ -812,10 +853,14 @@ function drainPendingDeckOps(
         immediateFlushRequests.delete(deckId);
         notifySaveListeners();
         if (flushImmediately) {
-          void drainPendingDeckOps(
-            deckId,
-            requestedFlush ? { keepalive: true } : undefined,
-          );
+          const flush = () =>
+            void drainPendingDeckOps(
+              deckId,
+              requestedFlush ? { keepalive: true } : undefined,
+            );
+          const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+          if (keepaliveSave) void keepaliveSave.then(flush);
+          else flush();
         }
       }
     });
@@ -829,6 +874,11 @@ async function flushDeckSave(deckId: string): Promise<void> {
     const active = inFlightSaveChains.get(deckId);
     if (active) {
       await active;
+      continue;
+    }
+    const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+    if (keepaliveSave) {
+      await keepaliveSave;
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
@@ -978,7 +1028,10 @@ function saveDeckToAPI(
 }
 
 export function flushPendingSaves() {
-  for (const deckId of [...pendingSaves.keys()]) {
+  for (const deckId of new Set([
+    ...pendingSaves.keys(),
+    ...inFlightSaveChains.keys(),
+  ])) {
     void drainPendingDeckOps(deckId, { keepalive: true });
   }
 }

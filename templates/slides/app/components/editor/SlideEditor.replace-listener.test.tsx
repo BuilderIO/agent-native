@@ -116,19 +116,21 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     const canvas = document.querySelector<HTMLElement>(
       ".slide-image-clickable",
     )!;
-    const dataTransfer = {
-      files: [],
-      items: [],
-      types: ["text/html", "text/uri-list"],
-      dropEffect: "none",
-      getData: (type: string) =>
-        type === "text/html" ? '<a href="https://example.test">Link</a>' : "",
-    } as unknown as DataTransfer;
+    for (const types of [["text/html", "text/uri-list"], ["text/uri-list"]]) {
+      const dataTransfer = {
+        files: [],
+        items: [],
+        types,
+        dropEffect: "none",
+        getData: (type: string) =>
+          type === "text/html" && types.includes("text/html")
+            ? '<a href="https://example.test">Link</a>'
+            : "",
+      } as unknown as DataTransfer;
 
-    fireEvent.dragOver(canvas, { dataTransfer });
-    const wasNotCanceled = fireEvent.drop(canvas, { dataTransfer });
-
-    expect(wasNotCanceled).toBe(false);
+      expect(fireEvent.dragOver(canvas, { dataTransfer })).toBe(false);
+      expect(fireEvent.drop(canvas, { dataTransfer })).toBe(false);
+    }
     expect(onDropImageUrl).not.toHaveBeenCalled();
   });
 

@@ -507,6 +507,26 @@ describe("in-place text session: the caret at the click point", () => {
     });
     expect(window.getSelection()!.toString()).toBe("transformation");
   });
+
+  it.each([
+    ["a br", '<p id="t">trans<br>form</p>'],
+    ["adjacent blocks", '<div id="t"><p>trans</p><p>form</p></div>'],
+  ])("keeps fallback word selection within %s", (_boundary, html) => {
+    const el = mount(html);
+    for (const [word, offset] of [
+      ["trans", 1],
+      ["form", 1],
+    ] as const) {
+      const text = textOf(el, word);
+      hitAt(text, offset);
+      session = startInPlaceTextSession(el, {
+        caretPoint: { x: 1, y: 1 },
+        selectWord: true,
+      });
+      expect(window.getSelection()!.toString()).toBe(word);
+      session.end();
+    }
+  });
 });
 
 describe("in-place text session: typing", () => {

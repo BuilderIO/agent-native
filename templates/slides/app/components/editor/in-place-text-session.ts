@@ -407,20 +407,73 @@ function textOffset(
  */
 /** Select the word at a point in the editing root, even across styled runs. */
 function selectWordAt(root: HTMLElement, node: Node, offset: number) {
-  const point = textOffset(root, node, offset);
-  const text = root.textContent ?? "";
   const segments = new Intl.Segmenter(undefined, { granularity: "word" });
-  for (const { index, segment, isWordLike } of segments.segment(text)) {
-    if (!isWordLike || point < index || point > index + segment.length) {
-      continue;
+  const lines: Text[][] = [];
+  let line: Text[] = [];
+  const finishLine = () => {
+    if (line.length) lines.push(line);
+    line = [];
+  };
+  const collectLines = (current: Node) => {
+    if (current instanceof Text) {
+      line.push(current);
+      return;
     }
-    const range = document.createRange();
-    range.setStart(...textPoint(root, index));
-    range.setEnd(...textPoint(root, index + segment.length, true));
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    return;
+    if (!(current instanceof Element)) return;
+    if (current !== root && current.tagName === "BR") {
+      finishLine();
+      return;
+    }
+    const block = current !== root && laysOutOwnLines(current);
+    if (block) finishLine();
+    for (const child of current.childNodes) collectLines(child);
+    if (block) finishLine();
+  };
+  collectLines(root);
+  finishLine();
+
+  for (const texts of lines) {
+    const first = texts[0]!;
+    const last = texts.at(-1)!;
+    const lineRange = document.createRange();
+    lineRange.setStart(first, 0);
+    lineRange.setEnd(last, last.length);
+    if (lineRange.comparePoint(node, offset) !== 0) continue;
+
+    const prefix = document.createRange();
+    prefix.setStart(first, 0);
+    prefix.setEnd(node, offset);
+    const point = prefix.toString().length;
+    const text = texts.map((textNode) => textNode.data).join("");
+    const textPointInLine = (
+      position: number,
+      before = false,
+    ): [Node, number] => {
+      let remaining = position;
+      for (const textNode of texts) {
+        if (
+          remaining < textNode.length ||
+          (before && textNode.length > 0 && remaining === textNode.length)
+        ) {
+          return [textNode, remaining];
+        }
+        remaining -= textNode.length;
+      }
+      return [last, last.length];
+    };
+
+    for (const { index, segment, isWordLike } of segments.segment(text)) {
+      if (!isWordLike || point < index || point > index + segment.length) {
+        continue;
+      }
+      const range = document.createRange();
+      range.setStart(...textPointInLine(index));
+      range.setEnd(...textPointInLine(index + segment.length, true));
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
   }
 }
 

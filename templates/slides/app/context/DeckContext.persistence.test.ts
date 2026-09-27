@@ -98,6 +98,7 @@ function setupFetch(options?: {
   hangPut?: boolean;
   deferredPut?: boolean;
   deferredPatch?: boolean;
+  deferredKeepalivePatch?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   deferredDelete?: boolean;
@@ -112,6 +113,8 @@ function setupFetch(options?: {
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
   let resolveDeferredPatch: (() => void) | null = null;
+  let resolveDeferredKeepalivePatch: (() => void) | null = null;
+  let didDeferKeepalivePatch = false;
   let firstPatchSignal: AbortSignal | undefined;
   let deferNextGetDeck = false;
   let resolveDeferredGetDeck: (() => void) | null = null;
@@ -267,6 +270,19 @@ function setupFetch(options?: {
         });
       }
       if (
+        options?.deferredKeepalivePatch &&
+        init?.keepalive === true &&
+        !didDeferKeepalivePatch
+      ) {
+        didDeferKeepalivePatch = true;
+        return new Promise<Response>((resolve) => {
+          resolveDeferredKeepalivePatch = () =>
+            resolve(
+              new Response(JSON.stringify({ ok: true }), { status: 200 }),
+            );
+        });
+      }
+      if (
         deckId === options?.patchFailures?.deckId &&
         attempts <= options.patchFailures.count
       ) {
@@ -300,6 +316,7 @@ function setupFetch(options?: {
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
     resolveDeferredPatch: () => resolveDeferredPatch?.(),
+    resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
     getFirstPatchSignal: () => firstPatchSignal,
     deferNextGetDeck: () => {
       deferNextGetDeck = true;
@@ -421,11 +438,78 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.decks).toEqual([accessible]);
   });
 
-  it("keeps an unload flush behind the active save chain", async () => {
-    window.history.pushState({}, "", "/deck/flush-order-deck");
+  it("keeps an active ordinary save alive during an unload flush", async () => {
+    window.history.pushState({}, "", "/deck/flush-active-deck");
     const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
       deferredPatch: true,
     });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-active-deck",
+      title: "Flush active deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-active-deck",
+        "slide-1",
+        { content: "<h1>Draft</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+
+    act(() => flushPendingSaves());
+
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls()[1]?.[1])).toEqual(
+      actionCallBody(patchCalls()[0]?.[1]),
+    );
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("flush-active-deck");
+  });
+
+  it("keeps an unload flush behind the active save chain", async () => {
+    window.history.pushState({}, "", "/deck/flush-order-deck");
+    const {
+      fetchMock,
+      resolveDeferredKeepalivePatch,
+      resolveDeferredPatch,
+      setAccessibleDeck,
+    } = setupFetch({ deferredPatch: true, deferredKeepalivePatch: true });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -469,11 +553,22 @@ describe("DeckContext deck creation persistence", () => {
       flushPendingSaves();
     });
 
-    expect(
+    const patchCalls = () =>
       fetchMock.mock.calls.filter(([url]) =>
         requestString(url).includes("/_agent-native/actions/patch-deck"),
-      ),
-    ).toHaveLength(1);
+      );
+    expect(patchCalls()).toHaveLength(2);
+    expect(patchCalls()[1]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls()[1]?.[1])).toMatchObject({
+      deckId: "flush-order-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>First</h1>" },
+        },
+      ],
+    });
 
     resolveDeferredPatch();
     await act(async () => {
@@ -482,12 +577,17 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
     });
 
-    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      requestString(url).includes("/_agent-native/actions/patch-deck"),
-    );
-    expect(patchCalls).toHaveLength(2);
-    expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
-    expect(actionCallBody(patchCalls[1]?.[1])).toMatchObject({
+    expect(patchCalls()).toHaveLength(2);
+    resolveDeferredKeepalivePatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(patchCalls()).toHaveLength(3);
+    expect(patchCalls()[2]?.[1]?.keepalive).toBe(true);
+    expect(actionCallBody(patchCalls()[2]?.[1])).toMatchObject({
       deckId: "flush-order-deck",
       operations: [
         {

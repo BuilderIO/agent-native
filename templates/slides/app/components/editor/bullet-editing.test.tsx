@@ -396,6 +396,30 @@ describe("styled bullet editing", () => {
     expect(colored.textContent).toBe("muted");
   });
 
+  it("keeps the caret in the new row before a nested list at the start of the tail", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span>Lead<ul><li>Nested</li></ul></div>' +
+      '<div><span style="font-size:8px;">●</span>Second</div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const lead = list.children[0].childNodes[1] as Text;
+    placeCaret(lead, lead.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+
+    const newRow = list.children[1] as HTMLElement;
+    const nestedList = newRow.querySelector("ul") as HTMLElement;
+    const selection = window.getSelection()!;
+    const caretText = selection.anchorNode as Text;
+    expect(caretText.parentElement).toBe(newRow);
+    expect(nestedList.contains(caretText)).toBe(false);
+
+    caretText.insertData(selection.anchorOffset, "x");
+    expect(caretText.data).toBe(`${ZERO_WIDTH_SPACE}x`);
+    expect(nestedList.querySelector("li")?.textContent).toBe("Nested");
+  });
+
   it("keeps text typed after Enter at the end of a link out of the link", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +

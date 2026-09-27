@@ -7826,7 +7826,7 @@ export default function SlideEditor({
       // getData() payloads (only types) in most browsers, so this is a
       // best-effort signal; the drop handler does the real <img> check.
       (types.includes("text/html") && types.includes("text/uri-list"));
-    if (!hasImage) return;
+    if (!hasImage && !types.includes("text/uri-list")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
@@ -7854,7 +7854,7 @@ export default function SlideEditor({
       const url = extractDraggedImageUrl(e.dataTransfer);
       if (!url) {
         const types = Array.from(e.dataTransfer.types ?? []);
-        if (types.includes("text/html") && types.includes("text/uri-list")) {
+        if (types.includes("text/uri-list")) {
           e.preventDefault();
           e.stopPropagation();
         }

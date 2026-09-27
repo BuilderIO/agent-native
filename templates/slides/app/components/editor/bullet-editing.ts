@@ -792,7 +792,8 @@ function tailCaret(tail: DocumentFragment): [Text, number] {
   while (
     node?.nodeType === Node.ELEMENT_NODE &&
     !(node as Element).matches(`${RENDERED_CONTENT}, br`) &&
-    !isEmptyLink(node)
+    !isEmptyLink(node) &&
+    !isBlockBoundary(node as Element)
   ) {
     parent = node;
     node = node.firstChild;
@@ -803,6 +804,14 @@ function tailCaret(tail: DocumentFragment): [Text, number] {
     node.replaceWith(placeholder);
   } else parent.insertBefore(placeholder, node);
   return [placeholder, ZERO_WIDTH_SPACE.length];
+}
+
+function isBlockBoundary(element: Element): boolean {
+  const display = styleValue(element, "display");
+  return (
+    element.matches("ul, ol, li") ||
+    (!!display && display !== "contents" && !display.startsWith("inline"))
+  );
 }
 
 function isEmptyLink(node: Node): boolean {
