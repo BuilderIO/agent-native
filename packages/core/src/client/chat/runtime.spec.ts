@@ -975,17 +975,32 @@ describe("createAgentNativeChatRuntime", () => {
     expect(session.continueTurn).toBeTypeOf("function");
   });
 
-  it("continues an approved tool call on the same durable turn", async () => {
+  it("resumes the exact approved tool call with false-valued arguments", async () => {
+    const approvedInput = { dryRun: false };
+    const approvalKey = 'publish-release:{"dryRun":false}';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         sseResponse([
           { type: "text", text: "Waiting for approval. " },
           {
+            type: "tool_start",
+            id: "call-1",
+            tool: "publish-release",
+            input: approvedInput,
+          },
+          {
             type: "approval_required",
             tool: "publish-release",
-            approvalKey: "publish-release:{}",
+            input: approvedInput,
+            approvalKey,
             toolCallId: "call-1",
+          },
+          {
+            type: "tool_done",
+            id: "call-1",
+            tool: "publish-release",
+            result: "Awaiting human approval. This action did NOT execute.",
           },
           { type: "done" },
         ]),
@@ -1011,7 +1026,7 @@ describe("createAgentNativeChatRuntime", () => {
     const continuation = await session.continueTurn?.({
       turnId: first.id,
       approval: {
-        id: "publish-release:{}",
+        id: approvalKey,
         approved: true,
       },
     });
@@ -1025,7 +1040,30 @@ describe("createAgentNativeChatRuntime", () => {
       threadId: "thread-approval",
       turnId: first.id,
       internalContinuation: true,
-      approvedToolCalls: ["publish-release:{}"],
+      approvedToolCalls: [approvalKey],
+      structuredHistory: expect.arrayContaining([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-1",
+              name: "publish-release",
+              input: approvedInput,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-1",
+              content: "Awaiting human approval. This action did NOT execute.",
+            },
+          ],
+        },
+      ]),
     });
     expect(events.at(-1)).toMatchObject({
       type: "done",
@@ -1047,7 +1085,8 @@ describe("createAgentNativeChatRuntime", () => {
               ? initialMessage.message.id
               : undefined,
           content: [
-            { type: "text", text: "Waiting for approval. Release published." },
+            { type: "text", text: "Waiting for approval. " },
+            { type: "text", text: "Release published." },
           ],
         },
       },
