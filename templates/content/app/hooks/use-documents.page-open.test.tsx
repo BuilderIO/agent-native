@@ -4,9 +4,10 @@ import type { Document } from "@shared/api";
 import {
   QueryClient,
   QueryClientProvider,
+  useMutation,
   useQuery,
 } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act, createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +30,12 @@ vi.mock("@agent-native/core/client/hooks", () => {
     callAction,
     getBrowserTabId: () => "tab-1",
     useDbSync: vi.fn(),
-    useActionMutation: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
+    // Mirrors core: the options run around the action call.
+    useActionMutation: (name: string, options: object = {}) =>
+      useMutation({
+        ...options,
+        mutationFn: (params: unknown) => callAction(name, params),
+      }),
     // Mirrors core: the action name and params are the query key.
     useActionQuery: (name: string, params: unknown, options: object) =>
       useQuery({
@@ -49,6 +55,7 @@ import {
   ensurePreviewDocumentDraftRead,
   startPageOpenDocumentReads,
   usePageOpenDocument,
+  useUpdateDocument,
 } from "./use-documents";
 
 function deferred<T>() {
@@ -258,6 +265,179 @@ describe("page open document reads", () => {
 
     expect(seen[0]).toEqual({ fetchedForThisOpen: true, title: "Plan" });
     expect(reads("get-document")).toBe(1);
+  });
+
+  it("does not show a spoiled early read that a later page-open start restarted", async () => {
+    // The /home hint read is in flight when a peer edit spoils it, and the
+    // layout's pending navigation then starts the page's reads again.
+    const first = deferred<unknown>();
+    server.respond = (name) =>
+      name === "get-document"
+        ? first.promise
+        : Promise.resolve({ editable: true, draft: null });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await deliverSyncEvents(queryClient, "/home", ["edit-document"]);
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? { id: params.id, title: "After the change", canEdit: true }
+          : { editable: true, draft: null },
+      );
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    first.resolve({ id: "doc-1", title: "Before the change", canEdit: true });
+
+    await mount();
+
+    await vi.waitFor(() =>
+      expect(seen[seen.length - 1]).toEqual({
+        fetchedForThisOpen: true,
+        title: "After the change",
+      }),
+    );
+    expect(seen.some((entry) => entry.title === "Before the change")).toBe(
+      false,
+    );
+  });
+
+  it("refetches when a peer change lands between adoption and subscription", async () => {
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+    await act(async () => {});
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? { id: params.id, title: "Edited by the agent", canEdit: true }
+          : { editable: true, draft: null },
+      );
+    let delivered = false;
+    // Layout effects run after the render that adopts the read and before
+    // the query subscribes.
+    function PageWithSyncInGap() {
+      const { query, fetchedForThisOpen } = usePageOpenDocument("doc-1", {});
+      useLayoutEffect(() => {
+        if (delivered) return;
+        delivered = true;
+        void deliverSyncEvents(queryClient, "/home", ["edit-document"]);
+      }, []);
+      seen.push({
+        fetchedForThisOpen,
+        title: (query.data as Document | undefined)?.title,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(PageWithSyncInGap),
+        ),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(seen[seen.length - 1]?.title).toBe("Edited by the agent"),
+    );
+    expect(reads("get-document")).toBe(2);
+  });
+
+  describe("while this tab saves the page", () => {
+    let saveRoot: Root;
+    let saveContainer: HTMLDivElement;
+    let save: ReturnType<typeof useUpdateDocument>["mutateAsync"];
+    let saved = deferred<unknown>();
+
+    function Saver() {
+      save = useUpdateDocument().mutateAsync;
+      return null;
+    }
+
+    beforeEach(async () => {
+      saved = deferred<unknown>();
+      saveContainer = document.createElement("div");
+      document.body.append(saveContainer);
+      saveRoot = createRoot(saveContainer);
+      await act(async () => {
+        saveRoot.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Saver),
+          ),
+        );
+      });
+      server.respond = (name, params) =>
+        name === "update-document"
+          ? saved.promise
+          : Promise.resolve(
+              name === "get-document"
+                ? { id: params.id, title: "Before the save", canEdit: true }
+                : { editable: true, draft: null },
+            );
+    });
+
+    afterEach(() => {
+      act(() => saveRoot.unmount());
+      saveContainer.remove();
+    });
+
+    const savedPage = {
+      id: "doc-1",
+      title: "After the save",
+      content: "Saved words",
+      updatedAt: "v2",
+      revision: "r2",
+      canEdit: true,
+      softDeletedDatabaseIds: [],
+    };
+    const afterSave = (name: string, params: any) =>
+      name === "update-document"
+        ? saved.promise
+        : Promise.resolve(
+            name === "get-document"
+              ? { id: params.id, title: "After the save", canEdit: true }
+              : { editable: true, draft: null },
+          );
+
+    it("does not adopt a read served before a save that was already under way", async () => {
+      const saving = save({ id: "doc-1", content: "Saved words" });
+      startPageOpenDocumentReads(queryClient, "doc-1");
+      await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+      await act(async () => {
+        saved.resolve(savedPage);
+        await saving;
+      });
+      server.respond = afterSave;
+
+      await mount();
+
+      expect(seen[0].fetchedForThisOpen).toBe(false);
+      await vi.waitFor(() =>
+        expect(seen[seen.length - 1]).toEqual({
+          fetchedForThisOpen: true,
+          title: "After the save",
+        }),
+      );
+      expect(reads("get-document")).toBe(2);
+    });
+
+    it("does not adopt a read that a save started after", async () => {
+      startPageOpenDocumentReads(queryClient, "doc-1");
+      await vi.waitFor(() => expect(reads("get-document")).toBe(1));
+      await act(async () => {});
+      server.respond = afterSave;
+      const saving = save({ id: "doc-1", content: "Saved words" });
+
+      await mount();
+
+      expect(seen[0].fetchedForThisOpen).toBe(false);
+      await vi.waitFor(() => expect(reads("get-document")).toBe(2));
+      await act(async () => {
+        saved.resolve(savedPage);
+        await saving;
+      });
+    });
   });
 
   it("does not read a page whose creation has not committed", () => {

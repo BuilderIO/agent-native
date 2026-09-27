@@ -1,10 +1,15 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { contentActionInvalidatePredicate } from "../hooks/content-action-refresh";
 import {
   adoptPageOpenRead,
+  claimPageOpenRead,
+  isPageOpenRead,
   PAGE_OPEN_READ_TTL_MS,
+  releasePageOpenRead,
   retirePageOpenReads,
+  spoilPageOpenReads,
   startPageOpenRead,
 } from "./page-open-reads";
 
@@ -162,6 +167,105 @@ describe("page open reads", () => {
     queryClient.setQueryData(queryKey, { id: "doc-1", title: "Renamed" });
 
     expect(adoptPageOpenRead(queryClient, queryKey)).toBe("fresh");
+  });
+
+  it("does not let a restarted read join the spoiled fetch it replaces", async () => {
+    const responses = [
+      deferred<{ id: string; title: string }>(),
+      deferred<{ id: string; title: string }>(),
+    ];
+    let calls = 0;
+    const queryFn = () => responses[calls++].promise;
+    startPageOpenRead(queryClient, "doc-1", { queryKey, queryFn });
+    await queryClient.invalidateQueries({ queryKey });
+    startPageOpenRead(queryClient, "doc-1", { queryKey, queryFn });
+
+    responses[0].resolve({ id: "doc-1", title: "Before the change" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("pending");
+
+    responses[1].resolve({ id: "doc-1", title: "After the change" });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toEqual({
+        id: "doc-1",
+        title: "After the change",
+      }),
+    );
+    expect(calls).toBe(2);
+  });
+
+  it("keeps a claimed read tracked until release, and refetches one spoiled in between", async () => {
+    let title = "Before the change";
+    const queryFn = vi.fn(async () => ({ id: "doc-1", title }));
+    startPageOpenRead(queryClient, "doc-1", { queryKey, queryFn });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toBeTruthy(),
+    );
+
+    const { adoption, read } = claimPageOpenRead(queryClient, queryKey);
+    expect(adoption).toBe("fresh");
+    expect(isPageOpenRead(queryClient, queryKey)).toBe(true);
+    // A peer edit reaches sync after the claim but before the page subscribes.
+    title = "After the change";
+    const predicate = contentActionInvalidatePredicate("/home", (query) =>
+      isPageOpenRead(queryClient, query.queryKey),
+    );
+    await queryClient.invalidateQueries({
+      predicate: (query) =>
+        predicate(query, [{ source: "action", key: "edit-document" }]),
+    });
+    releasePageOpenRead(queryClient, queryKey, read!);
+
+    expect(isPageOpenRead(queryClient, queryKey)).toBe(false);
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toEqual({
+        id: "doc-1",
+        title: "After the change",
+      }),
+    );
+    expect(queryFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases an unspoiled claim without reading again", async () => {
+    const queryFn = vi.fn(async () => ({ id: "doc-1" }));
+    startPageOpenRead(queryClient, "doc-1", { queryKey, queryFn });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toBeTruthy(),
+    );
+    const { read } = claimPageOpenRead(queryClient, queryKey);
+    releasePageOpenRead(queryClient, queryKey, read!);
+
+    expect(isPageOpenRead(queryClient, queryKey)).toBe(false);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("spoils a page's reads when this tab changes the page", async () => {
+    const draftKey = [
+      "action",
+      "get-preview-document-draft",
+      { documentId: "doc-1" },
+    ] as const;
+    const otherKey = ["action", "get-document", { id: "doc-2" }] as const;
+    for (const [id, key] of [
+      ["doc-1", queryKey],
+      ["doc-1", draftKey],
+      ["doc-2", otherKey],
+    ] as const) {
+      startPageOpenRead(queryClient, id, {
+        queryKey: key,
+        queryFn: async () => ({ id }),
+      });
+    }
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(otherKey)).toBeTruthy(),
+    );
+
+    spoilPageOpenReads(queryClient, "doc-1");
+
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
+    expect(adoptPageOpenRead(queryClient, draftKey)).toBe("none");
+    expect(adoptPageOpenRead(queryClient, otherKey)).toBe("fresh");
   });
 
   it("does not adopt a failed or expired read", async () => {

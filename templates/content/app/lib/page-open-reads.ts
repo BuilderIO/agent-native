@@ -8,13 +8,16 @@ import {
 // A page open starts its reads before the component that shows them mounts:
 // in the layout while the route loads, or on /home while the landing
 // resolves. The mounting component adopts a read made for its open instead of
-// refetching. A read that was invalidated, failed, cancelled, expired, or
-// already adopted is never adopted, so any other mount still reads fresh.
+// refetching. A read that was spoiled, failed, cancelled, expired, or already
+// adopted is never adopted, so any other mount still reads fresh.
 export const PAGE_OPEN_READ_TTL_MS = 10_000;
 
-type PageOpenRead = {
+export type PageOpenRead = {
   documentId: string;
   startedAt: number;
+  // Spoiled by an invalidation, a peer change arriving through sync, or this
+  // tab saving the page, from the moment the read starts until its adopting
+  // component has mounted.
   invalidated: boolean;
   // Set only by a fetch's own success. A cache write (`setQueryData`) is a
   // manual success and never counts: a read cancelled by an optimistic update
@@ -66,6 +69,11 @@ export function startPageOpenRead<TData>(
   const query = queryClient
     .getQueryCache()
     .find({ queryKey: options.queryKey, exact: true });
+  // A fetch already in flight may predate this open, or be a spoiled earlier
+  // read; the new read must not join it. Cancelling reverts the query at once.
+  if (query && query.state.fetchStatus !== "idle") {
+    void queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+  }
   // An already-invalidated query dispatches no further invalidate events, so
   // clear the flag before this read replaces its data; otherwise a change that
   // lands while the read is in flight would go unnoticed.
@@ -85,29 +93,77 @@ export function isPageOpenRead(queryClient: QueryClient, queryKey: QueryKey) {
   return openReads(queryClient).has(hashKey(queryKey));
 }
 
+// Claims the read made for this open. A claimed read stays tracked until
+// `releasePageOpenRead`, so a change that arrives before the claiming
+// component subscribes still spoils it.
+export function claimPageOpenRead(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+): { adoption: PageOpenReadAdoption; read: PageOpenRead | null } {
+  const reads = openReads(queryClient);
+  const queryHash = hashKey(queryKey);
+  const read = reads.get(queryHash);
+  if (!read) return { adoption: "none", read: null };
+  const query = queryClient.getQueryCache().get(queryHash);
+  const usable =
+    !!query &&
+    !read.invalidated &&
+    !query.state.isInvalidated &&
+    Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS;
+  const adoption: PageOpenReadAdoption = !query
+    ? "none"
+    : query.state.fetchStatus !== "idle"
+      ? usable
+        ? "pending"
+        : "none"
+      : usable && read.landed
+        ? "fresh"
+        : "none";
+  if (adoption === "none") {
+    reads.delete(queryHash);
+    // Until the open's own read lands, the fetch in flight is that read, and
+    // it may predate the change that spoiled it. A later fetch is left alone.
+    if (query && query.state.fetchStatus !== "idle" && !read.landed) {
+      void queryClient.cancelQueries({ queryKey, exact: true });
+    }
+    return { adoption, read: null };
+  }
+  return { adoption, read };
+}
+
+// Called once the claiming component is subscribed. A read spoiled after it
+// was claimed is replaced by a fresh one.
+export function releasePageOpenRead(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  read: PageOpenRead,
+) {
+  const reads = openReads(queryClient);
+  const queryHash = hashKey(queryKey);
+  if (reads.get(queryHash) === read) reads.delete(queryHash);
+  if (!read.invalidated) return;
+  void queryClient.cancelQueries({ queryKey, exact: true });
+  void queryClient.refetchQueries({ queryKey, exact: true });
+}
+
 export function adoptPageOpenRead(
   queryClient: QueryClient,
   queryKey: QueryKey,
 ): PageOpenReadAdoption {
-  const reads = openReads(queryClient);
-  const queryHash = hashKey(queryKey);
-  const read = reads.get(queryHash);
-  if (!read) return "none";
-  reads.delete(queryHash);
-  const query = queryClient.getQueryCache().get(queryHash);
-  if (!query) return "none";
-  const usable =
-    !read.invalidated &&
-    !query.state.isInvalidated &&
-    Date.now() - read.startedAt < PAGE_OPEN_READ_TTL_MS;
-  if (query.state.fetchStatus !== "idle") {
-    if (usable) return "pending";
-    // Until the open's own read lands, the fetch in flight is that read, and
-    // it may predate the change that spoiled it. A later fetch is left alone.
-    if (!read.landed) void queryClient.cancelQueries({ queryKey, exact: true });
-    return "none";
+  const { adoption, read } = claimPageOpenRead(queryClient, queryKey);
+  if (read) openReads(queryClient).delete(hashKey(queryKey));
+  return adoption;
+}
+
+// This tab is changing the page, so no read already under way for it can be
+// shown as the page's current state.
+export function spoilPageOpenReads(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  for (const read of openReads(queryClient).values()) {
+    if (read.documentId === documentId) read.invalidated = true;
   }
-  return usable && read.landed ? "fresh" : "none";
 }
 
 export function retirePageOpenReads(

@@ -1,10 +1,12 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
+import { adoptPageOpenRead, startPageOpenRead } from "../lib/page-open-reads";
 import {
   contentActionInvalidatePredicate,
   contentDocumentIdFromPathname,
 } from "./content-action-refresh";
+import { contentSyncInvalidatePredicate } from "./use-db-sync";
 
 describe("contentActionInvalidatePredicate", () => {
   it("refreshes the mounted document's save basis after a peer suggestion decision", async () => {
@@ -934,6 +936,44 @@ describe("page open reads under sync", () => {
         predicate(earlyDraftRead, [{ source: "action", key: "edit-document" }]),
       ).toBe(false);
     }
+  });
+
+  it("spoils a real pending early read through Content's sync predicate", async () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["action", "get-document", { id: "next-page" }] as const;
+    const landed = ["action", "get-document", { id: "landed-page" }] as const;
+    let finish!: (value: { id: string }) => void;
+    startPageOpenRead(queryClient, "next-page", {
+      queryKey,
+      queryFn: () =>
+        new Promise<{ id: string }>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    startPageOpenRead(queryClient, "landed-page", {
+      queryKey: landed,
+      queryFn: async () => ({ id: "landed-page" }),
+    });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(landed)).toBeTruthy(),
+    );
+    const predicate = contentSyncInvalidatePredicate(queryClient, "/home");
+
+    await queryClient.invalidateQueries(
+      {
+        predicate: (query) =>
+          predicate(query, [{ source: "action", key: "edit-document" }]),
+      },
+      { cancelRefetch: false },
+    );
+    finish({ id: "next-page" });
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(queryKey)).toBeTruthy(),
+    );
+
+    expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
+    expect(adoptPageOpenRead(queryClient, landed)).toBe("none");
+    queryClient.clear();
   });
 
   it("leaves inactive reads that no page open is waiting on alone", () => {

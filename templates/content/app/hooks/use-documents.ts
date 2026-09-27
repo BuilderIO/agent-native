@@ -29,7 +29,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 import type {
@@ -49,7 +49,11 @@ import {
 import { isDocumentCreationPending } from "../lib/optimistic-document";
 import {
   adoptPageOpenRead,
+  claimPageOpenRead,
+  releasePageOpenRead,
+  spoilPageOpenReads,
   startPageOpenRead,
+  type PageOpenRead,
   type PageOpenReadAdoption,
 } from "../lib/page-open-reads";
 import {
@@ -661,25 +665,32 @@ export function usePageOpenDocument(
   const queryClient = useQueryClient();
   const queryKey = documentQueryKey(documentId, context);
   const queryHash = hashKey(queryKey);
-  const adoptionRef = useRef<{
+  const claimRef = useRef<{
     queryHash: string;
+    queryKey: typeof queryKey;
     adoption: PageOpenReadAdoption;
+    read: PageOpenRead | null;
   } | null>(null);
-  if (adoptionRef.current?.queryHash !== queryHash) {
-    adoptionRef.current = {
-      queryHash,
-      adoption:
-        adoptionRef.current === null
-          ? adoptPageOpenRead(queryClient, queryKey)
-          : "none",
-    };
+  if (claimRef.current?.queryHash !== queryHash) {
+    claimRef.current =
+      claimRef.current === null
+        ? { queryHash, queryKey, ...claimPageOpenRead(queryClient, queryKey) }
+        : { queryHash, queryKey, adoption: "none", read: null };
   }
-  const { adoption } = adoptionRef.current;
+  const claim = claimRef.current;
+  const { adoption } = claim;
   const query = useDocument(
     documentId,
     context,
     adoption === "fresh" ? { refetchOnMount: false } : {},
   );
+  // Runs after the query's own subscription, so from here on sync reaches
+  // this read as a mounted query.
+  useEffect(() => {
+    if (claim.read) {
+      releasePageOpenRead(queryClient, claim.queryKey, claim.read);
+    }
+  }, [claim, queryClient]);
   return {
     query,
     fetchedForThisOpen: query.isFetchedAfterMount || adoption === "fresh",
@@ -801,6 +812,7 @@ export async function ensurePreviewDocumentDraftRead(
 }
 
 export function useUpdatePreviewDocumentDraft() {
+  const queryClient = useQueryClient();
   return useActionMutation<
     {
       status: "saved" | "deleted" | "conflict" | "superseded";
@@ -831,6 +843,13 @@ export function useUpdatePreviewDocumentDraft() {
       }
   >("update-preview-document-draft", {
     skipActionQueryInvalidation: true,
+    // This tab's own draft writes never come back through sync.
+    onMutate: (variables) => {
+      spoilPageOpenReads(queryClient, variables.documentId);
+    },
+    onSettled: (_data, _error, variables) => {
+      spoilPageOpenReads(queryClient, variables.documentId);
+    },
   });
 }
 
@@ -877,6 +896,8 @@ export function useUpdateDocument() {
     {
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
+        // This tab's own saves never come back through sync.
+        spoilPageOpenReads(queryClient, variables.id);
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
           ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
@@ -1060,6 +1081,9 @@ export function useUpdateDocument() {
           | { previous?: Array<[readonly unknown[], unknown]> }
           | undefined;
         restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+      },
+      onSettled: (_data, _error, variables) => {
+        spoilPageOpenReads(queryClient, variables.id);
       },
       onSuccess: (data, variables, context) => {
         const renamedContentSpace = (
