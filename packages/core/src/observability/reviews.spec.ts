@@ -301,12 +301,14 @@ describe("listOutputReviews", () => {
         runId: "run-a",
         orgId: "org-a",
         readOnly: false,
+        authorEmail: "alice@example.com",
         threadTitle: "Org A title",
       },
       {
         runId: "run-b",
         orgId: "org-b",
         readOnly: true,
+        authorEmail: "bob@example.com",
         threadTitle: "Org B title",
       },
     ]);

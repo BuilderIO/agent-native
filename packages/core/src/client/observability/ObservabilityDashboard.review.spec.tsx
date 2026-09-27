@@ -89,6 +89,7 @@ import { AgentNativeI18nProvider } from "../i18n.js";
 import {
   ObservabilityDashboard,
   resolveReviewArtifactHref,
+  resolveReviewArtifactOpenHref,
 } from "./ObservabilityDashboard.js";
 
 describe("human review artifact links", () => {
@@ -117,6 +118,27 @@ describe("human review artifact links", () => {
         "127.0.0.1",
       ),
     ).toBe("http://127.0.0.1:8099/present/design-1?reviewEmbed=1");
+  });
+
+  it("opens same-org designs in review mode with chat alongside", () => {
+    expect(
+      resolveReviewArtifactOpenHref("design", "design-1", "/present/design-1", {
+        threadId: "thread-1",
+        hostname: "beta.design.agent-native.com",
+      }),
+    ).toBe(
+      "https://beta.design.agent-native.com/design/design-1?editorView=overview&reviewPreview=1&thread=thread-1&agentSidebar=open",
+    );
+
+    expect(
+      resolveReviewArtifactOpenHref("design", "design-1", "/present/design-1", {
+        threadId: "thread-1",
+        readOnly: true,
+        hostname: "beta.design.agent-native.com",
+      }),
+    ).toBe(
+      "https://beta.design.agent-native.com/design/design-1?editorView=overview&reviewPreview=1&agentSidebar=closed",
+    );
   });
 
   it("rejects invalid artifact paths and unknown app origins", () => {
@@ -246,6 +268,7 @@ describe("ObservabilityDashboard human review", () => {
           orgId: "org-a",
           readOnly: false,
           threadId: "thread-1",
+          authorEmail: "alice@example.test",
           ask: "Design a compact analytics view",
           answer: "Sessions grew 18% this week.",
           threadTitle: "Weekly analytics dashboard",
@@ -277,6 +300,7 @@ describe("ObservabilityDashboard human review", () => {
           orgId: "org-a",
           readOnly: false,
           threadId: "thread-2",
+          authorEmail: "bob@example.test",
           ask: "Make a slide from the campaign results",
           answer: "Campaign response increased 24%.",
           threadTitle: "Campaign results slides",
@@ -1438,6 +1462,10 @@ describe("ObservabilityDashboard human review", () => {
       reviewDetail("run-2")?.querySelector('[aria-label="Thumbs up"]'),
     ).toBeNull();
     expect(
+      reviewDetail("run-2")?.querySelector("[data-review-author-email]")
+        ?.textContent,
+    ).toBe("bob@example.test");
+    expect(
       reviewDetail("run-2")?.querySelector('a[href*="thread=thread-2"]'),
     ).toBeNull();
   });
@@ -1823,7 +1851,14 @@ describe("ObservabilityDashboard human review", () => {
     expect(
       detail.querySelector("[data-review-transcript]")?.textContent,
     ).toContain("Keep the chart inline.");
-    const threadLink = detail.querySelector<HTMLAnchorElement>("a[href]");
+    const email = detail.querySelector<HTMLElement>(
+      "[data-review-author-email]",
+    );
+    expect(email?.textContent).toBe("alice@example.test");
+    expect(email?.parentElement?.lastElementChild).toBe(email);
+    const threadLink = detail.querySelector<HTMLAnchorElement>(
+      'a[href*="thread=thread-1"]',
+    );
     expect(threadLink?.getAttribute("aria-label")).toBeTruthy();
     const threadUrl = new URL(threadLink!.href);
     expect(threadUrl.searchParams.get("thread")).toBe("thread-1");
@@ -1903,6 +1938,7 @@ describe("ObservabilityDashboard human review", () => {
           orgId: "org-a",
           readOnly: false,
           threadId: "thread-summary",
+          authorEmail: "reviewer@example.test",
           ask: "Legacy raw ask",
           answer: "Legacy raw outcome",
           threadTitle: "Thread title before summary",
@@ -2002,6 +2038,17 @@ describe("ObservabilityDashboard human review", () => {
       detail.querySelector("iframe[srcdoc]")?.getAttribute("srcdoc"),
     ).toContain("Actual campaign design");
     expect(detail.querySelector('iframe[src*="example.com"]')).toBeNull();
+    const designLink = Array.from(
+      detail.querySelectorAll<HTMLAnchorElement>("a[href]"),
+    ).find((link) => new URL(link.href).pathname === "/design/design-2");
+    expect(designLink).toBeTruthy();
+    const designUrl = new URL(designLink!.href);
+    expect(designUrl.searchParams.get("reviewPreview")).toBe("1");
+    expect(designUrl.searchParams.get("thread")).toBe("thread-summary");
+    expect(designUrl.searchParams.get("agentSidebar")).toBe("open");
+    expect(
+      detail.querySelector("[data-review-author-email]")?.textContent,
+    ).toBe("reviewer@example.test");
     expect(
       Array.from(detail.querySelectorAll("button")).some((button) =>
         button.textContent?.includes("Summarize with agent"),
