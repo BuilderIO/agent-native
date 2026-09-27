@@ -2546,6 +2546,160 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("lists and re-enables a disabled workspace app through its registered actions", async () => {
+    vi.resetModules();
+    let app = {
+      id: "account-expert",
+      name: "Account Expert",
+      description: "Account research workspace",
+      path: "/account-expert",
+      visibility: "private",
+      org_enabled: false,
+    };
+    const membershipLookups: unknown[][] = [];
+    const updates: unknown[][] = [];
+    const execute = vi.fn(async (query: { sql: string; args?: unknown[] }) => {
+      const sql = query.sql.replace(/\s+/g, " ").trim().toLowerCase();
+      if (sql.startsWith("select role from org_members")) {
+        membershipLookups.push(query.args ?? []);
+        return { rows: [{ role: "owner" }], rowsAffected: 0 };
+      }
+      if (
+        sql.startsWith(
+          "select id, name, description, path, visibility, org_enabled",
+        )
+      ) {
+        return { rows: [{ ...app }], rowsAffected: 0 };
+      }
+      if (sql.startsWith("select id from workspace_apps")) {
+        return {
+          rows: query.args?.[1] === "org-1" ? [{ id: app.id }] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (sql.startsWith("update workspace_apps")) {
+        updates.push(query.args ?? []);
+        app = {
+          ...app,
+          visibility: String(query.args?.[0]),
+          org_enabled: Boolean(query.args?.[1]),
+        };
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected workspace app access query: ${query.sql}`);
+    });
+    const recordActionAudit = vi.fn();
+    const track = vi.fn();
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => ({ execute }),
+      isTransientDatabaseError: () => false,
+    }));
+    vi.doMock("../audit/record.js", () => ({ recordActionAudit }));
+    vi.doMock("../tracking/registry.js", () => ({ track }));
+
+    try {
+      const [
+        { mountActionRoutes },
+        { default: listWorkspaceAppAccess },
+        { default: setWorkspaceAppAccess },
+      ] = await Promise.all([
+        import("./action-routes.js"),
+        import("../org/actions/list-workspace-app-access.js"),
+        import("../org/actions/set-workspace-app-access.js"),
+      ]);
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mountActionRoutes(
+        nitroApp,
+        {
+          "list-workspace-app-access": listWorkspaceAppAccess as any,
+          "set-workspace-app-access": setWorkspaceAppAccess as any,
+        },
+        {
+          actionRouteAuth: {
+            resolveCaller: async () => ({
+              owner: "owner@example.com",
+              anonymous: false,
+              orgId: "org-1",
+            }),
+          },
+        },
+      );
+      const handlerFor = (name: string) =>
+        mounted.find(({ path }) => path === `/_agent-native/actions/${name}`)!
+          .handler;
+      const listEvent = () => ({
+        _method: "GET",
+        _headers: {},
+        context: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/list-workspace-app-access",
+        },
+      });
+
+      await expect(
+        handlerFor("list-workspace-app-access")(listEvent()),
+      ).resolves.toEqual({
+        apps: [
+          {
+            id: "account-expert",
+            name: "Account Expert",
+            description: "Account research workspace",
+            path: "/account-expert",
+            mode: "disabled",
+          },
+        ],
+      });
+
+      await expect(
+        handlerFor("set-workspace-app-access")({
+          _method: "POST",
+          _headers: {},
+          context: {},
+          req: {
+            url: "http://app.test/_agent-native/actions/set-workspace-app-access",
+            json: async () => ({ appId: "account-expert", mode: "restricted" }),
+          },
+        }),
+      ).resolves.toEqual({ appId: "account-expert", mode: "restricted" });
+
+      await expect(
+        handlerFor("list-workspace-app-access")(listEvent()),
+      ).resolves.toMatchObject({
+        apps: [{ id: "account-expert", mode: "restricted" }],
+      });
+      expect(membershipLookups).toEqual([
+        ["org-1", "owner@example.com"],
+        ["org-1", "owner@example.com"],
+        ["org-1", "owner@example.com"],
+      ]);
+      expect(updates).toEqual([
+        ["private", true, expect.any(Number), "account-expert", "org-1"],
+      ]);
+      expect(recordActionAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "success",
+          args: { appId: "account-expert", mode: "restricted" },
+          ctx: expect.objectContaining({
+            actionName: "set-workspace-app-access",
+            userEmail: "owner@example.com",
+            orgId: "org-1",
+          }),
+        }),
+      );
+      expect(track).toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../db/client.js");
+      vi.doUnmock("../audit/record.js");
+      vi.doUnmock("../tracking/registry.js");
+      vi.resetModules();
+    }
+  });
+
   it("passes the original mounted pathname to action auth adapters", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

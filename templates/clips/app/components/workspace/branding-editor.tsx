@@ -275,7 +275,12 @@ export function BrandingEditor({
       <CardContent>
         <FileStorageSetupPopover
           open={fileStoragePromptOpen}
-          onOpenChange={setFileStoragePromptOpen}
+          onOpenChange={(open, reason) => {
+            if (!open && reason === "dismiss") {
+              pendingLogoFileRef.current = null;
+            }
+            setFileStoragePromptOpen(open);
+          }}
           onConnected={() => void refreshStorageStatus()}
           {...(!storageData || storageStatusError
             ? {
