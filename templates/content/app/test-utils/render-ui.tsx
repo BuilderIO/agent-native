@@ -96,6 +96,17 @@ export async function click(element: Element) {
   });
 }
 
+/**
+ * Moves focus to `element` the way keyboard navigation does. Focus handlers
+ * often update component state, so this runs inside act.
+ */
+export async function focus(element: HTMLElement) {
+  await act(async () => {
+    element.focus();
+    await settleTasks();
+  });
+}
+
 /** Presses and releases a key on `element`, then lets pending work settle. */
 export async function press(
   element: Element,

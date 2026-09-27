@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   byLabel,
   click,
+  focus,
   nextFrame,
   press,
   queryByLabel,
@@ -29,6 +30,8 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, options?: Record<string, unknown>) =>
     options ? `${key}(${Object.values(options).join(", ")})` : key,
+  // The real hook reads react-i18next, which has no instance in unit tests.
+  useIconPickerLabels: () => ({}),
 }));
 
 vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
@@ -137,7 +140,7 @@ describe("property management menu", () => {
     );
 
     const trigger = byLabel("editor.properties.propertyMenuFor(Notes)");
-    trigger.focus();
+    await focus(trigger);
     await press(trigger, "Enter");
     await nextFrame();
 
@@ -154,7 +157,7 @@ describe("property management menu", () => {
     expect(moveLeft.getAttribute("aria-disabled")).not.toBe("true");
     expect(moveRight.getAttribute("aria-disabled")).toBe("true");
 
-    moveLeft.focus();
+    await focus(moveLeft);
     await press(moveLeft, "Enter");
     expect(onMoveLeft).toHaveBeenCalledTimes(1);
   });
