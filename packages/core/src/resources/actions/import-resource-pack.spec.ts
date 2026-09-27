@@ -27,7 +27,8 @@ vi.mock("../../mcp/actions/service-token-access.js", () => ({
 
 const { default: importResourcePack } =
   await import("./import-resource-pack.js");
-const { buildResourcePack } = await import("../pack.js");
+const { RESOURCE_PACK_MAX_BODY_BYTES, buildResourcePack } =
+  await import("../pack.js");
 
 function packOf(
   entries: Array<{
@@ -161,6 +162,73 @@ describe("import-resource-pack", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "forbidden", statusCode: 403 });
     expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("refuses organization import without an active organization", async () => {
+    await expect(
+      importResourcePack.run(
+        {
+          pack: packOf([{ path: "AGENTS.md", content: "x" }]),
+          targetScope: "organization",
+        },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "organization_required",
+      statusCode: 403,
+    });
+    expect(mockGetOrgRoleForEmail).not.toHaveBeenCalled();
+    expect(mockResourcePut).not.toHaveBeenCalled();
+    expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized pack before checksum verification", async () => {
+    const pack = packOf([{ path: "huge.md", content: "x".repeat(1_000_001) }]);
+    await expect(
+      importResourcePack.run(
+        {
+          pack: {
+            ...pack,
+            checksum: "a".repeat(64),
+            resources: [{ ...pack.resources[0], sha256: "b".repeat(64) }],
+          },
+        },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({
+        fileCount: 1,
+        byteCount: 1_000_001,
+        maxBytes: 1_000_000,
+      }),
+    });
+    expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("rejects too many files before schema parsing", async () => {
+    await expect(
+      importResourcePack.run(
+        {
+          pack: {
+            version: 1,
+            resources: Array.from({ length: 201 }, (_, index) => ({
+              path: `file-${index}.md`,
+              content: "x",
+            })),
+          },
+        },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({ fileCount: 201, maxFiles: 200 }),
+    });
+    expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("advertises a body cap the route can enforce before parsing", () => {
+    expect(importResourcePack.maxBodyBytes).toBe(RESOURCE_PACK_MAX_BODY_BYTES);
   });
 
   it("records per-path errors without rolling back earlier writes", async () => {

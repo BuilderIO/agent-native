@@ -92,6 +92,14 @@ vi.mock("h3", () => ({
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
   },
+  getHeader: (event: any, name: string) => {
+    const headers = event?._headers ?? {};
+    const target = String(name).toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() === target) return value;
+    }
+    return undefined;
+  },
   setResponseHeader: vi.fn(),
   getMethod: (event: any) => event._method || "GET",
   readMultipartFormData: (event: any) =>
@@ -1438,6 +1446,22 @@ Legacy webhook.`,
         redacted: 0,
         errors: [],
       });
+    });
+
+    it("rejects an oversized body before running the import action", async () => {
+      const { RESOURCE_PACK_MAX_BODY_BYTES } = await import("./pack.js");
+
+      await expect(
+        handleImportResourcePack({
+          _headers: {
+            "content-length": String(RESOURCE_PACK_MAX_BODY_BYTES + 1),
+          },
+          _body: { pack: { version: 1, resources: [] } },
+        }),
+      ).rejects.toMatchObject({ statusCode: 413 });
+
+      expect(lastStatus).toBe(413);
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
     });
   });
 });

@@ -74,6 +74,28 @@ function packSourceScope(
   return scope === "accessible" ? "personal" : scope;
 }
 
+const EXPORT_RESOURCE_READ_CONCURRENCY = 8;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Math.min(Math.max(concurrency, 1), items.length);
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await fn(items[index]!);
+      }
+    }),
+  );
+  return results;
+}
+
 export async function exportResourcePackForCaller(
   args: ExportResourcePackArgs,
   ctx?: ActionRunContext,
@@ -92,24 +114,38 @@ export async function exportResourcePackForCaller(
   const entries: ResourcePackEntry[] = [];
   const redactions: ResourcePackRedaction[] = [];
   let byteCount = 0;
+  const loaded = await mapWithConcurrency(
+    metas,
+    EXPORT_RESOURCE_READ_CONCURRENCY,
+    async (meta) => {
+      if (isBinaryResourceMimeType(meta.mimeType)) {
+        return { meta, resource: null, binary: true as const };
+      }
+      return {
+        meta,
+        resource: await resourceGet(meta.id, { userEmail, orgId }),
+        binary: false as const,
+      };
+    },
+  );
 
-  for (const meta of metas) {
-    if (isBinaryResourceMimeType(meta.mimeType)) {
-      redactions.push({ path: meta.path, reason: "binary" });
+  for (const item of loaded) {
+    if (item.binary) {
+      redactions.push({ path: item.meta.path, reason: "binary" });
       continue;
     }
-    const resource = await resourceGet(meta.id, { userEmail, orgId });
+    const resource = item.resource;
     if (!resource || typeof resource.content !== "string") {
-      redactions.push({ path: meta.path, reason: "unreadable" });
+      redactions.push({ path: item.meta.path, reason: "unreadable" });
       continue;
     }
-    const redacted = redactResourceContent(meta.path, resource.content);
+    const redacted = redactResourceContent(item.meta.path, resource.content);
     if (redacted.redacted) {
-      redactions.push({ path: meta.path, reason: "secret" });
+      redactions.push({ path: item.meta.path, reason: "secret" });
     }
     byteCount += Buffer.byteLength(redacted.content, "utf8");
     entries.push({
-      path: meta.path,
+      path: item.meta.path,
       scope: packScopeFromOwner(resource.owner, userEmail),
       content: redacted.content,
     });

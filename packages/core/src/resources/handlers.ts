@@ -15,6 +15,7 @@ import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
   readBody,
+  readBodyWithSizeLimit,
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
@@ -31,6 +32,7 @@ import {
   type RemoteAgentManifest,
   type SkillMetadata,
 } from "./metadata.js";
+import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
 import {
   resourceGet,
   resourceGetByPath,
@@ -860,8 +862,11 @@ export async function handleExportResourcePack(event: any) {
 export async function handleImportResourcePack(event: any) {
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  const body = await readBody(event);
   try {
+    const body = await readBodyWithSizeLimit(
+      event,
+      RESOURCE_PACK_MAX_BODY_BYTES,
+    );
     return await importResourcePack.run(
       {
         pack: body.pack,

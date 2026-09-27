@@ -1246,6 +1246,40 @@ export function resourcePackPrefixForView(
   }
 }
 
+const RESOURCE_PACK_IMPORT_ERROR_PREVIEW = 8;
+
+export function resourcePackImportToast(
+  outcome: {
+    imported?: number;
+    skipped?: number;
+    errors?: Array<{ path?: string; error?: string } | null> | null;
+  },
+  translate: (key: string, values?: Record<string, unknown>) => string,
+): { kind: "ok" | "err"; message: string } {
+  const imported = outcome.imported ?? 0;
+  const skipped = outcome.skipped ?? 0;
+  const summary = translate("agentResources.importPackSuccess", {
+    imported,
+    skipped,
+  });
+  const errors = (outcome.errors ?? []).flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const path = typeof entry.path === "string" ? entry.path.trim() : "";
+    const error = typeof entry.error === "string" ? entry.error.trim() : "";
+    if (!path && !error) return [];
+    return [error ? `${path || "unknown"}: ${error}` : path];
+  });
+  if (errors.length === 0) return { kind: "ok", message: summary };
+  const preview = errors.slice(0, RESOURCE_PACK_IMPORT_ERROR_PREVIEW);
+  const hidden = errors.length - preview.length;
+  const details =
+    hidden > 0 ? `${preview.join("; ")}; +${hidden}` : preview.join("; ");
+  return {
+    kind: "err",
+    message: `${summary}. ${translate("agentResources.importPackFailed")} (${errors.length}): ${details}`,
+  };
+}
+
 export function ResourcesPanel({
   showMcpServers = true,
   scope: requestedScope,
@@ -1652,13 +1686,13 @@ export function ResourcesPanel({
         const result = (await importResourcePack.mutateAsync({ pack })) as {
           imported?: number;
           skipped?: number;
+          errors?: Array<{ path?: string; error?: string }>;
         };
+        const toast = resourcePackImportToast(result, t);
         showToast(
-          "ok",
-          t("agentResources.importPackSuccess", {
-            imported: result.imported ?? 0,
-            skipped: result.skipped ?? 0,
-          }),
+          toast.kind,
+          toast.message,
+          toast.kind === "err" ? { durationMs: 12_000 } : undefined,
         );
       } catch (err) {
         showToast(

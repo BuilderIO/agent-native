@@ -5,6 +5,10 @@ import { z } from "zod";
 export const RESOURCE_PACK_VERSION = 1;
 export const RESOURCE_PACK_MAX_FILES = 200;
 export const RESOURCE_PACK_MAX_BYTES = 1_000_000;
+// Content is capped at RESOURCE_PACK_MAX_BYTES. The HTTP body also carries
+// JSON framing, checksums, and escaping, so the route limit sits above that.
+export const RESOURCE_PACK_MAX_BODY_BYTES =
+  RESOURCE_PACK_MAX_BYTES * 6 + 65_536;
 
 export type ResourcePackScope = "personal" | "organization" | "workspace";
 export type ResourcePackRedactionReason = "secret" | "binary" | "unreadable";
@@ -67,8 +71,28 @@ const packSchema = z.object({
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
-const CREDENTIAL_NAME =
-  "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+const CREDENTIAL_NAME = [
+  "authorization",
+  "cookie",
+  "api[_ -]?key",
+  "password",
+  "secret",
+  "token",
+  "access[_ -]?token",
+  "refresh[_ -]?token",
+  "private[_ -]?key",
+  // Connection-string names use "_" or "-" so prose like "database url:" is
+  // left alone. Spaces stay on the credential words above.
+  "database[_-]?(?:url|uri|dsn)",
+  "db[_-]?(?:url|uri|dsn)",
+  "connection[_-]?(?:string|uri|url)",
+  "(?:postgres(?:ql)?|mysql|mariadb|mongo(?:db)?|redis|amqp|rabbitmq)[_-]?(?:url|uri|dsn)",
+].join("|");
+
+const PEM_PRIVATE_KEY_PATTERN =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY[A-Z0-9 ]*-----/g;
+
+const URL_USERINFO_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi;
 
 const UNQUOTED_CREDENTIAL_TERMINATORS = new Set([
   ",",
@@ -195,6 +219,12 @@ function endOfCredentialValue(input: string, start: number): number {
   return endOfUnquotedCredentialValue(input, start);
 }
 
+function isJsonLiteral(value: string): boolean {
+  return /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(
+    value,
+  );
+}
+
 function redactLabeledCredentials(value: string): {
   content: string;
   redacted: boolean;
@@ -217,12 +247,22 @@ function redactLabeledCredentials(value: string): {
 
     // Preserve the original quoting. Replacing the quotes along with the value
     // would turn a redacted JSON or YAML resource into an unparseable one.
+    // A bare `[REDACTED]` in place of a JSON number, boolean, or null is also
+    // invalid, so quote that placeholder when the separator is a colon.
     const quote = value[valueStart];
     const wasQuoted =
       (quote === '"' || quote === "'") && value[valueEnd - 1] === quote;
+    const literal = value.slice(valueStart, valueEnd).trim();
+    const separator = match[0].trimEnd().at(-1);
+    const redactAsJsonLiteral =
+      !wasQuoted && separator === ":" && isJsonLiteral(literal);
 
     content += value.slice(cursor, valueStart);
-    content += wasQuoted ? `${quote}[REDACTED]${quote}` : "[REDACTED]";
+    content += wasQuoted
+      ? `${quote}[REDACTED]${quote}`
+      : redactAsJsonLiteral
+        ? '"[REDACTED]"'
+        : "[REDACTED]";
     cursor = valueEnd;
     redacted = true;
     pattern.lastIndex = valueEnd;
@@ -247,13 +287,22 @@ function redactCredentialStrings(value: string): {
   content: string;
   redacted: boolean;
 } {
-  const labeled = redactLabeledCredentials(value);
-  const content = labeled.content
+  const withoutPem = value.replace(PEM_PRIVATE_KEY_PATTERN, "[REDACTED]");
+  const labeled = redactLabeledCredentials(withoutPem);
+  const withoutUserinfo = labeled.content.replace(
+    URL_USERINFO_PATTERN,
+    "$1[REDACTED]@",
+  );
+  const content = withoutUserinfo
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
   return {
     content,
-    redacted: labeled.redacted || content !== labeled.content,
+    redacted:
+      withoutPem !== value ||
+      labeled.redacted ||
+      withoutUserinfo !== labeled.content ||
+      content !== withoutUserinfo,
   };
 }
 

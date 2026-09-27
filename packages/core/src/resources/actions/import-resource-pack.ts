@@ -5,6 +5,7 @@ import type { ActionRunContext } from "../../action.js";
 import { getOrgRoleForEmail } from "../../mcp/actions/service-token-access.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {
+  RESOURCE_PACK_MAX_BODY_BYTES,
   RESOURCE_PACK_MAX_BYTES,
   RESOURCE_PACK_MAX_FILES,
   verifyResourcePack,
@@ -58,13 +59,59 @@ function packByteCount(pack: ResourcePack): number {
   );
 }
 
+function rawPackOverCap(pack: unknown): {
+  fileCount: number;
+  byteCount: number;
+} | null {
+  if (!pack || typeof pack !== "object") return null;
+  const resources = (pack as { resources?: unknown }).resources;
+  if (!Array.isArray(resources)) return null;
+
+  const fileCount = resources.length;
+  if (fileCount > RESOURCE_PACK_MAX_FILES) {
+    return { fileCount, byteCount: 0 };
+  }
+
+  let byteCount = 0;
+  for (const resource of resources) {
+    if (!resource || typeof resource !== "object") continue;
+    const content = (resource as { content?: unknown }).content;
+    if (typeof content !== "string") continue;
+    if (content.length > RESOURCE_PACK_MAX_BYTES) {
+      return { fileCount, byteCount: content.length };
+    }
+    byteCount += Buffer.byteLength(content, "utf8");
+    if (byteCount > RESOURCE_PACK_MAX_BYTES) {
+      return { fileCount, byteCount };
+    }
+  }
+  return null;
+}
+
+function failPackTooLarge(fileCount: number, byteCount: number): never {
+  fail("Resource pack exceeds the import cap.", {
+    errorCode: "too_large",
+    details: {
+      fileCount,
+      byteCount,
+      maxFiles: RESOURCE_PACK_MAX_FILES,
+      maxBytes: RESOURCE_PACK_MAX_BYTES,
+    },
+  });
+}
+
 async function assertCanWriteOrganization(
   ctx: ActionRunContext | undefined,
 ): Promise<void> {
   const email = ctx?.userEmail;
   const orgId = ctx?.orgId ?? null;
   if (!email) fail("Not authenticated.", { statusCode: 401 });
-  if (!orgId) return;
+  if (!orgId) {
+    fail("Organization import requires an active organization.", {
+      errorCode: "organization_required",
+      statusCode: 403,
+    });
+  }
   const role = await getOrgRoleForEmail(orgId, email);
   if (!canManageOrg(role)) {
     fail("Only organization admins can import into organization files.", {
@@ -89,6 +136,13 @@ export async function importResourcePackForCaller(
     });
   }
 
+  if (targetScope === "organization") {
+    await assertCanWriteOrganization(ctx);
+  }
+
+  const overCap = rawPackOverCap(args.pack);
+  if (overCap) failPackTooLarge(overCap.fileCount, overCap.byteCount);
+
   const verified = verifyResourcePack(args.pack);
   if (!verified.ok) {
     fail(
@@ -107,19 +161,7 @@ export async function importResourcePackForCaller(
     pack.resources.length > RESOURCE_PACK_MAX_FILES ||
     byteCount > RESOURCE_PACK_MAX_BYTES
   ) {
-    fail("Resource pack exceeds the import cap.", {
-      errorCode: "too_large",
-      details: {
-        fileCount: pack.resources.length,
-        byteCount,
-        maxFiles: RESOURCE_PACK_MAX_FILES,
-        maxBytes: RESOURCE_PACK_MAX_BYTES,
-      },
-    });
-  }
-
-  if (targetScope === "organization") {
-    await assertCanWriteOrganization(ctx);
+    failPackTooLarge(pack.resources.length, byteCount);
   }
 
   const owner = ownerForPackTarget(targetScope, userEmail, ctx?.orgId ?? null);
@@ -172,7 +214,8 @@ export async function importResourcePackForCaller(
 
 export default defineAction({
   description:
-    "Import a checksummed JSON resource pack into personal scope by default (skip-on-conflict). Organization import requires the same admin write ACL as editing organization files. Workspace import is refused.",
+    "Import a checksummed JSON resource pack into personal scope by default (skip-on-conflict). Organization import requires an active organization and the same admin write ACL as editing organization files. Workspace import is refused.",
   schema: importResourcePackSchema,
+  maxBodyBytes: RESOURCE_PACK_MAX_BODY_BYTES,
   run: importResourcePackForCaller,
 });

@@ -305,6 +305,43 @@ describe("export-resource-pack", () => {
     expect(mockResourceListAccessible).not.toHaveBeenCalled();
   });
 
+  it("reads listed resources concurrently and keeps access checks", async () => {
+    const paths = Array.from({ length: 6 }, (_, index) => `file-${index}.md`);
+    mockResourceListAccessible.mockResolvedValue(
+      paths.map((path) => meta(path)),
+    );
+    let active = 0;
+    let maxActive = 0;
+    let release: (() => void) | undefined;
+    const opened = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockResourceGet.mockImplementation(async (id: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (maxActive >= 2) release?.();
+      await Promise.race([
+        opened,
+        new Promise((resolve) => setTimeout(resolve, 50)),
+      ]);
+      active -= 1;
+      return resource(id, id);
+    });
+
+    const result = await exportResourcePack.run(
+      { scope: "accessible" },
+      { userEmail: "alice@x.com", orgId: "org-1", caller: "http" },
+    );
+
+    expect(maxActive).toBeGreaterThan(1);
+    expect(mockResourceGet).toHaveBeenCalledWith("file-0.md", {
+      userEmail: "alice@x.com",
+      orgId: "org-1",
+    });
+    expect(result.pack.resources.map((entry) => entry.path)).toEqual(paths);
+    expect(result.pack.redactions).toEqual([]);
+  });
+
   it("lists organization resources for organization scope", async () => {
     mockResourceListOrganization.mockResolvedValue([meta("AGENTS.md")]);
     mockResourceGet.mockResolvedValue(resource("AGENTS.md", "hi"));

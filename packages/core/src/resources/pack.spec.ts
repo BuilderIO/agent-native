@@ -257,4 +257,84 @@ describe("redactResourceContent", () => {
     expect(reparsed.SENDGRID_API_KEY).toBe("[REDACTED]");
     expect(reparsed.keep).toBe("visible");
   });
+
+  it("keeps numeric, boolean, and null JSON credentials parseable", () => {
+    const source =
+      '{"password":12345,"retries":8,"token":true,"secret":null,"keep":"visible"}';
+
+    const result = redactResourceContent("config.json", source);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).not.toContain("12345");
+    const reparsed = JSON.parse(result.content) as {
+      password: string;
+      retries: number;
+      token: string;
+      secret: string;
+      keep: string;
+    };
+    expect(reparsed.password).toBe("[REDACTED]");
+    expect(reparsed.retries).toBe(8);
+    expect(reparsed.token).toBe("[REDACTED]");
+    expect(reparsed.secret).toBe("[REDACTED]");
+    expect(reparsed.keep).toBe("visible");
+  });
+
+  it("redacts an unquoted numeric env password without adding quotes", () => {
+    const result = redactResourceContent("AGENTS.md", "password=12345");
+
+    expect(result.content).toBe("password=[REDACTED]");
+    expect(result.content).not.toContain("12345");
+  });
+
+  it("redacts private-key labels, PEM blocks, and credential-bearing DSNs", () => {
+    const privateKey = "ssh-private-key-material-7f3a";
+    const pemMaterial = "MIIE-PRIVATE-KEY-MATERIAL-7f3a";
+    const dbPassword = "db-password-7f3a9c";
+    const inlinePassword = "inline-db-password-7f3a9c";
+    const publicKey = "public-key-material-should-remain";
+    const pem = [
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      pemMaterial,
+      "-----END OPENSSH PRIVATE KEY-----",
+    ].join("\n");
+    const source = [
+      `SSH_PRIVATE_KEY=${privateKey}`,
+      `PRIVATE_KEY="${privateKey}-quoted"`,
+      pem,
+      `DATABASE_URL=postgresql://app:${dbPassword}@db.internal:5432/app`,
+      `see postgres://app:${inlinePassword}@db.internal/app`,
+      `PUBLIC_KEY=${publicKey}`,
+      "-----BEGIN PUBLIC KEY-----",
+      publicKey,
+      "-----END PUBLIC KEY-----",
+      "keep-this-visible",
+    ].join("\n");
+
+    const result = redactResourceContent("AGENTS.md", source);
+    const pack = buildResourcePack(
+      [{ path: "AGENTS.md", scope: "personal", content: result.content }],
+      { exportedAt: 1, source: { scope: "personal" } },
+    );
+    const serialized = JSON.stringify(pack);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).toContain("SSH_PRIVATE_KEY=[REDACTED]");
+    expect(result.content).toContain('PRIVATE_KEY="[REDACTED]"');
+    expect(result.content).toContain("DATABASE_URL=[REDACTED]");
+    expect(result.content).toContain("postgres://[REDACTED]@db.internal/app");
+    expect(result.content).toContain(`PUBLIC_KEY=${publicKey}`);
+    expect(result.content).toContain("-----BEGIN PUBLIC KEY-----");
+    expect(serialized).toContain("keep-this-visible");
+    for (const secret of [
+      privateKey,
+      `${privateKey}-quoted`,
+      pemMaterial,
+      dbPassword,
+      inlinePassword,
+    ]) {
+      expect(result.content).not.toContain(secret);
+      expect(serialized).not.toContain(secret);
+    }
+  });
 });

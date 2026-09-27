@@ -218,6 +218,7 @@ describe("action discovery", () => {
           tool: { description: "Slow provider", parameters: {} },
           timeoutMs: 120_000,
           maxResultChars: 10_000,
+          maxBodyBytes: 2_048,
           run: async () => ({ ok: true }),
         },
       },
@@ -225,6 +226,7 @@ describe("action discovery", () => {
 
     expect(registry["slow-provider"].timeoutMs).toBe(120_000);
     expect(registry["slow-provider"].maxResultChars).toBe(10_000);
+    expect(registry["slow-provider"].maxBodyBytes).toBe(2_048);
   });
 
   it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {
