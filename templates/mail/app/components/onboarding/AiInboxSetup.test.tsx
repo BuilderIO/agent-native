@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     enabled: boolean;
   }>,
   rulesLoading: false,
+  firstRunOnboardingGateOwnsSurface: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   sendToAgentChat: vi.fn(),
@@ -74,6 +75,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => mocks.jevAvailability,
+}));
+
+vi.mock("@agent-native/core/client/onboarding", () => ({
+  useFirstRunOnboardingGateOwnsSurface: () =>
+    mocks.firstRunOnboardingGateOwnsSurface,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -151,6 +157,7 @@ describe("AiInboxSetup", () => {
     let id = 0;
     mocks.automations = [];
     mocks.rulesLoading = false;
+    mocks.firstRunOnboardingGateOwnsSurface = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -174,6 +181,39 @@ describe("AiInboxSetup", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("defers inbox setup while first-run onboarding owns the surface", () => {
+    mocks.firstRunOnboardingGateOwnsSurface = true;
+
+    render(<AiInboxSetup forceOpen />);
+
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+  });
+
+  it("requires text or an explicit skip on the importance step", () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupContinue",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
   });
 
   it("starts with a real inbox decision and a one-line importance example", async () => {
@@ -207,7 +247,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
@@ -221,7 +261,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     const archiveInput = screen.getByRole("textbox", {
@@ -272,7 +312,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
@@ -339,7 +379,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const archiveInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.skipInboxMode",
@@ -365,7 +405,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const reopenedArchiveInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.skipInboxMode",
@@ -505,7 +545,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const sortInbox = screen.getByRole("button", {
       name: "mail.sort.aiSetupSortInbox",
@@ -566,7 +606,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -617,7 +657,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -736,7 +776,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -942,8 +982,8 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupContinue",
+      screen.getByRole("button", {
+        name: "mail.sort.aiSetupSkip",
       }),
     );
     fireEvent.click(
@@ -992,8 +1032,8 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupContinue",
+      screen.getByRole("button", {
+        name: "mail.sort.aiSetupSkip",
       }),
     );
     fireEvent.click(
@@ -1033,7 +1073,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -1056,7 +1096,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),

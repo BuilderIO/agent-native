@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/core/client/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -368,6 +369,7 @@ export function AiInboxSetup({
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
+  const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
@@ -429,6 +431,7 @@ export function AiInboxSetup({
     [rules],
   );
   const visible =
+    !firstRunOnboardingOwnsSurface &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&
@@ -851,6 +854,7 @@ export function AiInboxSetup({
                 step < 3 &&
                 (saving ||
                   customTagIncomplete ||
+                  (step === 1 && !importantPrompt.trim()) ||
                   (step === 2 && (!jevConfigured || rulesLoading)))
               }
               aria-busy={saving || (step === 2 && rulesLoading)}
