@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { type ComponentProps, type ReactElement, type ReactNode } from "react";
@@ -678,6 +679,14 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    const header = render(
+      (headerActions.current as ReactElement<{ search: ReactNode }>).props
+        .search,
+    );
+    expect(
+      within(header.container).getByRole("searchbox", { name: "Search decks" }),
+    ).toBeTruthy();
+    header.unmount();
     expect(
       screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
     ).toBe("/templates");

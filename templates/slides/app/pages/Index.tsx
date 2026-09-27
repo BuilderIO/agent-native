@@ -2008,19 +2008,17 @@ export default function Index({ active = true }: { active?: boolean }) {
     () => (
       <HomeHeaderActions
         search={
-          viewState !== "empty" ? (
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="w-full"
-            />
-          ) : null
+          <DeckSearchInput
+            value={deckSearch}
+            onChange={setDeckSearch}
+            className="w-full"
+          />
         }
       >
         <ImportDeckButton controller={deckImport} />
       </HomeHeaderActions>
     ),
-    [deckImport, deckSearch, setDeckSearch, viewState],
+    [deckImport, deckSearch, setDeckSearch],
   );
   if (isStartingNewDeck) {
     return (
