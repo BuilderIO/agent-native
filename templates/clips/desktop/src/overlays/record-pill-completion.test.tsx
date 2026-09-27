@@ -29,6 +29,9 @@ const tauriEvents = vi.hoisted(() => {
   };
 });
 const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => undefined) }));
+const tauriWindows = vi.hoisted(() => ({
+  getByLabel: vi.fn(async () => ({ label: "toolbar" })),
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
   emit: tauriEvents.emit,
@@ -36,6 +39,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriCore.invoke,
+}));
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  WebviewWindow: { getByLabel: tauriWindows.getByLabel },
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   currentMonitor: vi.fn(async () => null),
@@ -85,6 +91,7 @@ describe("completion card actions", () => {
     tauriEvents.emit.mockClear();
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
+    tauriWindows.getByLabel.mockReset().mockResolvedValue({ label: "toolbar" });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -243,7 +250,7 @@ describe("completion card actions", () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 
-  it("shows Copy and Open after a tray stop request reaches the pill", async () => {
+  it("shows Copy and Open after the recording shortcut reaches the pill", async () => {
     await act(async () => root.unmount());
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
@@ -265,14 +272,12 @@ describe("completion card actions", () => {
       });
     });
     await act(async () => button("Open restart confirmation").click());
-    await act(async () => {
-      await tauriEvents.emit("clips:tray-stop-request", {
-        requestId: "shortcut-stop-1",
-      });
-    });
+    const { requestRecordingShortcutStop } =
+      await import("../lib/recording-shortcut-stop");
+    await act(async () => requestRecordingShortcutStop());
     expect(tauriEvents.emit).toHaveBeenCalledWith(
       "clips:tray-stop-ack",
-      "shortcut-stop-1",
+      expect.any(String),
     );
     await act(async () => {
       await tauriEvents.emit("clips:native-upload-finished", {
