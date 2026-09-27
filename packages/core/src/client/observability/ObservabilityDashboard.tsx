@@ -193,7 +193,8 @@ function canRenderReviewArtifactInParent(
     artifact.appId === "analytics" &&
     renderAnalyticsDashboardPreview &&
     currentReviewArtifactAppId() === "analytics" &&
-    artifact.path === `/dashboards/${artifact.artifactId}`
+    (artifact.path === `/dashboards/${artifact.artifactId}` ||
+      artifact.path === `/analyses/${artifact.artifactId}`)
   ) {
     return true;
   }
@@ -1738,7 +1739,10 @@ function ReviewTab({
                         artifactPreviewUrl={artifactHref}
                         artifactPreviewContent={
                           artifact?.appId === "analytics" &&
-                          artifact.path === `/dashboards/${artifact.artifactId}`
+                          (artifact.path ===
+                            `/dashboards/${artifact.artifactId}` ||
+                            artifact.path ===
+                              `/analyses/${artifact.artifactId}`)
                             ? renderArtifactPreview?.(artifact, true)
                             : undefined
                         }
@@ -2038,8 +2042,10 @@ function ReviewTab({
                                 }
                                 artifactPreviewContent={
                                   selectedArtifact?.appId === "analytics" &&
-                                  selectedArtifact.path ===
-                                    `/dashboards/${selectedArtifact.artifactId}`
+                                  (selectedArtifact.path ===
+                                    `/dashboards/${selectedArtifact.artifactId}` ||
+                                    selectedArtifact.path ===
+                                      `/analyses/${selectedArtifact.artifactId}`)
                                     ? renderArtifactPreview?.(
                                         selectedArtifact,
                                         false,
@@ -2656,8 +2662,10 @@ function ReviewTab({
                 }
                 artifactPreviewContent={
                   selectedArtifact?.appId === "analytics" &&
-                  selectedArtifact.path ===
-                    `/dashboards/${selectedArtifact.artifactId}`
+                  (selectedArtifact.path ===
+                    `/dashboards/${selectedArtifact.artifactId}` ||
+                    selectedArtifact.path ===
+                      `/analyses/${selectedArtifact.artifactId}`)
                     ? renderArtifactPreview?.(selectedArtifact, false)
                     : undefined
                 }

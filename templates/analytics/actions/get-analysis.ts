@@ -1,17 +1,28 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getAnalysis } from "../server/lib/dashboards-store";
+import {
+  getAnalysis,
+  getAnalysisForReview,
+} from "../server/lib/dashboards-store";
 
 export default defineAction({
   description: "Get a saved ad-hoc analysis by ID, including its full results.",
   schema: z.object({
     id: z.string().describe("The analysis ID"),
+    reviewPreview: z
+      .boolean()
+      .optional()
+      .describe(
+        "Human Review only: read a saved analysis for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -44,7 +55,26 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    const a = await getAnalysis(args.id, { email, orgId });
+    let a;
+    if (args.reviewPreview) {
+      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+        throw Object.assign(
+          new Error(
+            "Only organization owners and admins can preview reviewed analyses.",
+          ),
+          { statusCode: 403 },
+        );
+      }
+      const superOrgId = getAppConfig().observability.superOrgId;
+      a = await getAnalysisForReview(
+        args.id,
+        superOrgId === orgId
+          ? { kind: "super-organization" }
+          : { kind: "organization", orgId },
+      );
+    } else {
+      a = await getAnalysis(args.id, { email, orgId });
+    }
     if (!a) return { error: "Analysis not found" };
     return {
       id: a.id,

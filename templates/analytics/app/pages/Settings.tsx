@@ -171,6 +171,7 @@ export default function Settings() {
                   renderArtifactPreview={(artifact, compact) => (
                     <AnalyticsReviewArtifactPreview
                       artifactId={artifact.artifactId}
+                      artifactPath={artifact.path}
                       compact={compact}
                     />
                   )}

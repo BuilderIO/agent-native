@@ -223,7 +223,7 @@ vi.mock("../db/index.js", () => ({
   }),
 }));
 
-const { deleteDashboardView, getOrgDashboardForReview, saveDashboardView } =
+const { deleteDashboardView, getDashboardForReview, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
@@ -261,11 +261,14 @@ describe("dashboard views", () => {
     };
     state.legacyDashboard = { name: "Legacy", panels: [] };
 
-    const result = await getOrgDashboardForReview("dashboard-a", "org-a");
-    const otherOrgResult = await getOrgDashboardForReview(
-      "dashboard-a",
-      "org-b",
-    );
+    const result = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-a",
+    });
+    const otherOrgResult = await getDashboardForReview("dashboard-a", {
+      kind: "organization",
+      orgId: "org-b",
+    });
 
     expect(result).toMatchObject({
       id: "dashboard-a",

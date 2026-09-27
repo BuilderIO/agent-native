@@ -2,6 +2,7 @@ import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
   buildDeepLink,
   currentRequestUserIsOrgAdmin,
+  getAppConfig,
 } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -44,10 +45,15 @@ async function readDeck(deckId: string, reviewPreview = false) {
         statusCode: 403,
       });
     }
+    const isSuperOrg = getAppConfig().observability.superOrgId === orgId;
     [row] = await getDb()
       .select()
       .from(schema.decks)
-      .where(and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, orgId)))
+      .where(
+        isSuperOrg
+          ? eq(schema.decks.id, deckId)
+          : and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, orgId)),
+      )
       .limit(1);
     if (!row) fail("Deck not found.", { statusCode: 404 });
   } else {
@@ -370,7 +376,7 @@ export default defineAction({
         .boolean()
         .optional()
         .describe(
-          "Human Review only: read a deck in the current organization. Requires an organization owner or admin.",
+          "Human Review only: read a saved deck for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
         ),
     })
     .superRefine((args, context) => {

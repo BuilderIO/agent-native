@@ -800,15 +800,24 @@ export async function getDashboard(
   );
 }
 
-export async function getOrgDashboardForReview(
+export type DashboardReviewScope =
+  | { kind: "organization"; orgId: string }
+  | { kind: "super-organization" };
+
+export async function getDashboardForReview(
   id: string,
-  orgId: string,
+  scope: DashboardReviewScope,
 ): Promise<DashboardRecord | null> {
   const [row] = await getDb()
     .select()
     .from(schema.dashboards)
     .where(
-      and(eq(schema.dashboards.id, id), eq(schema.dashboards.orgId, orgId)),
+      scope.kind === "super-organization"
+        ? eq(schema.dashboards.id, id)
+        : and(
+            eq(schema.dashboards.id, id),
+            eq(schema.dashboards.orgId, scope.orgId),
+          ),
     )
     .limit(1);
   return row ? rowToDashboard(row, "viewer") : null;
@@ -2420,6 +2429,27 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+}
+
+export type AnalysisReviewScope = DashboardReviewScope;
+
+export async function getAnalysisForReview(
+  id: string,
+  scope: AnalysisReviewScope,
+): Promise<AnalysisRecord | null> {
+  const [row] = await getDb()
+    .select()
+    .from(schema.analyses)
+    .where(
+      scope.kind === "super-organization"
+        ? eq(schema.analyses.id, id)
+        : and(
+            eq(schema.analyses.id, id),
+            eq(schema.analyses.orgId, scope.orgId),
+          ),
+    )
+    .limit(1);
+  return row ? rowToAnalysis(row, "viewer") : null;
 }
 
 export async function getPublicAnalysisMetadata(id: string) {

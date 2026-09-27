@@ -1,6 +1,7 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
   currentRequestUserIsOrgAdmin,
+  getAppConfig,
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
@@ -15,7 +16,7 @@ import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-f
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import {
   getDashboard,
-  getOrgDashboardForReview,
+  getDashboardForReview,
 } from "../server/lib/dashboards-store";
 
 export default defineAction({
@@ -33,7 +34,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Human Review only: read a dashboard in the current organization. Requires an organization owner or admin.",
+        "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
       ),
   }),
   http: { method: "GET" },
@@ -79,7 +80,13 @@ export default defineAction({
           { statusCode: 403 },
         );
       }
-      dash = await getOrgDashboardForReview(args.id, orgId);
+      const superOrgId = getAppConfig().observability.superOrgId;
+      dash = await getDashboardForReview(
+        args.id,
+        superOrgId === orgId
+          ? { kind: "super-organization" }
+          : { kind: "organization", orgId },
+      );
     } else {
       dash = await getDashboard(args.id, ctx);
     }

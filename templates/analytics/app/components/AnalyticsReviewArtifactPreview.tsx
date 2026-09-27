@@ -1,17 +1,31 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useEffect, useRef, useState } from "react";
 
 import { SqlChart } from "@/components/dashboard/SqlChart";
-import { resolveFilterVars } from "@/pages/adhoc/sql-dashboard/DashboardFilterBar";
+import Markdown from "@/components/Markdown";
+import type { SqlQueryResult } from "@/lib/sql-query";
+import {
+  resolveFilterVars,
+  reviewDashboardFilters,
+  reviewDashboardVariables,
+} from "@/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolate } from "@/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
-  DashboardFilter,
   DataSourceType,
   ChartType,
   SqlPanel,
 } from "@/pages/adhoc/sql-dashboard/types";
+import LegacyFusionAnalysis, {
+  isLegacyFusionAnalysis,
+} from "@/pages/analyses/LegacyFusionAnalysis";
+
+export {
+  reviewDashboardFilters,
+  reviewDashboardVariables,
+} from "@/pages/adhoc/sql-dashboard/filter-vars";
 
 const DATA_SOURCES: DataSourceType[] = [
   "bigquery",
@@ -35,15 +49,6 @@ const CHART_TYPES: ChartType[] = [
   "callout",
   "extension",
 ];
-const FILTER_TYPES: DashboardFilter["type"][] = [
-  "date",
-  "date-range",
-  "select",
-  "toggle",
-  "text",
-  "toggle-date",
-];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -61,61 +66,23 @@ function isSqlPanel(value: unknown): value is SqlPanel {
   );
 }
 
-function isDashboardFilter(value: unknown): value is DashboardFilter {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    !value.id ||
-    typeof value.label !== "string" ||
-    !FILTER_TYPES.includes(value.type as DashboardFilter["type"]) ||
-    (value.default !== undefined && typeof value.default !== "string")
-  ) {
-    return false;
-  }
-  return (
-    value.options === undefined ||
-    (Array.isArray(value.options) &&
-      value.options.length <= 100 &&
-      value.options.every(
-        (option) =>
-          isRecord(option) &&
-          typeof option.value === "string" &&
-          typeof option.label === "string",
-      ))
-  );
-}
-
-export function reviewDashboardFilters(
-  value: unknown,
-): DashboardFilter[] | undefined {
-  if (!isRecord(value) || value.filters === undefined) return [];
-  return Array.isArray(value.filters) &&
-    value.filters.length <= 100 &&
-    value.filters.every(isDashboardFilter)
-    ? value.filters
-    : undefined;
-}
-
-export function reviewDashboardVariables(
-  value: unknown,
-): Record<string, string> | undefined {
-  if (!isRecord(value) || value.variables === undefined) return {};
-  if (!isRecord(value.variables)) return undefined;
-  const entries = Object.entries(value.variables);
-  if (
-    entries.length > 100 ||
-    entries.some(([, variable]) => typeof variable !== "string")
-  ) {
-    return undefined;
-  }
-  return Object.fromEntries(entries) as Record<string, string>;
-}
-
 export function firstReviewDashboardPanel(
   value: unknown,
 ): SqlPanel | undefined {
-  if (!isRecord(value) || !Array.isArray(value.panels)) return undefined;
-  const panels = value.panels.filter(isSqlPanel);
+  return reviewDashboardPanels(value)[0];
+}
+
+export function reviewDashboardPanels(value: unknown): SqlPanel[] {
+  if (!isRecord(value) || !Array.isArray(value.panels)) return [];
+  const panels = value.panels
+    .filter(isSqlPanel)
+    .filter(
+      (panel) =>
+        panel.source !== "demo" &&
+        panel.source !== "program" &&
+        panel.chartType !== "section" &&
+        panel.chartType !== "extension",
+    );
   const byId = new Map(panels.map((panel) => [panel.id, panel]));
   const preferredIds =
     isRecord(value.layout) && Array.isArray(value.layout.firstPanelIds)
@@ -123,24 +90,42 @@ export function firstReviewDashboardPanel(
           (id): id is string => typeof id === "string",
         )
       : [];
-  const preferred = preferredIds.flatMap((id) => {
+  const orderedIds =
+    isRecord(value.layout) && Array.isArray(value.layout.panelOrder)
+      ? value.layout.panelOrder.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : preferredIds;
+  const preferred = orderedIds.flatMap((id) => {
     const panel = byId.get(id);
     return panel ? [panel] : [];
   });
-  const ordered = [
+  return [
     ...preferred,
-    ...panels.filter((panel) => !preferredIds.includes(panel.id)),
+    ...panels.filter((panel) => !orderedIds.includes(panel.id)),
   ];
-  return ordered.find(
-    (panel) =>
-      panel.source !== "demo" &&
-      panel.source !== "program" &&
-      panel.chartType !== "section" &&
-      panel.chartType !== "extension",
-  );
 }
 
 export function AnalyticsReviewArtifactPreview({
+  artifactId,
+  artifactPath,
+  compact,
+}: {
+  artifactId: string;
+  artifactPath?: string;
+  compact: boolean;
+}) {
+  return artifactPath?.startsWith("/analyses/") ? (
+    <AnalyticsReviewAnalysisPreview artifactId={artifactId} compact={compact} />
+  ) : (
+    <AnalyticsReviewDashboardPreview
+      artifactId={artifactId}
+      compact={compact}
+    />
+  );
+}
+
+function AnalyticsReviewDashboardPreview({
   artifactId,
   compact,
 }: {
@@ -153,7 +138,7 @@ export function AnalyticsReviewArtifactPreview({
     { id: artifactId, includeConfig: true, reviewPreview: true },
     { staleTime: 5 * 60_000 },
   );
-  const panel = firstReviewDashboardPanel(data);
+  const panels = reviewDashboardPanels(data);
   const filters = reviewDashboardFilters(data);
   const variables = reviewDashboardVariables(data);
   if (isLoading) {
@@ -168,7 +153,7 @@ export function AnalyticsReviewArtifactPreview({
       />
     );
   }
-  if (isError || !panel || !filters || !variables) {
+  if (isError || panels.length === 0 || !filters || !variables) {
     return (
       <div
         className="flex size-full items-center justify-center bg-muted px-2 text-center text-xs text-muted-foreground"
@@ -181,9 +166,7 @@ export function AnalyticsReviewArtifactPreview({
   }
 
   const vars = { ...variables, ...resolveFilterVars(filters, () => "") };
-  const resolvedSql = interpolate(serializePanelSql(panel.sql), vars, {
-    failClosedTimeVariables: true,
-  });
+  const visiblePanels = compact ? panels.slice(0, 1) : panels;
 
   return (
     <div
@@ -194,14 +177,198 @@ export function AnalyticsReviewArtifactPreview({
       }
       data-preview-kind="analytics-sql-chart"
     >
+      {visiblePanels.map((panel) => (
+        <ReviewDashboardPanel
+          key={panel.id}
+          artifactId={artifactId}
+          panel={panel}
+          variables={vars}
+          compact={compact}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ReviewDashboardPanel({
+  artifactId,
+  panel,
+  variables,
+  compact,
+}: {
+  artifactId: string;
+  panel: SqlPanel;
+  variables: Record<string, string>;
+  compact: boolean;
+}) {
+  const t = useT();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(
+    compact || typeof IntersectionObserver === "undefined",
+  );
+
+  useEffect(() => {
+    if (compact) {
+      setNearViewport(true);
+      return;
+    }
+    const container = containerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(Boolean(entry?.isIntersecting)),
+      { rootMargin: "180px" },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [compact]);
+
+  const query = useActionQuery<Record<string, unknown>>(
+    "query-observability-review-panel",
+    { dashboardId: artifactId, panelId: panel.id },
+    { enabled: nearViewport, staleTime: 5 * 60_000 },
+  );
+  const data = query.data;
+  const result: SqlQueryResult | undefined =
+    data && Array.isArray(data.rows)
+      ? {
+          rows: data.rows.filter(isRecord),
+          schema: Array.isArray(data.schema)
+            ? data.schema.filter(
+                (field): field is { name: string; type: string } =>
+                  isRecord(field) &&
+                  typeof field.name === "string" &&
+                  typeof field.type === "string",
+              )
+            : undefined,
+          error:
+            typeof data.error === "string"
+              ? typeof data.message === "string"
+                ? data.message
+                : data.error
+              : undefined,
+        }
+      : data && typeof data.error === "string"
+        ? {
+            rows: [],
+            error: typeof data.message === "string" ? data.message : data.error,
+          }
+        : undefined;
+
+  if (!nearViewport || query.isLoading) {
+    return (
+      <div ref={containerRef} className="h-72 w-full">
+        <div
+          aria-hidden="true"
+          className="size-full animate-pulse rounded-md bg-muted"
+        />
+      </div>
+    );
+  }
+  if (query.isError || !result) {
+    return (
+      <div
+        ref={containerRef}
+        className="flex h-72 items-center justify-center text-sm text-muted-foreground"
+        data-preview-state="unavailable"
+        role="status"
+      >
+        {t("settings.reviewPreviewUnavailable")}
+      </div>
+    );
+  }
+
+  const resolvedSql = interpolate(serializePanelSql(panel.sql), variables, {
+    failClosedTimeVariables: true,
+  });
+  return (
+    <div ref={containerRef} className="min-w-0 border-b border-border/70 pb-5">
+      {!compact && (
+        <h3 className="mb-2 truncate text-sm font-medium">{panel.title}</h3>
+      )}
       <SqlChart
         panel={panel}
         resolvedSql={resolvedSql}
-        timeRange={timeRangeDays(vars.timeRange)}
+        timeRange={timeRangeDays(variables.timeRange)}
         loadData={false}
+        resultOverride={result}
         showLoadingWhenDisabled={false}
         dashboardId={artifactId}
       />
+    </div>
+  );
+}
+
+function AnalyticsReviewAnalysisPreview({
+  artifactId,
+  compact,
+}: {
+  artifactId: string;
+  compact: boolean;
+}) {
+  const t = useT();
+  const { data, isLoading, isError } = useActionQuery<Record<string, unknown>>(
+    "get-analysis",
+    { id: artifactId, reviewPreview: true },
+    { staleTime: 5 * 60_000 },
+  );
+  if (isLoading) {
+    return (
+      <div
+        aria-hidden="true"
+        className={
+          compact
+            ? "size-full animate-pulse bg-muted"
+            : "h-full min-h-64 w-full animate-pulse bg-muted"
+        }
+      />
+    );
+  }
+  if (
+    isError ||
+    typeof data?.id !== "string" ||
+    typeof data.name !== "string" ||
+    typeof data.resultMarkdown !== "string"
+  ) {
+    return (
+      <div
+        className="flex size-full items-center justify-center bg-muted px-2 text-center text-xs text-muted-foreground"
+        data-preview-state="unavailable"
+        role="status"
+      >
+        {t("settings.reviewPreviewUnavailable")}
+      </div>
+    );
+  }
+
+  const analysis = {
+    id: data.id,
+    name: data.name,
+    resultData:
+      typeof data.resultData === "object" &&
+      data.resultData !== null &&
+      !Array.isArray(data.resultData)
+        ? (data.resultData as Record<string, unknown>)
+        : null,
+  };
+  return (
+    <div
+      className={
+        compact
+          ? "pointer-events-none h-[600%] w-[600%] origin-top-left scale-[0.166667] overflow-auto p-5"
+          : "h-full min-h-64 w-full overflow-auto p-5"
+      }
+      data-preview-kind="analytics-saved-analysis"
+    >
+      {isLegacyFusionAnalysis(artifactId) ? (
+        <LegacyFusionAnalysis analysis={analysis} />
+      ) : (
+        <div className="prose prose-sm dark:prose-invert max-w-none">
+          <Markdown content={data.resultMarkdown} />
+        </div>
+      )}
     </div>
   );
 }

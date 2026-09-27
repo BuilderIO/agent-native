@@ -4,6 +4,7 @@ const mockResolveAccess = vi.fn();
 const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
+let currentSuperOrgId: string | undefined;
 let currentFilter: unknown;
 let updatedFields: { data?: string; updatedAt?: string } | undefined;
 let currentResource:
@@ -33,14 +34,15 @@ const mockSelectChain = {
     return mockSelectChain;
   }),
   limit: vi.fn(async () => {
-    const conditions =
+    const filter =
       currentFilter && typeof currentFilter === "object"
-        ? (
-            currentFilter as {
-              conditions?: Array<{ left: string; right: string }>;
-            }
-          ).conditions
+        ? (currentFilter as {
+            conditions?: Array<{ left: string; right: string }>;
+            left?: string;
+            right?: unknown;
+          })
         : undefined;
+    const conditions = filter?.conditions ?? (filter ? [filter] : []);
     const sameOrg = conditions?.some(
       (condition) =>
         condition.left === "org_id_col" && condition.right === currentOrgId,
@@ -49,7 +51,12 @@ const mockSelectChain = {
       (condition) =>
         condition.left === "id_col" && condition.right === currentResource?.id,
     );
-    return sameOrg && sameDeck && currentResource?.orgId === currentOrgId
+    const superOrgRead =
+      !sameOrg &&
+      currentSuperOrgId === currentOrgId &&
+      currentResource?.orgId !== currentOrgId;
+    return sameDeck &&
+      ((sameOrg && currentResource?.orgId === currentOrgId) || superOrgRead)
       ? [currentResource]
       : [];
   }),
@@ -79,6 +86,9 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return {
     ...actual,
     buildDeepLink: () => "/slides/deck-1",
+    getAppConfig: () => ({
+      observability: { superOrgId: currentSuperOrgId },
+    }),
     currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
       mockCurrentRequestUserIsOrgAdmin(...args),
   };
@@ -120,6 +130,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   updatedFields = undefined;
   currentOrgId = "org-a";
+  currentSuperOrgId = undefined;
   currentFilter = undefined;
   mockSelectChain.where.mockClear();
   mockSelectChain.limit.mockClear();
@@ -226,6 +237,25 @@ describe("get-deck", () => {
     await expect(
       action.run({ id: "deck-1", reviewPreview: true }, { caller: "http" }),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("allows a configured super-org admin to read a customer deck read-only", async () => {
+    currentOrgId = "org-super";
+    currentSuperOrgId = "org-super";
+    currentResource!.orgId = "org-customer";
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+    const result = (await action.run(
+      { id: "deck-1", reviewPreview: true, compact: "false" },
+      { caller: "http" },
+    )) as any;
+
+    expect(mockSelectChain.where).toHaveBeenCalledWith({
+      left: "id_col",
+      right: "deck-1",
+    });
+    expect(result.id).toBe("deck-1");
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("includes readable linked design-system context", async () => {

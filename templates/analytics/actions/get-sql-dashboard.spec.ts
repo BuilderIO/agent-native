@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
-  getOrgDashboardForReview: vi.fn(),
+  getDashboardForReview: vi.fn(),
   currentRequestUserIsOrgAdmin: vi.fn(),
+  superOrgId: undefined as string | undefined,
   loadDashboardSeed: vi.fn(),
 }));
 
@@ -33,11 +34,12 @@ vi.mock("@agent-native/core/server", () => ({
   ),
   getRequestOrgId: () => "org-a",
   getRequestUserEmail: () => "alice@example.com",
+  getAppConfig: () => ({ observability: { superOrgId: mocks.superOrgId } }),
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
-  getOrgDashboardForReview: mocks.getOrgDashboardForReview,
+  getDashboardForReview: mocks.getDashboardForReview,
 }));
 
 vi.mock("../server/lib/dashboard-seeds", () => ({
@@ -52,9 +54,10 @@ const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 describe("get-sql-dashboard seed fallback", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
-    mocks.getOrgDashboardForReview.mockReset();
+    mocks.getDashboardForReview.mockReset();
     mocks.currentRequestUserIsOrgAdmin.mockReset();
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
+    mocks.superOrgId = undefined;
     mocks.loadDashboardSeed.mockReset();
   });
 
@@ -225,7 +228,7 @@ describe("get-sql-dashboard seed fallback", () => {
 
   it("allows an org admin to read a same-org SQL dashboard for Human Review", async () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
-    mocks.getOrgDashboardForReview.mockResolvedValue({
+    mocks.getDashboardForReview.mockResolvedValue({
       id: "review-dashboard",
       kind: "sql",
       config: { name: "Review", panels: [] },
@@ -246,9 +249,9 @@ describe("get-sql-dashboard seed fallback", () => {
     await getSqlDashboard.run({ id: "review-dashboard", reviewPreview: true });
 
     expect(mocks.currentRequestUserIsOrgAdmin).toHaveBeenCalledWith("org-a");
-    expect(mocks.getOrgDashboardForReview).toHaveBeenCalledWith(
+    expect(mocks.getDashboardForReview).toHaveBeenCalledWith(
       "review-dashboard",
-      "org-a",
+      { kind: "organization", orgId: "org-a" },
     );
     expect(mocks.getDashboard).not.toHaveBeenCalled();
     expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
@@ -259,18 +262,50 @@ describe("get-sql-dashboard seed fallback", () => {
       getSqlDashboard.run({ id: "review-dashboard", reviewPreview: true }),
     ).rejects.toMatchObject({ statusCode: 403 });
 
-    expect(mocks.getOrgDashboardForReview).not.toHaveBeenCalled();
+    expect(mocks.getDashboardForReview).not.toHaveBeenCalled();
     expect(mocks.getDashboard).not.toHaveBeenCalled();
   });
 
   it("hides dashboards outside the current org without falling back to seeds", async () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
-    mocks.getOrgDashboardForReview.mockResolvedValue(null);
+    mocks.getDashboardForReview.mockResolvedValue(null);
 
     await expect(
       getSqlDashboard.run({ id: "other-org", reviewPreview: true }),
     ).rejects.toMatchObject({ statusCode: 404 });
 
     expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
+  });
+
+  it("allows only a configured super-org admin to request cross-org previews", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue({
+      id: "customer-dashboard",
+      kind: "sql",
+      config: { name: "Customer", panels: [] },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "private",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+
+    await getSqlDashboard.run({
+      id: "customer-dashboard",
+      reviewPreview: true,
+    });
+
+    expect(mocks.getDashboardForReview).toHaveBeenCalledWith(
+      "customer-dashboard",
+      { kind: "super-organization" },
+    );
   });
 });

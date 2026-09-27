@@ -71,19 +71,48 @@ vi.mock("../db/index.js", () => {
     updatedAt: column("updatedAt"),
     hiddenAt: column("hiddenAt"),
     hiddenBy: column("hiddenBy"),
+    resultMarkdown: column("resultMarkdown"),
+    resultData: column("resultData"),
   };
   const query = {
     orderBy: () => query,
     limit: (value: number) => {
       state.limit = value;
+      const candidates = state.rowsByCall.length
+        ? (state.rowsByCall.shift() ?? [])
+        : state.rows;
+      const where = state.where as {
+        kind?: string;
+        target?: { name?: string };
+        value?: unknown;
+        conditions?: Array<{
+          kind?: string;
+          target?: { name?: string };
+          value?: unknown;
+        }>;
+      } | null;
+      const equals =
+        where?.kind === "eq"
+          ? [where]
+          : where?.kind === "and" &&
+              where.conditions?.every((condition) => condition.kind === "eq")
+            ? where.conditions
+            : undefined;
       return Promise.resolve(
-        state.rowsByCall.length ? (state.rowsByCall.shift() ?? []) : state.rows,
+        equals
+          ? candidates.filter((row) =>
+              equals.every(
+                (condition) =>
+                  row[condition.target?.name ?? ""] === condition.value,
+              ),
+            )
+          : candidates,
       );
     },
   };
   const db = {
-    select: (projection: Record<string, unknown>) => {
-      state.projection = projection;
+    select: (projection?: Record<string, unknown>) => {
+      state.projection = projection ?? null;
       return {
         from: () => ({
           where: (where: unknown) => {
@@ -109,8 +138,12 @@ vi.mock("../db/index.js", () => {
   };
 });
 
-const { getPublicDashboardMetadata, searchDashboardReferences } =
-  await import("./dashboards-store.js");
+const {
+  getAnalysisForReview,
+  getDashboardForReview,
+  getPublicDashboardMetadata,
+  searchDashboardReferences,
+} = await import("./dashboards-store.js");
 
 describe("getPublicDashboardMetadata", () => {
   beforeEach(() => {
@@ -148,6 +181,179 @@ describe("getPublicDashboardMetadata", () => {
     const projection = JSON.stringify(state.projection);
     expect(projection.match(/is json/g)).toHaveLength(2);
     expect(projection).toContain("else '{}'::jsonb");
+  });
+});
+
+describe("Human Review artifact read scopes", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.rowsByCall = [];
+    state.legacySettings = {};
+    state.projection = null;
+    state.where = null;
+    state.limit = null;
+  });
+
+  it("limits ordinary dashboard and analysis reads to their organization", async () => {
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Customer dashboard",
+        config: "{}",
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const dashboard = await getDashboardForReview("dashboard-1", {
+      kind: "organization",
+      orgId: "org-customer",
+    });
+    expect(dashboard?.orgId).toBe("org-customer");
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "dashboard-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Other customer dashboard",
+        config: "{}",
+        ownerEmail: "other@example.com",
+        orgId: "org-other",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      getDashboardForReview("dashboard-1", {
+        kind: "organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Result",
+        resultData: null,
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const analysis = await getAnalysisForReview("analysis-1", {
+      kind: "organization",
+      orgId: "org-customer",
+    });
+    expect(analysis?.orgId).toBe("org-customer");
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "analysis-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Other customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Private result",
+        resultData: null,
+        ownerEmail: "other@example.com",
+        orgId: "org-other",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      getAnalysisForReview("analysis-1", {
+        kind: "organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("uses ID-only artifact reads for the scope authorized as the super organization", async () => {
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Customer dashboard",
+        config: "{}",
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const dashboard = await getDashboardForReview("dashboard-1", {
+      kind: "super-organization",
+    });
+    expect(state.where).toEqual({
+      kind: "eq",
+      target: { name: "id" },
+      value: "dashboard-1",
+    });
+    expect(dashboard?.orgId).toBe("org-customer");
+
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Result",
+        resultData: null,
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+
+    const result = await getAnalysisForReview("analysis-1", {
+      kind: "super-organization",
+    });
+
+    expect(state.where).toEqual({
+      kind: "eq",
+      target: { name: "id" },
+      value: "analysis-1",
+    });
+    expect(result?.orgId).toBe("org-customer");
   });
 });
 
