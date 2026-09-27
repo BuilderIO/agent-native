@@ -238,22 +238,22 @@ describe("AuthPage", () => {
     expect(html).toContain('id="organization-sso-submit"');
   });
 
-  it("renders branded auth as a centered form without the legacy marketing panel", () => {
+  it("renders branded auth with the app description and inline Learn more link", () => {
     const onboardingHtml = getOnboardingHtml({
       requestHost: "slides.agent-native.com",
     });
     const props = propsFromHtml(onboardingHtml);
     const html = renderToString(<AuthPage {...props} initialView="login" />);
 
-    expect(html).toContain('<div class="auth-centered">');
+    expect(html).toContain('data-agent-native-marketing-home="true"');
     expect(html).toContain('id="login-form"');
-    expect(html).toContain('data-i18n="welcomeBackTitle"');
-    expect(html).not.toContain('data-i18n="welcomeToApp"');
-    expect(html).not.toContain("data-agent-native-marketing-home");
-    expect(html).not.toContain("auth-marketing-visual");
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain('class="oss-badge"');
-    expect(html).not.toContain("Say it. Show it.");
+    expect(html).toContain('data-i18n="welcomeToApp"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain('class="auth-marketing-description-link"');
+    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain(">Learn more</a>");
+    expect(html).toContain('class="oss-badge"');
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

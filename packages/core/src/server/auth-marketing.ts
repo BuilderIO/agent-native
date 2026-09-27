@@ -13,6 +13,8 @@ export interface AuthMarketingContent {
   tagline: string;
   description?: string;
   features?: string[];
+  authHeadline?: string;
+  authDescription?: string;
   learnMoreUrl?: string;
   signupLocalModeNote?: {
     text: string;

@@ -86,12 +86,12 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("__anAuthView");
   });
 
-  it("keeps app identity while rendering the shared auth surface", () => {
+  it("renders the built-in app marketing surface beside shared auth", () => {
     const html = getOnboardingHtml({ requestHost: "clips.agent-native.com" });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
-    expect(html).not.toContain("auth-marketing");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 
   it("version-stamps the auth client when the deployment build id is available", () => {
@@ -490,7 +490,7 @@ describe("getOnboardingHtml", () => {
     expect(resetHtml).toContain(`maxLength="${PASSWORD_MAX_LENGTH}"`);
   });
 
-  it("renders the shared auth surface regardless of app metadata", () => {
+  it("renders configured marketing beside Google-only auth", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     const html = getOnboardingHtml({
@@ -501,8 +501,8 @@ describe("getOnboardingHtml", () => {
       },
     });
 
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain("auth-marketing-visual");
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("auth-marketing-visual");
     expect(html).toContain('id="google-btn"');
     expect(readAuthPageData(html).showGoogle).toBe(true);
   });
@@ -679,26 +679,25 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Crear cuenta");
   });
 
-  it("uses the shared auth surface for branded template hosts", () => {
+  it("uses the marketing auth surface for branded template hosts", () => {
     const html = getOnboardingHtml({
       requestHost: "forms.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Forms");
-    expect(html).not.toContain("auth-marketing");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("keeps the app title on beta template subdomains", () => {
+  it("keeps the app marketing on beta template subdomains", () => {
     const html = getOnboardingHtml({
       requestHost: "beta.clips.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("does not render custom marketing copy beside the auth form", () => {
+  it("renders custom marketing copy beside the auth form", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",
       marketing: {
@@ -716,11 +715,18 @@ describe("getOnboardingHtml", () => {
 
     const pageData = readAuthPageData(html);
     expect(pageData.appName).toBe("Clips");
-    expect(html).not.toContain("One-click screen recording");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(pageData.marketing?.tagline).toBe(
+      "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
+    );
+    expect(pageData.marketing?.features).toContain(
+      "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+    );
+    expect(pageData.marketingLocales).toEqual({});
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("Your AI agent transcribes, summarizes");
   });
 
-  it("keeps branded social metadata without a marketing panel", () => {
+  it("keeps branded social metadata with the marketing panel", () => {
     const html = getOnboardingHtml({
       marketing: {
         appName: "Clips",
@@ -731,7 +737,8 @@ describe("getOnboardingHtml", () => {
 
     expect(readAuthPageData(html).appName).toBe("Clips");
     expect(html).toContain('property="og:image:alt"');
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain('href="https://agent-native.com/apps/clips"');
   });
 
   it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
@@ -746,9 +753,15 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(readAuthPageData(html).appName).toBe("Dispatch");
-    expect(html).not.toContain("Route parcels across your own fleet.");
-    expect(html).not.toContain("Track every van on one map");
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(readAuthPageData(html).marketing?.description).toBe(
+      "Route parcels across your own fleet.",
+    );
+    expect(readAuthPageData(html).marketing?.features).toEqual([
+      "Track every van on one map",
+    ]);
+    expect(readAuthPageData(html).marketingLocales).toEqual({});
+    expect(html).toContain("Route parcels across your own fleet.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -810,20 +823,20 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(getOnboardingHtml()).homePath).toBe("/inbox");
   });
 
-  it("uses app branding without rendering first-party marketing UI", () => {
+  it("uses app branding in the first-party marketing UI", () => {
     const html = getOnboardingHtml({
       requestHost: "dispatch.agent-native.com",
     });
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Dispatch");
-    expect(html).not.toContain('class="marketing-panel"');
-    expect(html).not.toContain("FREE &amp; OPEN SOURCE");
+    expect(html).toContain('class="marketing-panel"');
+    expect(html).toContain("FREE &amp; OPEN SOURCE");
     expect(html).toContain(
       `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
     );
   });
 
-  it("uses the shared auth surface for every built-in template host", () => {
+  it("uses the marketing auth surface for every built-in template host", () => {
     const coreSlugs = [
       "calendar",
       "content",
@@ -845,21 +858,24 @@ describe("getOnboardingHtml", () => {
         requestHost: `${slug}.agent-native.com`,
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
+      expect(html).toContain('class="marketing-panel"');
       expect(readAuthPageData(html).appName).toBe(
         BUILT_IN_AUTH_MARKETING[slug]!.appName,
+      );
+      expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
+        `https://agent-native.com/apps/${slug}`,
       );
     }
   });
 
-  it("does not add app-specific CTAs to Mail or Calendar auth pages", () => {
+  it("keeps the marketing panel on Mail and Calendar Google-only auth pages", () => {
     for (const slug of ["mail", "calendar"]) {
       const html = getOnboardingHtml({
         requestHost: `${slug}.agent-native.com`,
         googleOnly: true,
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
+      expect(html).toContain('class="marketing-panel"');
     }
   });
 
@@ -872,7 +888,7 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(html).appName).toBeUndefined();
   });
 
-  it("keeps custom metadata out of the shared auth UI", () => {
+  it("renders custom marketing metadata on the shared auth UI", () => {
     const html = getOnboardingHtml({
       marketing: {
         appName: "Calendar",
@@ -881,13 +897,14 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(readAuthPageData(html).appName).toBe("Calendar");
-    expect(JSON.stringify(readAuthPageData(html))).not.toContain(
+    expect(readAuthPageData(html).marketing?.tagline).toBe(
       "Plan your team's work with a custom calendar.",
     );
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain("Plan your team's work with a custom calendar.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
-  it("keeps custom metadata out of the auth UI on built-in hosts", () => {
+  it("renders configured marketing metadata on built-in hosts", () => {
     const html = getOnboardingHtml({
       requestHost: "dispatch.agent-native.com",
       marketing: {
@@ -897,10 +914,11 @@ describe("getOnboardingHtml", () => {
     });
 
     expect(readAuthPageData(html).appName).toBe("Custom Dispatch");
-    expect(JSON.stringify(readAuthPageData(html))).not.toContain(
+    expect(readAuthPageData(html).marketing?.tagline).toBe(
       "Route your own work with a custom dispatch flow.",
     );
-    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).toContain("Route your own work with a custom dispatch flow.");
+    expect(html).toContain('class="marketing-panel"');
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {
