@@ -171,6 +171,7 @@ function trackNetwork(page: Page, origin: string) {
         (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
           parsed.pathname.startsWith("/_agent-native/actions/") ||
           SECRETS_ENDPOINTS.has(parsed.pathname) ||
+          parsed.pathname === "/_agent-native/auth/magic-link" ||
           parsed.pathname === "/_agent-native/auth/session" ||
           parsed.pathname === "/_agent-native/org/me" ||
           parsed.pathname === "/ask" ||
@@ -348,6 +349,7 @@ for (const target of targets) {
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
+    let originalVerificationMessageId: string | undefined;
 
     await test.step("open the sign-in page", async () => {
       await page.goto(`${target.origin}/sign-in`, {
@@ -400,6 +402,7 @@ for (const target of targets) {
         throw result.error;
       }
       const message = result.message;
+      originalVerificationMessageId = message.id;
       const link = verificationLinkFor(message, target.origin);
       const verificationPage = await page.context().newPage();
       const { errors: verificationErrors } = collectAppPageErrors(
@@ -491,19 +494,29 @@ for (const target of targets) {
         const context = await browser.newContext();
         try {
           const signInPage = await context.newPage();
+          const { errors: signInErrors } = collectAppPageErrors(
+            signInPage,
+            target.origin,
+          );
+          const signInNetwork = trackNetwork(signInPage, target.origin);
           await signInPage.goto(`${target.origin}/sign-in`, {
             waitUntil: "domcontentloaded",
           });
           await renderedText(signInPage, `${target.origin}/sign-in`);
-          const emailRequestedAt = Date.now() - 5_000;
+          await fillMagicLinkEmail(signInPage, email);
+          const emailRequestedAt = Date.now();
           const emailResult = waitForVerificationEmail(
             email,
             emailRequestedAt,
+            new Set(
+              originalVerificationMessageId
+                ? [originalVerificationMessageId]
+                : [],
+            ),
           ).then(
             (message) => ({ status: "fulfilled" as const, message }),
             (error) => ({ status: "rejected" as const, error }),
           );
-          await fillMagicLinkEmail(signInPage, email);
           await signInPage.locator("#magic-link-submit").click();
           const result = await emailResult;
           if (result.status === "rejected") {
@@ -567,9 +580,15 @@ for (const target of targets) {
             await capture(
               returningPage,
               "content Recent after returning sign-in",
-              [...errors, ...returningErrors],
-              returningNetwork.networkEvents,
-              returningNetwork.pendingRequests,
+              [...errors, ...signInErrors, ...returningErrors],
+              [
+                ...signInNetwork.networkEvents,
+                ...returningNetwork.networkEvents,
+              ],
+              new Map([
+                ...signInNetwork.pendingRequests,
+                ...returningNetwork.pendingRequests,
+              ]),
               testInfo,
             ),
           );
