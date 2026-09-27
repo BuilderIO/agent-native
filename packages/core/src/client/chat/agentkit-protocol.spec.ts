@@ -15,7 +15,11 @@ import {
   subscribeChatFirstOpenBrowser,
 } from "../chat-first.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
-import type { AgentChatRuntime, AgentChatRuntimeEvent } from "./runtime.js";
+import type {
+  AgentChatRuntime,
+  AgentChatRuntimeEvent,
+  AgentChatRuntimeTurnInput,
+} from "./runtime.js";
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
@@ -131,6 +135,61 @@ function createRuntime(
 }
 
 describe("createAgentKitProtocolAdapter", () => {
+  it("forwards retry attachments as hidden internal continuations", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-retry",
+      runId: "run-retry",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("Retry the uploaded deck"),
+          metadata: { custom: { agentNativeRecoveryAction: "retry" } },
+          parts: [
+            { type: "text", text: "Retry the uploaded deck" },
+            {
+              type: "file",
+              name: "portfolio.pptx",
+              fileId: "file-1",
+              mediaType:
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(startTurn.mock.calls[0][0]).toMatchObject({
+      attachments: [
+        {
+          name: "portfolio.pptx",
+          id: "file-1",
+          mediaType:
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        },
+      ],
+      metadata: { agentNativeInternalContinuation: true },
+    });
+  });
+
   it("dispatches completed app and browser tools through the AgentKit transport", async () => {
     const listeners = new Map<string, Set<(event: unknown) => void>>();
     const fakeWindow = {
@@ -345,67 +404,6 @@ describe("createAgentKitProtocolAdapter", () => {
       }),
     ).rejects.toThrow("startRun.resume");
     expect(createSession).not.toHaveBeenCalled();
-  });
-
-  it("forwards file parts from the latest user message as turn attachments", async () => {
-    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-      yield { type: "done", reason: "complete" };
-    }
-    const runtime = createRuntime(events);
-    let startedTurn: unknown;
-    runtime.createSession = async () => ({
-      id: "thread-1",
-      runtimeId: "runtime-test",
-      startTurn: async (turn) => {
-        startedTurn = turn;
-        return {
-          id: "turn-1",
-          runId: "core-run-1",
-          sessionId: "thread-1",
-          events: events(),
-        };
-      },
-    });
-    const transport = createAgentKitProtocolAdapter(runtime);
-
-    await transport.startRun({
-      threadId: "thread-1",
-      messages: [
-        {
-          id: "original",
-          role: "user",
-          parts: [{ type: "text", text: "Summarize the report" }],
-        },
-        {
-          id: "retry",
-          role: "user",
-          parts: [
-            { type: "text", text: "Summarize the report" },
-            {
-              type: "file",
-              name: "brief.pdf",
-              mediaType: "application/pdf",
-              url: "/uploads/brief.pdf",
-            },
-          ],
-          metadata: {
-            custom: { agentNativeRecoveryAction: "retry" },
-          },
-        },
-      ],
-    });
-
-    expect(startedTurn).toMatchObject({
-      prompt: "Summarize the report",
-      metadata: { agentNativeInternalContinuation: true },
-      attachments: [
-        {
-          name: "brief.pdf",
-          mediaType: "application/pdf",
-          url: "/uploads/brief.pdf",
-        },
-      ],
-    });
   });
 
   it("pauses for a typed connection request and resumes the same run", async () => {
