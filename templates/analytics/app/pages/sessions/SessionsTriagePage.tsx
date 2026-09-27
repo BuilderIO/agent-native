@@ -7,7 +7,7 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -242,6 +242,17 @@ export function SessionsTriagePage() {
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => {
+    if (!data || isLoading || isFetching || error || page <= lastPage) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("page", String(lastPage));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [data, isLoading, isFetching, error, page, lastPage, setParams]);
   const checkHiddenSessions = hideEmpty && !isLoading && !error && total === 0;
   const { data: withEmptySessions } = useActionQuery<Page>(
     "list-session-recordings",

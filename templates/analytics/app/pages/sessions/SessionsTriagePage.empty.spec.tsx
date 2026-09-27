@@ -2,15 +2,16 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   configured: true,
+  total: 0,
   error: null as Error | null,
   refetch: vi.fn(),
   useActionQuery: vi.fn(() => ({
-    data: { recordings: [], total: 0, appCounts: [] },
+    data: { recordings: [], total: mocks.total, appCounts: [] },
     error: mocks.error,
     isLoading: false,
     isFetching: false,
@@ -59,6 +60,7 @@ describe("Sessions empty states", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.error = null;
+    mocks.total = 0;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -131,5 +133,31 @@ describe("Sessions empty states", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("moves an out-of-range saved page to the last available page", async () => {
+    mocks.total = 285;
+    function LocationProbe() {
+      const location = useLocation();
+      return <span data-testid="location">{location.search}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?page=999"]}>
+          <SessionsTriagePage />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="location"]')?.textContent,
+    ).toBe("?page=3");
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-recordings",
+      expect.objectContaining({ offset: 200, limit: 100 }),
+      expect.anything(),
+    );
   });
 });
