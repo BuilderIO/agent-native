@@ -205,8 +205,10 @@ test.describe("URL-backed live auto-layout probe", () => {
               }>;
             }
           ).__canvasFocusReports;
-          return reports?.filter((report) => report.sourceIndex === 1).at(-1)
-            ?.focusSafe;
+          const settingsReports = reports?.filter(
+            (report) => report.sourceIndex === 1,
+          );
+          return settingsReports?.[settingsReports.length - 1]?.focusSafe;
         }),
       )
       .toBe(true);
@@ -476,19 +478,19 @@ test.describe("URL-backed live auto-layout probe", () => {
             }>;
           }
         ).__canvasFocusReports;
-        return reports
-          ?.filter((report) => report.sourceIndex === sourceIndex)
-          .at(-1)?.focusSafe;
+        const matchingReports = reports?.filter(
+          (report) => report.sourceIndex === sourceIndex,
+        );
+        return matchingReports?.[matchingReports.length - 1]?.focusSafe;
       }, tabbedFrameIndex);
     const requestFocusSafety = () =>
-      liveFrames.evaluateAll(
-        (frames, sourceIndex) =>
-          frames[sourceIndex].contentWindow?.postMessage(
-            { type: "agent-native:canvas-focus-state-probe" },
-            "*",
-          ),
-        tabbedFrameIndex,
-      );
+      liveFrames.evaluateAll((frames, sourceIndex) => {
+        const frame = frames[sourceIndex] as HTMLIFrameElement | undefined;
+        frame?.contentWindow?.postMessage(
+          { type: "agent-native:canvas-focus-state-probe" },
+          "*",
+        );
+      }, tabbedFrameIndex);
     await requestFocusSafety();
     await expect.poll(latestFocusSafety).toBe(false);
     await frame
