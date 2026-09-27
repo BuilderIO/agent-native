@@ -2109,23 +2109,6 @@ function LegacyMailSettings() {
     navState.sync({ view: "settings", settingsSection: activeSection });
   }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const targetId = location.hash.slice(1);
-    if (
-      activeSection !== "ai-filter" ||
-      (targetId !== "tags" && targetId !== "importance-rules")
-    ) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById(targetId)?.scrollIntoView?.({
-        block: "start",
-        behavior: "smooth",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeSection, location.hash]);
-
   if (pathTab) {
     const next = new URLSearchParams(location.search);
     next.set("section", pathTab);

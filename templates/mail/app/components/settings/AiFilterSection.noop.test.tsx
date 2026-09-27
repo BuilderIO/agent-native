@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   jevAvailabilityError: false,
   jevConfigured: true,
   automationsError: false,
+  automationsLoading: false,
   automationsHasData: true,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
@@ -107,7 +108,7 @@ vi.mock("@/hooks/use-ai-filter", () => ({
 vi.mock("@/hooks/use-automations", () => ({
   useAutomations: () => ({
     data: mocks.automationsHasData ? mocks.rules : undefined,
-    isLoading: false,
+    isLoading: mocks.automationsLoading,
     isError: mocks.automationsError,
     isFetching: false,
     refetch: mocks.refetchAutomations,
@@ -151,27 +152,35 @@ const importantRule = () => ({
   updatedAt: "2026-09-25T00:00:00.000Z",
 });
 
-function TestProviders({ children }: PropsWithChildren) {
+function TestProviders({
+  children,
+  initialEntry = "/",
+}: PropsWithChildren<{ initialEntry?: string }>) {
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <TooltipProvider>{children}</TooltipProvider>
     </MemoryRouter>
   );
 }
 
-function renderSection() {
-  return render(<AiFilterSection />, { wrapper: TestProviders });
+function renderSection(initialEntry = "/", embedded = false) {
+  const Wrapper = ({ children }: PropsWithChildren) => (
+    <TestProviders initialEntry={initialEntry}>{children}</TestProviders>
+  );
+  return render(<AiFilterSection embedded={embedded} />, { wrapper: Wrapper });
 }
 
 describe("AiFilterSection", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     mocks.rules = [];
     mocks.decisions = [];
     mocks.jevAvailabilityError = false;
     mocks.jevConfigured = true;
     mocks.automationsError = false;
+    mocks.automationsLoading = false;
     mocks.automationsHasData = true;
     mocks.triageEnabled = true;
     mocks.accounts = [];
@@ -236,6 +245,36 @@ describe("AiFilterSection", () => {
 
     expect(document.getElementById("tags")).not.toBeNull();
     expect(document.getElementById("importance-rules")).not.toBeNull();
+  });
+
+  it("scrolls to a deep-linked rule group after automation rules load", async () => {
+    const scrollIntoView = vi.fn();
+    let targetAvailable = false;
+    vi.spyOn(document, "getElementById").mockImplementation((id) =>
+      id === "tags" && targetAvailable
+        ? ({
+            getClientRects: () => [{}],
+            scrollIntoView,
+          } as unknown as HTMLElement)
+        : null,
+    );
+    mocks.automationsHasData = false;
+    mocks.automationsLoading = true;
+
+    const view = renderSection("/settings#tags", true);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    targetAvailable = true;
+    mocks.automationsHasData = true;
+    mocks.automationsLoading = false;
+    view.rerender(<AiFilterSection embedded />);
+
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "start",
+        behavior: "smooth",
+      }),
+    );
   });
 
   it("disables every add-rule entry point until Jev is connected", () => {

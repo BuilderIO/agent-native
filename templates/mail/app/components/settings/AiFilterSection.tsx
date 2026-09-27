@@ -24,7 +24,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -435,6 +435,7 @@ function RuleBackfillStatus({
 
 export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
+  const { hash } = useLocation();
   const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
   const automations = useAutomations();
@@ -523,6 +524,37 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
       setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
     }
   }, [state?.autoFilterThreshold]);
+
+  const scrolledHash = useRef<string | null>(null);
+  useEffect(() => {
+    const targetId = hash.slice(1);
+    if (
+      scrolledHash.current === hash ||
+      (targetId !== "tags" && targetId !== "importance-rules")
+    ) {
+      return;
+    }
+
+    const scrollToTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target?.getClientRects().length) return false;
+      target.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      scrolledHash.current = hash;
+      return true;
+    };
+
+    if (scrollToTarget()) return;
+
+    const observer = new MutationObserver(() => {
+      if (scrollToTarget()) observer.disconnect();
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [hash]);
 
   const updateAiSettings = (
     next:
