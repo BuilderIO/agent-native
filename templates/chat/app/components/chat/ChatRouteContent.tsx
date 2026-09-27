@@ -15,11 +15,11 @@ import {
   type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
-import { AgentKitRoot } from "@agent-native/agentkit/react/root";
 import {
   BuilderSetupCard,
   isMissingLlmProviderRunError,
 } from "@agent-native/core/client/agent-chat";
+import { CoreAgentKitRoot } from "@agent-native/core/client/agentkit-chat";
 import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
@@ -61,6 +61,8 @@ function chatThreadPath(threadId: string | null) {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
 }
 
+// Module scope on purpose: CoreAgentKitRoot memoizes the client on its options, so
+// a new callback each render would rebuild the client and drop the stream.
 const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
 export default function ChatRouteContent({
@@ -114,7 +116,7 @@ function ChatThreadRouteContent({
         }`}
       >
         <CoreComposerRuntimeProvider>
-          <AgentKitRoot
+          <CoreAgentKitRoot
             transport={transport}
             clientOptions={{
               transportOwnership: "owned",
@@ -139,7 +141,7 @@ function ChatThreadRouteContent({
               workspaceOpen={workspaceOpen}
               setWorkspaceOpen={setWorkspaceOpen}
             />
-          </AgentKitRoot>
+          </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
       </div>
       <aside

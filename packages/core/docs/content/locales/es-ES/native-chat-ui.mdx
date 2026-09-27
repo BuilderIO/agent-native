@@ -257,6 +257,48 @@ no se dibujó. Da a los gráficos y demás elementos dependientes de la altura u
 en píxeles (o `rem`); los anchos en porcentaje están bien porque la columna de la
 transcripción sí tiene un ancho definido.
 
+### Elegir cuándo aparece la interfaz de una acción {#conditional-native-ui}
+
+Una acción puede admitir varias operaciones, aunque solo algunos resultados necesiten una tarjeta. Añade `when(args, result)` a `chatUI` para seleccionar esas llamadas. El servidor ejecuta este predicado después de una acción correcta. Si devuelve `false`, el resultado permanece en el historial normal y plegable de herramientas. El predicado no se guarda ni se envía al navegador.
+
+Mail usa este patrón en `manage-draft` para mostrar una tarjeta al crear un borrador y dejar las actualizaciones y eliminaciones como llamadas normales:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+En acciones con varias operaciones de escritura, comprueba los argumentos y el resultado correcto. La acción de filtros de Gmail de Mail solo selecciona la tarjeta de regla para filtros creados o sustituidos que tengan los campos de resumen:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## Tiempos de ejecución del agente BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` es el contrato de traiga su propio agente para el shell de chat, y

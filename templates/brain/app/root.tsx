@@ -223,6 +223,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >

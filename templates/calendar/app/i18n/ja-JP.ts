@@ -48,6 +48,11 @@ export default {
       "イベント ID が指定されていません。URL に ?id=<eventId> を追加してください。",
     openCalendar: "カレンダーを開く",
   },
+  eventCreation: {
+    created: "予定を作成しました",
+    zoomNotAdded: "予定は作成されましたが、Zoomを追加できませんでした。",
+    openInCalendar: "Calendarで予定を開く",
+  },
   agentSidebar: {
     emptyState: "カレンダーについて何でも聞いてください",
     suggestions: {

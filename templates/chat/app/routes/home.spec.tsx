@@ -58,6 +58,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
+  agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
@@ -67,6 +68,12 @@ vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
   }: {
     children: React.ReactNode;
   }) => <div data-core-composer-runtime="">{children}</div>,
+}));
+vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+  CoreAgentKitRoot: (props: Record<string, unknown>) => {
+    routeState.rootProps = props;
+    return <>{props.children as React.ReactNode}</>;
+  },
 }));
 vi.mock("@agent-native/core/client/agentkit-chat/connections", () => ({
   McpAgentKitConnectionRequestCard: () => null,
@@ -137,13 +144,6 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
 }));
-vi.mock("@agent-native/agentkit/react/root", () => ({
-  AgentKitRoot: (props: Record<string, unknown>) => {
-    routeState.rootProps = props;
-    return <>{props.children as React.ReactNode}</>;
-  },
-}));
-
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));

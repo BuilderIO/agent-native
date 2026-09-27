@@ -173,7 +173,11 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        skeletonLayout="assistant"
+        i18n={{ catalog: i18nCatalog }}
+      >
         <DbSyncSetup />
         <AppContent />
       </AppProviders>
