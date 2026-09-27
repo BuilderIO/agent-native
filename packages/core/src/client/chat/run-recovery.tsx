@@ -198,7 +198,7 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
-function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+export function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const text = [info.message, info.details].filter(Boolean).join("\n");
   const hasCredentialSetupText =
@@ -659,29 +659,31 @@ export function RunErrorRecoveryCard({
 
   if (isBuilderCreditsLimit) {
     return (
-      <div className="min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <p className="min-w-0 flex-1 font-medium text-foreground">
+      <div className="@container min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+        <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
+          <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
             {t("agentChat.errorMessages.creditsLimitReached", {
               defaultValue: "You've reached your AI credits limit.",
             })}
           </p>
-          <Button asChild size="sm">
-            <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
-              {t("agentChat.errorMessages.addCreditsInBuilder", {
-                defaultValue: "Add credits in Builder",
-              })}
-              <IconArrowUpRight />
-            </a>
-          </Button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label={t("agentChat.common.dismiss")}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <IconX size={14} />
-          </button>
+          <div className="flex w-full items-center gap-3 @md:w-auto">
+            <Button asChild size="sm">
+              <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
+                {t("agentChat.errorMessages.addCreditsInBuilder", {
+                  defaultValue: "Add credits in Builder",
+                })}
+                <IconArrowUpRight />
+              </a>
+            </Button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label={t("agentChat.common.dismiss")}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
         </div>
         <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>

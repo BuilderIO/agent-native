@@ -1,5 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { IconAlertTriangle, IconCloudUpload } from "@tabler/icons-react";
+import { IconCloudUpload } from "@tabler/icons-react";
 import { useRef, type RefObject } from "react";
 
 import {
@@ -63,6 +63,9 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   }
 
   const title = t("onboarding.fileStorage.title");
+  // ponytail: wide home composers open left; add an explicit placement prop if a wide sidebar needs another side.
+  const useLeftSide =
+    (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
 
   return (
     <Popover
@@ -73,19 +76,34 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
     >
       <PopoverAnchor virtualRef={virtualAnchorRef} />
       <PopoverContent
-        side="bottom"
-        align="center"
+        side={useLeftSide ? "left" : "top"}
+        align={useLeftSide ? "end" : "center"}
+        sideOffset={useLeftSide ? 8 : 4}
+        onOpenAutoFocus={(event) => {
+          const content = event.currentTarget;
+          if (!(content instanceof HTMLElement)) return;
+          const firstAction = content.querySelector<HTMLButtonElement>(
+            "button:not(:disabled)",
+          );
+          if (!firstAction) return;
+          event.preventDefault();
+          firstAction.focus();
+        }}
         aria-label={
           status === "unavailable"
             ? t("onboarding.fileStorage.statusUnavailable")
             : title
         }
-        className="w-72 gap-2 p-3"
+        className={
+          status === "unavailable"
+            ? "w-[256px] gap-2 p-2"
+            : "w-[288px] gap-1 p-2"
+        }
       >
         {status === "unavailable" ? (
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-sm font-medium leading-5">
-              <IconAlertTriangle
+              <IconCloudUpload
                 aria-hidden="true"
                 className="size-4 shrink-0 text-muted-foreground"
               />
@@ -94,41 +112,35 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
             <Button
               type="button"
               size="sm"
-              variant="link"
-              className="h-auto shrink-0 p-0 font-medium"
+              variant="outline"
+              className="shrink-0"
               onClick={onRetry}
             >
               {t("agentChat.common.retry")}
             </Button>
           </div>
         ) : (
-          <>
-            <h2 className="flex items-center gap-2 text-sm font-medium leading-5">
-              <IconCloudUpload
-                aria-hidden="true"
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-              {title}
-            </h2>
-            <BuilderConnectCard
-              title={title}
-              trackingSource="file_upload_chat_popover"
-              onConnected={onConnected}
-              render={({ viewModel }) => {
-                const flow = viewModel.connectFlow;
-                const connectButton = (
-                  <Button
-                    type="button"
-                    className="w-full"
-                    disabled={!flow || viewModel.pending}
-                    aria-busy={viewModel.pending}
-                  >
-                    {t("composer.connectBuilder")}
-                  </Button>
-                );
+          <BuilderConnectCard
+            title={title}
+            trackingSource="file_upload_chat_popover"
+            onConnected={onConnected}
+            render={({ viewModel }) => {
+              const flow = viewModel.connectFlow;
+              const connectButton = (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="min-w-0 flex-1 px-2 text-xs"
+                  disabled={!flow || viewModel.pending}
+                  aria-busy={viewModel.pending}
+                >
+                  {t("composer.connectBuilder")}
+                </Button>
+              );
 
-                return (
-                  <div className="grid gap-2">
+              return (
+                <div className={viewModel.error ? "grid gap-1.5" : undefined}>
+                  <div className="flex gap-1.5">
                     {flow ? (
                       <BuilderConnectPopover
                         flow={flow}
@@ -144,8 +156,9 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
                     )}
                     <Button
                       type="button"
+                      size="sm"
                       variant="outline"
-                      className="w-full"
+                      className="min-w-0 flex-1 px-2 text-xs"
                       onClick={() => {
                         onOpenChange(false, "setup");
                         if (typeof window !== "undefined") {
@@ -159,16 +172,16 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
                     >
                       {t("onboarding.fileStorage.custom")}
                     </Button>
-                    {viewModel.error ? (
-                      <p className="text-xs text-destructive">
-                        {viewModel.error}
-                      </p>
-                    ) : null}
                   </div>
-                );
-              }}
-            />
-          </>
+                  {viewModel.error ? (
+                    <p className="text-xs text-destructive">
+                      {viewModel.error}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            }}
+          />
         )}
       </PopoverContent>
     </Popover>

@@ -1964,18 +1964,18 @@ describe("AgentKit subscriptions and recovery", () => {
       expect(
         Array.from(
           assistantActions?.querySelectorAll(
-            ".agentkit-message-action-group--default button",
+            ".agentkit-message-actions-leading button",
           ) ?? [],
         ).map((button) => button.getAttribute("aria-label")),
       ).toEqual(["Copy message", "Helpful", "Not helpful"]);
       expect(
-        assistantActions?.querySelector(
-          '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
-        ),
+        assistantActions?.querySelector(".agentkit-message-actions-trailing"),
       ).toBeTruthy();
       expect(
         assistantActions
-          ?.querySelector('button[aria-label="Message actions"]')
+          ?.querySelector(
+            '.agentkit-message-actions-trailing button[aria-label="Message actions"]',
+          )
           ?.getAttribute("aria-expanded"),
       ).toBe("false");
       const copyButtons = tree.container.querySelectorAll(
@@ -2003,9 +2003,12 @@ describe("AgentKit subscriptions and recovery", () => {
         more?.click();
         await Promise.resolve();
       });
-      const fork = assistantActions?.querySelector(
-        '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
-      );
+      const fork = Array.from(
+        document.body.querySelectorAll(
+          '.agentkit-message-menu [role="menuitem"]',
+        ),
+      ).find((button) => button.textContent?.trim() === "Fork conversation");
+      expect(fork).toBeTruthy();
       await act(async () => {
         (fork as HTMLButtonElement | null)?.click();
         await Promise.resolve();
@@ -2067,26 +2070,34 @@ describe("AgentKit subscriptions and recovery", () => {
       );
       expect(trigger).toBeTruthy();
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      const leadingActions = tree.container.querySelector(
+        ".agentkit-message-actions-leading",
+      );
+      expect(
+        Array.from(leadingActions?.querySelectorAll("button") ?? []).map(
+          (button) => button.getAttribute("aria-label"),
+        ),
+      ).toEqual(["Copy message"]);
+      expect(
+        tree.container.querySelector(".agentkit-message-actions-trailing"),
+      ).toBeTruthy();
       await act(async () => {
         trigger?.click();
         await Promise.resolve();
       });
-      const actionPanel = tree.container.querySelector(
-        ".agentkit-message-action-swap",
-      );
       expect(
         tree.container
           .querySelector(".agentkit-message-actions")
-          ?.getAttribute("data-action-mode"),
-      ).toBe("expanded");
-      expect(
-        actionPanel
-          ?.querySelector(".agentkit-message-action-group--default")
-          ?.getAttribute("aria-hidden"),
+          ?.querySelector('[aria-label="Message actions"]')
+          ?.getAttribute("aria-expanded"),
       ).toBe("true");
-      const requestIdButton = tree.container.querySelector(
-        'button[aria-label="Copy request ID"]',
+      const actionMenu = document.body.querySelector(
+        '.agentkit-message-menu [role="menu"]',
       );
+      expect(actionMenu).toBeTruthy();
+      const requestIdButton = Array.from(
+        actionMenu?.querySelectorAll('[role="menuitem"]') ?? [],
+      ).find((button) => button.textContent?.trim() === "Copy request ID");
       expect(requestIdButton).toBeTruthy();
       await act(async () => {
         requestIdButton?.click();
@@ -2097,22 +2108,23 @@ describe("AgentKit subscriptions and recovery", () => {
       expect(
         tree.container.querySelector('button[aria-label="Message actions"]'),
       ).toBeTruthy();
-      expect(
-        tree.container.querySelector(
-          '.agentkit-message-action-group--request-id button[aria-label="Copied"]',
-        ),
-      ).toBeTruthy();
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
       expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+      const copiedRequestId = Array.from(
+        document.body.querySelectorAll(
+          '.agentkit-message-menu [role="menuitem"]',
+        ),
+      ).find((button) => button.textContent?.trim() === "Copied");
+      expect(copiedRequestId).toBeTruthy();
       await act(async () => {
         trigger?.click();
         await Promise.resolve();
       });
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-      expect(
-        actionPanel
-          ?.querySelector(".agentkit-message-action-group--request-id")
-          ?.getAttribute("aria-hidden"),
-      ).toBe("true");
     } finally {
       if (clipboardDescriptor) {
         Object.defineProperty(navigator, "clipboard", clipboardDescriptor);

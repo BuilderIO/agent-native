@@ -225,6 +225,32 @@ export async function writeClientAppState<T = unknown>(
   return parseAppStateResponse<T>(response, `Write application state "${key}"`);
 }
 
+export async function compareAndSetClientAppState(
+  key: string,
+  expected: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+  options: ClientAppStateWriteOptions = {},
+): Promise<boolean> {
+  assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
+  const response = await fetch(appStateUrl(key), {
+    method: "PATCH",
+    headers: buildHeaders(options.requestSource),
+    body: jsonBody({ expected, next }),
+    keepalive: options.keepalive,
+    signal: options.signal,
+  });
+  const result = await parseAppStateResponse<{ changed?: unknown }>(
+    response,
+    `Compare application state \"${key}\"`,
+  );
+  if (typeof result?.changed !== "boolean") {
+    throw new Error(
+      `Compare application state \"${key}\" returned an unexpected payload.`,
+    );
+  }
+  return result.changed;
+}
+
 export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},

@@ -18,7 +18,6 @@ import {
   normalizeHostedHarnessRuntimes,
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -56,7 +55,6 @@ import {
   usePerAppChatState,
 } from "./app-chat-sidebar.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
@@ -64,6 +62,8 @@ import {
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
 } from "./chat-view-transition.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,

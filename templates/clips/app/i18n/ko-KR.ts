@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   agentChat: {
     setup: {
       checkingProvider: "AI 연결을 확인하는 중…",

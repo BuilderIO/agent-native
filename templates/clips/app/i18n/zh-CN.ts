@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   agentChat: {
     setup: {
       checkingProvider: "正在检查 AI 连接…",

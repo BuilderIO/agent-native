@@ -19,6 +19,17 @@ const messages = {
   "composer.contextLimitExceeded":
     "Context is too large. Remove an item or attach a smaller selection.",
   "activity.reasoning": "Reasoning",
+  "activity.groupLabel": "Agent activity",
+  "activity.agents": "Agent collaboration",
+  "activity.tasks": "Agent tasks",
+  "agent.started": "started working",
+  "agent.resumed": "resumed working",
+  "agent.messaged": "sent a message",
+  "agent.delegated": "delegated work",
+  "agent.paused": "paused",
+  "agent.completed": "finished",
+  "agent.failed": "needs attention",
+  "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
   "approval.alwaysAllowAction": "Always allow this action",
@@ -29,6 +40,9 @@ const messages = {
   "approval.deny": "Deny",
   "approval.moreOptions": "More approval options",
   "approval.question": "Approve to run {{tool}}?",
+  "approval.submit": "Submit",
+  "approval.other": "Other",
+  "approval.otherPlaceholder": "Type your answer",
   "auth.expiredDescription":
     "Your session may have expired. Log out and log back in to reconnect.",
   "auth.expiredTitle": "Session expired",
@@ -149,6 +163,7 @@ const messages = {
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
   "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
+  "common.you": "You",
   "agentPanel.mode": "Mode",
   "agentPanel.uiMode": "UI",
   "agentPanel.keyScope": "Key scope",
@@ -513,6 +528,7 @@ const messages = {
   "empty.prompt": "How can I help you?",
   "error.afterDuration": "{{headline}} after {{duration}}",
   "error.failed": "The agent hit an error",
+  "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
     "The agent connection was interrupted. Check your connection and retry.",
@@ -879,6 +895,10 @@ const messages = {
   "mcpIntegrations.status.verified": "Verified",
   "mcpIntegrations.status.preflightOnly": "Preflight only",
   "mcpIntegrations.status.restricted": "Restricted",
+  "connection.connecting": "Connecting…",
+  "connection.notNow": "Not now",
+  "connection.failed": "Connection failed",
+  "connection.adminRequired": "Ask a workspace admin to connect this service.",
   "limit.account": "your account",
   "limit.descriptionAll":
     "The agent used all available steps. Keep going in a fresh turn, or raise the {{scope}} limit first.",
@@ -900,8 +920,14 @@ const messages = {
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
   "message.requestIdUnavailable": "Request ID unavailable",
+  "message.unavailable":
+    "The message is no longer available in this conversation.",
+  "message.navigationUnavailable": "Conversation navigation is unavailable.",
   "message.edit": "Edit message",
   "message.forkChat": "Fork chat",
+  "message.mobileInteractiveTitle": "Interactive content",
+  "message.mobileInteractiveDescription":
+    "This interactive view is available in web chat, but not in native chat yet.",
   "message.missingFinal":
     "The agent stopped without sending a final message. Ask it to continue or retry.",
   "message.messages": "Messages",
@@ -985,6 +1011,7 @@ const messages = {
   "plan.ready": "Plan ready",
   "plan.switchToAct": "Switch to Act mode",
   "queue.count": "{{count}} queued",
+  "queue.label": "Queued messages",
   "queue.followUp": "Send a follow-up...",
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
@@ -997,6 +1024,8 @@ const messages = {
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.deferredSubmissionFailed":
+    "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":
     "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
   "codeRequired.builderAgentNotConnected":
@@ -1012,6 +1041,12 @@ const messages = {
     "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here.",
   "recovery.noProgress":
     "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+  "recovery.stuckTitle": "This chat looks stuck.",
+  "recovery.stuckNoProgress":
+    "No progress. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckWithDuration":
+    "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
+  "recovery.stuckRetrying": "Retrying automatically now.",
   "recovery.statusCheckFailed":
     "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
   "recovery.streamEnded":
@@ -1138,6 +1173,7 @@ const messages = {
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",
   "status.working": "Working",
+  "status.workingFor": "Working for {{duration}}",
   "shell.chat": "Chat",
   "shell.loadingTerminal": "Loading terminal...",
   "shell.toggleAgent": "Toggle agent",

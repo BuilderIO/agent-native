@@ -41,6 +41,18 @@ function buildRows(chat: AgentChatController): Row[] {
   }
   if (chat.error) {
     rows.push({ kind: "error", error: chat.error, errorCode: chat.errorCode });
+  } else if (chat.chatEligibility === "missing") {
+    rows.push({
+      kind: "error",
+      error: "No Builder AI or custom provider API key is connected.",
+      errorCode: "missing_api_key",
+    });
+  } else if (chat.chatEligibility === "unavailable") {
+    rows.push({
+      kind: "error",
+      error: "Chat setup could not be confirmed. Retry to check again.",
+      errorCode: "chat_setup_unavailable",
+    });
   }
   return rows;
 }
@@ -55,11 +67,16 @@ export function MessagesList({
   bottomInset,
   onMessageActions,
   onSignIn,
+  onOpenSettings,
+  onOpenConnections,
 }: {
   chat: AgentChatController;
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
   onSignIn?: () => void;
+  /** Opens provider settings when chat has no eligible AI credentials. */
+  onOpenSettings?: () => void;
+  onOpenConnections?: () => void;
 }) {
   const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);
@@ -86,14 +103,25 @@ export function MessagesList({
           <ErrorRow
             error={item.error}
             errorCode={item.errorCode}
-            onRetry={chat.retry}
+            onRetry={
+              item.errorCode === "chat_setup_unavailable"
+                ? chat.refreshChatEligibility
+                : chat.retry
+            }
             onSignIn={onSignIn}
+            onOpenSettings={onOpenSettings}
           />
         );
       }
       const animateIn = index >= animateFromIndex.current - 1;
       if (item.message.role === "user") {
-        return <UserMessage message={item.message} animateIn={animateIn} />;
+        return (
+          <UserMessage
+            message={item.message}
+            animateIn={animateIn}
+            onActions={onMessageActions}
+          />
+        );
       }
       const isLastMessage = item.message.id === lastMessageId;
       return (
@@ -102,8 +130,12 @@ export function MessagesList({
           animateIn={animateIn}
           showFooter={!chat.isStreaming || !isLastMessage}
           isStreamingMessage={chat.isStreaming && isLastMessage}
+          canChat={chat.canChat}
           onApprove={chat.approve}
           onDeny={chat.deny}
+          onOpenConnections={onOpenConnections}
+          onContinueAfterConnection={chat.continueAfterConnection}
+          onInvokeWidgetAction={chat.invokeWidgetAction}
           onActions={onMessageActions}
         />
       );
@@ -112,11 +144,16 @@ export function MessagesList({
       chat.approve,
       chat.deny,
       chat.retry,
+      chat.refreshChatEligibility,
       chat.isStreaming,
       lastMessageId,
       rows.length,
       onMessageActions,
       onSignIn,
+      onOpenSettings,
+      onOpenConnections,
+      chat.continueAfterConnection,
+      chat.invokeWidgetAction,
     ],
   );
 

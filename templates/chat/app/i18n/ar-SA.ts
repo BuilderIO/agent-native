@@ -32,6 +32,9 @@ const messages = {
     pinChat: "تثبيت المحادثة",
     pinned: "المثبتة",
     recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    retryAttachmentUnavailable:
+      "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
     renameFailed: "فشلت إعادة التسمية",
     renameThread: "إعادة تسمية السلسلة",
