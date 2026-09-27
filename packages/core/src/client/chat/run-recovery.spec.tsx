@@ -522,7 +522,11 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain(
       "The agent stopped before finishing",
     );
-    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '.agent-builder-setup-card__copy button[aria-label="Retry"]',
+      ),
+    ).toBeTruthy();
     expect(container.querySelector('button[aria-label="New chat"]')).toBeNull();
     expect(
       container.querySelector('button[aria-label="Copy debug info"]'),
@@ -645,12 +649,15 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
     expect(
       retryButton?.closest(".agent-builder-setup-card__panel"),
+    ).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__copy"),
     ).toBeTruthy();
 
     await act(async () => {
@@ -745,8 +752,8 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
     expect(
@@ -781,8 +788,8 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
 
@@ -832,11 +839,11 @@ describe("run recovery surfaces", () => {
     );
     expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
-    expect(container.textContent).toContain("Retry");
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeTruthy();
     expect(onRetry).not.toHaveBeenCalled();
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     await act(async () => {
       retryButton?.click();
