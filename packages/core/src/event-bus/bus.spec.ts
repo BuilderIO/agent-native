@@ -14,7 +14,6 @@ describe("event-bus", () => {
   beforeEach(() => {
     __resetEventBus();
     __resetEventRegistry();
-    // Silence the bus's intentional console warnings/errors for negative paths.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -44,7 +43,6 @@ describe("event-bus", () => {
       expect(typeof meta.eventId).toBe("string");
       expect(meta.eventId.length).toBeGreaterThan(0);
       expect(typeof meta.emittedAt).toBe("string");
-      // emittedAt is an ISO timestamp.
       expect(Number.isNaN(Date.parse(meta.emittedAt))).toBe(false);
     });
 
@@ -64,7 +62,6 @@ describe("event-bus", () => {
       emit("e", {});
 
       expect(handler).not.toHaveBeenCalled();
-      // Second unsubscribe of the same id is a no-op false.
       expect(unsubscribe(id)).toBe(false);
       expect(listSubscriptions("e")).toHaveLength(0);
     });
@@ -132,7 +129,6 @@ describe("event-bus", () => {
 
       expect(() => emit("e", {})).not.toThrow();
       expect(after).toHaveBeenCalledTimes(1);
-      // Let the rejected microtask settle so the .catch runs.
       await Promise.resolve();
       await Promise.resolve();
       expect(console.error).toHaveBeenCalledWith(
@@ -152,7 +148,6 @@ describe("event-bus", () => {
       emit("e", {});
       expect(late).not.toHaveBeenCalled();
 
-      // But it does run on the next emission.
       emit("e", {});
       expect(late).toHaveBeenCalledTimes(1);
     });
@@ -167,10 +162,8 @@ describe("event-bus", () => {
       secondId = subscribe("e", () => calls.push("second"));
 
       emit("e", {});
-      // "second" was in the snapshot taken before dispatch, so it still fires.
       expect(calls).toEqual(["first", "second"]);
 
-      // On the next emission "second" is gone.
       calls.length = 0;
       emit("e", {});
       expect(calls).toEqual(["first"]);
@@ -230,7 +223,6 @@ describe("event-bus", () => {
       registerEvent({
         name: "async.event",
         description: "test",
-        // A schema whose validate() returns a Promise — unsupported path.
         payloadSchema: {
           "~standard": {
             version: 1,
@@ -244,7 +236,6 @@ describe("event-bus", () => {
 
       emit("async.event", { raw: 1 });
 
-      // Falls through to dispatching the original (unvalidated) payload.
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler.mock.calls[0][0]).toEqual({ raw: 1 });
       expect(console.warn).toHaveBeenCalledWith(

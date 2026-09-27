@@ -11,7 +11,6 @@ export interface StatsCardProps {
   trend?: { value: number; label?: string };
 }
 
-/** A metric card with an optional positive/negative percentage trend. */
 export function StatsCard({
   title,
   value,

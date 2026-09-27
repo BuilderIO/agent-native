@@ -33,9 +33,6 @@ describe("loadHostedHarnessConfig", () => {
       path.join(os.tmpdir(), "hosted-harness-config-"),
     );
     temporaryRoots.push(root);
-    // No agent-native.config.ts / agent-native.json at all — exactly what a
-    // deployed function's directory looks like — so a disk read would return
-    // undefined. The embedded value must win instead of falling through to it.
     vi.stubEnv(
       "AGENT_NATIVE_BUILD_HARNESS",
       JSON.stringify({ runtimes: ["codex"] }),

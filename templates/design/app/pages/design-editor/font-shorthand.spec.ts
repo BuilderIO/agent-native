@@ -42,8 +42,6 @@ describe("font shorthand", () => {
   });
 
   it("survives the class-less merge the inspector reads from", () => {
-    // sourceClasses empty means computedStyles are dropped, so the shorthand is
-    // the only place the typography panel can get a family from.
     const merged = refreshedComputedStyles(
       info,
       { font: "600 36px / 40px Inter, sans-serif" },

@@ -31,8 +31,6 @@ describe("shouldOfferRestore", () => {
   });
 
   it("hides restore when no checkpoint was saved for the turn", () => {
-    // Auto-checkpointing skips turns that start from a dirty tree or a non-git
-    // cwd. Offering restore anyway produced a menu item that did nothing.
     expect(
       shouldOfferRestore({ ...base, checkpointRunIds: new Set<string>() }),
     ).toBe(false);

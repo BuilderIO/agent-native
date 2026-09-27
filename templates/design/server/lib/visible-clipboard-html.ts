@@ -23,8 +23,6 @@ function removeHiddenClipboardData(html: string): string {
 
 const RENDERED_MEDIA_RE = /<(?:img|svg|video|canvas|picture|iframe)\b/i;
 
-// Figma's current clipboard wraps its private buffer in an empty
-// `<span style="white-space:pre-wrap;"></span>`; saving that makes a blank screen.
 function hasVisibleContent(html: string): boolean {
   if (RENDERED_MEDIA_RE.test(html)) return true;
   const text = html

@@ -3,13 +3,9 @@ import { IconPlayerSkipForward, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface CountdownOverlayProps {
-  /** Total seconds to count down from. Default 3. */
   seconds?: number;
-  /** Called when the countdown reaches 1 (drives the recording-start cue). */
   onOneSecond?: () => void;
-  /** Called when the countdown reaches 0 (or the user skips). */
   onComplete: () => void;
-  /** Called when the user cancels before recording begins. */
   onCancel: () => void;
 }
 
@@ -21,8 +17,6 @@ export function CountdownOverlay({
 }: CountdownOverlayProps) {
   const t = useT();
   const [remaining, setRemaining] = useState(seconds);
-  // Ensure each callback fires exactly once for the lifetime of the countdown,
-  // even if identities change or the user skips while the timer is mid-flight.
   const hasCompletedRef = useRef(false);
   const hasPlayedOneSecondCueRef = useRef(false);
 
@@ -38,9 +32,6 @@ export function CountdownOverlay({
     onComplete();
   }, [onComplete]);
 
-  // Skip the rest of the countdown and start recording immediately. Still play
-  // the start cue so the user gets the same audible confirmation they'd get if
-  // the countdown had run to zero.
   const handleSkip = useCallback(() => {
     playOneSecondCue();
     complete();
@@ -59,7 +50,6 @@ export function CountdownOverlay({
     return () => window.clearTimeout(id);
   }, [remaining, complete]);
 
-  // Keyboard parity with the desktop overlay: Enter starts now, Esc cancels.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Enter") {

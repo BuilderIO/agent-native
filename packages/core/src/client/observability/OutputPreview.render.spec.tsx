@@ -275,7 +275,7 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-design",
-      { id: "design-1", includeFileContent: false },
+      { id: "design-1", includeFileContent: false, reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
@@ -284,6 +284,7 @@ describe("OutputPreview artifact reads", () => {
         id: "design-1",
         fileId: "file-1",
         includeFileContent: true,
+        reviewPreview: true,
       },
       expect.objectContaining({ enabled: true }),
     );
@@ -292,6 +293,7 @@ describe("OutputPreview artifact reads", () => {
         "Real design",
       ),
     );
+    expect(container.querySelector("iframe")?.className).toContain("w-[400%]");
     expect(container.querySelector("iframe")?.srcdoc).not.toContain(
       "window.leak",
     );
@@ -343,12 +345,17 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", compact: "true" },
+      { id: "deck-1", compact: "true", reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", slideId: "slide-1", compact: "false" },
+      {
+        id: "deck-1",
+        slideId: "slide-1",
+        compact: "false",
+        reviewPreview: true,
+      },
       expect.objectContaining({ enabled: true }),
     );
     expect(
@@ -357,6 +364,8 @@ describe("OutputPreview artifact reads", () => {
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")?.srcdoc).toContain("Slide"),
     );
+    expect(container.querySelector("iframe")?.className).toContain("w-[400%]");
+    expect(container.querySelector("iframe")?.className).toContain("top-10");
   });
 });
 
@@ -438,8 +447,8 @@ describe("OutputPreview authenticated artifact frames", () => {
     expect(iframe?.getAttribute("loading")).toBe("lazy");
     expect(iframe?.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(iframe?.getAttribute("sandbox")).toBe("");
-    expect(iframe?.className).toContain("h-[600%]");
-    expect(iframe?.className).toContain("w-[600%]");
+    expect(iframe?.className).toContain("h-[1200%]");
+    expect(iframe?.className).toContain("w-[1200%]");
     expect(preview?.className).toContain("overflow-hidden");
   });
 

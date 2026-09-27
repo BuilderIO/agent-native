@@ -511,8 +511,18 @@ export default {
     confirmBooking: "予約を確認する",
     confirmation: "確認",
     confirmationSent: "完了しました。確認メールを送信しました。",
+    meetingDetailsPending:
+      "予約枠を確保しました。主催者からミーティングの詳細をご連絡します。",
     confirmed: "確定済み",
     confirmedCount: "確定済み（{{count}}）",
+    zoomNeedsReview: "再試行する前にZoomを確認",
+    zoomCancellationNeedsReview: "キャンセルする前にZoomを確認",
+    zoomCancellationRequiresHostReview:
+      "この予約をキャンセルする前に、主催者がZoomミーティングを確認する必要があります。",
+    zoomCancelTitle: "キャンセルする前にZoomを確認",
+    zoomCancelDescription:
+      "Zoomがこの予約のミーティングを作成している可能性があります。Zoomアカウントを確認し、ミーティングがあればZoomでキャンセルしてください。キャンセルしたか、ミーティングが存在しないことを確認してから続行してください。",
+    zoomCancelConfirm: "Zoomを確認しました",
     confirming: "確認中",
     conferencing: "会議",
     connectZoom: "Zoomを接続する",

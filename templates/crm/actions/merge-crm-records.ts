@@ -18,12 +18,6 @@ import {
   toJson,
 } from "./_crm-action-utils.js";
 
-/**
- * Merging is destructive-shaped and touches identity, so it is approval-gated
- * for every non-human caller by `decideCrmWritePolicy`. The same input feeds the
- * `needsApproval` gate and the ledger row, so what the agent was gated on and
- * what the audit trail records cannot drift apart.
- */
 const MERGE_WRITE_POLICY = {
   target: "local",
   reversibility: "destructive",
@@ -33,10 +27,8 @@ const MERGE_WRITE_POLICY = {
   storedAutomationPolicy: false,
 } as const;
 
-/** Most rows of one kind a single merge will move. Beyond this, fail loud. */
 const MAX_MERGE_ROWS = 500;
 
-/** Relationship type that points a merged-away record at the record that won. */
 export const CRM_MERGED_INTO_RELATIONSHIP = "merged-into";
 
 class CrmMergeError extends CrmAttributeValueError {
@@ -53,12 +45,6 @@ interface StoredValue {
   jsonValue: string | null;
 }
 
-/**
- * Decode a stored value using the attribute's declared storage column rather
- * than guessing from which column is non-null — a `false` checkbox and an empty
- * text field are otherwise indistinguishable, and a merge that guessed would
- * promote the wrong one.
- */
 function decodeStoredValue(
   attribute: CrmWritableAttribute,
   row: StoredValue,
@@ -215,9 +201,6 @@ export default defineAction({
       key: args.idempotencyKey ?? `merge:${duplicate.id}`,
     });
 
-    // Re-running a merge must be a no-op, not a second one. The prior ledger row
-    // is the authority; a duplicate already merged somewhere ELSE is an error,
-    // because silently re-parenting it would rewrite a decision a human made.
     const [priorMutation] = await db
       .select()
       .from(schema.crmMutations)
@@ -266,7 +249,6 @@ export default defineAction({
     const mutationId = crypto.randomUUID();
 
     const outcome = await db.transaction(async (tx) => {
-      // --- field values ------------------------------------------------------
       const attributeRows = await tx
         .select({
           id: schema.crmFieldPolicies.id,
@@ -336,9 +318,6 @@ export default defineAction({
       );
 
       const promotedFields: string[] = [];
-      // Slugs that exist on the duplicate but not as an attribute of the
-      // survivor's object. Reported, never dropped in silence — the value is
-      // still readable on the tombstoned record's history.
       const unmappedFields: string[] = [];
       for (const row of currentValues) {
         if (row.recordId !== duplicate.id) continue;
@@ -376,7 +355,6 @@ export default defineAction({
         if (result.changed) promotedFields.push(row.fieldName);
       }
 
-      // --- everything that hangs off the duplicate ---------------------------
       const entryIds = await idsToMove(
         "list entry",
         tx
@@ -400,9 +378,6 @@ export default defineAction({
           .update(schema.crmListEntries)
           .set({ recordId: survivor.id, updatedAt: now })
           .where(inArray(schema.crmListEntries.id, entryIds));
-        // Entry attribute values carry `record_id` alongside `entry_id`. This is
-        // a RE-PARENT, not a value change: the value is unchanged, so it must
-        // not open a history row the way the attribute writer would.
         await tx
           .update(schema.crmRecordFields)
           .set({ recordId: survivor.id, updatedAt: now })
@@ -444,8 +419,6 @@ export default defineAction({
           .where(inArray(schema.crmTasks.id, taskIds));
       }
 
-      // Notes are interactions with `kind: "note"`; they move with every other
-      // interaction so the survivor keeps the whole conversation.
       const interactionIds = await idsToMove(
         "interaction",
         tx
@@ -588,10 +561,6 @@ export default defineAction({
           );
       }
 
-      // --- tombstone and link ------------------------------------------------
-      // The loser is never hard-deleted: its history, provenance, and provider
-      // identity tuple stay readable, and this edge is what makes the merge
-      // traceable in both directions.
       await tx.insert(schema.crmRelationships).values({
         id: crypto.randomUUID(),
         connectionId: duplicate.connectionId,

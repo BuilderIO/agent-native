@@ -1,10 +1,3 @@
-/**
- * Real-browser edit-fidelity harness for the Slides editor: clicking into
- * text, typing, pressing Enter or just leaving an edit must not change any
- * styling or layout of the slide. See README.md.
- *
- * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
- */
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   existsSync,
@@ -39,9 +32,12 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isSplicedOnce,
   lineDiff,
+  orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
+  restyledAddedText,
   type BaselineEntry,
   type PixelDiff,
   type ScenarioMetrics,
@@ -58,12 +54,9 @@ const SCENARIOS = [
   "clickout",
 ] as const;
 type Scenario = (typeof SCENARIOS)[number];
-/** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
 
 class CouldNotRun extends Error {}
-
-// ------------------------------------------------------------------- cli ---
 
 const argv = process.argv.slice(2);
 const VALUE_FLAGS = new Set([
@@ -134,8 +127,6 @@ function fatal(message: string): never {
   process.exit(2);
 }
 
-// ---------------------------------------------------------------- corpus ---
-
 interface CorpusSlide {
   id?: string;
   content: string;
@@ -143,7 +134,6 @@ interface CorpusSlide {
   notes?: string;
 }
 interface ExpectedStyle {
-  /** 0-based slide index. */
   slide: number;
   selector: string;
   property: string;
@@ -156,7 +146,6 @@ interface CorpusCase {
   aspectRatio?: string;
   slides: CorpusSlide[];
   targets?: Record<string, number>;
-  /** Computed styles that must hold on a fresh load and after reload. */
   expectStyles?: ExpectedStyle[];
 }
 
@@ -196,8 +185,6 @@ function loadCorpus(): CorpusCase[] {
   return cases;
 }
 
-// ---------------------------------------------------------------- server ---
-
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 async function freePort(): Promise<number> {
@@ -218,7 +205,6 @@ async function startServer(): Promise<{
   const port = await freePort();
   const logPath = path.join(outRoot, "server.log");
   const log = openSync(logPath, "a");
-  // Scratch PGlite from claude-launch, wiped when the launcher exits.
   const child: ChildProcess = spawn(
     "pnpm",
     [
@@ -244,8 +230,6 @@ async function startServer(): Promise<{
   child.on("exit", (code) => {
     exited = code ?? 1;
   });
-  // Last resort if the harness dies without awaiting stop(): the server runs
-  // in its own process group and would otherwise outlive us.
   process.on("exit", () => {
     if (exited === null && child.pid) {
       try {
@@ -294,8 +278,6 @@ async function startServer(): Promise<{
     `dev server did not answer on ${base} within 240s; see ${logPath}`,
   );
 }
-
-// --------------------------------------------------------------- browser ---
 
 type Page = any;
 
@@ -369,10 +351,6 @@ async function settle(page: Page) {
       style.textContent = css;
       document.head.appendChild(style);
     }
-    // The renderer injects a webfont stylesheet per slide font, and a face
-    // starts loading only once text using it lays out, so `fonts.ready` can
-    // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). Bounded: an offline stylesheet never loads.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     for (let i = 0; i < 20; i++) {
@@ -384,8 +362,6 @@ async function settle(page: Page) {
       if (!sheetPending && document.fonts.status === "loaded") break;
       await new Promise((r) => setTimeout(r, 100));
     }
-    // Only the main canvas: sidebar thumbnails are lazy and may never load.
-    // A broken image fires "error", never "load"; both views see the same one.
     const pending = Array.from(
       document.querySelectorAll<HTMLImageElement>(
         '[data-main-slide-canvas="true"] img',
@@ -407,7 +383,6 @@ async function settle(page: Page) {
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
   }, MASK_CSS);
-  // Autofit measures after paint; give it one more beat.
   await sleep(300);
 }
 
@@ -427,8 +402,6 @@ async function openSlide(
       await page.waitForSelector(canvasSelector(slideId), { timeout: 45_000 });
       break;
     } catch (error) {
-      // A first load can 504 "Outdated Optimize Dep" and full-reload, and a
-      // loaded dev server can miss the navigation deadline.
       if (attempt >= 2) throw error;
     }
   }
@@ -464,11 +437,11 @@ async function waitFor(
   return fn();
 }
 
-/** click, click again, double-click — whichever first puts focus in an editor. */
 async function enterEdit(
   page: Page,
   slideId: string,
   point: { x: number; y: number },
+  violations?: string[],
 ) {
   const editing = async () => (await editorState(page, slideId)).editing;
   const gestures: Array<[string, () => Promise<void>]> = [
@@ -479,6 +452,17 @@ async function enterEdit(
   for (const [name, gesture] of gestures) {
     await gesture();
     if (!(await waitFor(editing, 900))) continue;
+    // Checked before a double-click's word selection is collapsed: the
+    // editor must open where the user pressed, not wherever it parks a caret.
+    const entry = await page.evaluate(
+      ([p, how]: readonly [{ x: number; y: number }, string]) =>
+        window.__editFidelity.entryCaretProblem(p, how),
+      [point, name] as const,
+    );
+    if (entry)
+      violations?.push(
+        `entering edit put the caret away from the click (${entry})`,
+      );
     // A double-click enters edit with its word selected, and typing would
     // replace that word; every scenario edits at a caret.
     if (name === "dblclick") {
@@ -509,23 +493,43 @@ async function exitEdit(
 }
 
 /**
- * Polls the stored slide until it stops changing. Saves are debounced, so
- * "no change yet" is only trusted after a minimum wait.
+ * Polls the stored slide until it stops changing and no write the page sent
+ * is still in flight. Saves are debounced, so "no change yet" is only trusted
+ * after a minimum wait; on a loaded machine a sent write can take seconds to
+ * land, and reading before it does reports text the save really kept as lost.
+ * The cap sits above the client's 60 s action timeout plus its retry, so an
+ * aborted and re-sent save is seen instead of cut off.
  */
-async function settleSaved(page: Page, deckId: string, slideId: string) {
+async function settleSaved(
+  page: Page,
+  deckId: string,
+  slideId: string,
+  writesInFlight: () => number,
+  minimumObservationMs = 2500,
+) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
   let lastChange = Date.now();
-  while (Date.now() - start < 15_000) {
+  for (;;) {
     await sleep(300);
     const now = await getSlideContent(page, deckId, slideId);
-    if (now !== last) {
+    if (now !== last || writesInFlight() > 0) {
       last = now;
       lastChange = Date.now();
     }
-    if (Date.now() - start >= 2500 && Date.now() - lastChange >= 1200) break;
+    if (
+      Date.now() - start >= minimumObservationMs &&
+      Date.now() - lastChange >= 1200
+    )
+      return last;
+    if (Date.now() - start >= 75_000) {
+      throw new Error(
+        writesInFlight() > 0
+          ? "a save was still in flight after 75 s"
+          : "the stored slide was still changing after 75 s",
+      );
+    }
   }
-  return last;
 }
 
 async function restoreSlide(
@@ -561,6 +565,10 @@ async function takeWriteStacks(page: Page): Promise<string[]> {
   return page.evaluate(() => window.__editFidelity.takeWriteStacks());
 }
 
+async function takeKeepaliveWrites(page: Page): Promise<number> {
+  return page.evaluate(() => window.__editFidelity.takeKeepaliveWrites());
+}
+
 async function listTargets(page: Page, slideId: string): Promise<TextTarget[]> {
   return page.evaluate(
     (sel: string) => window.__editFidelity.listTargets(sel),
@@ -593,15 +601,12 @@ async function checkExpectedStyles(
   );
 }
 
-/** Writes the editor sends when it persists slide content. */
 const WRITE_ACTION =
   /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/;
 
 interface WriteDetail {
   action: string;
-  /** "rerun" is the typedelete idempotence edit. */
   phase: "edit" | "rerun";
-  /** Per slide the write touched: its fields, and whether content is the stored string. */
   slides: Array<{
     slideId: string;
     fields: string[];
@@ -635,11 +640,6 @@ function describeWrite(
 
 const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
 
-/**
- * The edited element's byte range in the stored source, found the way the
- * in-page helpers find it: by tag, text and occurrence. Text inside elements
- * the renderer drops (style, svg, script) is not visible, so it is skipped.
- */
 function sourceRangeOf(
   stored: string,
   target: { tag: string; text: string; occurrence: number },
@@ -660,8 +660,7 @@ function sourceRangeOf(
       if (
         child.tagName === target.tag.toLowerCase() &&
         child.sourceCodeLocation?.startTag &&
-        (have === want ||
-          (target.text.length >= 400 && have.startsWith(want.slice(0, 300))))
+        have === want
       ) {
         matches.push(child);
       }
@@ -701,16 +700,12 @@ async function makeSheet(
   );
 }
 
-// -------------------------------------------------------------- scenario ---
-
 interface EnterStep {
   key: number;
-  blocks: number;
-  editorHeight: number | null;
   sourceHeight: number | null;
+  caretY: number | null;
   canvasChangedPct: number;
-  reflowed: boolean;
-  visiblyChanged: boolean;
+  caretMoved: boolean;
 }
 
 interface ScenarioResult {
@@ -735,22 +730,17 @@ interface ScenarioResult {
     saved: boolean;
     canonicalEqual: boolean;
     outsideEqual: boolean | null;
-    /** Stored bytes before and after the edited element are unchanged. */
     outsideBytesEqual: boolean | null;
     diffLines: number;
     hardFailures: string[];
     idempotent?: boolean;
   };
-  /** Content-writing requests the editor sent, from entering edit to the end. */
   writes?: string[];
   writeDetails?: WriteDetail[];
-  /** Client call stacks of those writes, from the in-page fetch hook. */
   writeStacks?: string[];
   enterSteps?: EnterStep[];
   violations: string[];
-  /** Set when a dev-server or browser error forced one retry. */
   retriedAfter?: string;
-  /** The error repeated on the retry and is not the editor's. */
   infra?: boolean;
   metrics?: ScenarioMetrics;
 }
@@ -786,7 +776,6 @@ function summarizeStyle(d: StyleDiff): StyleSummary {
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** Unknown rects count as unchanged, so the strict check still runs. */
 const resized = (a: Rect | null, b: Rect | null) =>
   !!a &&
   !!b &&
@@ -802,6 +791,8 @@ interface SlideCtx {
   slideId: string;
   stored: string;
   noisePct: number;
+  /** Opening the slide rewrites it, so a post-reload read may differ. */
+  openMutatesContent: boolean;
   dir: string;
   expectStyles: ExpectedStyle[];
 }
@@ -843,12 +834,18 @@ async function runScenario(
     if (!match) return;
     writes.push(match[1]);
     writeDetails.push(describeWrite(match[1], request, ctx.stored, phase));
+    inFlight.add(request);
   };
+  const inFlight = new Set<unknown>();
+  const onWriteDone = (request: unknown) => inFlight.delete(request);
   page.on("request", onRequest);
+  page.on("requestfinished", onWriteDone);
+  page.on("requestfailed", onWriteDone);
 
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
+    await takeKeepaliveWrites(page);
     const current = (await listTargets(page, slideId))[target.index];
     if (!current || current.text !== target.text) {
       throw new Error(
@@ -870,12 +867,40 @@ async function runScenario(
 
     await takeWriteStacks(page);
     countingWrites = true;
-    result.gesture = await enterEdit(page, slideId, current.point);
+    result.gesture = await enterEdit(
+      page,
+      slideId,
+      current.point,
+      result.violations,
+    );
     if (!result.gesture) {
       result.status = "no-edit";
-      result.violations.push(
+      const v = result.violations;
+      v.push(
         `could not enter edit mode with click, click-click or double-click${current.covered ? " (another element covers the target's click point)" : ""}`,
       );
+      const saved = await settleSaved(
+        page,
+        deckId,
+        slideId,
+        () => inFlight.size,
+      );
+      write("saved.html", saved);
+      await settle(page);
+      const after = await shot(page, slideId);
+      write("after.png", after);
+      const changed = await diffPngs(view, after);
+      write("diff-after.png", changed.png);
+      countingWrites = false;
+      result.writes = [...writes];
+      result.writeDetails = [...writeDetails];
+      if (saved !== ctx.stored && !ctx.openMutatesContent)
+        v.push("clicking changed the stored slide");
+      if (writes.length && !ctx.openMutatesContent)
+        v.push(
+          `${writes.length} content write(s) without an edit (${writes.join(", ")})`,
+        );
+      if (changed.pct > tol) v.push(`view->after ${changed.pct}% > ${tol}%`);
       return result;
     }
     await settle(page);
@@ -895,7 +920,9 @@ async function runScenario(
     } else if (scenario === "enter3") {
       await page.keyboard.press("End");
       let prevPng = editing;
-      let prev = state0;
+      // End keeps the caret's line, but at a soft wrap a Range measures the
+      // next line; read after End only when entry left no measurable caret.
+      let prev = state0.caretRect ? state0 : await editorState(page, slideId);
       for (let k = 1; k <= 3; k++) {
         await page.keyboard.press("Enter");
         await settle(page);
@@ -903,29 +930,37 @@ async function runScenario(
         const png = await shot(page, slideId);
         write(`enter-${k}.png`, png);
         const changed = await diffPngs(prevPng, png);
+        // The canvas can't show an Enter: a split at a soft wrap, a blank
+        // last line, and an authored fixed-height box all leave it unchanged.
+        // A centred or bottom-anchored box, the edited element's own or an
+        // ancestor's, moves the text instead of the caret, and the element's
+        // box can stay put. Relative to the top of the element's content, the
+        // caret moves a full line per Enter (up when Enter removes an empty
+        // last bullet), and a caret left behind reads as unmoved.
+        const lineOf = (s: EditorState) =>
+          s.caretRect && s.contentTop !== null
+            ? s.caretRect.y - s.contentTop
+            : null;
+        const from = lineOf(prev);
+        const to = lineOf(state);
         const step: EnterStep = {
           key: k,
-          blocks: state.blocks,
-          editorHeight: state.editorRect?.height ?? null,
           sourceHeight: state.sourceRect?.height ?? null,
+          caretY: to,
           canvasChangedPct: changed.pct,
-          // Enter on an empty last bullet removes it, so the list shrinks:
-          // either direction is the slide reflowing live.
-          reflowed:
-            Math.abs(
-              (state.sourceRect?.height ?? 0) - (prev.sourceRect?.height ?? 0),
-            ) > 1,
-          visiblyChanged: changed.pct > tol,
+          caretMoved:
+            from !== null &&
+            to !== null &&
+            Math.abs(to - from) >= prev.caretRect!.height / 2,
         };
         enterSteps.push(step);
-        if (!step.reflowed) {
+        if (from === null || to === null) {
           result.violations.push(
-            `enter #${k}: editor ${prev.blocks}->${state.blocks} blocks, ${prev.editorRect?.height}->${state.editorRect?.height}px, but the slide's edited element stayed ${state.sourceRect?.height}px (no reflow until exit)`,
+            `enter #${k}: the caret could not be measured ${from === null ? "before" : "after"} it (no caret in the edited element, or nothing rendered at it)`,
           );
-        }
-        if (!step.visiblyChanged) {
+        } else if (!step.caretMoved) {
           result.violations.push(
-            `enter #${k}: slide did not visibly change (${changed.pct}% <= ${tol}%)`,
+            `enter #${k}: the caret stayed on its line (y ${from} -> ${to} below the element's content top)`,
           );
         }
         prevPng = png;
@@ -935,16 +970,17 @@ async function runScenario(
       result.enterSteps = enterSteps;
     }
 
-    // End lands at the end of the visual line, so read where the typing
-    // went instead of assuming it followed the element's text.
     const typed = (await editorState(page, slideId)).editorText;
+    await settle(page);
+    const typedShot = await shot(page, slideId);
+    write("typed.png", typedShot);
     const exited = await exitEdit(
       page,
       slideId,
       scenario === "clickout" ? "clickout" : "escape",
     );
     if (!exited) result.violations.push("edit mode did not exit");
-    const saved = await settleSaved(page, deckId, slideId);
+    const saved = await settleSaved(page, deckId, slideId, () => inFlight.size);
     const writeStacks = await takeWriteStacks(page);
     write("saved.html", saved);
     await settle(page);
@@ -957,6 +993,7 @@ async function runScenario(
         (scenario === "append" ? `${editedText} ok` : `${editedText}new line`);
     const snapAfter = await snapshot(page, slideId, { text: expectedText });
 
+    await takeKeepaliveWrites(page);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
     const reload = await shot(page, slideId);
     write("reload.png", reload);
@@ -964,8 +1001,30 @@ async function runScenario(
     styleProblems.push(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
     );
+    // The reload fires pagehide, where Slides flushes pending saves with
+    // keepalive fetches that inFlight never sees; the in-page hook counts
+    // them. It, or a tracked write still in flight, may land well after the
+    // page reopens. Observe for a bounded window when one was sent because
+    // Playwright cannot report when the keepalive request finishes.
+    const unloadWrites = await takeKeepaliveWrites(page);
+    const reloaded =
+      unloadWrites || inFlight.size
+        ? await settleSaved(
+            page,
+            deckId,
+            slideId,
+            () => inFlight.size,
+            unloadWrites ? 15_000 : 2_500,
+          )
+        : await getSlideContent(page, deckId, slideId);
+    if (reloaded !== saved && !ctx.openMutatesContent) {
+      write("reloaded.html", reloaded);
+      const hardAfter = hardFailures(saved, reloaded);
+      result.violations.push(
+        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
+      );
+    }
 
-    // ---- pixels
     const rects = (...rs: Array<Rect | null | undefined>) =>
       rs.filter((r): r is Rect => !!r).map((r) => padRect(r));
     const pair = async (
@@ -1005,9 +1064,9 @@ async function runScenario(
         reload,
         rects(snapAfter.editedRect, snapReload.editedRect),
       ),
+      typed: await pair("typed", typedShot, after, []),
     };
 
-    // ---- styles and inventory
     const styleEditing = diffSnapshots(snapView, snapEditing);
     const styleAfter = diffSnapshots(snapView, snapAfter);
     const styleReload = diffSnapshots(snapAfter, snapReload);
@@ -1030,7 +1089,6 @@ async function runScenario(
       reload: invDelta(snapAfter, snapReload),
     };
 
-    // ---- saved html
     const didSave = saved !== ctx.stored;
     const [storedLines, savedLines] = await page.evaluate(
       ({ a, b }: any) => [
@@ -1084,8 +1142,9 @@ async function runScenario(
           },
         },
       );
-      outsideEqual =
-        outside.found && outside.stored.join("\n") === outside.saved.join("\n");
+      outsideEqual = outside.found
+        ? outside.stored.join("\n") === outside.saved.join("\n")
+        : null;
       if (!outside.found)
         result.violations.push(
           "could not locate the edited element in stored/saved HTML to isolate it",
@@ -1108,7 +1167,6 @@ async function runScenario(
       hardFailures: hard,
     };
 
-    // ---- idempotence: a second no-op edit must save exactly what the first did
     if (scenario === "typedelete") {
       const again =
         (await listTargets(page, slideId)).find(
@@ -1118,7 +1176,9 @@ async function runScenario(
         result.violations.push(
           "idempotence: edited text not found after reload",
         );
-      } else if (!(await enterEdit(page, slideId, again.point))) {
+      } else if (
+        !(await enterEdit(page, slideId, again.point, result.violations))
+      ) {
         result.violations.push(
           "idempotence: could not re-enter edit after reload",
         );
@@ -1127,14 +1187,18 @@ async function runScenario(
         await page.keyboard.type("x");
         await page.keyboard.press("Backspace");
         await exitEdit(page, slideId, "escape");
-        const saved2 = await settleSaved(page, deckId, slideId);
+        const saved2 = await settleSaved(
+          page,
+          deckId,
+          slideId,
+          () => inFlight.size,
+        );
         writeStacks.push(...(await takeWriteStacks(page)));
         write("saved2.html", saved2);
         result.html.idempotent = saved2 === saved;
       }
     }
 
-    // ---- invariants
     countingWrites = false;
     result.writes = [...writes];
     result.writeDetails = [...writeDetails];
@@ -1155,20 +1219,24 @@ async function runScenario(
       v.push(
         `after->reload ${px.reload.whole.pct}% > ${tol}% (persisted render differs from the live one)`,
       );
+    // Same page load, so no noise floor: a few px of overflowing text can be
+    // an extra saved line.
+    if (px.typed.whole.diffPixels > 0)
+      v.push(
+        `typed->after ${px.typed.whole.diffPixels}px differ (leaving edit mode changed what the editor showed)`,
+      );
     if (netNoop) {
       if (px.editing.whole.pct > tol)
         v.push(`view->editing ${px.editing.whole.pct}% > ${tol}%`);
       if (px.after.whole.pct > tol)
         v.push(`view->after ${px.after.whole.pct}% > ${tol}%`);
     } else if (!resized(snapView.editedRect, snapAfter.editedRect)) {
-      // An edit that resizes the element legitimately moves the content
-      // after it; the outside style and stored-bytes checks below still hold.
       if (px.after.outside.pct > tol)
         v.push(
           `view->after outside the edited element ${px.after.outside.pct}% > ${tol}%`,
         );
     }
-    for (const size of [px.editing, px.after, px.reload]) {
+    for (const size of [px.editing, px.after, px.reload, px.typed]) {
       if (size.whole.sizeMismatch) v.push("screenshot size changed");
     }
     const se = result.style.editing;
@@ -1195,6 +1263,35 @@ async function runScenario(
           `saved HTML differs from stored (${diff.length} canonical lines)`,
         );
     } else {
+      const token = scenario === "append" ? " ok" : "new line";
+      if (!didSave)
+        v.push(
+          "the edit never reached storage before the reload (saved content equals stored)",
+        );
+      if (!isSplicedOnce(state0.editorText || editedText, token, typed))
+        v.push(
+          `typed text is not the element's text with "${token}" inserted once: ${JSON.stringify(typed.slice(0, 160))}`,
+        );
+      if (
+        scenario === "enter3" &&
+        !typed
+          .split("\n")
+          .some((line) =>
+            line.replace(/^[^\p{L}\p{N}]+/u, "").startsWith(token),
+          )
+      )
+        v.push(
+          `"${token}" does not start a line of the typed text: ${JSON.stringify(typed.slice(0, 160))}`,
+        );
+      if (snapReload.editedText !== typed)
+        v.push(
+          `no element on the reloaded slide has the typed text line for line (closest: ${JSON.stringify((snapReload.editedText ?? "none").slice(0, 160))})`,
+        );
+      const restyled = restyledAddedText(snapView, snapReload);
+      if (restyled.length)
+        v.push(
+          `typed text on the reloaded slide has a style no text of the element had (${restyled.slice(0, 3).join("; ")})`,
+        );
       if (sa.deltasOutside)
         v.push(
           `view->after: ${sa.deltasOutside} style deltas outside the edited element`,
@@ -1213,6 +1310,8 @@ async function runScenario(
     result.error = String((error as Error).stack ?? error).slice(0, 2000);
   } finally {
     page.off("request", onRequest);
+    page.off("requestfinished", onWriteDone);
+    page.off("requestfailed", onWriteDone);
     result.metrics = metricsOf(result);
     write("result.json", JSON.stringify(result, null, 2));
     await makeSheet(ctx.sheetPage, dir, [
@@ -1221,6 +1320,7 @@ async function runScenario(
       ["enter 1", "enter-1.png"],
       ["enter 2", "enter-2.png"],
       ["enter 3", "enter-3.png"],
+      ["typed", "typed.png"],
       ["after exit", "after.png"],
       ["after reload", "reload.png"],
       ["diff view→after", "diff-after.png"],
@@ -1239,6 +1339,7 @@ function metricsOf(r: ScenarioResult): ScenarioMetrics {
     editingPct: r.pixels?.editing.whole.pct ?? 0,
     afterPct: r.pixels?.after.whole.pct ?? 0,
     reloadPct: r.pixels?.reload.whole.pct ?? 0,
+    typedPct: r.pixels?.typed?.whole.pct ?? 0,
     outsideEditingPct: r.pixels?.editing.outside.pct ?? 0,
     outsideAfterPct: r.pixels?.after.outside.pct ?? 0,
     styleDeltasEditing: r.style?.editing.deltas ?? 0,
@@ -1250,8 +1351,6 @@ function metricsOf(r: ScenarioResult): ScenarioMetrics {
   };
 }
 
-// ------------------------------------------------------------------ main ---
-
 interface SlideReport {
   caseId: string;
   slide: number;
@@ -1259,11 +1358,9 @@ interface SlideReport {
   openMutatesContent: boolean;
   targets: number;
   error?: string;
-  /** The error came from the dev server or browser, not from the editor. */
   infra?: boolean;
 }
 
-/** One concurrency slot; `reopen` replaces pages the browser closed. */
 interface Worker {
   page: Page;
   sheetPage: Page;
@@ -1281,11 +1378,6 @@ function selectTargets(c: CorpusCase, i: number, all: TextTarget[]) {
   return { limit, targets: filtered.slice(0, limit) };
 }
 
-/**
- * Targets a slide should report on: the `--targets` indexes when given (so a
- * filtered run still expects them), otherwise the first `limit` positions. A
- * baselined target that no longer exists then reports as "did not run".
- */
 function expectedTargets(limit: number): Set<string> {
   const indexes = targetFilter
     ? [...targetFilter].sort((a, b) => a - b).slice(0, limit)
@@ -1293,7 +1385,6 @@ function expectedTargets(limit: number): Set<string> {
   return new Set(indexes.map((t) => `t${pad2(t)}`));
 }
 
-/** A result an earlier run left on disk, kept by --resume unless it errored. */
 function priorResult(
   dir: string,
   target: number,
@@ -1306,10 +1397,6 @@ function priorResult(
   return r.status === "error" ? null : r;
 }
 
-/**
- * With --resume, a slide whose every scenario already has a result is taken
- * from disk without opening it. Returns false when it still has to run.
- */
 function keepPriorSlide(
   c: CorpusCase,
   i: number,
@@ -1391,7 +1478,6 @@ async function runCase(
     };
     slides.push(report);
     try {
-      // Noise floor: the same slide rendered twice with no edit.
       const { a, noise } = await retryInfra(worker, async () => {
         await restoreSlide(worker.page, deckId, slideId, stored);
         await openSlide(worker.page, base, deckId, i, slideId);
@@ -1424,6 +1510,7 @@ async function runCase(
         slideId,
         stored,
         noisePct: noise.pct,
+        openMutatesContent: report.openMutatesContent,
         dir,
         expectStyles: (c.expectStyles ?? []).filter((e) => e.slide === i),
       };
@@ -1469,13 +1556,6 @@ function rewriteResult(dir: string, r: ScenarioResult) {
   );
 }
 
-/**
- * Errors from the dev server or the browser rather than the editor. Vite's
- * dep optimizer full-reloads every open page when a slide pulls in a
- * dependency it has not seen yet, a loaded dev server can miss a navigation
- * or selector deadline, and a crashed page closes. Each is retried once on a
- * fresh page; one that repeats is reported apart from editor failures.
- */
 const INFRA =
   /Execution context was destroyed|canvas not found|frame was detached|Target page, context or browser has been closed|Target crashed|net::ERR_ABORTED|Timeout \d+ms exceeded/;
 
@@ -1578,13 +1658,10 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
-    // tsx compiles with keepNames; the page has no __name helper.
     await context.addInitScript("globalThis.__name ||= (fn) => fn;");
     await context.addInitScript(installInPageHelpers, CHROME_SELECTOR);
 
     const warm = await context.newPage();
-    // `/` serves the sign-in shell to a cookieless request and the client,
-    // already signed in, keeps replacing it with itself; `/home` is stable.
     await warm.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
@@ -1649,7 +1726,6 @@ async function main() {
     await cleanup();
   }
 
-  // ---- report
   const byKey = new Map(results.map((r) => [r.key, r.metrics!]));
   const baseline: Record<string, BaselineEntry> = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, "utf8"))
@@ -1663,6 +1739,23 @@ async function main() {
     );
   };
   const problems = findBaselineProblems(byKey, baseline, isExpected);
+  // Only a run over the whole corpus knows a case or slide is really gone.
+  const fullRun =
+    !caseFilter &&
+    !slideFilter &&
+    !targetFilter &&
+    maxSlides === Infinity &&
+    maxTargets >= 4 &&
+    SCENARIOS.every((s) => scenarios.includes(s));
+  const orphans = fullRun
+    ? orphanedBaselineKeys(
+        Object.keys(baseline),
+        new Map(cases.map((c) => [c.id, c.slides.length])),
+      )
+    : [];
+  problems.push(
+    ...orphans.map((key) => `${key}: baselined case/slide no longer in corpus`),
+  );
   const counts = results.reduce<Record<string, number>>((acc, r) => {
     const k = r.infra ? "infra-error" : r.status;
     acc[k] = (acc[k] ?? 0) + 1;
@@ -1688,18 +1781,18 @@ async function main() {
   const unrun = Object.keys(baseline).filter(
     (key) => !byKey.has(key) && isExpected(key),
   );
-  if (update && (browserLost || erroredSlides.length || unrun.length)) {
+  if (
+    update &&
+    (browserLost || erroredSlides.length || unrun.length || orphans.length)
+  ) {
     // Writing now would drop the coverage of what did not run from the
     // ratchet without anything noticing.
     console.error(
-      `\n[edit-fidelity] baseline not updated: ${browserLost ? "the browser was lost mid-run; " : ""}${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) first.`,
+      `\n[edit-fidelity] baseline not updated: ${browserLost ? "the browser was lost mid-run; " : ""}${erroredSlides.length} slide(s) errored (${erroredSlides.map((s) => `${s.caseId} s${pad2(s.slide)}`).join(", ") || "none"}), ${unrun.length} baselined scenario(s) did not run (${unrun.slice(0, 10).join(", ") || "none"}), ${orphans.length} baselined scenario(s) are no longer in the corpus (${orphans.slice(0, 10).join(", ") || "none"}). Re-run them (--resume) or prune the orphans first.`,
     );
     exitCode = 1;
   } else if (update && results.length) {
     const next = { ...baseline };
-    // A ratchet seeded from a failing run would accept the failure as the
-    // ceiling, so only passing results are recorded unless asked.
-    // An error has no measurements to hold a ceiling, so it is never recorded.
     const refused = results.filter(
       (r) => r.status === "error" || (r.status !== "pass" && !acceptFailing),
     );
@@ -1766,7 +1859,6 @@ async function main() {
   return exitCode;
 }
 
-/** Load the editor chunks once so Vite's optimize-dep reload happens here. */
 async function warmUp(page: Page, base: string) {
   const created = await action(page, "create-deck", {
     title: "[edit-fidelity] warm-up",

@@ -486,6 +486,8 @@ const messages = {
       requestAccess: "Demander l'accès",
       requestAccessTitle: "Demander l'accès à ce plan",
       requestSent: "Demande envoyée",
+      storageStatusUnavailable:
+        "Impossible de vérifier le stockage de fichiers.",
       retry: "Réessayer",
       sendFeedback: "Envoyer un retour",
       feedbackPlaceholder:

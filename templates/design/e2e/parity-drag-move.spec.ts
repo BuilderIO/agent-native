@@ -21,22 +21,11 @@ import {
 } from "./drag-and-drop.shared";
 import { appPath } from "./helpers";
 
-/**
- * Figma parity — Move (spec §2 + Part 3). Covers both placements the spec
- * calls out: an element inside an agent-native screen (single-screen editor,
- * `drag-and-drop.shared` fixture), and a screen/board-level object on the
- * overview canvas (a screen frame, dragged the same way
- * `overview-snap-guides.spec.ts` does).
- */
-
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.beforeEach(async ({}, testInfo) => {
   setBaseURL(testInfo);
 });
-
-// ── Overview/board-level helpers (mirrors overview-snap-guides.spec.ts's own
-// local helpers; not imported from it because specs must not import specs) ──
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_W = 1280;
@@ -113,8 +102,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   });
   const firstCard = page.locator("[data-screen-card]").first();
   await expect(firstCard).toBeVisible();
-  // Overview layout settles asynchronously after mount with no discrete
-  // event — poll the first card's box until two consecutive reads agree.
   let lastBox: { x: number; y: number } | null = null;
   await expect
     .poll(
@@ -179,21 +166,14 @@ async function zoomOut(page: Page, times = 4) {
   await page.waitForTimeout(300);
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────
-
 test("in-screen: a drag moves the element by exactly the pointer delta at the current zoom", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
-  await zoomOut(page, 1); // exercise a non-default canvas zoom, not just whatever the editor opens at
+  await zoomOut(page, 1);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  // dragBy expresses its delta in CONTENT px and converts to real pointer
-  // movement using the SAME card-width/content-width ratio the editor itself
-  // renders at, so a correct implementation reproduces this delta almost
-  // exactly regardless of which zoom level is active; a bug that ignores (or
-  // double-applies) zoom would drift far from 1:1 here.
   await dragBy(page, (await node(page, "box-a").boundingBox())!, 300, 150, {
     settle: false,
   });
@@ -268,7 +248,6 @@ test("overview: Shift+drag constrains a screen frame move to one axis", async ({
     await page.keyboard.down("Shift");
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    // Mostly-horizontal intent with a small vertical wobble.
     await page.mouse.move(start.x + 260, start.y + 20, { steps: 20 });
     await page.waitForTimeout(400);
     await page.mouse.up();
@@ -328,8 +307,6 @@ test("in-screen: Escape after a completed drag does NOT revert it (host focus an
   const id = await newDesign(page);
   await openEditor(page, id);
 
-  // iframe focus: nothing refocuses the host after the drag's own pointer
-  // events, so focus is still inside the iframe when Escape is pressed.
   await selectViaTree(page, "Box A");
   const beforeA = await geom(page, id, "box-a");
   const boxA = (await node(page, "box-a").boundingBox())!;
@@ -351,9 +328,6 @@ test("in-screen: Escape after a completed drag does NOT revert it (host focus an
     `iframe-focus Escape after release must not revert Box A from (${afterA.left},${afterA.top}) back to (${beforeA.left},${beforeA.top})`,
   ).not.toEqual([beforeA.left, beforeA.top]);
 
-  // host focus: click a host toolbar control (outside the iframe) before
-  // pressing Escape, so the key event routes through the host's own keydown
-  // listener and the async cancel-active-drag postMessage instead.
   await selectViaTree(page, "Box B");
   const beforeB = await geom(page, id, "box-b");
   const boxB = (await node(page, "box-b").boundingBox())!;
@@ -379,12 +353,6 @@ test("in-screen: Escape after a completed drag does NOT revert it (host focus an
 test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B once B has started", async ({
   page,
 }) => {
-  // Round-2 fix: cancelActiveBridgeDragOrPendingCommit used to cancel
-  // whatever gesture was active BEFORE checking whether the Escape it was
-  // handling even predated that gesture. So a real Escape pressed during
-  // gesture A, whose cancel message is still in flight when gesture A
-  // releases (and B starts), could reach the iframe late and cancel B
-  // instead of finding nothing left of A to cancel.
   const id = await newDesign(page);
   await openEditor(page, id);
 
@@ -399,9 +367,6 @@ test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B o
     { steps: 16 },
   );
   await page.waitForTimeout(350);
-  // Stamp A's stale Escape now, mid-drag, exactly as the host's real keydown
-  // handler would — then let A release and commit before the cancel message
-  // (sent below, once B is under way) ever reaches the iframe.
   const stalePressedAt = await page.evaluate(() => Date.now());
   await page.mouse.up();
   await expect
@@ -412,9 +377,6 @@ test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B o
     .not.toEqual(beforeA);
   const afterA = await geom(page, id, "box-a");
 
-  // Gesture B starts on a different element, strictly after A's stale
-  // pressedAt, and is still actively dragging (no mouseup yet) when A's
-  // delayed cancel arrives.
   await selectViaTree(page, "Box B");
   const beforeB = await geom(page, id, "box-b");
   const boxB = (await node(page, "box-b").boundingBox())!;
@@ -427,10 +389,6 @@ test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B o
   );
   await page.waitForTimeout(350);
 
-  // A's cancel finally arrives — the exact message the host's Escape handler
-  // sends, posted directly the way cancelActiveEditorDrag does, so this
-  // exercises the real bridge in the real iframe without needing the host's
-  // Escape keydown to itself be delayed.
   await page.evaluate((pressedAt) => {
     document
       .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
@@ -443,9 +401,6 @@ test("in-screen drag: a delayed cancel for gesture A does not cancel gesture B o
   }, stalePressedAt);
   await page.waitForTimeout(100);
 
-  // B must still be live: releasing it now commits B's dragged-to position,
-  // not a reversion to B's own start (which A's stale cancel would produce
-  // by wrongly cancelling B) and not a change to A.
   await page.mouse.up();
   await expect
     .poll(() => geom(page, id, "box-b"), {
@@ -532,27 +487,6 @@ test("in-screen: smart guides disappear once the drop commits", async ({
   ).toBe(0);
 });
 
-// Precise content-space drag driven by native pointer events dispatched
-// directly inside the iframe document, exactly like
-// overview-snap-guides.spec.ts's dragInsideScreen — the host-level dragBy
-// path multiplies through the editor's own card-width/content-width ratio,
-// which at this editor's default (well-below-100%) zoom makes small,
-// threshold-sized deltas dominated by drag-start-threshold noise.
-//
-// Dispatched events land inside the iframe's OWN document, so their
-// `clientX`/`clientY` are already the iframe's native (unscaled) pixels —
-// identical to content px — with no outer CSS-zoom transform to compensate
-// for; that transform only matters for REAL mouse input arriving through the
-// host's visually-scaled rendering of the iframe element, which the browser
-// itself remaps before it ever reaches this document. Dividing by the
-// bridge's own --agent-native-editor-chrome-line-scale here (a screen-px ->
-// content-px conversion the bridge applies to its 6px SNAP_THRESHOLD, not to
-// raw pointer deltas) silently shrank every requested delta by that same
-// factor, so what looked like "the drag snapped 50px past the documented
-// threshold" was this helper asking for a much smaller move than it thought
-// it did. Verified against a bare, undivided dispatch: an unsnapped drag with
-// no candidates nearby lands exactly on origin + the requested delta, on both
-// axes, at this editor's zoom.
 async function dragContentPx(
   page: Page,
   nodeId: string,
@@ -599,7 +533,7 @@ async function dragContentPx(
           ),
         );
       };
-      const prime = 3.5; // just over the bridge's own move-start threshold
+      const prime = 3.5;
       fire("down", cx, cy);
       fire(
         "move",
@@ -621,8 +555,6 @@ test("in-screen: an offset inside the snap threshold lands exactly on the aligne
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  // Box A and Box B share left=30. DEFAULT_SNAP_THRESHOLD_SCREEN_PX = 6
-  // (canvas-math.ts); land 3px off that shared edge — comfortably inside it.
   const result = await dragContentPx(page, "box-a", 3, 40);
   expect(result.top, "the element never moved").not.toBe(`${before.top}px`);
   expect(
@@ -638,9 +570,6 @@ test("in-screen: an offset beyond the snap threshold does not jump onto a distan
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
   const before = await geom(page, id, "box-a");
-  // 60px off the shared left=30 edge is well past the 6px threshold; the
-  // element must stay near where it was actually dropped, not get pulled
-  // back onto that distant edge.
   const result = await dragContentPx(page, "box-a", 60, 40);
   const landedLeft = Number.parseFloat(result.left);
   expect(result.top, "the element never moved").not.toBe(`${before.top}px`);

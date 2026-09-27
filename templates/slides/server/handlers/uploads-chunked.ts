@@ -253,7 +253,10 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
       });
       if (!handle) {
         setResponseStatus(event, 503);
-        return { error: "Upload storage is not available" };
+        return {
+          error:
+            "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        };
       }
       session.chunks[chunkKey] = handle;
       session.chunkSizes[chunkKey] = bytes.byteLength;

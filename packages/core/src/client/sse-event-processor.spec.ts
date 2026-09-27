@@ -341,8 +341,6 @@ function preparingActionProgressStream(
   });
 }
 
-// Long enough to exercise id-scoped preparation tracking, short enough to stay
-// inside the action-preparation stall window this fixture is not testing.
 const PARALLEL_PREPARATION_TERMINAL_DELAY_MS = 80_000;
 
 function parallelSameToolPreparationStream(
@@ -1332,11 +1330,6 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
-  // UPDATED: durable background reads now use the widened
-  // SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS window so the SERVER's own
-  // 150s no-progress backstop recovers a stall first (the client is a reader,
-  // not a second recovery brain). A genuinely silent prep still recovers —
-  // just on the durable window, never at the foreground 90s mark.
   it("recovers a durable background stream stuck on zero-byte preparation activity", async () => {
     vi.useFakeTimers();
 
@@ -1362,7 +1355,6 @@ describe("SSE event processor no-progress recovery", () => {
       }
     })();
 
-    // The foreground 90s window must NOT fire for a durable background read.
     await vi.advanceTimersByTimeAsync(
       SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
@@ -1387,9 +1379,6 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
-  // UPDATED: durable background reads recover on the widened durable stall
-  // window (see the durable constants) instead of the foreground 90s window,
-  // so the server's own recovery gets first chance.
   it("recovers a durable background stream stuck on preparation keepalives", async () => {
     vi.useFakeTimers();
 
@@ -1457,10 +1446,6 @@ describe("SSE event processor no-progress recovery", () => {
       return undefined;
     };
 
-    // UPDATED: the shared preparation watchdog state still carries stall age
-    // across reconnect reads, measured against the widened durable window
-    // (SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS) instead of the
-    // foreground 90s window.
     const firstErr = await readPreparationReplay("call-a");
     expect(firstErr).toBeInstanceOf(AgentAutoContinueSignal);
     expect((firstErr as AgentAutoContinueSignal).reason).toBe("stream_ended");
@@ -1534,17 +1519,11 @@ describe("SSE event processor no-progress recovery", () => {
 
     expect(SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS).toBe(13 * 60_000);
 
-    // The foreground 75s no-progress window must NOT fire for a durable
-    // background read — the server-side background backstop owns stall
-    // recovery and its auto_continue event normally arrives over this same
-    // stream first.
     await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 1_000);
     expect(await Promise.race([errPromise, Promise.resolve("pending")])).toBe(
       "pending",
     );
 
-    // Past the widened durable window, a truly dead transport still detaches
-    // so the adapter's follow loop can re-poll /runs/active and reattach.
     await vi.advanceTimersByTimeAsync(
       SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS - SSE_NO_PROGRESS_TIMEOUT_MS,
     );
@@ -1633,7 +1612,6 @@ describe("SSE event processor no-progress recovery", () => {
       }
     })();
 
-    // UPDATED: durable background reads stall on the widened durable window.
     await vi.advanceTimersByTimeAsync(
       SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS + 1,
     );
@@ -1881,11 +1859,6 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
-  // `error-detail.ts` now names two deterministic failures that used to persist
-  // as `unknown` (a model/tools config rejection and a missing auth header) so
-  // they stop reaching users as raw provider text. Naming them must not make
-  // them auto-continue — a retry cannot fix either one, and this is the check
-  // that keeps a future addition to the recoverable list from doing so.
   it("names a deterministic failure without making it recoverable", async () => {
     for (const [errorCode, error] of [
       [
@@ -1893,9 +1866,6 @@ describe("SSE event processor no-progress recovery", () => {
         "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
       ],
       ["authentication_error", "Missing Authentication header"],
-      // The server already retried this bare-403 load-shedding signature
-      // before it reached the client; auto-continuing here would just POST
-      // the same request into the same throttle.
       [
         "provider_transient_rejection",
         "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
@@ -2628,9 +2598,6 @@ describe("SSE event processor error classification", () => {
   });
 
   it("names the failing action and its error when a turn stops on a tool failure", async () => {
-    // Analytics /ask reported the generic "stopped after these actions ...
-    // without sending a final message" note while the real cause — a missing
-    // Stripe credential — stayed buried in the tool card.
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -2851,10 +2818,6 @@ describe("SSE event processor error classification", () => {
         tool: "get-deck",
         input: { deckId: "deck-1" },
       },
-      // This is the hosted background shape: a reconnect replays the last
-      // persisted frame after the first response dropped before its cursor was
-      // committed. The duplicate has no call id, so content-level matching
-      // cannot safely distinguish it from a second real call.
       {
         type: "tool_start",
         seq: 0,
@@ -3750,10 +3713,6 @@ describe("SSE event processor error classification", () => {
   });
 
   it("keeps narration from earlier steps when a later draft is cleared", async () => {
-    // A `clear` is the server retrying the CURRENT draft, which always resumes
-    // after the last completed tool. Splicing every text part wiped multi-step
-    // narration from the whole turn, which users reported as "it deleted its
-    // reply and started over".
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -3903,11 +3862,6 @@ describe("SSE event processor error classification", () => {
   });
 
   it("surfaces bare 'builder_gateway_error' instead of looping auto-continuation", async () => {
-    // Production-agent retries this synchronously up to MAX_RETRIES inside
-    // the run before emitting `error`. By the time the client sees this
-    // event the server has given up — auto-continuing on top of that just
-    // sends another POST that hits the same wall, which is what produced
-    // the 32-continuation regenerate-loop user-visible bug.
     const iter = readSSEStream(
       eventStream([
         {
@@ -4080,8 +4034,6 @@ describe("SSE event processor error classification", () => {
       errorCode: "builder_gateway_internal_error",
       recoverable: true,
     });
-    // The correlation id is the only part support can act on, so it stays —
-    // just not as the whole sentence the user reads.
     expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
       "bebaeb5da13441539790834b63ff955a",
     );
@@ -4110,7 +4062,6 @@ describe("SSE event processor error classification", () => {
       "I stopped rather than leave things half-done — nothing was partially saved by me here. " +
       "Please retry, ideally as a single bulk action.";
 
-    // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -4134,8 +4085,6 @@ describe("SSE event processor error classification", () => {
         }
       | undefined;
     expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
-    // recoverable:true survives so the recovery banner reads
-    // "stopped before finishing".
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
 
     expect(dispatchEvent).toHaveBeenCalledWith(
@@ -4159,9 +4108,6 @@ describe("SSE event processor error classification", () => {
   ])(
     "does not auto-continue %s, whose outcome is unknown",
     async (errorCode, message) => {
-      // These say the turn's outcome is UNKNOWN. An automatic re-POST would
-      // assert it did not finish and could replay side effects that already
-      // landed, so they must reach the user as a manual Retry instead.
       const dispatchEvent = vi.fn();
       vi.stubGlobal("window", { dispatchEvent });
       vi.stubGlobal(
@@ -4176,7 +4122,6 @@ describe("SSE event processor error classification", () => {
         },
       );
 
-      // Must NOT throw AgentAutoContinueSignal — it must terminate with a result.
       const results = await drain(
         readSSEStream(
           eventStream([
@@ -4195,7 +4140,6 @@ describe("SSE event processor error classification", () => {
           }
         | undefined;
       expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
-      // recoverable:true survives so the banner still offers a manual Retry.
       expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
       expect(dispatchEvent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4221,8 +4165,6 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    // Must NOT throw AgentAutoContinueSignal — restarting work a Slack cancel
-    // or the stuck banner just stopped is the destructive outcome.
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -4298,13 +4240,6 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  // http_429/http_529 used to auto-continue here. The server now owns
-  // rate-limit recovery end to end (in-loop retries, sibling-model fallback,
-  // one cooled continuation, then a terminal `provider_rate_limited`) and
-  // caps the continuation chain it hands back. Re-POSTing a client
-  // continuation for an exhausted rate-limit error bypasses that one-hop cap
-  // and restarts the retry/fallback budget the server already spent, so both
-  // codes must render with the manual Retry affordance instead.
   it.each([
     "http_429",
     "http_529",
@@ -4425,9 +4360,6 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    // The server's no-progress breaker keeps the gateway code and reference id
-    // so the failure stays diagnosable. Reading the code instead of the flag
-    // re-POSTs the exact chain the server just refused to continue.
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -4472,9 +4404,6 @@ describe("SSE event processor error classification", () => {
       },
     );
 
-    // The guard interpolates the looping tool's name, and 17 shipped actions
-    // are named `*connection*` — enough to match the "connection" sniff and
-    // auto-continue the exact loop this event exists to break.
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -4511,7 +4440,6 @@ describe("SSE event processor tool id matching", () => {
     const results = await drain(
       readSSEStream(
         eventStream([
-          // Two parallel "search" calls start at the same time
           {
             type: "tool_start",
             tool: "search",
@@ -4524,7 +4452,6 @@ describe("SSE event processor tool id matching", () => {
             id: "call-2",
             input: { q: "cats" },
           },
-          // Results arrive in reverse order
           {
             type: "tool_done",
             tool: "search",
@@ -4545,7 +4472,6 @@ describe("SSE event processor tool id matching", () => {
       ),
     );
 
-    // After all events, find the two tool calls and verify results are correctly paired
     const lastResult = results[results.length - 1];
     const parts = lastResult?.content ?? [];
     const call1 = parts.find(
@@ -4563,7 +4489,6 @@ describe("SSE event processor tool id matching", () => {
     const results = await drain(
       readSSEStream(
         eventStream([
-          // No id on events — legacy server build
           { type: "tool_start", tool: "lookup", input: { key: "a" } },
           { type: "tool_done", tool: "lookup", result: "value-a" },
           { type: "done" },
@@ -4602,8 +4527,6 @@ describe("SSE event processor tool id matching", () => {
   });
 
   it("attaches approval metadata to the matching tool-call on approval_required", async () => {
-    // The server emits tool_start, then approval_required (the gate paused the
-    // turn), then a paused tool_done — the call never executed.
     const content: any[] = [];
     await drain(
       readSSEStream(
@@ -4656,7 +4579,6 @@ describe("SSE event processor tool id matching", () => {
             type: "approval_required",
             tool: "send-email",
             approvalKey: "send-email:call-2",
-            // `toolCallId` is the contract field; `id` is a stale older frame.
             toolCallId: "call-2",
             id: "call-1",
             input: {},
@@ -4678,9 +4600,6 @@ describe("SSE event processor tool id matching", () => {
   });
 
   it("does not attach a replayed approval to a different call of the same action", async () => {
-    // call-1 is gated and resolved by its paused tool_done. call-2 is a second
-    // in-flight call to the same action. Replaying call-1's approval must not
-    // put call-1's key behind call-2's Approve button.
     const content: any[] = [];
     await drain(
       readSSEStream(
@@ -4700,7 +4619,6 @@ describe("SSE event processor tool id matching", () => {
             result: "Awaiting human approval — did NOT execute.",
           },
           { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
-          // Reordered/replayed frame for the already-resolved call-1.
           {
             type: "approval_required",
             tool: "send-email",
@@ -4963,8 +4881,6 @@ describe("journal-recovery tool replay coalescing", () => {
         result: "real result",
         id: "srv_1",
       },
-      // Continuation chunk replays the same call via the tool-call journal
-      // (id-less re-emit with the marker result).
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
       {
         type: "tool_done",
@@ -4984,10 +4900,7 @@ describe("journal-recovery tool replay coalescing", () => {
 
   it("resolves an interrupted spinner with the ledger-recovered result and removes the replay artifact", async () => {
     const content = await contentAfter([
-      // Original call was interrupted: tool_start with no tool_done.
       { type: "tool_start", tool: "edit-screen", input: { a: 1 }, id: "srv_1" },
-      // Next chunk replays it; the id-less tool_done name-matches the original
-      // pending card, leaving the replay's own start as a stuck spinner.
       { type: "tool_start", tool: "edit-screen", input: { a: 1 } },
       {
         type: "tool_done",
@@ -5135,8 +5048,6 @@ describe("SSE client watchdog ordering", () => {
   });
 
   it("keeps the client no-progress window above the server backstop", () => {
-    // The server owns recovery. If the browser fires first, the whole
-    // server-side ladder becomes unreachable dead code.
     expect(SSE_NO_PROGRESS_TIMEOUT_MS).toBeGreaterThan(
       RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
     );
@@ -5237,10 +5148,6 @@ describe("settleInterruptedToolCalls", () => {
   });
 });
 
-// A Builder-credits deployment answers every gateway rejection with one visitor
-// line and keeps the real reason on `errorCode`. Auto-continue used to be
-// decided from the message text, so on those sites alone a transient upstream
-// failure — which carries no code at all — ended the turn.
 describe("auto-continue on a deployment that replaces the error message", () => {
   const VISITOR_LINE = "AI features aren't available on this site right now.";
 
@@ -5265,8 +5172,6 @@ describe("auto-continue on a deployment that replaces the error message", () => 
   }
 
   it("continues on the engine's structural retry verdict", async () => {
-    // No error code: an upstream "Overloaded" reaches the client with the
-    // reason only in `providerRetryable`.
     expect((await readError({ providerRetryable: true })).continued).toBe(true);
   });
 
@@ -5281,8 +5186,6 @@ describe("auto-continue on a deployment that replaces the error message", () => 
     ).toBe(true);
   });
 
-  // The verdict is checked after the terminal codes, so it can never revive a
-  // quota, auth or daily-cap rejection into a retry loop.
   for (const errorCode of [
     "rate_limit_exceeded",
     "credits-limit-reached",
@@ -5297,9 +5200,6 @@ describe("auto-continue on a deployment that replaces the error message", () => 
     });
   }
 
-  // End of the wire: what a terminal gateway rejection actually renders as. The
-  // error code is preserved for the owner's logs, and the rendered text is the
-  // one line — not the "Reconnect Builder in Settings" copy this code maps to.
   it("renders the terminal rejection as the one line the server chose", async () => {
     const outcome = await readError({ errorCode: "builder_auth_error" });
 

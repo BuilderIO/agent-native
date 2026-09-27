@@ -51,9 +51,6 @@ const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
       "This QA account has no request-scoped durable upload provider. Connect Builder (free tier available) in Design and retry.",
     );
   }
-  // The explicit QA flag must deterministically exercise this provider even
-  // when Builder is also connected. Registered providers win over Builder in
-  // the core upload registry, so register it whenever the flag is enabled.
   if (localQaStorageEnabled) registerLocalFigmaQaUploadProvider();
 
   const designId =
@@ -91,6 +88,4 @@ const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
   };
 });
 
-// Deliberately emit only bounded import evidence. Credentials, account ids,
-// upload URLs, and imported source never enter stdout.
 console.log(JSON.stringify(evidence, null, 2));

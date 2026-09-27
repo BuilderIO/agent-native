@@ -385,9 +385,6 @@ function useDeferredFilesDatabaseId(
       };
     }
 
-    // An already-expanded workspace can contain thousands of files. Give the
-    // selected page's critical read one turn before starting that inventory;
-    // direct expansion remains immediate.
     setReady(false);
     const timeout = window.setTimeout(
       () => setReady(true),
@@ -396,11 +393,6 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  // `databaseId` stays stable across the defer window so the query key never
-  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
-  // null here would move the tree to a disabled, never-fetched query key and
-  // drop the rows already on screen for the whole deferred window instead of
-  // just holding off the refetch.
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
@@ -1364,8 +1356,6 @@ export function DocumentSidebar({
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   }, []);
-  // Track user-expanded nodes only; active ancestors are derived below so they
-  // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
@@ -1606,7 +1596,6 @@ export function DocumentSidebar({
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
@@ -1647,8 +1636,6 @@ export function DocumentSidebar({
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
         settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
@@ -1986,7 +1973,6 @@ export function DocumentSidebar({
         { id, isFavorite },
         {
           onError: (error) => {
-            // Recent shows pin state optimistically; reload its truth.
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-content-recent"],
             });
@@ -2051,7 +2037,6 @@ export function DocumentSidebar({
     }),
     [duplicateDocument, selectedSpace?.id, t, updateDocument],
   );
-  // Any space the viewer may add pages to, plus the Page's own space.
   const moveSpaces = useMemo(
     () =>
       contentSpaces.filter(
@@ -2068,7 +2053,6 @@ export function DocumentSidebar({
         { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
         {
           onSuccess: () => {
-            // Reveal the Page where it landed.
             if (parentId) handleDocumentExpandedChange(parentId, true);
             if (crossSpace) {
               const space = contentSpaces.find(
@@ -2462,8 +2446,6 @@ export function DocumentSidebar({
 
   const renderTrashSection = () => {
     const trashActive = location.pathname.startsWith("/trash");
-    // Lifecycle destinations sit in their own fixed group below the scrolling
-    // navigation, so Trash never hides beneath a long Files tree.
     return (
       <div className="shrink-0 border-t border-border/70 px-2 py-2">
         <Link

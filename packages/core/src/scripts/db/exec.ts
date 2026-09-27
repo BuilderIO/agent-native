@@ -1,11 +1,3 @@
-/**
- * Core script: db-exec
- *
- * Execute INSERT, UPDATE, and DELETE statements against the configured
- * PostgreSQL database. Local execution uses PGlite and hosted execution uses
- * PostgreSQL.
- */
-
 import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";

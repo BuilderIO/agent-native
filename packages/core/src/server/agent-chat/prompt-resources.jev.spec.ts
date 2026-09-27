@@ -377,10 +377,15 @@ describe("preloadJevContextForPrompt", () => {
       },
     );
     expect(
-      mocks.resourceGetByPath.mock.calls
-        .map(([, path]) => path)
-        .filter((path) => path !== "memory/MEMORY.md"),
-    ).toEqual(["memory/selected-memory.md"]);
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
+    ).toEqual([
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
+      [owner, "memory/selected-memory.md"],
+    ]);
     const rankedCandidates = mocks.rankJevCandidates.mock.calls.flatMap(
       ([options]) =>
         (options as { candidates: Array<{ description: string }> }).candidates,
@@ -453,9 +458,70 @@ describe("preloadJevContextForPrompt", () => {
     });
 
     expect(result).not.toContain("stale query preference");
-    expect(mocks.resourceGetByPath.mock.calls.map(([, path]) => path)).toEqual([
-      "memory/MEMORY.md",
+    expect(
+      mocks.resourceGetByPath.mock.calls.map(([resourceOwner, path]) => [
+        resourceOwner,
+        path,
+      ]),
+    ).toEqual([
+      [owner, "memory/MEMORY.md"],
+      ["__organization__:org-test", "memory/MEMORY.md"],
     ]);
+  });
+
+  it("loads only org-scoped memory for the active org and rejects index traversal", async () => {
+    const owner = "user@example.test";
+    const orgId = "org-a";
+    const orgOwner = "__organization__:org-a";
+    const otherOrgOwner = "__organization__:org-b";
+    mocks.getRuntimeSkills.mockReturnValue([]);
+    mocks.resourceGetByPath.mockImplementation(
+      async (resourceOwner: string, path: string) => {
+        if (resourceOwner === owner && path === "memory/MEMORY.md") return null;
+        if (resourceOwner === orgOwner && path === "memory/MEMORY.md") {
+          return {
+            content: [
+              "# Memory Index",
+              "- [other-org](../other-org.md) — Never read this cross-org entry.",
+              "- [dialect](dialect.md) — Use BigQuery STRING instead of ILIKE.",
+            ].join("\n"),
+          };
+        }
+        if (resourceOwner === orgOwner && path === "memory/dialect.md") {
+          return { content: "For this organization, use BigQuery STRING." };
+        }
+        if (resourceOwner === otherOrgOwner && path === "memory/other-org.md") {
+          return { content: "This must stay in another organization." };
+        }
+        return null;
+      },
+    );
+    mocks.rankJevCandidates.mockImplementation((input: any) => {
+      const candidate = input.candidates.find(
+        (item: any) =>
+          item.metadata?.kind === "personal-memory" &&
+          item.metadata?.scope === "current-org",
+      );
+      return candidate ? [candidate.id] : [];
+    });
+
+    const result = await preloadJevContextForPrompt({
+      request: "How should I query active users?",
+      apiKey: "jev-test-key",
+      owner,
+      orgId,
+    });
+
+    expect(result).toContain("For this organization, use BigQuery STRING.");
+    expect(result).not.toContain("This must stay in another organization.");
+    const reads = mocks.resourceGetByPath.mock.calls.map(
+      ([resourceOwner, path]) => [resourceOwner, path],
+    );
+    expect(reads).toContainEqual([orgOwner, "memory/MEMORY.md"]);
+    expect(reads).toContainEqual([orgOwner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([owner, "memory/dialect.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/MEMORY.md"]);
+    expect(reads).not.toContainEqual([otherOrgOwner, "memory/other-org.md"]);
   });
 
   it("skips Jev and memory retrieval before background dispatch", async () => {

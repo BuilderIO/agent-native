@@ -71,17 +71,6 @@ export function listNotificationChannels(): string[] {
   return Array.from(getRegistry().keys());
 }
 
-/**
- * Deliver a notification.
- *
- * The `inbox` channel always persists a row that drives the in-app UI
- * (bell + toast). Additional channels (webhook, custom) run in parallel,
- * best-effort. Returns the stored Notification when `inbox` ran, otherwise
- * `undefined`.
- *
- * Also emits `notification.sent` on the event bus so automations can react
- * to notifications (e.g. "when a critical notification fires, also page me").
- */
 const MAX_TITLE_LEN = 100;
 const MAX_BODY_LEN = 2000;
 
@@ -107,15 +96,12 @@ export async function notifyWithDelivery(
   const channels = selectChannels(input.channels);
   const storedMetadata = scrubStoredMetadata(input.metadata);
 
-  // The inbox channel is always included unless explicitly excluded.
   const runInbox = !input.channels || input.channels.includes("inbox");
   const delivered: string[] = [];
   let stored: Notification | undefined;
 
   if (runInbox) {
     try {
-      // Stored with just "inbox" first; the real delivered list is written
-      // after fan-out so a failing webhook doesn't claim it was delivered.
       stored = await insertNotification({
         owner: meta.owner,
         severity: input.severity,
@@ -130,11 +116,9 @@ export async function notifyWithDelivery(
     }
   }
 
-  // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
       const delivered = await channel.deliver(input, meta);
-      // Explicit `false` means the channel skipped (no URL / recipients).
       if (delivered === false) return null;
       return channel.name;
     }),
@@ -160,9 +144,6 @@ export async function notifyWithDelivery(
     }
   }
 
-  // Only emit when at least one channel delivered — an emission with an
-  // empty delivery list (and likely a null notificationId) would mislead
-  // any automation chaining off this event.
   if (delivered.length > 0) {
     try {
       emitBusEvent(
@@ -202,7 +183,6 @@ function selectChannels(allowlist?: string[]): NotificationChannel[] {
   return all.filter((c) => allowlist.includes(c.name));
 }
 
-/** Test helper — drops all registered channels. */
 export function __resetNotificationChannels(): void {
   getRegistry().clear();
 }

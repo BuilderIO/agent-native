@@ -162,24 +162,6 @@ export function runScreenElementSelect(
   ) {
     return false;
   }
-  // Node-id integrity (id-on-demand): AI-generated/duplicated screens
-  // frequently ship elements with a missing or empty-string
-  // `data-agent-native-node-id` — every id-keyed operation on that
-  // element (move/reorder, style commits that resolve a targetNode,
-  // motion tracks, scrub) then silently no-ops or throws "Node with
-  // data-agent-native-node-id=\"\" not found in sourceHtml". The bridge
-  // (editor-chrome.bridge.ts's getElementInfo) mints a durable
-  // `pendingNodeId` on the SELECTION payload whenever it can't resolve a
-  // stable id for the element (`!sourceId`) and exposes it as
-  // `canonical.pendingNodeId`; persist it as the element's real
-  // `data-agent-native-node-id` right now via the same deterministic,
-  // guarded write path every other edit uses (applyVisualEdit's new
-  // "attribute" intent + applyFileContentUpdate), so every subsequent
-  // id-keyed op against this element resolves normally afterward. This is
-  // more reliable than resolving through the host's own static-HTML
-  // projection (`node`, below) — the bridge already knows the live DOM
-  // element and its working selector candidates even when the host's
-  // positional-selector projection match drifts.
   const pendingNodeId = (canonical as { pendingNodeId?: string }).pendingNodeId;
   if (
     options.persistPendingNodeId !== false &&
@@ -240,11 +222,6 @@ export function runScreenElementSelect(
   } else if (
     options.persistPendingNodeId !== false &&
     !(liveScreenIds?.has(screenId) ?? false) &&
-    // Fallback sweep: an element the bridge didn't mint a pendingNodeId
-    // for (older bridge instance, or a node resolved only through the
-    // host's own projection) but that still lacks a stable id per the
-    // host's own projection match. Runs the whole-document stamp helper
-    // so any other id-less siblings pick up ids in the same pass too.
     !isScreenRootElementInfo(canonical) &&
     node &&
     !node.dataAttributes["data-agent-native-node-id"]?.trim()
@@ -325,18 +302,7 @@ export function runScreenElementSelect(
   setHoveredElement(null);
   setHoveredElementScreenId(null);
   if (node && additiveSelection) {
-    // Figma spec §1: Shift+click toggles membership — an already-selected
-    // object is removed, same as Screens' overview toggle
-    // (MultiScreenCanvas.tsx's handleFrameClick). Cmd/Ctrl never reaches
-    // here: additiveSelection above is shiftKey/additive/range only, so
-    // this branch is exclusively the Shift gesture.
     if (selectedLayerIdsState.includes(node.id)) {
-      // `selectedElement` was just set to the clicked node above, but that
-      // node is the one being REMOVED — selectedCodeLayerNode (and the
-      // inspector/motion tools it feeds) derives from selectedElement, so it
-      // must follow the member that remains, not stay pointed at a node no
-      // longer selected. Pick the same member Screens' own toggle would
-      // (nextSelectedIds[nextSelectedIds.length - 1]).
       const remainingIds = selectedLayerIdsState.filter(
         (layerId) => layerId !== node.id,
       );
@@ -348,12 +314,7 @@ export function runScreenElementSelect(
         : null;
       setSelectedElement(
         remainingNode
-          ? // elementInfoFromCodeLayerNode's boundingRect is always zero (it
-            // has no live DOM to measure) — Shift+2 zoom-to-selection and
-            // the inspector both need a real rect, so measure the live
-            // preview node the same way projection-derived selections
-            // already do elsewhere.
-            withMeasuredGeometry(
+          ? withMeasuredGeometry(
               elementInfoFromCodeLayerNode(remainingNode),
               screenId,
             )
@@ -366,9 +327,6 @@ export function runScreenElementSelect(
         : dedupeStringIds([...current, node.id]),
     );
   } else if (node) {
-    // An intent-less select is the bridge re-anchoring after a content
-    // replace, not a user picking one object, so it must not collapse a live
-    // multi-selection down to the member it re-found.
     setSelectedLayerIdsState((current) =>
       !intent && current.length > 1 && current.includes(node.id)
         ? current
@@ -378,10 +336,6 @@ export function runScreenElementSelect(
     setSelectedLayerIdsState([]);
   }
   if (viewModeRef.current === "overview") {
-    // Mirrors the intent-less-echo guard on selectedLayerIdsState above: a
-    // content-replace re-anchoring echo (no intent) must not clear a live
-    // overview screen selection out from under the user — only a real pick
-    // clears it.
     setOverviewSelectedScreenIds((current) =>
       !intent && current.length > 0 ? current : [],
     );

@@ -40,7 +40,6 @@ describe("OpenRouter builtin engine", () => {
       __isModel: true,
       modelId: "anthropic/claude-sonnet-4.5",
     };
-    // `@openrouter/ai-sdk-provider`'s returned provider is callable AND has .chat().
     const providerCallable = vi.fn().mockReturnValue(chatModel);
     const openrouter: any = Object.assign(providerCallable, {
       chat: vi.fn().mockReturnValue(chatModel),

@@ -7,7 +7,6 @@ const PREFS_PATH = "/_agent-native/slides/user-prefs";
 export interface SlidesPrefsState {
   prefs: SlidesUserPrefs;
   loading: boolean;
-  /** Applies the patch optimistically and rolls back if the write fails. */
   save: (patch: SlidesUserPrefs) => Promise<void>;
 }
 

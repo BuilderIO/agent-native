@@ -15,9 +15,13 @@ const harness = vi.hoisted(() => ({
   getActiveRun: vi.fn(),
 }));
 
-vi.mock("@assistant-ui/react", () => ({
-  useMessageRuntime: () => ({ getState: () => harness.message }),
-}));
+vi.mock("@assistant-ui/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@assistant-ui/react")>();
+  return {
+    ...actual,
+    useMessageRuntime: () => ({ getState: () => harness.message }),
+  };
+});
 
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: harness.writeClipboardText,
@@ -25,6 +29,10 @@ vi.mock("../clipboard.js", () => ({
 
 vi.mock("../active-run-state.js", () => ({
   getActiveRun: harness.getActiveRun,
+}));
+
+vi.mock("../observability/ThumbsFeedback.js", () => ({
+  ThumbsFeedback: () => <div data-testid="feedback-controls" />,
 }));
 
 vi.mock("../components/ui/dropdown-menu.js", async () => {
@@ -82,7 +90,10 @@ vi.mock("../components/ui/dropdown-menu.js", async () => {
   };
 });
 
-import { MessageActionsMenu } from "./message-components.js";
+import {
+  AssistantMessageActionBar,
+  MessageActionsMenu,
+} from "./message-components.js";
 
 describe("MessageActionsMenu request ID copy", () => {
   let container: HTMLDivElement;
@@ -178,5 +189,51 @@ describe("MessageActionsMenu request ID copy", () => {
 
     expect(harness.writeClipboardText).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Request ID unavailable");
+  });
+
+  it("keeps feedback left and conversation actions right", async () => {
+    await act(async () => {
+      root.render(
+        <AssistantMessageActionBar
+          threadId="current-thread"
+          runId="server-run-id"
+          messageSeq={1}
+          onFork={vi.fn()}
+          onRestore={vi.fn()}
+          trailingActions={
+            <button type="button" aria-label="Regenerate">
+              Regenerate
+            </button>
+          }
+        />,
+      );
+    });
+
+    const feedback = container.querySelector(
+      '[data-message-action-group="feedback"]',
+    );
+    const conversation = container.querySelector(
+      '[data-message-action-group="conversation"]',
+    );
+    expect(
+      feedback?.querySelector('button[aria-label="Copy message"]'),
+    ).toBeTruthy();
+    expect(
+      feedback?.querySelector('[data-testid="feedback-controls"]'),
+    ).toBeTruthy();
+    expect(
+      feedback?.querySelector('button[aria-label="Message actions"]'),
+    ).toBeNull();
+    expect(
+      conversation?.querySelector('button[aria-label="Regenerate"]'),
+    ).toBeTruthy();
+    expect(
+      conversation?.querySelector('button[aria-label="Message actions"]'),
+    ).toBeTruthy();
+    expect(conversation?.querySelectorAll("button").length).toBeGreaterThan(2);
+    const overflow = conversation?.querySelector('[role="menu"]')?.textContent;
+    expect(overflow).toContain("Fork");
+    expect(overflow).toContain("Copy request ID");
+    expect(overflow).not.toContain("Revert");
   });
 });

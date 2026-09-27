@@ -2,26 +2,6 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-/**
- * Adversarial INSTALL / CLI / FIRST-RUN coverage focused on the Plans
- * (`templates/plan`) app and its shipped skills.
- *
- * Goals:
- *   1. A fresh standalone Plans scaffold produces a bootable app: it is in the
- *      public template allow-list, scaffolds the expected files, and every dep
- *      resolves to a real version (no `workspace:*` / no bare `catalog:` leak),
- *      with the Postgres runtime injected.
- *   2. `agent-native skills add visual-plan` (and its aliases) materializes the
- *      correct user-facing SKILL.md files for the hosted Plans MCP app.
- *   3. The three shipped copies of each Plans skill stay byte-identical (deep
- *      sync guard beyond the existing one) and the materialized output matches
- *      the canonical template copy exactly.
- *   4. Adversarial first-run inputs: non-empty target dir, unknown template
- *      name, path-traversal repo names, alias normalization, etc.
- *
- * These exercise packages/core/src/cli/create.ts + skills.ts +
- * templates-meta.ts as the user hits them on a fresh machine.
- */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
@@ -74,8 +54,6 @@ const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
   },
 };
 
-// Bundle aliases install every Plan skill. The single-skill names install only
-// their own skill and are covered separately.
 const PLANS_INSTALL_ALIASES = [
   "visual-plans",
   "code-review-recap",
@@ -94,8 +72,6 @@ beforeEach(() => {
 
 afterEach(async () => {
   process.chdir(origCwd);
-  // The full core lane runs this filesystem-heavy scaffold suite under load;
-  // let pending writes settle between recursive removal retries.
   await fs.promises.rm(tmpDir, {
     recursive: true,
     force: true,
@@ -127,17 +103,12 @@ function workspaceRoot(): string {
   throw new Error("Could not locate workspace root.");
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 1. Plan template is a real, allow-listed, bootable target
- * ───────────────────────────────────────────────────────────────────────── */
-
 describe("Plans template — allow-list & metadata", () => {
   it("is a known, non-hidden core template scaffoldable via --template plan", () => {
     expect(allTemplateNames()).toContain("plan");
     const meta = getTemplate("plan");
     expect(meta).toBeDefined();
     expect(meta?.core).toBe(true);
-    // Plans is a public, featured app — it must not be hidden from the picker.
     expect(meta?.hidden).toBeFalsy();
     expect(meta?.prodUrl).toBe("https://plan.agent-native.com");
   });
@@ -147,9 +118,6 @@ describe("Plans template — allow-list & metadata", () => {
   });
 
   it("declares no first-party workspace package deps that need scaffolding", () => {
-    // The plan template only depends on @agent-native/core (an npm package),
-    // so it must NOT declare requiredPackages — otherwise the CLI would try to
-    // download a nonexistent packages/<x> on a fresh install.
     const meta = getTemplate("plan");
     expect(meta?.requiredPackages ?? []).toEqual([]);
   });
@@ -167,7 +135,6 @@ describe(
         expect(fs.existsSync(root)).toBe(true);
         expect(fs.existsSync(path.join(root, "package.json"))).toBe(true);
         expect(fs.existsSync(path.join(root, "app", "root.tsx"))).toBe(true);
-        // _gitignore must be renamed to .gitignore so the scaffold is git-clean.
         expect(fs.existsSync(path.join(root, ".gitignore"))).toBe(true);
         expect(fs.existsSync(path.join(root, "_gitignore"))).toBe(false);
       },
@@ -186,7 +153,6 @@ describe(
           );
           expect(val, `${key} must not be bare catalog:`).not.toBe("catalog:");
         }
-        // @agent-native/core must resolve to the CLI's published range.
         expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
       },
       PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
@@ -228,8 +194,6 @@ describe(
             `expected scaffolded skill ${name}/SKILL.md`,
           ).toBe(true);
         }
-        // Guard against the circular `.agents/skills/skills` symlink that crashes
-        // Vite's watcher.
         expect(fs.readdirSync(skillsDir)).not.toContain("skills");
       },
       PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
@@ -260,23 +224,11 @@ describe(
   },
 );
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 2. Tracking app-id rewrite for a renamed Plans app
- *
- * Every other template hardcodes `app: "agent-native-<name>"` in root.tsx,
- * which the scaffolder rewrites to the chosen app name + a `template:` tag.
- * If the plan template hardcodes `app: "plan"` instead, a renamed plan app
- * silently reports analytics under the wrong app id and loses the template
- * tag. These tests pin the EXPECTED behaviour (rename => correct id).
- * ───────────────────────────────────────────────────────────────────────── */
-
 describe(
   "Plans tracking id — renamed standalone/app",
   { timeout: 60000 },
   () => {
     it("rewrites the tracking app id when scaffolded under a custom name", async () => {
-      // BUG REPRO: createApp("my-roadmap", {template:"plan"}) should brand the
-      // tracking call as the new app, not leave it as the source template.
       await createApp("my-roadmap", { template: "plan" });
       const root = fs.readFileSync(
         path.join(tmpDir, "my-roadmap", "app", "root.tsx"),
@@ -297,24 +249,12 @@ describe(
         "utf-8",
       );
       expect(root).toContain('app: "roadmap"');
-      // And it should carry the source template tag for analytics segmentation.
       expect(root).toContain('template: "plan"');
     });
   },
 );
 
-/* ─────────────────────────────────────────────────────────────────────────
- * 3. Skills install materializes the right SKILL.md for end users
- * ───────────────────────────────────────────────────────────────────────── */
-
 describe("Plans skills install — materialized output", () => {
-  /**
-   * Run a Plans install via `alias`, capturing each materialized SKILL.md's
-   * contents from inside the runCommand callback. The CLI writes the skills to
-   * a temp dir that is rmSync'd as soon as `addAgentNativeSkill` returns, so we
-   * must read them while the npx invocation is still pending — mirroring the
-   * existing skills.spec.ts pattern.
-   */
   async function materializeViaAlias(
     alias: string,
     extraArgs: string[] = [],
@@ -344,8 +284,6 @@ describe("Plans skills install — materialized output", () => {
         ]),
         { baseDir: root, runCommand: async () => 0 },
       );
-      // Built-in skills are written straight into the client's skills dir;
-      // project-scope codex lands in .agents/skills.
       const skillsDir = path.join(root, ".agents", "skills");
       if (fs.existsSync(skillsDir)) {
         for (const name of fs.readdirSync(skillsDir)) {
@@ -391,11 +329,8 @@ describe("Plans skills install — materialized output", () => {
     );
 
     for (const [name, constant] of PLANS_INSTALL_SKILLS) {
-      // The materialized file the user receives must be byte-identical to the
-      // shipped constant.
       expect(captured[name], `materialized ${name}/SKILL.md`).toBe(constant);
     }
-    // No extra surprise skills materialized.
     expect(Object.keys(captured).sort()).toEqual(
       [...PLANS_INSTALL_SKILL_NAMES].sort(),
     );
@@ -502,8 +437,6 @@ describe("Plans skills install — materialized output", () => {
     expect(recap.result.skillNames).toEqual(["visual-recap"]);
     expect(Object.keys(recap.captured)).toEqual(["visual-recap"]);
 
-    // Both single-skill installs still return the shared hosted plan MCP
-    // connect command without writing URL-only Codex auth config.
     expect(recap.codexConfigExists).toBe(false);
     expect(recap.result.commands).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",
@@ -537,10 +470,6 @@ describe("Plans skills install — materialized output", () => {
     expect(md).not.toContain("data-plan-tabs");
   });
 });
-
-/* ─────────────────────────────────────────────────────────────────────────
- * 4. Deep three-copy byte-identity sync guard
- * ───────────────────────────────────────────────────────────────────────── */
 
 describe("Plans skill three-copy sync (deep)", () => {
   const SKILLS = [
@@ -592,8 +521,6 @@ describe("Plans skill three-copy sync (deep)", () => {
         `${s.templateDir} frontmatter`,
       ).toBe(true);
       expect(s.constant).toMatch(/\nname:\s*\S+/);
-      // Plans skills may be exported or both. Either way each skill must
-      // declare a visibility.
       expect(s.constant, `${s.templateDir} visibility`).toMatch(
         /visibility:\s*(exported|both)/,
       );
@@ -607,10 +534,6 @@ describe("Plans skill three-copy sync (deep)", () => {
     expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
   });
 });
-
-/* ─────────────────────────────────────────────────────────────────────────
- * 5. Adversarial first-run inputs
- * ───────────────────────────────────────────────────────────────────────── */
 
 describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
   it("refuses to scaffold into a non-empty existing directory", async () => {
@@ -632,7 +555,6 @@ describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
       process.exit = origExit;
     }
     expect(exited).toBe(true);
-    // The user's existing file must survive.
     expect(
       fs.readFileSync(path.join(tmpDir, "plan", "keep.txt"), "utf-8"),
     ).toBe("do not clobber");
@@ -674,7 +596,6 @@ describe("Plans first-run — adversarial inputs", { timeout: 60000 }, () => {
         _scaffoldAppTemplate(path.join(tmpDir, "trav"), bad),
         `expected rejection for ${bad}`,
       ).rejects.toThrow();
-      // Nothing should have been written outside the target.
       expect(fs.existsSync(path.join(tmpDir, "trav", "package.json"))).toBe(
         false,
       );

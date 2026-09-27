@@ -17,10 +17,8 @@ export const BOX_STROKE_PAINT_TYPES: DesignPaintType[] = [
   "diamond",
 ];
 
-/** SVG paint servers exist for linear and radial gradients only. */
 export const SVG_PAINT_TYPES: DesignPaintType[] = ["solid", "linear", "radial"];
 
-/** First stop of a gradient as a solid, so Solid keeps the visible colour. */
 export function gradientSolidFallback(gradient: string): string {
   const parsed = parseGradientLayer(gradient);
   const stop = parsed?.stops[0];
@@ -32,10 +30,6 @@ export function gradientSolidFallback(gradient: string): string {
   return rgbaToCss(withColorOpacity(color, opacity));
 }
 
-/**
- * One paint that is either a solid colour or a single CSS gradient: the
- * stroke rows and an SVG vector's fill.
- */
 export function PaintInput({
   solidColor,
   gradient,

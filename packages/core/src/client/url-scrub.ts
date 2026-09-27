@@ -21,7 +21,6 @@ export function scrubUrl(
 ): string | undefined {
   if (!url || typeof url !== "string") return url;
   try {
-    // Parse using a base origin so relative URLs still work.
     const u = new URL(url, "http://placeholder.local");
     let mutated = false;
     for (const key of Array.from(u.searchParams.keys())) {
@@ -53,7 +52,6 @@ export function scrubUrl(
       if (hashMutated) u.hash = hashParams.toString();
     }
     if (!mutated) return url;
-    // If the original URL was relative, return only the path/query/fragment.
     if (u.origin === "http://placeholder.local") {
       return `${u.pathname}${u.search}${u.hash}`;
     }

@@ -205,9 +205,6 @@ async function startCalendarOAuth(
     const interval = window.setInterval(() => {
       if (popup.closed) finish(null);
     }, 500);
-    // Some browsers (COOP) never report popup.closed; also resolve when the
-    // user returns to this tab, and give up after 5 minutes regardless so the
-    // connect flow can't hang forever.
     const onFocus = () => {
       if (popup.closed) finish(null);
     };
@@ -239,10 +236,6 @@ function calendarAccountLabel(account: CalendarAccount): string {
   );
 }
 
-// Manual/ad-hoc notes-only meetings admitted into the past view (see
-// list-meetings' view='past' predicate) can have neither actualStart nor
-// scheduledStart — createdAt is the only timestamp left to group and display
-// them by.
 function historyIso(m: Meeting): string {
   return m.actualStart ?? m.scheduledStart ?? m.createdAt ?? "";
 }
@@ -252,13 +245,6 @@ function historyTimestampMs(m: Meeting): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-// Per @shawnmcclelland's review on #2887: Past now shares the same
-// day-column card shell as Agenda instead of a bare DayHeader label over a
-// flat row list, so the two tabs read as one surface. The explicit sort
-// comparator matters here too — the array can arrive sorted by a different
-// field (list-meetings' merge path sorts by `scheduledStart ?? createdAt`,
-// search-meetings doesn't guarantee this key either), so a meeting that
-// started later than scheduled could otherwise land out of order within its day.
 function MeetingHistoryList({
   meetings,
   snippets,
@@ -659,9 +645,6 @@ export default function MeetingsIndexRoute() {
   const [query, setQuery] = useState(initialQ);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQ);
 
-  // Debounce 200ms — keep URL in sync for shareability. Use the functional
-  // updater so we read the latest params (not a stale closure) and never
-  // clobber an unrelated param another effect changed concurrently.
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedQuery(query);
@@ -683,8 +666,6 @@ export default function MeetingsIndexRoute() {
   const trimmedQuery = debouncedQuery.trim();
   const isSearching = trimmedQuery.length > 0;
 
-  // Tab lives in the URL so it survives reload, is linkable, and shows up in
-  // navigation state for the agent — same treatment as `?q=`.
   const tabParam = searchParams.get("tab");
   const activeTab: MeetingsTab = isMeetingsTab(tabParam) ? tabParam : "agenda";
   const setActiveTab = useCallback(
@@ -708,9 +689,6 @@ export default function MeetingsIndexRoute() {
     { retry: false },
   );
 
-  // History is the page body: every past meeting that holds something worth
-  // reopening, paged rather than capped. `hasContent` (not `recordedOnly`) is
-  // what keeps desktop live notes without a linked recording in the list.
   const history = useInfiniteQuery({
     queryKey: ["action", "list-meetings", "history"],
     initialPageParam: 0,
@@ -726,19 +704,12 @@ export default function MeetingsIndexRoute() {
     retry: false,
   });
 
-  // The agenda window, read live from connected calendars: 24h back through
-  // the next 30 days, so a call from earlier today is still on your day rather
-  // than already filed under Past. Poll every 30s so a freshly-added event (or
-  // one crossing the "now" marker) shows up without a manual refresh.
   const agendaQuery = useActionQuery<ListMeetingsResponse | undefined>(
     "list-meetings",
     { view: "agenda", includeLiveCalendar: true, limit: 50 },
     { retry: false, refetchInterval: 30_000 },
   );
 
-  // Title / summary / notes / attendee / transcript search, server-side. The
-  // list-meetings pages only cover what has been scrolled to, so filtering
-  // them client-side could never find an older call by what was said in it.
   const searchQuery = useActionQuery<
     { meetings: SearchMeetingResult[] } | undefined
   >(
@@ -747,8 +718,6 @@ export default function MeetingsIndexRoute() {
     { enabled: isSearching, retry: false },
   );
 
-  // After the OAuth callback signals completion, poll briefly because the
-  // browser can observe the callback before React Query sees the updated row.
   const [isRefreshingCalendar, setIsRefreshingCalendar] = useState(false);
   const [isCalendarConnectionInFlight, setIsCalendarConnectionInFlight] =
     useState(false);
@@ -862,9 +831,6 @@ export default function MeetingsIndexRoute() {
     );
   }, [agendaMeetings]);
 
-  // A calendar can need re-auth either via a live fetch error (calendarErrors)
-  // or — more commonly — because list-meetings skips non-"connected" accounts
-  // entirely, so the only signal is the account's own status. Cover both.
   const needsCalendarReauth =
     calendarErrors.some((e) => e.needsReauth) ||
     calendarAccounts.some((account) => account.status === "needs-reauth");

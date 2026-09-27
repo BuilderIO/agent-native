@@ -1,18 +1,62 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutQueryClient,
   screen,
   waitFor,
+  type RenderOptions,
 } from "@testing-library/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+  type ReactNode,
+} from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
+
+function render(ui: ReactNode, options?: RenderOptions) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured: true });
+  return renderWithoutQueryClient(ui, {
+    ...options,
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+const promptComposerProps = vi.hoisted(() => vi.fn());
 const promptFile = new File(["pdf"], "large.pdf", {
   type: "application/pdf",
 });
+
+function stubReadyStorageUpload(
+  uploadFetch: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
+) {
+  vi.stubGlobal("fetch", async (...args: Parameters<typeof fetch>) => {
+    const input = args[0];
+    const url = input instanceof Request ? input.url : input.toString();
+    if (url.includes("/api/uploads/status")) {
+      return new Response(JSON.stringify({ referenceStorageReady: true }), {
+        status: 200,
+      });
+    }
+    return uploadFetch(...args);
+  });
+}
 
 function useEagerFileUploadsMock<T>(
   upload: (files: File[]) => Promise<readonly T[]>,
@@ -60,7 +104,19 @@ function useEagerFileUploadsMock<T>(
 vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: {
     disabled?: boolean;
+    submissionDisabled?: boolean;
+    showModelSelector?: boolean;
+    modelStatusChecksEnabled?: boolean;
+    initialText?: string;
+    initialTextKey?: string | number;
+    composerRef?: Ref<{
+      focus(): void;
+      submitWithText(text: string): Promise<boolean>;
+    }>;
+    onTextChange?: (text: string) => void;
+    contextItems?: readonly unknown[];
     onAttachmentsChange?: (files: File[]) => void;
+    attachmentAdapter?: { accept: string };
     onModelSelectionChange?: (selection: {
       model?: string;
       engine?: string;
@@ -73,6 +129,32 @@ vi.mock("@agent-native/core/client/composer", () => ({
       options: Record<string, unknown>,
     ) => void | Promise<void>;
   }) => {
+    promptComposerProps(props);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+    useImperativeHandle(props.composerRef, () => ({
+      focus: () => inputRef.current?.focus(),
+      submitWithText: async (text: string) => {
+        if (props.disabled || props.submissionDisabled) return false;
+        try {
+          await props.onSubmit(text, [promptFile], [], {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+            contextItems: props.contextItems,
+            attachments: [
+              {
+                name: promptFile.name,
+                contentType: promptFile.type,
+                file: promptFile,
+              },
+            ],
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    }));
     useEffect(() => {
       props.onModelSelectionChange?.({
         model: "gpt-5.6-terra",
@@ -82,9 +164,17 @@ vi.mock("@agent-native/core/client/composer", () => ({
     }, [props.onModelSelectionChange]);
     return (
       <>
+        <textarea
+          ref={inputRef}
+          aria-label="Prompt"
+          value={props.initialText ?? ""}
+          readOnly
+          onChange={(event) => props.onTextChange?.(event.target.value)}
+        />
         <button
           type="button"
           data-testid="prompt-composer-attach"
+          disabled={props.disabled}
           onClick={() => props.onAttachmentsChange?.([promptFile])}
         >
           Attach
@@ -92,7 +182,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
         <button
           type="button"
           data-testid="prompt-composer"
-          disabled={props.disabled}
+          disabled={props.disabled || props.submissionDisabled}
           onClick={() =>
             void props.onSubmit("  make a deck  \n", [promptFile], [], {
               model: "gpt-5.6-terra",
@@ -139,10 +229,24 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
 import {
   addInlineImageFallbacks,
-  uploadPromptFiles,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  isReferenceStorageReady,
+  uploadPromptFiles as uploadPromptFilesImpl,
 } from "@/lib/prompt-file-uploads";
 
-import PromptPopover, { createPromptChatAttachments } from "./PromptDialog";
+import { SLIDES_REFERENCE_FILE_ACCEPT } from "../../../shared/upload-types";
+import PromptPopover, {
+  createPromptChatAttachments,
+  type PromptPopoverHandle,
+} from "./PromptDialog";
+import type { useSlidesComposerContext } from "./SlidesComposerContext";
+
+const uploadPromptFiles = (files: File[]) =>
+  uploadPromptFilesImpl(files, "File storage is unavailable.");
 
 describe("createPromptChatAttachments", () => {
   it("keeps PDFs and pasted text as display-only chat descriptors", async () => {
@@ -307,9 +411,80 @@ describe("uploadPromptFiles", () => {
     ensureEmbedAuthFetchInterceptor.mockClear();
   });
 
+  it("reads reference storage readiness from the Slides upload status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ referenceStorageReady: false }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(isReferenceStorageReady()).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/status"),
+      { credentials: "include" },
+    );
+    expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [401, "reference_storage_auth_required", false],
+    [503, "reference_storage_http_failed", false],
+  ])(
+    "classifies storage status HTTP %s separately from transport errors",
+    async (status, code, isNetworkError) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(null, { status })),
+      );
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code,
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(isNetworkError);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(status === 401);
+      expect(isPromptUploadStorageStatusError(error)).toBe(status === 503);
+    },
+  );
+
+  it.each([
+    [new Response("not-json", { status: 200 })],
+    [new Response(JSON.stringify({ ready: true }), { status: 200 })],
+  ])(
+    "classifies malformed storage status responses as contract errors",
+    async (response) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+      const error = await isReferenceStorageReady().catch((cause) => cause);
+      expect(error).toMatchObject({
+        code: "reference_storage_contract_failed",
+        message: "Reference file storage status could not be verified",
+      });
+      expect(isPromptUploadNetworkError(error)).toBe(false);
+      expect(isPromptUploadAuthRequiredError(error)).toBe(false);
+      expect(isPromptUploadStorageStatusError(error)).toBe(true);
+    },
+  );
+
+  it("classifies a rejected status fetch as a network error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+
+    const error = await isReferenceStorageReady().catch((cause) => cause);
+    expect(error).toMatchObject({
+      code: "reference_storage_network_failed",
+      message: "Reference file storage status could not be verified",
+    });
+    expect(isPromptUploadNetworkError(error)).toBe(true);
+  });
+
   it("rejects more than 20 files before starting uploads", async () => {
     const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
     const files = Array.from(
       { length: 21 },
       (_, index) => new File(["x"], `reference-${index}.pdf`),
@@ -336,7 +511,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     await uploadPromptFiles([
       new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
@@ -350,6 +525,288 @@ describe("uploadPromptFiles", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("rejects malformed successful upload records and cleans their paths", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        return new Response(
+          JSON.stringify([{ path: "uploads/malformed.pdf" }]),
+          {
+            status: 200,
+          },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([new File(["pdf"], "reference.pdf")]),
+    ).rejects.toMatchObject({
+      code: "reference_storage_contract_failed",
+      message: "Reference file upload returned an invalid response",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads"),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ path: "uploads/malformed.pdf" }),
+      }),
+    );
+  });
+
+  it("cleans returned uploads when multipart response counts do not match", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input.toString().includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        return new Response(
+          JSON.stringify([
+            {
+              path: "uploads/first.pdf",
+              originalName: "first.pdf",
+              filename: "first.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([
+        new File(["one"], "first.pdf"),
+        new File(["two"], "second.pdf"),
+      ]),
+    ).rejects.toMatchObject({ code: "reference_storage_contract_failed" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads"),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ path: "uploads/first.pdf" }),
+      }),
+    );
+  });
+
+  it.each([
+    ["multipart upload", 401],
+    ["multipart upload", 403],
+    ["chunked upload start", 401],
+    ["chunked upload start", 403],
+    ["chunk upload", 401],
+    ["chunk upload", 403],
+  ])(
+    "classifies %s HTTP %i without exposing response details",
+    async (stage, status) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("/api/uploads/status")) {
+          return new Response(JSON.stringify({ referenceStorageReady: true }), {
+            status: 200,
+          });
+        }
+        if (
+          stage === "chunk upload" &&
+          url.includes("/api/uploads-chunked/start")
+        ) {
+          return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+            status: 200,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            error: "private storage credentials were rejected",
+          }),
+          { status },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const files =
+        stage === "multipart upload"
+          ? [new File(["pdf"], "reference.pdf")]
+          : [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.pptx")];
+
+      const error = await uploadPromptFiles(files).catch((cause) => cause);
+
+      expect(error).toMatchObject({
+        code: "reference_storage_auth_required",
+        message: "Reference file upload failed",
+      });
+      expect(error.message).not.toContain("private storage credentials");
+      expect(isPromptUploadAuthRequiredError(error)).toBe(true);
+    },
+  );
+
+  it("hides storage diagnostics from chunk upload failures", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private storage credentials leaked here" }),
+        { status: 503 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFiles([
+      new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.pptx"),
+    ]).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_http_failed",
+      message: "Reference file upload failed",
+    });
+    expect(error.message).not.toContain("private storage credentials");
+    expect(isPromptUploadStorageStatusError(error)).toBe(true);
+  });
+
+  it("classifies HTTP 413 without exposing the response body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private provider details" }),
+        {
+          status: 413,
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFilesImpl(
+      [promptFile],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_limit_exceeded",
+      message: "Reference file upload failed",
+      status: 413,
+      fileName: promptFile.name,
+    });
+    expect(error.message).not.toContain("private provider details");
+    expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
+  it("identifies the failed multipart file without exposing server details", async () => {
+    const files = [
+      new File(["good"], "good.txt", { type: "text/plain" }),
+      new File(["bad"], "bad.html", { type: "text/html" }),
+    ];
+    stubReadyStorageUpload(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "private storage provider credentials",
+            failedFileName: "bad.html",
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      files,
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_http_failed",
+      message: "Reference file upload failed",
+      status: 400,
+      fileName: "bad.html",
+    });
+    expect(error.message).not.toContain("private storage provider");
+    expect(formatPromptUploadFailure(error, "Upload failed")).toBe(
+      "bad.html: Upload failed",
+    );
+  });
+
+  it("preserves HTTP 413 from chunked upload start", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ error: "private provider details" }),
+        {
+          status: 413,
+        },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pdf");
+    const error = await uploadPromptFilesImpl(
+      [file],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({
+      code: "reference_storage_limit_exceeded",
+      message: "Reference file upload failed",
+      status: 413,
+    });
+    expect(isPromptUploadLimitError(error)).toBe(true);
+  });
+
+  it("blocks eager attachments when reference storage is unavailable", async () => {
+    const uploadFetch = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      if (input.toString().includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: false }), {
+          status: 200,
+        });
+      }
+      return uploadFetch(input);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/status"),
+      { credentials: "include" },
+    );
+    expect(uploadFetch).not.toHaveBeenCalled();
   });
 
   it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {
@@ -375,7 +832,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const uploads = await uploadPromptFiles([
       new File(["hosted"], "hosted.png", { type: "image/png" }),
@@ -390,29 +847,33 @@ describe("uploadPromptFiles", () => {
   });
 
   it("preserves selection order across multipart and chunked uploads", async () => {
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = input.toString();
-      if (url.includes("/api/uploads-chunked/start")) {
-        return new Response(JSON.stringify({ uploadMode: "multipart" }), {
-          status: 200,
-        });
-      }
-      const formData = init?.body as FormData;
-      const file = formData.get("files") as File;
-      return new Response(
-        JSON.stringify([
-          {
-            path: `uploads/${file.name}`,
-            originalName: file.name,
-            filename: file.name,
-            type: file.type,
-            size: file.size,
-          },
-        ]),
-        { status: 200 },
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (init?.method === "DELETE")
+          return new Response(null, { status: 204 });
+        if (url.includes("/api/uploads-chunked/start")) {
+          return new Response(JSON.stringify({ uploadMode: "multipart" }), {
+            status: 200,
+          });
+        }
+        const formData = init?.body as FormData;
+        const file = formData.get("files") as File;
+        return new Response(
+          JSON.stringify([
+            {
+              path: `uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    );
+    stubReadyStorageUpload(fetchMock);
     const large = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pptx");
     const small = new File(["pdf"], "small.pdf", {
       type: "application/pdf",
@@ -424,6 +885,24 @@ describe("uploadPromptFiles", () => {
       "large.pptx",
       "small.pdf",
     ]);
+  });
+
+  it("classifies chunked upload network failures without exposing transport details", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      throw new TypeError("Failed to fetch");
+    });
+    stubReadyStorageUpload(fetchMock);
+
+    await expect(
+      uploadPromptFiles([
+        new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pptx"),
+      ]),
+    ).rejects.toMatchObject({ code: "reference_upload_network_failed" });
   });
 
   it("keeps oversized hosted images URL-only", async () => {
@@ -442,7 +921,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const [upload] = await uploadPromptFiles([
       new File([new Uint8Array(750_000)], "large.png", {
@@ -474,7 +953,7 @@ describe("uploadPromptFiles", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    stubReadyStorageUpload(fetchMock);
 
     const uploads = await uploadPromptFiles(
       Array.from(
@@ -495,229 +974,390 @@ describe("uploadPromptFiles", () => {
   });
 });
 
-describe("PromptPopover import mode", () => {
-  afterEach(() => cleanup());
+describe.each(["popover", "inline"] as const)(
+  "PromptPopover %s presentation",
+  (presentation) => {
+    afterEach(() => cleanup());
 
-  function renderPopover(
-    onImport: React.ComponentProps<typeof PromptPopover>["onImport"],
-  ) {
-    return render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={vi.fn()}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-        onImport={onImport}
-        importFromLabel="Import from"
-        importingLabel="Importing..."
-      />,
-    );
-  }
+    function renderPopover(
+      onImport: React.ComponentProps<typeof PromptPopover>["onImport"],
+    ) {
+      return render(
+        <PromptPopover
+          presentation={presentation}
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onImport={onImport}
+          importFromLabel="Import from"
+          importingLabel="Importing..."
+        />,
+      );
+    }
 
-  it("takes over the popover with a Google Slides URL form", () => {
-    renderPopover(vi.fn());
+    it("takes over the popover with a Google Slides URL form", () => {
+      renderPopover(vi.fn());
 
-    expect(screen.getByText("Or import from")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+      expect(screen.getByText("Or import from")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Slides" }));
 
-    expect(
-      screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Back to prompt" })).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Prompt composer" }),
-    ).toBeNull();
-    expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
-  });
-
-  it("passes an uploaded PDF to the direct import callback", async () => {
-    const onImport = vi.fn().mockResolvedValue(true);
-    renderPopover(onImport);
-
-    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
-    expect(screen.getByRole("button", { name: "Upload PDF" })).toBeTruthy();
-
-    const file = new File(["pdf"], "reference.pdf", {
-      type: "application/pdf",
-    });
-    fireEvent.change(screen.getAllByLabelText("Import file")[0], {
-      target: { files: [file] },
+      expect(
+        screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Back to prompt" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: "Prompt composer" }),
+      ).toBeNull();
+      expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
     });
 
-    await waitFor(() => {
-      expect(onImport).toHaveBeenCalledWith({ kind: "pdf", files: [file] });
-    });
-  });
+    it("passes an uploaded PDF to the direct import callback", async () => {
+      const onImport = vi.fn().mockResolvedValue(true);
+      renderPopover(onImport);
 
-  it("shows the importing state while a direct import is pending", async () => {
-    let resolveImport!: (value: boolean) => void;
-    const onImport = vi.fn(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolveImport = resolve;
-        }),
-    );
-    renderPopover(onImport);
+      fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+      expect(screen.getByRole("button", { name: "Upload PDF" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
-      { target: { value: "https://docs.google.com/presentation/d/example" } },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+      const file = new File(["pdf"], "reference.pdf", {
+        type: "application/pdf",
+      });
+      fireEvent.change(screen.getAllByLabelText("Import file")[0], {
+        target: { files: [file] },
+      });
 
-    expect(screen.getByRole("status").textContent).toContain("Importing...");
-    expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
-
-    resolveImport(true);
-    await waitFor(() => {
-      expect(onImport).toHaveBeenCalledWith({
-        kind: "google-slides",
-        url: "https://docs.google.com/presentation/d/example",
+      await waitFor(() => {
+        expect(onImport).toHaveBeenCalledWith({ kind: "pdf", files: [file] });
       });
     });
-  });
 
-  it("shows a busy state while prompt attachments are uploading", async () => {
-    let resolveUpload!: (response: Response) => void;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveUpload = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const onSubmit = vi.fn();
+    it("shows the importing state while a direct import is pending", async () => {
+      let resolveImport!: (value: boolean) => void;
+      const onImport = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveImport = resolve;
+          }),
+      );
+      renderPopover(onImport);
 
-    render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-      />,
-    );
+      fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: "Paste a Google Slides link" }),
+        { target: { value: "https://docs.google.com/presentation/d/example" } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
-    const composer = screen.getByRole("button", { name: "Prompt composer" });
-    fireEvent.click(composer);
+      expect(screen.getByRole("status").textContent).toContain("Importing...");
+      expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
 
-    expect(screen.getByRole("status").textContent).toContain("Uploading...");
-    expect((composer as HTMLButtonElement).disabled).toBe(true);
+      resolveImport(true);
+      await waitFor(() => {
+        expect(onImport).toHaveBeenCalledWith({
+          kind: "google-slides",
+          url: "https://docs.google.com/presentation/d/example",
+        });
+      });
+    });
 
-    resolveUpload(
-      new Response(
-        JSON.stringify([
+    it("shows a busy state while prompt attachments are uploading", async () => {
+      let resolveUpload!: (response: Response) => void;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      stubReadyStorageUpload(fetchMock);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+
+      const composer = screen.getByRole("button", { name: "Prompt composer" });
+      fireEvent.click(composer);
+
+      expect(screen.getByRole("status").textContent).toContain("Uploading...");
+      expect((composer as HTMLButtonElement).disabled).toBe(true);
+      await waitFor(() => expect(resolveUpload).toBeTypeOf("function"));
+
+      resolveUpload(
+        new Response(
+          JSON.stringify([
+            {
+              path: "uploads/large.pdf",
+              originalName: "large.pdf",
+              filename: "large.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalledWith(
+          "  make a deck  \n",
+          [expect.objectContaining({ originalName: "large.pdf" })],
+          expect.objectContaining({
+            commit: expect.any(Function),
+            discard: expect.any(Function),
+            attachments: [],
+          }),
           {
-            path: "uploads/large.pdf",
-            originalName: "large.pdf",
-            filename: "large.pdf",
-            type: "application/pdf",
-            size: 3,
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
           },
-        ]),
-        { status: 200 },
-      ),
-    );
-    await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith(
-        "  make a deck  \n",
-        [expect.objectContaining({ originalName: "large.pdf" })],
-        expect.objectContaining({
-          commit: expect.any(Function),
-          discard: expect.any(Function),
-          attachments: [],
-        }),
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
-      );
+        );
+      });
+      expect(screen.queryByRole("status")).toBeNull();
     });
-    expect(screen.queryByRole("status")).toBeNull();
+
+    it("hands off signed-out prompts before uploading files", async () => {
+      const fetchMock = vi.fn();
+      stubReadyStorageUpload(fetchMock);
+      const onBeforeUpload = vi.fn(() => false);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onBeforeUpload={onBeforeUpload}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+
+      await waitFor(() => {
+        expect(onBeforeUpload).toHaveBeenCalledWith(
+          "  make a deck  \n",
+          [expect.objectContaining({ name: "large.pdf" })],
+          undefined,
+          [],
+          {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+          },
+        );
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("hands off the selected model when an attachment triggers sign-in", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const onBeforeUpload = vi.fn(() => false);
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={vi.fn()}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+          onBeforeUpload={onBeforeUpload}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+
+      await waitFor(() => {
+        expect(onBeforeUpload).toHaveBeenCalledWith(
+          "",
+          [expect.objectContaining({ name: "large.pdf" })],
+          undefined,
+          undefined,
+          {
+            model: "gpt-5.6-terra",
+            engine: "builder",
+            effort: "high",
+          },
+        );
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              path: "uploads/large.pdf",
+              originalName: "large.pdf",
+              filename: "large.pdf",
+              type: "application/pdf",
+              size: 3,
+            },
+          ]),
+          { status: 200 },
+        ),
+      );
+      stubReadyStorageUpload(fetchMock);
+      const onSubmit = vi.fn();
+
+      render(
+        <PromptPopover
+          open
+          centered
+          onOpenChange={vi.fn()}
+          title="New presentation"
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+
+      fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+  },
+);
+
+describe("inline prompt starters", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
-  it("hands off signed-out prompts before uploading files", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const onBeforeUpload = vi.fn(() => false);
-    const onSubmit = vi.fn();
-
-    render(
-      <PromptPopover
-        open
-        centered
-        onOpenChange={vi.fn()}
-        title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
-        onBeforeUpload={onBeforeUpload}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
-
-    await waitFor(() => {
-      expect(onBeforeUpload).toHaveBeenCalledWith(
-        "  make a deck  \n",
-        [expect.objectContaining({ name: "large.pdf" })],
-        undefined,
-        [],
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
+  it.each([false, true])(
+    "uses the standard context menu without a custom attach control (context: %s)",
+    (hasContext) => {
+      const entries = [{ id: "design", label: "Design", children: [] }];
+      const context = hasContext
+        ? ({
+            props: { contextItems: [], contextMenuItems: entries },
+            beforeSend: vi.fn(),
+            dialogs: null,
+          } as unknown as ReturnType<typeof useSlidesComposerContext>)
+        : undefined;
+      render(
+        <PromptPopover
+          open
+          presentation="inline"
+          title="New presentation"
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          context={context}
+        />,
       );
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
+      expect(promptComposerProps.mock.lastCall![0].contextMenuItems).toEqual(
+        hasContext ? entries : [],
+      );
+      expect(
+        promptComposerProps.mock.lastCall![0].attachButton,
+      ).toBeUndefined();
+      expect(
+        promptComposerProps.mock.lastCall![0].attachmentAdapter?.accept,
+      ).toBe(SLIDES_REFERENCE_FILE_ACCEPT);
+    },
+  );
 
-  it("hands off the selected model when an attachment triggers sign-in", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const onBeforeUpload = vi.fn(() => false);
+  it.each(["inline", "popover"] as const)(
+    "does not expose Skip prompt in the %s presentation",
+    (presentation) => {
+      render(
+        <PromptPopover
+          presentation={presentation}
+          open
+          title="New presentation"
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onImport={vi.fn()}
+          importFromLabel="Import from"
+          onSkip={vi.fn()}
+          skipLabel="Skip prompt"
+        />,
+      );
+      expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
+    },
+  );
 
+  it("forwards submission-only provider gating without disabling staging or imports, and never offers Skip", async () => {
+    const onImport = vi.fn().mockResolvedValue(false);
+    const onSkip = vi.fn();
     render(
       <PromptPopover
+        presentation="inline"
         open
-        centered
-        onOpenChange={vi.fn()}
         title="New presentation"
+        onOpenChange={vi.fn()}
         onSubmit={vi.fn()}
-        onSkip={vi.fn()}
+        submissionDisabled
+        showModelSelector={false}
+        modelStatusChecksEnabled={false}
+        onImport={onImport}
+        importFromLabel="Import from"
+        onSkip={onSkip}
         skipLabel="Skip prompt"
-        onBeforeUpload={onBeforeUpload}
       />,
     );
-
-    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
-
-    await waitFor(() => {
-      expect(onBeforeUpload).toHaveBeenCalledWith(
-        "",
-        [expect.objectContaining({ name: "large.pdf" })],
-        undefined,
-        undefined,
-        {
-          model: "gpt-5.6-terra",
-          engine: "builder",
-          effort: "high",
-        },
-      );
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: false,
+        submissionDisabled: true,
+        showModelSelector: false,
+        modelStatusChecksEnabled: false,
+      }),
+    );
+    expect(
+      (screen.getByTestId("prompt-composer") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("prompt-composer-attach") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    for (const name of ["PDF", "Slides", "PPT"]) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    }
+    expect(screen.queryByRole("button", { name: "Skip prompt" })).toBeNull();
+    expect(onSkip).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    fireEvent.change(screen.getAllByLabelText("Import file")[0], {
+      target: { files: [promptFile] },
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(onImport).toHaveBeenCalledWith({
+        kind: "pdf",
+        files: [promptFile],
+      }),
+    );
   });
 
-  it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {
+  it("stages an attachment before connection while blocking imperative quick-start submission", async () => {
+    const onSubmit = vi.fn();
+    const controllerRef = createRef<PromptPopoverHandle>();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
@@ -732,27 +1372,272 @@ describe("PromptPopover import mode", () => {
         { status: 200 },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
-    const onSubmit = vi.fn();
+    stubReadyStorageUpload(fetchMock);
+    render(
+      <PromptPopover
+        presentation="inline"
+        open
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        submissionDisabled
+        controllerRef={controllerRef}
+        showModelSelector={false}
+        modelStatusChecksEnabled={false}
+      />,
+    );
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource("Create a presentation", []),
+      ).toBe(false),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("prompt-composer-attach"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ disabled: false, submissionDisabled: true }),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
 
+  it("leaves the editor's provider defaults unchanged", () => {
     render(
       <PromptPopover
         open
         centered
-        onOpenChange={vi.fn()}
         title="New presentation"
-        onSubmit={onSubmit}
-        onSkip={vi.fn()}
-        skipLabel="Skip prompt"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
       />,
     );
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: false,
+        showModelSelector: undefined,
+        modelStatusChecksEnabled: undefined,
+      }),
+    );
+  });
 
+  it("seeds and focuses in place without submitting or closing on outside interaction", () => {
+    const onSubmit = vi.fn();
+    const onOpenChange = vi.fn();
+    const props = {
+      open: true,
+      presentation: "inline" as const,
+      title: "New presentation",
+      onSubmit,
+      onOpenChange,
+      draftScope: "slides-new-deck",
+    };
+    const { container, rerender } = render(<PromptPopover {...props} />);
+    expect(container.querySelector('[role="group"]')).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const originalInput = screen.getByRole("textbox", { name: "Prompt" });
+
+    rerender(
+      <PromptPopover
+        {...props}
+        initialText="Create a pitch deck about "
+        initialTextKey={1}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toBe(originalInput);
+    expect((originalInput as HTMLTextAreaElement).value).toBe(
+      "Create a pitch deck about ",
+    );
+    expect(document.activeElement).toBe(originalInput);
+    fireEvent.mouseDown(document.body);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("retains the upload and model selection across a starter and reference-step return", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.pdf",
+            originalName: "large.pdf",
+            filename: "large.pdf",
+            type: "application/pdf",
+            size: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+    stubReadyStorageUpload(fetchMock);
+    const onSubmit = vi.fn().mockReturnValue("retain");
+    const props = {
+      presentation: "inline" as const,
+      title: "New presentation",
+      onSubmit,
+      onOpenChange: vi.fn(),
+      draftScope: "slides-new-deck",
+    };
+    const { rerender } = render(<PromptPopover {...props} open />);
     fireEvent.click(screen.getByTestId("prompt-composer-attach"));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
-
-    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("prompt-composer") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    rerender(
+      <PromptPopover
+        {...props}
+        open
+        initialText="Create an update"
+        initialTextKey={1}
+      />,
+    );
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("prompt-composer"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    rerender(<PromptPopover {...props} open={false} />);
+    rerender(
+      <PromptPopover
+        {...props}
+        open
+        initialText="Create an update"
+        initialTextKey={2}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("prompt-composer"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[1][3]).toEqual({
+      model: "gpt-5.6-terra",
+      engine: "builder",
+      effort: "high",
+    });
+  });
+
+  it("submits a structured source through the real controller with current text, files, model and context", async () => {
+    const sourceFile = new File(["source"], "source.pdf", {
+      type: "application/pdf",
+    });
+    stubReadyStorageUpload(
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify(
+            [promptFile, sourceFile].map((file) => ({
+              path: `uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+          ),
+          { status: 200 },
+        ),
+      ),
+    );
+    const items = [
+      {
+        key: "slides:deck:",
+        title: "Deck",
+        context: "Measured typography",
+        status: "ready" as const,
+      },
+    ];
+    const selection = {
+      designSystemId: null,
+      references: [{ source: "slides" as const, id: "deck", title: "Deck" }],
+    };
+    const beforeSend = vi
+      .fn()
+      .mockResolvedValue({ selection, items, text: "Reference context" });
+    const context = {
+      props: { contextItems: items },
+      beforeSend,
+      dialogs: null,
+    } as unknown as ReturnType<typeof useSlidesComposerContext>;
+    const controllerRef = createRef<PromptPopoverHandle>();
+    const onSubmit = vi.fn().mockReturnValue("retain");
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        context={context}
+        controllerRef={controllerRef}
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Prompt" }), {
+      target: { value: "Keep our existing brand and audience" },
+    });
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource(
+          "Summarize the PDF",
+          [sourceFile],
+          "Hidden source data",
+        ),
+      ).toBe(true),
+    );
+    expect(beforeSend).toHaveBeenCalledWith(items);
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Keep our existing brand and audience\n\nSummarize the PDF",
+      expect.arrayContaining([
+        expect.objectContaining({ originalName: "large.pdf" }),
+        expect.objectContaining({ originalName: "source.pdf" }),
+      ]),
+      expect.objectContaining({
+        context: "Hidden source data",
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ name: "source.pdf" }),
+        ]),
+      }),
+      expect.objectContaining({
+        model: "gpt-5.6-terra",
+        engine: "builder",
+        effort: "high",
+        contextItems: items,
+        slidesContext: selection,
+      }),
+    );
+    expect(onSubmit.mock.calls[0][0]).not.toContain("Hidden source data");
+  });
+
+  it("does not upload or submit when context revalidation fails", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onSubmit = vi.fn(),
+      controllerRef = createRef<PromptPopoverHandle>();
+    const context = {
+      props: { contextItems: [] },
+      beforeSend: vi
+        .fn()
+        .mockRejectedValue(new Error("Reference access revoked")),
+      dialogs: null,
+    } as unknown as ReturnType<typeof useSlidesComposerContext>;
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        context={context}
+        controllerRef={controllerRef}
+      />,
+    );
+    await act(async () =>
+      expect(
+        await controllerRef.current!.submitSource(
+          "Make a presentation",
+          [],
+          "Private notes",
+        ),
+      ).toBe(false),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

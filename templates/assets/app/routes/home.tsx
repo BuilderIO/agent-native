@@ -14,10 +14,6 @@ import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useImageModelMenu } from "@/hooks/use-image-model-menu";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
-// Empty-state starters. Clicking one prefills the composer (without sending) so
-// the user can finish the thought instead of staring at a chip that does
-// nothing. `submit: false` = prefill only; `openSidebar: false` keeps focus on
-// the page-level Create surface.
 const CHAT_STARTERS = [
   {
     key: "image",

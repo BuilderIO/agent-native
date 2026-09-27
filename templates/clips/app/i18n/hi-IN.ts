@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
+  },
   timelineTrack: {
     helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
     helpOtherSideTerm: "इसके बजाय दाईं ओर वाले हिस्से से फ़ुटेज हटाएँ",
@@ -415,10 +422,9 @@ const messages = {
     agentEmptyTitle: "बातचीत में शामिल हों",
     agentEmptyDescription:
       "इस क्लिप पर टिप्पणी करने, प्रतिक्रिया देने और सवाल पूछने के लिए मुफ़्त Clips खाता बनाएं।",
-    commentSignupTitle: "अपने AI एजेंट को पूरी जानकारी दें",
-    commentSignupContext: "ट्रांसक्रिप्ट और टाइमस्टैम्प वाले फ़्रेम एक ही लिंक में साझा करें",
-    commentSignupFeedback: "रिकॉर्ड किए गए फ़ीडबैक को स्पष्ट अगले कदमों में बदलें",
-    commentSignupDebug: "कंसोल की त्रुटियाँ और विफल अनुरोध कैप्चर करें",
+    commentSignupTitle: "आपका AI एजेंट जिन स्क्रीन रिकॉर्डिंग को देख और सुन सकता है",
+    commentSignupDescription:
+      "Clips एक मुफ़्त और ओपन-सोर्स स्क्रीन रिकॉर्डर है, जिससे आप AI एजेंटों के साथ बग, फ़ीडबैक और चरण-दर-चरण निर्देश साझा कर सकते हैं।",
     agentEmptySignInPrompt: "क्या आपके पास पहले से खाता है?",
     signUp: "साइन अप करें",
     ownerInsights: "स्वामी इनसाइट्स",
@@ -807,6 +813,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
     whatsNew: "नया क्या है",
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
+    changelogCommentSignup:
+      "खाली टिप्पणियों वाला साइडबार Clips आज़माने की वजह संक्षेप में बताता है और साइन अप करने का स्पष्ट रास्ता देता है।",
+    changelogCommentsEmptyState:
+      "टिप्पणियाँ न होने पर अब बताया जाता है कि स्क्रीन रिकॉर्डिंग AI एजेंटों की कैसे मदद करती हैं।",
+    changelogShareLink:
+      "साइन इन किए हुए दर्शक अनुपलब्ध, समाप्त या निजी शेयर लिंक पर “होम जाएं” चुनने पर अब सार्वजनिक मार्केटिंग पेज के बजाय अपनी लाइब्रेरी पर पहुंचेंगे।",
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",
@@ -1395,11 +1407,22 @@ const messages = {
     disconnected: "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io नहीं खुल सका। अगर यह ऐप किसी चैट में एम्बेड है, तो इसे ब्राउज़र टैब में खोलें; अन्यथा इस साइट के लिए पॉप-अप की अनुमति दें और फिर कोशिश करें।",
+    builderConnectError:
+      "Builder.io से कनेक्ट नहीं हो सका। फिर से कोशिश करें या सहायता टीम से संपर्क करें।",
+    checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
     builderTimeout:
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     connectBuilder: "Builder.io इस्तेमाल करें",
+    createBuilderAccount: "Builder.io खाता बनाएँ",
+    signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
+    builderConsentPrefix: "Builder.io खाता बनाकर, आप हमारी",
+    builderTerms: "सेवा की शर्तों",
+    builderConsentAnd: "और",
+    builderPrivacy: "गोपनीयता नीति",
     free: "मुफ्त",
     configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",

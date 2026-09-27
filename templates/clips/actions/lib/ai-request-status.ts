@@ -68,7 +68,6 @@ export async function queueAiRequest({
   try {
     await writeAppState("refresh-signal", { ts: Date.now() });
   } catch (error) {
-    // The durable request is already queued; a refresh signal is only a UI hint.
     console.warn("[clips] failed to publish AI request refresh signal", {
       recordingId,
       kind,

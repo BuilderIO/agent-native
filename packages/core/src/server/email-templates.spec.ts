@@ -25,8 +25,6 @@ describe("renderVerifySignupEmail", () => {
       verifyUrl: "https://example.com/verify?token=abc",
     });
 
-    // No slug means sendEmail keeps the deployment's configured sender rather
-    // than branding a third-party app onto the first-party domain.
     expect(rendered.appSender).toBeUndefined();
   });
 

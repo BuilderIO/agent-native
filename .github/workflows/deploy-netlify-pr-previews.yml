@@ -30,8 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # pull_request_target may run for a branch that predates this helper.
-          # Load the discovery code from the trusted workflow base instead.
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
           filter: blob:none
@@ -65,6 +63,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -90,6 +89,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -124,6 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - name: Find the trusted PR preview deploy record
@@ -257,13 +258,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
-          # cleanup-netlify-pr-previews.ts calls previewEligibleSiteNames(),
-          # which (via buildableSites/withDocsSite) calls
-          # resolveNetlifyPrebuiltTarget() for every preview site, and that
-          # throws unless templates/<site>/package.json and
-          # templates/<site>/netlify.toml (or packages/docs/'s for the docs
-          # site) exist on disk — so those manifests must be checked out too,
-          # not just the scripts.
           sparse-checkout: |
             scripts/cleanup-netlify-pr-previews.ts
             scripts/netlify-api-request.ts

@@ -118,7 +118,6 @@ export const InlineReplyComposer = forwardRef<
     },
   }));
 
-  // Auto-focus editor and scroll into view on mount
   useEffect(() => {
     setTimeout(() => {
       editorRef.current?.getEditor()?.commands.focus();
@@ -133,7 +132,6 @@ export const InlineReplyComposer = forwardRef<
     if (draft.cc?.trim() || draft.bcc?.trim()) setShowCcBcc(true);
   }, [draft.cc, draft.bcc]);
 
-  // Resolve recipient display names from thread messages
   const recipientDisplay = useMemo(() => {
     const emails = draft.to
       .split(",")
@@ -142,7 +140,6 @@ export const InlineReplyComposer = forwardRef<
     return emails
       .map((email) => {
         const lower = email.toLowerCase();
-        // Check senders
         const senderMsg = messages.find(
           (m) => m.from.email.toLowerCase() === lower,
         );
@@ -151,7 +148,6 @@ export const InlineReplyComposer = forwardRef<
           senderMsg.from.name !== senderMsg.from.email
         )
           return senderMsg.from.name;
-        // Check recipients
         for (const m of messages) {
           const r = [...m.to, ...(m.cc || [])].find(
             (r) => r.email.toLowerCase() === lower,
@@ -163,7 +159,6 @@ export const InlineReplyComposer = forwardRef<
       .join(", ");
   }, [draft.to, messages]);
 
-  // Split quoted content
   const [editableContent, quotedContent] = useMemo(
     () => splitQuotedContent(draft.body),
     [draft.body],
@@ -203,7 +198,6 @@ export const InlineReplyComposer = forwardRef<
 
     onDiscard(draft.id);
 
-    // Show optimistic reply in the thread immediately
     const undoOptimistic = addOptimisticReply({
       to: expandAliasTokens(draftSnapshot.to, aliases),
       cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
@@ -463,9 +457,6 @@ export const InlineReplyComposer = forwardRef<
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length === 0) return;
-    // All-image drops landing inside the editor are left alone here so
-    // ComposeEditor's own handleDrop (bubble phase) can insert them inline;
-    // everything else (non-image or mixed drops) still goes to attachments.
     const target = e.target as HTMLElement;
     const droppedOnEditor = target.closest(".compose-editor") != null;
     if (

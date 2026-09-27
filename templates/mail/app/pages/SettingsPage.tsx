@@ -97,8 +97,6 @@ import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
 
-// ─── Alias Edit Row ───────────────────────────────────────────────────────────
-
 function AliasEditRow({
   alias,
   onSave,
@@ -165,8 +163,6 @@ function AliasEditRow({
     </div>
   );
 }
-
-// ─── Alias Row ────────────────────────────────────────────────────────────────
 
 function AliasRow({
   alias,
@@ -306,8 +302,6 @@ function AliasRow({
   );
 }
 
-// ─── Aliases Section ──────────────────────────────────────────────────────────
-
 function AliasesSection() {
   const t = useT();
   const { data: aliases = [], isLoading } = useAliases();
@@ -316,14 +310,12 @@ function AliasesSection() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
 
-  // Handle ?alias=<id> query param — open that alias in edit mode
   const aliasParam = searchParams.get("alias");
   useEffect(() => {
     if (aliasParam && aliases.length > 0) {
       const exists = aliases.find((a) => a.id === aliasParam);
       if (exists) {
         setEditingId(aliasParam);
-        // Clear the param so it doesn't re-trigger on every render
         setSearchParams((prev) => {
           const next = new URLSearchParams(prev);
           next.delete("alias");
@@ -421,8 +413,6 @@ function AliasesSection() {
   );
 }
 
-// ─── Action Badge ─────────────────────────────────────────────────────────────
-
 function ActionBadge({ action }: { action: AutomationAction }) {
   const label =
     action.type === "label" ? `label: ${action.labelName}` : action.type;
@@ -432,8 +422,6 @@ function ActionBadge({ action }: { action: AutomationAction }) {
     </span>
   );
 }
-
-// ─── Action Builder ───────────────────────────────────────────────────────────
 
 const ACTION_TYPES = [
   { value: "label", labelKey: "settings.applyLabel" },
@@ -521,8 +509,6 @@ function ActionBuilder({
   );
 }
 
-// ─── Automation Edit Row ──────────────────────────────────────────────────────
-
 function AutomationEditRow({
   rule,
   onSave,
@@ -547,7 +533,6 @@ function AutomationEditRow({
 
   const handleSave = () => {
     if (!name.trim() || !condition.trim() || actions.length === 0) return;
-    // Validate label actions have names
     const valid = actions.every(
       (a) => a.type !== "label" || (a.type === "label" && a.labelName.trim()),
     );
@@ -608,8 +593,6 @@ function AutomationEditRow({
     </div>
   );
 }
-
-// ─── Automation Row ───────────────────────────────────────────────────────────
 
 function AutomationRow({
   rule,
@@ -734,8 +717,6 @@ function AutomationRow({
     </div>
   );
 }
-
-// ─── Framework Triggers Subsection ──────────────────────────────────────────
 
 interface FrameworkTrigger {
   id: string;
@@ -872,8 +853,6 @@ function TriggersSubsection() {
   );
 }
 
-// ─── Automations Section ─────────────────────────────────────────────────────
-
 type AutomationSettings = {
   engine?: string;
   model?: string;
@@ -905,8 +884,6 @@ function AutomationsSection() {
     );
   }, [availableModels]);
 
-  // Refetch on any settings write or agent action so agent-driven changes
-  // (e.g. update-automation-settings) show up without a manual refresh.
   const settingsSync = useChangeVersions(["settings", "action"]);
   const { data: autoSettings } = useQuery<AutomationSettings>({
     queryKey: ["automation-settings", settingsSync],
@@ -1134,8 +1111,6 @@ function AutomationsSection() {
     </div>
   );
 }
-
-// ─── Drafting Section ────────────────────────────────────────────────────────
 
 function DraftingSection() {
   const t = useT();
@@ -1480,8 +1455,6 @@ function TrackingSection() {
   );
 }
 
-// ─── Slack Intake Section ───────────────────────────────────────────────────
-
 type SlackStatus = {
   enabled: boolean;
   configured: boolean;
@@ -1598,8 +1571,6 @@ function SlackIntakeSection() {
   );
 }
 
-// ─── What's New Section ──────────────────────────────────────────────────────
-
 function GeneralSection() {
   const t = useT();
   return (
@@ -1648,8 +1619,6 @@ function WhatsNewSection() {
     </div>
   );
 }
-
-// ─── Settings Page ────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
   const t = useT();
@@ -1748,9 +1717,6 @@ export function SettingsPage() {
     return ids;
   }, [extraTabs]);
 
-  // Deep links arrive as /settings?section=<id> (e.g. from the agent's
-  // navigate action). Adopt that section, then strip the param so later tab
-  // switches aren't overridden by a stale query value.
   useEffect(() => {
     const section = searchParams.get("section");
     if (!section || !validSectionIds.has(section)) return;
@@ -1765,7 +1731,6 @@ export function SettingsPage() {
     );
   }, [searchParams, setSearchParams, validSectionIds]);
 
-  // Keep app state aware of the visible settings section for the agent.
   useEffect(() => {
     navState.sync({ view: "settings", settingsSection: activeSection });
   }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps

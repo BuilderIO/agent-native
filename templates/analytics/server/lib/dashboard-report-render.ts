@@ -70,17 +70,11 @@ export type RenderedReportEmail = {
     contentId: string;
     disposition: "inline";
   }>;
-  /** Panel ids that could not be rendered from real data. Empty === complete. */
   degradedPanelIds: string[];
 };
 
 type ReportAttachment = RenderedReportEmail["attachments"][number];
 
-/**
- * Sits one layer above the panel source's own query timeout so the source's
- * more specific error surfaces first. The heaviest first-party panels on a real
- * dashboard need well over 20s.
- */
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
 const MAX_CHART_POINTS = 400;
@@ -89,17 +83,6 @@ const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
 const MAX_TOTAL_ATTACHMENT_BYTES = 14 * 1024 * 1024;
 
-/**
- * resvg resolves no CSS custom properties, so email charts cannot reuse the
- * dashboard's `var(--brand-*)` palette.
- */
-/**
- * Mirrors `DEFAULT_COLORS` in `app/components/dashboard/SqlChart.tsx`, including
- * its length — series colors are assigned `index % length`, so a different
- * length would recolor every series past the first cycle relative to the live
- * dashboard. The first two entries resolve `var(--brand-blue)` / `--brand-teal`
- * to hex because resvg cannot read CSS custom properties.
- */
 const CHART_COLORS = [
   "#0284c7",
   "#0d9488",
@@ -541,7 +524,6 @@ function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
     : match[1] || value;
 }
 
-/** Legacy saved dashboards still carry `stacked-bar` / `stacked-area`. */
 const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
   line: "line",
@@ -552,12 +534,6 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   "stacked-area": "area",
 };
 
-/**
- * The dashboard pivots before it picks a renderer, so tables, metrics, and
- * heatmaps see wide-form rows too. `fillDateGaps` must stay off for bar charts
- * (on the stored chart type, not the normalized one) because a filled day is a
- * fabricated zero bar, not a measurement.
- */
 function pivotPanelRows(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
@@ -615,10 +591,6 @@ function buildChartInput(
 async function rasterizeChartPng(svg: string, width: number): Promise<Buffer> {
   const { Resvg } = await import("@resvg/resvg-js");
   const fontFiles = resolveOgFontFiles();
-  // The fonts are embedded in core and only fail to materialize if tmpdir is
-  // unwritable. Falling back to system fonts would render every label blank on
-  // a Linux serverless runtime and still produce a valid-looking PNG, so refuse
-  // instead — the caller turns this into a visible degraded panel.
   if (!fontFiles?.length) {
     throw new Error(
       "Chart fonts are unavailable (could not materialize the bundled font files), so chart text would render blank",
@@ -989,16 +961,11 @@ async function renderChartBlock(args: {
   }
   const subtitle = subtitleParts.join(" · ");
 
-  // The card heading directly above already names the panel; repeating it here
-  // would read twice in a client that blocks images.
   const alt = `${chartType} chart of ${input.series
     .map((series) => series.label)
     .join(", ")}`;
 
   try {
-    // Title and description stay in the surrounding HTML card: text there is
-    // selectable, wraps instead of truncating, and cannot be duplicated by the
-    // image beneath it.
     const svg = renderReportChartSvg({
       labels: input.labels,
       series: input.series,

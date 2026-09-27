@@ -20,11 +20,6 @@ export function shouldShowPaginationRetry({
   return hasNextPage && isFetchNextPageError && !isFetchingNextPage;
 }
 
-/**
- * Run an explicit pagination retry without leaking a rejected provider promise
- * to the browser. The shared state closes the synchronous double-click window
- * before React Query has reflected isFetchingNextPage.
- */
 export async function retryNextPage(
   fetchNextPage: () => Promise<unknown>,
   inFlightState: { current: boolean },
@@ -41,15 +36,6 @@ export async function retryNextPage(
   }
 }
 
-/**
- * Observe a visible infinite-scroll sentinel for one page at a time.
- *
- * The owning effect re-runs when `isFetchingNextPage` changes. That lets the
- * next observer receive the sentinel's already-visible state after a fetch,
- * including when several consecutive pages contain no filtered matches. A
- * failed page is deliberately left unobserved until the user explicitly
- * retries it, so a persistent provider error cannot create a request loop.
- */
 export function observeNextPage({
   element,
   hasNextPage,

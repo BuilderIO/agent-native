@@ -1388,11 +1388,6 @@ export async function deleteLocalWorkspaceResource(
   return deleted;
 }
 
-/**
- * Delete one captured local workspace artifact only if it still has the
- * expected content. Unlike the path-based delete, this never expands skill
- * aliases: callers may only remove the physical file they read.
- */
 export async function deleteLocalWorkspaceResourceIfCurrent(
   options: DeleteLocalWorkspaceResourceIfCurrentOptions,
 ): Promise<boolean> {

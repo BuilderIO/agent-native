@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const hiIN = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
+  },
   language: {
     label: "भाषा",
     system: "सिस्टम",
@@ -738,7 +745,6 @@ const hiIN = {
         answer5:
           "हाँ। व्यूअर, एडिटर, या एडमिन एक्सेस के साथ टीममेट्स या अपने ऑर्गनाइज़ेशन के साथ डैशबोर्ड शेयर करें। आप मौजूदा डैशबोर्ड नतीजों के साथ ईमेल रिपोर्ट्स भी शेड्यूल कर सकते हैं, या ट्रैक करने के लिए कंडीशंस के लिए अलर्ट कॉन्फ़िगर कर सकते हैं।",
       },
-      // V3 लैंडिंग पेज कॉपी (2026-09-14) — नीचे hero से final CTA तक।
       heroEyebrow: "Analytics",
       heroTitle: "प्रश्न पूछें। चार्ट, क्वेरी और संदर्भ प्राप्त करें।",
       heroDescription:
@@ -985,7 +991,6 @@ const hiIN = {
       },
       s001: "Assets टेम्पलेट स्क्रीनशॉट",
       imageCredits: "चित्रों का श्रेय",
-      // V3 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Assets",
       heroTitle: "बातचीत में ऑन-ब्रांड छवियां बनाएं",
       heroDescription:
@@ -1047,7 +1052,6 @@ const hiIN = {
           "हाँ। CLI से एक कॉपी बनाएँ, अपने actions, data और interface जोड़ें, फिर अपनी application deploy करें। अपने environment के लिए authentication और provider access configure करें, और users के साथ शेयर करने से पहले जोड़े गए workflows को टेस्ट करें।",
       },
       s001: "Chat app का स्क्रीनशॉट",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "अपना खुद का AI chat app बनाएँ",
       heroDescription:
@@ -1091,7 +1095,6 @@ const hiIN = {
     },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "स्क्रीन रेकॉर्डिंग्स जिन्हें आपका AI एजेंट देख और सुन सकता है",
       heroDescription:
@@ -1257,7 +1260,6 @@ const hiIN = {
           "हाँ। नए डॉक्यूमेंट्स डिफ़ॉल्ट रूप से प्राइवेट होते हैं। इन्हें व्यूअर, एडिटर या एडमिन एक्सेस के साथ शेयर करें, और पुराना स्नैपशॉट रीस्टोर करने के लिए पेज वर्शन हिस्ट्री का इस्तेमाल करें। स्नैपशॉट रीस्टोर करने से पेज का मौजूदा कॉन्टेंट बदल जाता है।",
       },
       s001: "Content टेम्पलेट स्क्रीनशॉट",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "अपने AI एजेंट के साथ अपना काम बनाएं और व्यवस्थित करें",
       heroDescription:
@@ -1381,7 +1383,6 @@ const hiIN = {
           "design files का HTML या ZIP export करें, या किसी coding एजेंट के लिए handoff तैयार करें। Prototype development के लिए एक शुरुआती पॉइंट देता है; application logic, integrations, testing और deployment के लिए अभी भी implementation और review की ज़रूरत है। HTML exports बाहरी runtime resources इस्तेमाल कर सकते हैं।",
       },
       s001: "Design टेम्पलेट स्क्रीनशॉट",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "अपने AI एजेंट से इंटरैक्टिव prototypes design करें",
       heroDescription:
@@ -1503,7 +1504,6 @@ const hiIN = {
           "नहीं। एक team workspace में, Dispatch shared resources और settings में अपने खुद के बदलावों की review ज़रूरी बना सकता है। Connected apps के अंदर की actions, जैसे email भेजना, उन apps के अपने controls को follow करती हैं। Dispatch की approval queue हर agent action के लिए एक universal gate नहीं है।",
       },
       s001: "Dispatch टेम्पलेट स्क्रीनशॉट",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "अपने AI agents को एक जगह से coordinate करें",
       heroDescription:
@@ -1739,21 +1739,21 @@ const hiIN = {
           "हाँ। कोई teammate एक draft का अनुरोध कर सकता है जो आपकी review queue में दिखाई देता है। उसे खोलें, message edit करें, और तैयार होने पर उसे भेज दें। अनुरोध करने वाला व्यक्ति आपकी ओर से उसे नहीं भेज सकता; draft का owner या कोई organization admin ही sending को नियंत्रित करता है।",
       },
       s001: "Mail टेम्पलेट स्क्रीनशॉट",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "अपने AI एजेंट से अपना inbox मैनेज करें",
+      heroTitle: "Jev के साथ अपने इनबॉक्स पर नियंत्रण रखें",
       heroDescription:
-        "मेल प्राथमिकता सॉर्टिंग, संदर्भ-जागरूक लेबल, थ्रेड सारांश और पृष्ठभूमि नियमों को एक कीबोर्ड-फर्स्ट जीमेल इनबॉक्स में लाता है - एक एजेंट के साथ जो अगला कदम उठा सकता है।",
+        "Jev को सामान्य भाषा में बताएं कि क्या मायने रखता है। यह लोगों के GitHub टिप्पणियों को दिखाए रखता है, आपके मैनेजर के मेल को ऊपर लाता है, बॉट सूचनाओं को हटाता है और आपके सुधारों से सीखता है।",
       heroCta: "अपना इनबॉक्स मैनेज करें",
-      useCasesHeading: "मेल को पहला पास लेने दें",
+      mobileArchiveToast: "1,167 बॉट सूचनाएँ संग्रहित · 4 PR टिप्पणियाँ रखीं",
+      useCasesHeading: "Jev से संचालित, और भी स्मार्ट इनबॉक्स",
       useCasesBody:
-        "अत्यावश्यक थ्रेड्स को सामने लाएँ, संदेशों को अर्थ के आधार पर लेबल करें, और नियंत्रण में रहते हुए दोहराए जाने वाले इनबॉक्स कार्य को चालू रखें।",
-      useCase1Title: "देखिये आज आपको क्या चाहिए",
+        "सामान्य भाषा में एक नियम बनाएं। Jev ज़रूरी लोगों और बातचीत को प्राथमिकता देता है, सही लेबल लगाता है और बार-बार आने वाले मेल को आते ही संग्रहित करता है।",
+      useCase1Title: "लोगों के जवाब रखें, बॉट मेल संग्रहित करें",
       useCase1Body:
-        "मेल तात्कालिकता, समय सीमा और कौन इंतजार कर रहा है, के आधार पर थ्रेड्स को रैंक करता है, फिर आपको अगले उपयोगी कार्यों के साथ एक इनबॉक्स संक्षिप्त जानकारी देता है।",
-      useCase2Title: "संदेशों को अर्थ के अनुसार लेबल करें",
+        "Jev को बताएं कि क्या ज़रूरी है: GitHub पुल रिक्वेस्ट पर लोगों की टिप्पणियाँ Product में रखें, बॉट सूचनाएँ आर्काइव करें और अपने मैनेजर के ईमेल Important में रखें। हर नियम को प्रॉम्प्ट से बदलें और अपने फ़ीडबैक से स्पैम फ़िल्टर को बेहतर बनाएँ।",
+      useCase2Title: "हर ईमेल पर सही लेबल",
       useCase2Body:
-        "एजेंट प्रेषक और वार्तालाप संदर्भ से लेबल लागू कर सकता है, इसलिए अनुसंधान, वित्त और ग्राहक थ्रेड ढूंढना आसान रहता है।",
+        "Jev बातचीत को केवल कीवर्ड से नहीं, उसके अर्थ से लेबल करता है, ताकि ग्राहक नोट्स, रसीदें और शोध सही जगह पहुंचें।",
       useCase3Title: "नियमित कार्य को स्वचालित करें",
       useCase3Body:
         "नए मेल को पृष्ठभूमि में लेबल करने या संग्रहित करने के लिए नियम निर्धारित करें, फिर जब चाहें तब रन इतिहास की समीक्षा करें।",
@@ -1774,9 +1774,9 @@ const hiIN = {
       feature5Title: "भेजने से पहले समीक्षा करें",
       feature5Body:
         "एजेंट से उत्तर का मसौदा तैयार करने या उसे संशोधित करने के लिए कहें, फिर आपके इनबॉक्स से निकलने से पहले उसकी समीक्षा करें और उसे संपादित करें।",
-      feature6Title: "बहु-खाता खोज",
+      feature6Title: "सीखने वाला स्पैम फ़िल्टर",
       feature6Body:
-        "कनेक्टेड जीमेल खातों में खोजें और एक ही स्थान पर समान प्राथमिकता, लेबल और एजेंट टूल का उपयोग करें।",
+        "फ़िल्टर किए गए संदेश को ज़रूरी बताएं या अवांछित मेल की पहचान करें। Jev हर सुधार से सीखता है और उसे मिलते-जुलते संदेशों पर लागू करता है।",
       finalCtaHeading: "अपनी अगली email से शुरुआत करें",
       finalCtaBody:
         "कोई conversation खोलें और अपने AI एजेंट से summary या reply का draft मांगें।",
@@ -1925,7 +1925,6 @@ const hiIN = {
           "PowerPoint में खोलने के लिए एक PPTX फ़ाइल एक्सपोर्ट करें। Google Slides में प्रेजेंटेशन इस्तेमाल करने के लिए, वहां वह फ़ाइल इम्पोर्ट करें। एक्सपोर्ट के बाद फॉन्ट्स और लेआउट्स को जांच लें, क्योंकि अलग-अलग एडिटर्स में ये अलग तरह से दिख सकते हैं।",
       },
       s001: "Slides टेम्पलेट स्क्रीनशॉट",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "अपने AI एजेंट से प्रेजेंटेशन बनाएं",
       heroDescription:

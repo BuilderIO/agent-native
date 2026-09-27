@@ -20,6 +20,36 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain("RouterSidebarLink,");
+    expect(source).toContain("const link = ( <RouterSidebarLink");
+    expect(source).toContain(
+      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
+    );
+    expect(
+      source.match(
+        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+  });
+
+  it("keeps the tab scrollport within the space before its settings cog", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"',
+    );
+    expect(source).toContain(
+      'cn("relative shrink-0", tabsLoading && "invisible")',
+    );
+  });
+
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
     const source = appLayoutSource();
 
@@ -219,6 +249,21 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain('t("mail.tabSettings.splitInbox")');
   });
 
+  it("lists AI rule tags first and keeps them out of the Gmail label tree", () => {
+    const source = appLayoutSource();
+    const aiTagsSection = source.indexOf("{/* AI rule tags stay separate");
+    const viewsSection = source.indexOf("{/* System views */}");
+
+    expect(source).toContain('rule.kind !== "ai-filter"');
+    expect(source).toContain('aiFilterRuleMode(rule) !== "tag"');
+    expect(source).toContain(
+      "!aiTagIds.has(normalizedAiFilterLabelId(l.name))",
+    );
+    expect(source).toContain("checked={pinnedLabels.includes(tag.id)}");
+    expect(aiTagsSection).toBeGreaterThan(-1);
+    expect(viewsSection).toBeGreaterThan(aiTagsSection);
+  });
+
   it("routes saved searches through the Gmail query path", () => {
     const source = appLayoutSource();
 
@@ -360,12 +405,6 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
-  // Repro: with no Google account connected, `view` for an unmatched URL
-  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
-  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
-  // the routed NotFound page — with the Google-connect banner instead. The
-  // page's <title> was correct (computed separately in $view.tsx's meta())
-  // while the rendered body silently became the inbox shell.
   it("only shows the Google-connect takeover for a known mail view", () => {
     const source = appLayoutSource();
 

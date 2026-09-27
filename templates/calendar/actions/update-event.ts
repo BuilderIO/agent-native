@@ -73,15 +73,6 @@ function mergeAttendees(
   return Array.from(merged.values());
 }
 
-/**
- * Whether raw `attendeesInput` names at least one guest Google would actually
- * invite. Like every `needsApproval` input this arrives unparsed, as either the
- * array or the comma-separated string the schema accepts — and anything without
- * an `@` is dropped before `run` counts attendees, so it mails nobody.
- * Delegating to the same normalizer `run` uses keeps the gate from drifting
- * away from what it is gating; re-implementing the address check here would let
- * a future change to that filter silently skip an approval.
- */
 function namesGuests(value: unknown): boolean {
   if (typeof value !== "string" && !Array.isArray(value)) return false;
   return (
@@ -217,12 +208,6 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  // Ordinary field edits are reversible in place and stay unblocked. Two paths
-  // are not: notifying guests mails people outside the app, and a move deletes
-  // the event from the source calendar after recreating it elsewhere, defaulting
-  // to notifying every attendee. A move cannot be previewed, and the predicate
-  // must stay pure, so it gates on targetAccountEmail rather than reading the
-  // event to find out whether that move would email anyone.
   needsApproval: ({
     sendUpdates,
     notificationMessage,
@@ -231,12 +216,7 @@ export default defineAction({
   }) =>
     targetAccountEmail !== undefined ||
     sendUpdates === "all" ||
-    // The companion note sends on its own, whatever sendUpdates says.
     !!notificationMessage?.trim() ||
-    // Adding a guest is an invitation: `run` leaves sendUpdates to Google's
-    // default of "all" whenever addAttendees names anyone, so this mirrors that
-    // `??` instead of gating every attendee edit. Replacing the list through
-    // `attendees` does not reach it, and so is not gated here.
     (sendUpdates === undefined && namesGuests(addAttendees)),
   run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = requireActionUserEmail();

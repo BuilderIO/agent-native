@@ -1,7 +1,3 @@
-// `status` is deliberately absent. Providers put a machine enum there
-// ("NOT_FOUND", "PERMISSION_DENIED"), never prose, so reading it would hand
-// callers an implementation constant instead of the generic fallback this
-// module promises.
 const DETAIL_KEYS = ["message", "error", "detail", "details"] as const;
 
 const MODEL_UNAVAILABLE_MARKERS = [
@@ -19,12 +15,6 @@ const MAX_SHAPE_DEPTH = 10;
 
 const ESCAPED_QUOTE = '\\"';
 
-/**
- * True when the text is a serialized payload rather than prose a person can
- * act on. Every hop between Assets and the upstream model re-encodes the hop
- * below it as a JSON *string*, so a leaf value can still be an escaped object
- * that `JSON.parse` rejects once it has been truncated.
- */
 export function looksLikeMachinePayload(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
@@ -35,13 +25,6 @@ export function looksLikeMachinePayload(value: string): boolean {
   );
 }
 
-/**
- * Pull the innermost human-readable sentence out of a provider failure.
- *
- * Returns `""` when the payload carries no prose. Callers must treat that as
- * "no detail to show" and fall back to their own wording: returning the raw
- * body instead is what dumped an escaped Vertex 404 into the candidate tray.
- */
 export function readableProviderErrorDetail(
   value: unknown,
   maxLength = 300,
@@ -53,23 +36,11 @@ export function readableProviderErrorDetail(
     : detail;
 }
 
-/**
- * True when the provider rejected the requested model itself, so retrying the
- * same request cannot succeed and the user needs a different model.
- */
 export function isModelUnavailableDetail(detail: string): boolean {
   const text = detail.toLowerCase();
   return MODEL_UNAVAILABLE_MARKERS.some((marker) => text.includes(marker));
 }
 
-/**
- * Name the envelope of a provider failure without emitting any of its values.
- *
- * An unreadable body means the service changed its shape, and the key path is
- * enough to see where the unwrap stopped. The values are not logged because a
- * provider error can echo prompt-derived content, reference URLs, or signed
- * links back to us.
- */
 export function describeProviderPayloadShape(
   value: unknown,
   maxLength = 300,
@@ -79,8 +50,6 @@ export function describeProviderPayloadShape(
 }
 
 function describeShape(value: unknown, depth: number): string {
-  // Braced so a truncated branch still reads as "there was more here" rather
-  // than as a plain scalar key.
   if (depth > MAX_SHAPE_DEPTH) return "{...}";
   if (typeof value === "string") {
     const trimmed = value.trim();

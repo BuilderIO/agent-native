@@ -112,6 +112,30 @@ export function useConsolidateAiFilterRules() {
   });
 }
 
+export function useClearAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "clear",
+        ids,
+      }) as Promise<{ undoId: string }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useRestoreAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (undoId: string) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "undo",
+        undoId,
+      }) as Promise<{ restored: true }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
 export function useTriggerAutomations() {
   return useMutation({
     mutationFn: () =>

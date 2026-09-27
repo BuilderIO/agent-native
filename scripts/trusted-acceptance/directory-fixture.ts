@@ -10,7 +10,6 @@ export type DirectoryMember = {
   capabilities?: string[];
 };
 
-/** Trusted runtime configuration; no request field selects a member or mode. */
 export type DirectoryFixtureConfig = {
   orgDomain: string;
   a2aSecret: string;
@@ -58,7 +57,6 @@ function isAcceptanceOrigin(value: string): boolean {
   }
 }
 
-/** Validate only the small, allowlisted fixture configuration. */
 export function validateDirectoryFixtureConfig(
   config: DirectoryFixtureConfig,
 ): string[] {
@@ -151,11 +149,6 @@ async function isTrustedCaller(
   }
 }
 
-/**
- * Pure handler for the disposable directory fixture. This deliberately does
- * not mount a route or inspect process configuration; a trusted host supplies
- * a validated config and fixed runtime scenario.
- */
 export async function handleDirectoryFixtureRequest(
   request: DirectoryRequest,
   config: DirectoryFixtureConfig,

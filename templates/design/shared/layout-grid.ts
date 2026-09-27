@@ -4,15 +4,9 @@ import {
   quantizeToStep,
 } from "./canvas-math";
 
-/** A frame's own grid, not a global setting: one screen can lay out on 8px
- *  while its neighbour does not. `kind` has one value so Figma's `columns` and
- *  `rows` arrive as variants rather than a rewrite of every reader. */
 export interface LayoutGrid {
   kind: "uniform";
-  /** Cell edge in canvas px. Positions inside the frame snap to multiples. */
   size: number;
-  /** Whether the lines are drawn. Snapping does not depend on this — in Figma
-   *  the grid's existence is the opt-in, and hiding it only hides the lines. */
   visible: boolean;
 }
 
@@ -39,8 +33,6 @@ export function normalizeLayoutGridSize(
   );
 }
 
-/** Absent and malformed are both "this frame has no grid" — the caller then
- *  falls back to whole pixels, which is the same thing a size-1 grid does. */
 export function parseLayoutGrid(value: unknown): LayoutGrid | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
@@ -66,9 +58,6 @@ export function parseLayoutGridById(value: unknown): LayoutGridById {
   return grids;
 }
 
-/** The step a gesture inside `frameId` quantizes to. No grid still returns 1,
- *  so the snap stack has one path instead of an on/off branch. `frameId` is the
- *  *container* whose grid applies: a screen dragged on the board has none. */
 export function resolveLayoutGridSnapStep(
   grids: LayoutGridById,
   frameId: string | null | undefined,

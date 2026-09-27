@@ -1,3 +1,4 @@
+// guard:allow-unscoped — raw SQL resets the isolated in-memory PGlite fixture.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
@@ -10,9 +11,12 @@ const localDb = vi.hoisted(() => ({
   },
   putPrivateBlob: vi.fn(),
   deletePrivateBlob: vi.fn(),
+  readPrivateBlob: vi.fn(),
   assertAccess: vi.fn(),
+  getRequestUserEmail: vi.fn(),
   getDb: vi.fn(),
   sourceMutationCalls: [] as string[],
+  afterFirstSourceMutationTransaction: null as null | (() => Promise<void>),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -24,9 +28,16 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: localDb.deletePrivateBlob,
   putPrivateBlob: localDb.putPrivateBlob,
+  readPrivateBlob: localDb.readPrivateBlob,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: localDb.assertAccess,
+  currentAccess: () => ({
+    authCapability: "capability:visual-edit:design:design-one",
+  }),
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: localDb.getRequestUserEmail,
 }));
 vi.mock("../server/source-workspace.js", () => ({
   designSourceMutationLockKey: (designId: string) =>
@@ -38,12 +49,37 @@ vi.mock("../server/source-workspace.js", () => ({
   ) => {
     localDb.sourceMutationCalls.push(designId);
     const { sql } = await import("drizzle-orm");
-    return localDb.getDb().transaction(async (tx) => {
+    const result = await localDb.getDb().transaction(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agent-native:design-source:${designId}`}, 0::bigint))`,
       );
       return callback(tx);
     });
+    if (localDb.afterFirstSourceMutationTransaction) {
+      const afterTransaction = localDb.afterFirstSourceMutationTransaction;
+      localDb.afterFirstSourceMutationTransaction = null;
+      await afterTransaction();
+    }
+    return result;
+  },
+  withDesignSourceReadTransaction: async <T>(
+    designId: string,
+    callback: (tx: unknown) => Promise<T>,
+  ) => {
+    localDb.sourceMutationCalls.push(designId);
+    const { sql } = await import("drizzle-orm");
+    const result = await localDb.getDb().transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`agent-native:design-source:${designId}`}, 0::bigint))`,
+      );
+      return callback(tx);
+    });
+    if (localDb.afterFirstSourceMutationTransaction) {
+      const afterTransaction = localDb.afterFirstSourceMutationTransaction;
+      localDb.afterFirstSourceMutationTransaction = null;
+      await afterTransaction();
+    }
+    return result;
   },
 }));
 
@@ -63,6 +99,10 @@ vi.mock("../server/db/index.js", async () => {
     visibility: pgCore.text("visibility").notNull(),
     ownerEmail: pgCore.text("owner_email").notNull(),
     orgId: pgCore.text("org_id"),
+    liveCollaborationEnabled: pgCore
+      .boolean("live_collaboration_enabled")
+      .notNull()
+      .default(false),
   });
   const designFiles = pgCore.pgTable("design_files", {
     id: pgCore.text("id").primaryKey(),
@@ -109,7 +149,8 @@ vi.mock("../server/db/index.js", async () => {
       updated_at TEXT,
       visibility TEXT NOT NULL,
       owner_email TEXT NOT NULL,
-      org_id TEXT
+      org_id TEXT,
+      live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE design_files (
       id TEXT PRIMARY KEY,
@@ -152,14 +193,17 @@ vi.mock("../server/db/index.js", async () => {
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { deleteVisualEditSnapshotBlobs } from "../server/lib/visual-edit-snapshot-blobs.js";
 import { retireVisualEditSnapshotInTransaction } from "../server/lib/visual-edit-snapshot-retirement.js";
+import getSnapshotAction from "./get-visual-edit-snapshot.js";
 import publishSnapshotAction from "./publish-visual-edit-snapshot.js";
 import reserveSnapshotAction from "./reserve-visual-edit-snapshot.js";
+import updateCollaborationAction from "./update-visual-edit-collaboration.js";
 
 const design = {
   id: "design-one",
   ownerEmail: "owner@example.test",
   orgId: null,
   visibility: "private",
+  liveCollaborationEnabled: true,
   data: JSON.stringify({
     sourceType: "localhost",
     screenMetadata: {
@@ -178,13 +222,20 @@ function context() {
 beforeEach(async () => {
   localDb.assertAccess.mockReset();
   localDb.assertAccess.mockResolvedValue({ role: "owner", resource: design });
+  localDb.readPrivateBlob.mockReset();
+  localDb.readPrivateBlob.mockImplementation(async () => ({
+    data: new TextEncoder().encode("<html><body>Shared</body></html>"),
+  }));
+  localDb.getRequestUserEmail.mockReset();
+  localDb.getRequestUserEmail.mockReturnValue("owner@example.test");
   localDb.putPrivateBlob.mockReset();
   localDb.deletePrivateBlob.mockReset();
   localDb.deletePrivateBlob.mockResolvedValue({ deleted: true });
   localDb.sourceMutationCalls.length = 0;
+  localDb.afterFirstSourceMutationTransaction = null;
   await localDb.pglite?.query("DELETE FROM designs");
   await localDb.pglite?.query(
-    "INSERT INTO designs (id, data, updated_at, visibility, owner_email, org_id) VALUES ($1, $2, $3, $4, $5, $6)",
+    "INSERT INTO designs (id, data, updated_at, visibility, owner_email, org_id, live_collaboration_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
       "design-one",
       design.data,
@@ -192,6 +243,7 @@ beforeEach(async () => {
       "private",
       "owner@example.test",
       null,
+      true,
     ],
   );
   await localDb.pglite?.query("DELETE FROM design_visual_edit_snapshots");
@@ -205,6 +257,239 @@ afterAll(async () => {
 });
 
 describe("visual-edit snapshot reservation ordering", () => {
+  it("does not return a legacy inline snapshot when opt-out commits after lookup", async () => {
+    await localDb.pglite?.query(
+      "INSERT INTO design_visual_edit_snapshots (design_id, file_id, html, capture_revision, published_revision, updated_at, visibility, owner_email, org_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [
+        "design-one",
+        "screen-one",
+        "<html><body>Legacy shared page</body></html>",
+        1,
+        1,
+        "2026-09-25T00:00:00.000Z",
+        "private",
+        "owner@example.test",
+        null,
+      ],
+    );
+    localDb.afterFirstSourceMutationTransaction = async () => {
+      await localDb.pglite?.query(
+        "UPDATE designs SET live_collaboration_enabled = FALSE WHERE id = $1",
+        ["design-one"],
+      );
+      await localDb.pglite?.query(
+        "UPDATE design_visual_edit_snapshots SET html = '', blob_handle = NULL, capture_revision = capture_revision + 1, published_revision = 0 WHERE design_id = $1",
+        ["design-one"],
+      );
+    };
+
+    await expect(
+      getSnapshotAction.run(
+        { designId: "design-one", fileId: "screen-one" },
+        context(),
+      ),
+    ).resolves.toMatchObject({
+      html: null,
+      publishedRevision: null,
+      unchanged: false,
+    });
+    expect(localDb.sourceMutationCalls).toHaveLength(2);
+  });
+
+  it("does not return a blob snapshot when opt-out commits during blob I/O", async () => {
+    const blob = {
+      id: "race-blob",
+      provider: "test-private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    await localDb.pglite?.query(
+      "INSERT INTO design_visual_edit_snapshots (design_id, file_id, html, blob_handle, capture_revision, published_revision, updated_at, visibility, owner_email, org_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+      [
+        "design-one",
+        "screen-one",
+        "",
+        JSON.stringify(blob),
+        1,
+        1,
+        "2026-09-25T00:00:00.000Z",
+        "private",
+        "owner@example.test",
+        null,
+      ],
+    );
+
+    let releaseRead!: () => void;
+    let signalReadStarted!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      signalReadStarted = resolve;
+    });
+    const blobRead = new Promise<{ data: Uint8Array }>((resolve) => {
+      releaseRead = () =>
+        resolve({ data: new TextEncoder().encode("<html>stale</html>") });
+    });
+    localDb.readPrivateBlob.mockImplementationOnce(() => {
+      signalReadStarted();
+      return blobRead;
+    });
+
+    const read = getSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    await readStarted;
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: false },
+      context(),
+    );
+    releaseRead();
+
+    await expect(read).resolves.toEqual({
+      designId: "design-one",
+      fileId: "screen-one",
+      html: null,
+      updatedAt: null,
+      captureRevision: "2",
+      publishedRevision: null,
+      unchanged: false,
+    });
+    const { rows } = (await localDb.pglite?.query(
+      "SELECT * FROM design_visual_edit_snapshots WHERE design_id = $1",
+      ["design-one"],
+    )) ?? { rows: [] };
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      html: "",
+      blob_handle: null,
+      capture_revision: 2,
+      published_revision: 0,
+    });
+    expect(localDb.deletePrivateBlob).toHaveBeenCalledWith(blob);
+  });
+
+  it("rejects a publish whose final serialized check follows opt-out", async () => {
+    const candidateBlob = {
+      id: "candidate-blob",
+      provider: "test-private-provider",
+      opaque: true as const,
+      encrypted: true,
+    };
+    let releaseUpload!: () => void;
+    let signalUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      signalUploadStarted = resolve;
+    });
+    const upload = new Promise<typeof candidateBlob>((resolve) => {
+      releaseUpload = () => resolve(candidateBlob);
+    });
+    localDb.putPrivateBlob.mockImplementationOnce(() => {
+      signalUploadStarted();
+      return upload;
+    });
+
+    const reservation = await reserveSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    const publish = publishSnapshotAction.run(
+      {
+        ...reservation,
+        html: "<html><body>Snapshot</body></html>",
+      },
+      context(),
+    );
+    await uploadStarted;
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: false },
+      context(),
+    );
+    releaseUpload();
+
+    await expect(publish).rejects.toMatchObject({
+      errorCode: "visual_edit_collaboration_disabled",
+    });
+    expect(localDb.deletePrivateBlob).toHaveBeenCalledWith(candidateBlob);
+    const { rows } = (await localDb.pglite?.query(
+      "SELECT * FROM design_visual_edit_snapshots WHERE design_id = $1",
+      ["design-one"],
+    )) ?? { rows: [] };
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      html: "",
+      blob_handle: null,
+      capture_revision: 2,
+      published_revision: 0,
+    });
+  });
+
+  it("rejects a pre-opt-out upload after collaboration is re-enabled", async () => {
+    const staleBlob = {
+      id: "pre-opt-out-blob",
+      provider: "test-private-provider",
+      opaque: true as const,
+      encrypted: true,
+    };
+    let releaseUpload!: () => void;
+    let signalUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      signalUploadStarted = resolve;
+    });
+    const upload = new Promise<typeof staleBlob>((resolve) => {
+      releaseUpload = () => resolve(staleBlob);
+    });
+    localDb.putPrivateBlob.mockImplementationOnce(() => {
+      signalUploadStarted();
+      return upload;
+    });
+
+    const staleReservation = await reserveSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    const stalePublish = publishSnapshotAction.run(
+      {
+        ...staleReservation,
+        html: "<html><body>Before opt-out</body></html>",
+      },
+      context(),
+    );
+    await uploadStarted;
+
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: false },
+      context(),
+    );
+    await updateCollaborationAction.run(
+      { designId: "design-one", enabled: true },
+      context(),
+    );
+    const currentReservation = await reserveSnapshotAction.run(
+      { designId: "design-one", fileId: "screen-one" },
+      context(),
+    );
+    expect(currentReservation.reservationToken).toBe("3");
+
+    releaseUpload();
+    await expect(stalePublish).resolves.toEqual({
+      designId: "design-one",
+      fileId: "screen-one",
+      published: false,
+    });
+    expect(localDb.deletePrivateBlob).toHaveBeenCalledWith(staleBlob);
+    const { rows } = (await localDb.pglite?.query(
+      "SELECT html, blob_handle, capture_revision, published_revision FROM design_visual_edit_snapshots WHERE design_id = $1 AND file_id = $2",
+      ["design-one", "screen-one"],
+    )) ?? { rows: [] };
+    expect(rows).toEqual([
+      {
+        html: "",
+        blob_handle: null,
+        capture_revision: 3,
+        published_revision: 0,
+      },
+    ]);
+  });
+
   it("assigns distinct increasing tokens when owner tabs reserve concurrently", async () => {
     const input = { designId: "design-one", fileId: "screen-one" };
     const reservations = await Promise.all([

@@ -3,7 +3,6 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
 
-/** Channel-thread clarification windows are deliberately short-lived. */
 export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function ensureTable(): Promise<void> {
@@ -34,11 +33,6 @@ export async function ensureTable(): Promise<void> {
   return initPromise;
 }
 
-/**
- * Open (or refresh) the bounded reply window after an integration explicitly
- * asks the originating Slack user a question. The workspace-qualified external
- * thread id and requester id prevent unrelated channel messages from opting in.
- */
 export async function setIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -69,11 +63,6 @@ export async function setIntegrationAwaitingInput(input: {
   });
 }
 
-/**
- * Atomically consume the one reply window for this exact requester. Competing
- * Slack deliveries cannot both claim it, and expired rows never authorize a
- * later unmentioned reply.
- */
 export async function consumeIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -104,7 +93,6 @@ export async function consumeIntegrationAwaitingInput(input: {
   return affected > 0;
 }
 
-/** Clear any outstanding clarification window once the thread resolves. */
 export async function clearIntegrationAwaitingInput(
   platform: string,
   externalThreadId: string,

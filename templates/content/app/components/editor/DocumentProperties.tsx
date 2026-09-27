@@ -1,6 +1,7 @@
 import { emailToName } from "@agent-native/core/client/collab";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
   DndContext,
@@ -93,6 +94,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -743,11 +745,6 @@ export function updatePropertyOptionDescription(
   );
 }
 
-/**
- * Keeps successive option edits based on the same local truth until the
- * server catches up. A rename followed immediately by a usage-description
- * edit must not let either request erase the other.
- */
 export function createPropertyOptionUpdateQueue(
   initialOptions: DocumentPropertyOption[],
   persist: (options: DocumentPropertyOption[]) => Promise<unknown>,
@@ -775,12 +772,6 @@ type PropertyMetadataSnapshot = Pick<
   "name" | "type" | "description" | "visibility" | "options" | "icon"
 >;
 
-/**
- * Serializes property-definition edits against one local snapshot. The action
- * accepts the complete definition, so composing each request from render-time
- * props would let a fast description save restore the name from before an
- * overlapping rename completed.
- */
 export function createPropertyMetadataUpdateQueue(
   initialMetadata: PropertyMetadataSnapshot,
   persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
@@ -889,8 +880,6 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
-  // Blocks fields are rendered as body content (below the database/title), not
-  // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -1115,8 +1104,6 @@ function PropertyRow({
   );
 }
 
-// Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
-// gate which source fields can bind into a column (type compatibility).
 export function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
@@ -1221,9 +1208,6 @@ export function PropertyManagementPopover({
       });
     },
   });
-  // Per-source field bindings for THIS column (row-union): which source fields
-  // feed it, and which unmapped, type-compatible fields could be bound into it
-  // (at most one field per source per column).
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),
   );
@@ -1248,8 +1232,6 @@ export function PropertyManagementPopover({
       "tags",
       "multi_select",
     ].includes(entry.field.sourceFieldType.trim().toLowerCase());
-    // text columns accept any SCALAR field but not multi-value ones (lossy);
-    // otherwise the derived type must match the column type.
     return columnType === "text"
       ? !fieldIsMultiValue
       : columnType ===
@@ -1259,8 +1241,6 @@ export function PropertyManagementPopover({
     !isComputedPropertyType(columnType) &&
     columnType !== "blocks" &&
     (boundSourceFields.length > 0 || bindableSourceFields.length > 0);
-  // Whether deleting THIS property removes the last Blocks field of the type —
-  // i.e. the body. Drives the yellow warning in the delete dialog.
   const blocksFieldCount = (propertiesData?.properties ?? []).filter(
     (item) => item.definition.type === "blocks",
   ).length;
@@ -2563,6 +2543,9 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const mutation = useSetDocumentProperty(
     documentId,
     property.definition.databaseId!,
@@ -2611,7 +2594,7 @@ function FilesMediaValueEditor({
 
   async function uploadFiles(files: FileList | null) {
     const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0 || !fileStorageConfigured) return;
     setUploading(true);
     try {
       const uploadedUrls: string[] = [];
@@ -2720,20 +2703,26 @@ function FilesMediaValueEditor({
         type="file"
         accept="image/*"
         multiple
+        disabled={!fileStorageConfigured}
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
+      {!fileStorageConfigured ? (
+        <FileStorageStatusGate status={fileUploadStatus} />
+      ) : null}
       <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={mutation.isPending || uploading}
-        >
-          <IconUpload className="size-3.5" />
-          {t("editor.properties.upload")}
-        </Button>
+        {fileStorageConfigured ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={mutation.isPending || uploading}
+          >
+            <IconUpload className="size-3.5" />
+            {t("editor.properties.upload")}
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -2837,9 +2826,6 @@ function DateValueEditor({
         const submittedStartValue = formData.get("property-start-value");
         const submittedEndValue = formData.get("property-end-value");
 
-        // Native date controls can update their displayed DOM value before
-        // React receives the corresponding change event. Read the submitted
-        // form so Save never clears a date that is visibly present.
         void save(
           buildValue(
             typeof submittedStartValue === "string" ? submittedStartValue : "",
@@ -3516,8 +3502,6 @@ export function AddProperty({
     if (!onConnectSource || isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
-    // Radix keeps closing popovers mounted for their exit animation. Remove
-    // this one immediately so opening Sources cannot stack over it.
     setSourceHandoffClosing(true);
     setOpen(false);
     onConnectSource();

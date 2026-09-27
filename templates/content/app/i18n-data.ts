@@ -443,7 +443,6 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
-  // Row-union multi-source (slices 6a–6c).
   addARowTo: "Add a row to…",
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
@@ -994,6 +993,16 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  close: "Close",
+  setup: {
+    checkingProvider: "Checking AI connection…",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -1640,6 +1649,16 @@ export type PartialMessages = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    close: overrides.close ?? enUS.close,
+    setup: { ...enUS.setup, ...overrides.setup },
+    onboarding: {
+      ...enUS.onboarding,
+      ...overrides.onboarding,
+      fileStorage: {
+        ...enUS.onboarding.fileStorage,
+        ...overrides.onboarding?.fileStorage,
+      },
+    },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -1758,8 +1777,6 @@ export interface ContentLocaleBundle {
   history: Partial<Messages["editor"]>;
 }
 
-// es-ES raw literals are the fallback layer mergeMessagesForLocale applies
-// under every non-English locale, so they stay in the eager module.
 const esESRawLiteralOverrides: PartialMessages = {
   root: {
     metaTitle:
@@ -2191,9 +2208,6 @@ function mergeMessagesForLocale(
   };
 }
 
-// Only en-US is bundled eagerly. Locale modules call buildMessagesForLocale on
-// load and register their merged messages here, so synchronous readers fall
-// back to en-US until a locale chunk has loaded.
 export const messagesByLocale: Partial<Record<LocaleCode, Messages>> & {
   "en-US": Messages;
 } = {
@@ -2216,8 +2230,15 @@ export function buildMessagesForLocale(
   for (const [group, groupOverrides] of Object.entries(
     bundle.exactEnglish,
   ) as Array<[string, Record<string, unknown> | undefined]>) {
-    const target = (messages as Record<string, Record<string, unknown>>)[group];
-    if (target && groupOverrides && typeof groupOverrides === "object") {
+    const targetValue = (messages as unknown as Record<string, unknown>)[group];
+    if (
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue) &&
+      groupOverrides &&
+      typeof groupOverrides === "object"
+    ) {
+      const target = targetValue as Record<string, unknown>;
       for (const [key, value] of Object.entries(groupOverrides)) {
         const nestedTarget = target[key];
         if (

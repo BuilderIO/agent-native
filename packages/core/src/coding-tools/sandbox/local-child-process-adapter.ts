@@ -1,21 +1,3 @@
-/**
- * Default sandbox adapter: a local Node.js child process.
- *
- * This is the historical `run-code` execution path, extracted verbatim so the
- * default runtime behavior is byte-for-byte equivalent to the previous inline
- * implementation in `run-code.ts`:
- *  - The prepared module source is written to a fresh temp dir.
- *  - The child runs with the scrubbed env supplied by the parent (no secrets).
- *  - When the Node permission model is available (`--permission`, or
- *    `--experimental-permission` on Node 20), the child is denied filesystem
- *    access outside its own temp dir, child processes, workers, and native
- *    addons. Outbound network is NOT blocked by the permission model; the env
- *    scrub means such requests carry no credentials, and all authenticated calls
- *    go through the parent's loopback bridge.
- *  - A timeout sends SIGTERM, then SIGKILL after a 2 s grace period.
- *  - Temp files are cleaned up best-effort after the run.
- */
-
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -27,22 +9,8 @@ import type {
   SandboxRunResult,
 } from "./adapter.js";
 
-/** Grace period between SIGTERM and SIGKILL when a run times out. */
 const SIGKILL_GRACE_MS = 2_000;
 
-/**
- * Hard ceiling on combined stdout+stderr bytes accumulated PER STREAM while a
- * run is in flight, independent of any caller-supplied `maxOutputChars`
- * display cap. Callers (e.g. data-programs' `emit()` contract) apply their
- * own, much smaller caps AFTER the process exits and the full string has been
- * captured and JSON-parsed — that is a business-logic cap, not a memory-safety
- * one. Without a ceiling here, a runaway `console.log`/emit loop can grow the
- * accumulated string to hundreds of MB or more before any downstream cap ever
- * runs, exhausting parent/child memory. 32 MiB comfortably covers legitimate
- * uses (run-code's 200_000-char display cap, data-programs' 4 MiB emitted
- * payload, plus generous debug logging headroom) while still bounding the
- * worst case to a small constant instead of unbounded growth.
- */
 const MAX_STREAM_BYTES = 32 * 1024 * 1024;
 
 function sandboxReadAllowPaths(tmpDir: string): string[] {
@@ -61,11 +29,6 @@ function sandboxWriteAllowPaths(tmpDir: string): string[] {
   return [...paths];
 }
 
-/**
- * Resolve the Node permission-model flag supported by the current runtime,
- * probing once and caching. Returns null when the permission model is
- * unavailable (the sandbox then falls back to env-scrub isolation only).
- */
 let cachedPermissionFlag: string | null | undefined;
 function resolvePermissionFlag(): string | null {
   if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;
@@ -91,7 +54,6 @@ function resolvePermissionFlag(): string | null {
   return null;
 }
 
-/** Sandbox adapter that runs code in a locked-down local Node child process. */
 export class LocalChildProcessAdapter implements SandboxAdapter {
   readonly id = "local-child-process";
 
@@ -99,23 +61,16 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
     let tmpDir: string | undefined;
     let tmpFile: string | undefined;
     try {
-      // Write code to a temp ESM file (top-level await needs a module).
       const tmpBaseDir = fs.realpathSync(os.tmpdir());
       tmpDir = fs.mkdtempSync(path.join(tmpBaseDir, "agent-run-code-"));
       tmpFile = path.join(tmpDir, "sandbox.mjs");
       fs.writeFileSync(tmpFile, request.moduleSource, "utf8");
 
-      // The parent supplies an already-scrubbed env (no secrets). Point TMPDIR
-      // inside the sandbox dir so in-sandbox temp writes stay within the
-      // permission-model allow list.
       const safeEnv: Record<string, string> = { ...request.env };
       safeEnv.TMPDIR = tmpDir;
       safeEnv.TEMP = tmpDir;
       safeEnv.TMP = tmpDir;
 
-      // Lock the child down with the Node permission model when available:
-      // filesystem restricted to the sandbox temp dir, and child processes,
-      // workers, and native addons denied entirely.
       const permissionFlag = resolvePermissionFlag();
       const nodeArgs = permissionFlag
         ? [
@@ -164,10 +119,6 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
         }, SIGKILL_GRACE_MS);
       }, request.timeoutMs);
 
-      // Accumulate as raw Buffer chunks (cheaper than repeated string
-      // concatenation) and stop collecting — and kill the child — the moment
-      // either stream crosses MAX_STREAM_BYTES, so a runaway emit()/console.log
-      // loop can never grow parent memory past a small bounded ceiling.
       child.stdout?.on("data", (chunk: Buffer) => {
         if (outputExceeded) return;
         stdoutBytes += chunk.length;
@@ -207,7 +158,6 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
 
       return { stdout, stderr, exitCode, timedOut };
     } finally {
-      // Clean up temp files (best-effort).
       try {
         if (tmpFile) fs.rmSync(tmpFile, { force: true });
         if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });

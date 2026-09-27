@@ -75,8 +75,6 @@ vi.mock("./field-primitives", async (importOriginal) => {
   };
 });
 
-// Stub ColorInput so the test can inspect exactly what props the base fill
-// row wires it with, without needing to render the real popover/picker tree.
 vi.mock("./panel-primitives", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./panel-primitives")>();
   return {
@@ -326,10 +324,6 @@ describe("FillProperties base row — image layer prop wiring", () => {
       }),
     );
 
-    // Before the fix, backgroundSize/backgroundRepeat/backgroundPosition were
-    // never passed at all, so these data attributes would be missing/empty
-    // even though the element clearly has real, non-default values for all
-    // three (a genuine "cover, 100% 100%" sibling layer stack).
     expect(markup).toContain('data-background-image="url(hero.png)');
     expect(markup).toContain('data-background-size="cover, 100% 100%"');
     expect(markup).toContain('data-background-repeat="no-repeat, repeat"');

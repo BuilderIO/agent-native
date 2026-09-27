@@ -82,12 +82,6 @@ function motionCssPropertyName(property: string): string | null {
   return /^-?[a-z][a-z0-9-]*$/i.test(cssName) ? cssName : null;
 }
 
-/**
- * Properties auto-keyframe is allowed to record. Discrete / structural
- * properties (display, position, overflow, font-family, …) do not animate
- * meaningfully, so committing a multi-property style edit must not invent
- * tracks for them.
- */
 const MOTION_ANIMATABLE_PROPERTIES = new Set([
   "opacity",
   "transform",
@@ -140,23 +134,6 @@ export function isMotionAnimatableProperty(property: string): boolean {
   );
 }
 
-/**
- * Item 7 — motion auto-key. The pure decision behind
- * upsertMotionKeyframesFromStyles (DesignEditor's useCallback wrapper, which
- * only resolves the DOM/projection-dependent targetNodeId and calls this):
- * given a style-change batch, key every ALREADY-tracked, motion-animatable
- * property on `targetNodeId` at the current playhead via
- * applyMotionAutoKeyframe. Matches Figma parity — arming auto-keyframe never
- * invents a new track for an untracked property; that stays a plain style
- * change regardless of this function's outcome (the caller commits the style
- * either way). Returns the SAME `tracks` reference when nothing changed, so
- * callers can cheaply detect "no-op" via reference equality (as the
- * setMotionTracks updater here does) without a separate dirty flag.
- * Extracted as a standalone pure function so the armed/wiring conditions
- * (property-name mapping to the shared motion catalog, playhead threading,
- * per-property track lookup) are directly unit-testable — see
- * DesignEditor.motion.test.ts.
- */
 export function applyMotionAutoKeyframesForStyles(
   tracks: MotionDockTrack[],
   args: {
@@ -229,8 +206,6 @@ export function upsertMotionStyleKeyframes(args: {
     if (!value) continue;
     const property = motionCssPropertyName(rawProperty);
     if (!property) continue;
-    // Only record properties that actually animate; structural commits
-    // (display, position, overflow, …) must not invent motion tracks.
     if (!isMotionAnimatableProperty(property)) continue;
 
     const existingIndex = nextTracks.findIndex(
@@ -259,8 +234,6 @@ export function upsertMotionStyleKeyframes(args: {
       computedMotionStyleValue(args.computedStyles, property) ??
       computedMotionStyleValue(args.computedStyles, rawProperty) ??
       defaultMotionBaseValue(property, value);
-    // A brand-new track whose committed value equals its base value would be
-    // a from == to no-op animation — skip it instead of persisting it.
     if (value === baseValue) continue;
     const keyframes =
       t <= MOTION_KEYFRAME_TIME_EPSILON

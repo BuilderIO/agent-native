@@ -1,7 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- h3 + helper mocks (mirror sibling specs) ---
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) =>
@@ -14,10 +13,6 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 const getSessionMock = vi.fn();
 const getConfiguredLoginHtmlMock = vi.fn(() => null);
-// Mirror the real socket-based isLoopbackRequest: dev-open is gated on the
-// actual peer, not the (spoofable) Host header. The test events carry no
-// socket, so derive loopback from the host they simulate connecting as —
-// localhost/127.x ⇒ a loopback peer, anything else ⇒ remote.
 const isLoopbackRequestMock = vi.fn((event: any) =>
   /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(String(event?.headers?.host ?? "")),
 );
@@ -31,8 +26,6 @@ vi.mock("../org/context.js", () => ({
   getOrgDomain: vi.fn(async () => "builder.io"),
 }));
 
-// In-memory store mock — exercises mint/revoke + device lifecycle via the
-// route, while letting us reach into raw state for assertions.
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 vi.mock("./connect-store.js", () => ({
@@ -206,10 +199,6 @@ describe("handleMcpConnect", () => {
       expect(body).not.toContain("connectionsEl.open = true");
       // The page never embeds a token.
       expect(body).not.toContain("Bearer ey");
-      // The new non-dev flow surfaces the remote MCP URL + a per-host picker
-      // (Claude / ChatGPT / Cursor / Claude Code / Codex / Other) so users can
-      // connect without copying a token. Display the live host MCP URL rather
-      // than a hardcoded one.
       expect(body).toContain("https://mail.agent-native.com/mcp");
       expect(body).toContain('data-tab="claude"');
       expect(body).toContain('data-tab="chatgpt"');
@@ -553,10 +542,8 @@ describe("handleMcpConnect", () => {
     });
 
     it("device/authorize requires a session and binds the user", async () => {
-      // start
       await handleMcpConnect(ev({ method: "POST" }), "/device/start");
 
-      // unauth authorize → 401
       getSessionMock.mockResolvedValue(null);
       const unauth = await handleMcpConnect(
         ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
@@ -564,7 +551,6 @@ describe("handleMcpConnect", () => {
       );
       expect(unauth.status).toBe(401);
 
-      // authed authorize → 200 + bound
       getSessionMock.mockResolvedValue({
         email: "u@example.com",
         orgId: "org-7",
@@ -591,7 +577,6 @@ describe("handleMcpConnect", () => {
       await handleMcpConnect(ev({ method: "POST" }), "/device/start");
       const dc = deviceRows[0].deviceCode;
 
-      // pending
       getSessionMock.mockResolvedValue(null);
       let res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
@@ -599,14 +584,12 @@ describe("handleMcpConnect", () => {
       );
       expect((await res.json()).status).toBe("pending");
 
-      // approve via the browser
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       await handleMcpConnect(
         ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
         "/device/authorize",
       );
 
-      // poll → approved + token (unauth)
       getSessionMock.mockResolvedValue(null);
       res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
@@ -624,7 +607,6 @@ describe("handleMcpConnect", () => {
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
 
-      // poll again → consumed (single-use, no second token)
       res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
         "/device/poll",
@@ -780,10 +762,6 @@ describe("handleMcpConnect", () => {
   });
 });
 
-// Every beta deployment is `beta.<app>.agent-native.com`, so the leading
-// hostname label is `beta` for all of them. Deriving the server name from it
-// gave all 18 apps the same id, and a client keys its MCP config by that id —
-// so connecting a second beta app silently replaced the first.
 describe("server name on a multi-label host", () => {
   beforeEach(() => {
     getSessionMock.mockResolvedValue({
@@ -834,11 +812,6 @@ describe("explicit server name", () => {
   });
   afterEach(() => resetAppConfigForTests());
 
-  // Plan ships `plan` as its server id in
-  // `.agents/plugins/agent-native-visual-plans/.mcp.json`, and the CLI config
-  // writers key existing client entries by it. Falling back to the derived
-  // `agent-native-plan` would write a duplicate on the next connect rather than
-  // updating the entry a user already has.
   it("wins over the derived name, prefix included", async () => {
     defineAppConfig({ app: { id: "plan" } });
     const res = await handleMcpConnect(

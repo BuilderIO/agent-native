@@ -91,7 +91,6 @@ interface SecretStatusOption {
   source?: string;
 }
 
-/** Wire shape of `GET /_agent-native/agents/probe` (single or batched result). */
 interface AgentProbeResult {
   url: string;
   reachable: boolean;
@@ -99,7 +98,6 @@ interface AgentProbeResult {
   name?: string;
   description?: string;
   securitySchemes?: string[];
-  /** Absent (not false) whenever the auth check never ran or never resolved. */
   authorized?: boolean;
   authError?: string;
   publicSkills?: number;
@@ -118,14 +116,10 @@ function probeStatus(
 
 function describeSkills(publicSkills: number | undefined): string | null {
   if (publicSkills === undefined) return null;
-  // An empty public skill list only means the card advertises no anonymous-
-  // safe actions — the peer still has authenticated reads/writes. Saying so
-  // plainly avoids reading as "this agent can't do anything."
   if (publicSkills === 0) return "reads require auth";
   return `${publicSkills} public skill${publicSkills === 1 ? "" : "s"}`;
 }
 
-/** One-line status for the row dot tooltip. */
 function describeProbeTooltip(result: AgentProbeResult): string {
   if (!result.reachable) {
     return `Unreachable${result.error ? `: ${result.error}` : ""}`;
@@ -139,7 +133,6 @@ function describeProbeTooltip(result: AgentProbeResult): string {
   return "Reachable and authorized";
 }
 
-/** Multi-clause status line for the Add popover's Check result. */
 function describeCheckResult(result: AgentProbeResult): string {
   if (!result.reachable) {
     return result.error ?? "Not reachable";
@@ -669,11 +662,6 @@ interface AddedAgentInfo {
   provider: HostedAgentProvider;
 }
 
-/** Builds an absolute deep link into a peer's own Settings > Agents Add
- * popover, prefilled with THIS app's own name/url/description, via the
- * existing `/_agent-native/open` route's `f_*` filter-forwarding (the only
- * non-reserved params the open route echoes onto the redirect URL instead of
- * only stashing them server-side for `navigate` polling). No new endpoint. */
 function buildPeerRegisterBackLink(peerUrl: string): string {
   const selfUrl = `${window.location.origin}${appBasePath()}`;
   const selfName = document.title.trim() || window.location.hostname;
@@ -1116,9 +1104,6 @@ function A2ASecretStatusRow({
   const secretSet = org.a2aSecretSet;
 
   if (secretSet === undefined) {
-    // Not an owner/admin — the server omits `a2aSecretSet` entirely for this
-    // role rather than reporting `false`, so this must read as "can't see
-    // it," never as "not set" (a claim we have no basis for).
     return (
       <div className="mb-2 rounded-md border border-border/60 bg-accent/20 px-2 py-1.5 text-[10px] text-muted-foreground">
         Shared secret is managed by your workspace owner.
@@ -1208,7 +1193,6 @@ function A2ASecretStatusRow({
   );
 }
 
-/** Query params `/_agent-native/open` forwards onto the redirect target. */
 const PREFILL_PARAMS = [
   "f_agentName",
   "f_agentUrl",
@@ -1277,9 +1261,6 @@ export function AgentsSection() {
     };
   }, [t]);
 
-  // Landing from a peer's "register back" deep link (see
-  // buildPeerRegisterBackLink): the open route only echoes `f_*` params onto
-  // the redirect URL, so read those here and open the Add popover prefilled.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -1317,9 +1298,6 @@ export function AgentsSection() {
     );
   }, []);
 
-  // One batched probe for the whole list — cheap liveness dots, not one
-  // request per row. A row absent from the results (never returned) stays
-  // dot-less rather than defaulting to a color that isn't backed by data.
   useEffect(() => {
     let cancelled = false;
     fetch(agentNativePath("/_agent-native/agents/probe"))
@@ -1348,10 +1326,6 @@ export function AgentsSection() {
       );
       if (!res.ok) return;
       const data = await res.json();
-      // Migrating a remote agent to the canonical `remote-agents/` prefix
-      // leaves the legacy `agents/` row in place (resources/store.ts), so
-      // every migrated agent has two resources pointing at one URL. Collapse
-      // them the way discoverAgents does, canonical winning.
       const byAgentId = new Map<string, { id: string; path: string }>();
       for (const resource of (data.resources ?? []) as Array<{
         id: string;
@@ -1516,9 +1490,6 @@ export function AgentsSection() {
       setAgents(previousAgents);
       throw error;
     }
-    // Deliberately don't close the popover here — a successful add shows a
-    // follow-up state (registration is one-way; the peer doesn't know
-    // about us yet) that the user dismisses explicitly.
     void fetchAgents();
     return true;
   };

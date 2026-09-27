@@ -18,7 +18,6 @@ export interface CredentialProviderConfig {
  * deliberately never reads process.env because env vars are deploy-global.
  */
 export const credentialKeys: CredentialKeyConfig[] = [
-  // Google Cloud / Analytics / BigQuery
   {
     key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
     label: "Google Cloud",
@@ -35,14 +34,12 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "BigQuery Events Table",
     required: false,
   },
-  // Amplitude
   { key: "AMPLITUDE_API_KEY", label: "Amplitude API Key", required: false },
   {
     key: "AMPLITUDE_SECRET_KEY",
     label: "Amplitude Secret Key",
     required: false,
   },
-  // Mixpanel
   {
     key: "MIXPANEL_PROJECT_ID",
     label: "Mixpanel Project ID",
@@ -53,7 +50,6 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "Mixpanel Service Account",
     required: false,
   },
-  // PostHog
   { key: "POSTHOG_API_KEY", label: "PostHog API Key", required: false },
   { key: "POSTHOG_PROJECT_ID", label: "PostHog Project ID", required: false },
   { key: "POSTHOG_HOST", label: "PostHog Host", required: false },
@@ -62,13 +58,9 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "Builder.io Public API Key",
     required: false,
   },
-  // FullStory Server API fallback for structured reads
   { key: "FULLSTORY_API_KEY", label: "FullStory API key", required: false },
-  // PostgreSQL (user's external DB, not the app's DATABASE_URL)
   { key: "POSTGRES_URL", label: "PostgreSQL URL", required: false },
-  // Stripe
   { key: "STRIPE_SECRET_KEY", label: "Stripe", required: false },
-  // HubSpot
   {
     key: "HUBSPOT_PRIVATE_APP_TOKEN",
     label: "HubSpot private app token",
@@ -79,32 +71,24 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "HubSpot access token (legacy)",
     required: false,
   },
-  // Gong
   { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: false },
   { key: "GONG_ACCESS_SECRET", label: "Gong Access Secret", required: false },
   { key: "GONG_API_BASE", label: "Gong API Base URL", required: false },
-  // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
-  // Clay
   {
     key: "CLAY_PUBLIC_API_KEY",
     label: "Clay Public API Key",
     required: false,
   },
-  // GitHub
   { key: "GITHUB_TOKEN", label: "GitHub token", required: false },
-  // Jira
   { key: "JIRA_BASE_URL", label: "Jira Base URL", required: false },
   { key: "JIRA_USER_EMAIL", label: "Jira Email", required: false },
   { key: "JIRA_API_TOKEN", label: "Jira API Token", required: false },
-  // Sentry
   { key: "SENTRY_SERVER_TOKEN", label: "Sentry Server Token", required: false },
   { key: "SENTRY_AUTH_TOKEN", label: "Sentry", required: false },
   { key: "SENTRY_ORG_SLUG", label: "Sentry Organization", required: false },
-  // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
   { key: "GRAFANA_API_TOKEN", label: "Grafana API Token", required: false },
-  // Prometheus
   { key: "PROMETHEUS_URL", label: "Prometheus URL", required: false },
   { key: "PROMETHEUS_USERNAME", label: "Prometheus Username", required: false },
   { key: "PROMETHEUS_PASSWORD", label: "Prometheus Password", required: false },
@@ -113,7 +97,6 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "Prometheus Bearer Token",
     required: false,
   },
-  // Slack
   {
     key: "SLACK_BOT_TOKEN",
     label: "Slack Bot Token (legacy local fallback)",
@@ -124,15 +107,10 @@ export const credentialKeys: CredentialKeyConfig[] = [
     label: "Slack Bot Token (legacy secondary fallback)",
     required: false,
   },
-  // Notion
   { key: "NOTION_API_KEY", label: "Notion", required: false },
-  // Twitter/X
   { key: "TWITTER_BEARER_TOKEN", label: "Twitter/X", required: false },
-  // Pylon
   { key: "PYLON_API_KEY", label: "Pylon", required: false },
-  // Common Room
   { key: "COMMONROOM_API_TOKEN", label: "Common Room", required: false },
-  // DataForSEO
   { key: "DATAFORSEO_LOGIN", label: "DataForSEO", required: false },
   {
     key: "DATAFORSEO_PASSWORD",
@@ -141,13 +119,6 @@ export const credentialKeys: CredentialKeyConfig[] = [
   },
 ];
 
-/**
- * Keys that act as overrides for a default value — providers list them under
- * `optionalKeys`. A blank submission for one of these keys means "go back to
- * the default", which the credentials POST handler treats as a delete. Keys
- * that are required by *any* provider are excluded so a typo on a critical
- * field can never silently erase it.
- */
 export function buildOptionalCredentialKeys(
   configs: CredentialProviderConfig[],
 ): Set<string> {
@@ -165,12 +136,6 @@ export interface CredentialUpdatePartition {
   blankRequired: string[];
 }
 
-/**
- * Split incoming credential updates into the keys that should be saved and
- * the optional keys whose blank value means "clear and use the default".
- * `blankRequired` collects any blank values for required keys so the caller
- * can reject them before touching storage.
- */
 export function partitionCredentialUpdate(
   vars: Array<{ key: string; value: string }>,
   optionalKeys: Set<string>,

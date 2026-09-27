@@ -1,11 +1,3 @@
-/**
- * Partially update a recording — title, description, folder, tags,
- * flags (enableComments/Reactions/Downloads), defaultSpeed.
- *
- * Usage:
- *   pnpm action update-recording --id=<id> --title="New title"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -72,7 +64,6 @@ export default defineAction({
       patch.defaultSpeed = args.defaultSpeed;
     if (typeof args.animatedThumbnailEnabled === "boolean")
       patch.animatedThumbnailEnabled = args.animatedThumbnailEnabled;
-    // Encrypt the share password at rest; empty/nullish clears it.
     if (args.password !== undefined)
       patch.password = encryptSharePassword(args.password);
     if (args.expiresAt !== undefined) patch.expiresAt = args.expiresAt ?? null;
@@ -84,7 +75,6 @@ export default defineAction({
       .set(patch)
       .where(eq(schema.recordings.id, args.id));
 
-    // Replace tag set if tags were provided.
     if (args.tags) {
       await db
         .delete(schema.recordingTags)

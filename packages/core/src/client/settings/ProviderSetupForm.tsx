@@ -123,10 +123,6 @@ export function AgentProviderSetupForm({
     setOllamaModelsError(null);
   }, [active.defaultModel, provider]);
 
-  // Ask the Ollama server itself which models it has pulled, instead of only
-  // offering the static suggestion list. Triggered explicitly by the "Find
-  // models" button rather than on every keystroke, so the request always
-  // uses the address the user actually meant to check.
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
     setOllamaModelsError(null);
@@ -135,12 +131,6 @@ export function AgentProviderSetupForm({
       .then(async (models) => {
         setOllamaModels(models);
         setOllamaModelsError(null);
-        // A successful check is the only signal this address actually works.
-        // Persist it as soon as it's confirmed — other surfaces that read
-        // the saved Ollama endpoint (like the chat composer's model picker)
-        // have no address field of their own, so without this they keep
-        // falling back to the http://localhost:11434 default until the main
-        // "Use Ollama" button below is also clicked.
         if (typedEndpoint && active.endpointKey) {
           try {
             await saveAgentEngineProviderSettings({
@@ -238,8 +228,6 @@ export function AgentProviderSetupForm({
     configuredProviders?.has(provider) ||
     providerKeyStatus?.status === "set" ||
     saved;
-  // The catalog provides current suggestions, while the free-form field keeps
-  // newly released provider models usable before the catalog is refreshed.
   const modelInputVisible = Boolean(active.key) || active.supportsCustomModel;
   const endpointVisible = active.supportsEndpoint;
   const isOllama = provider === "ollama";

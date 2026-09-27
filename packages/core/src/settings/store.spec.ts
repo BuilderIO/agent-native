@@ -51,9 +51,6 @@ afterEach(async () => {
 
 describe("settings store", () => {
   it("issues the poll-path index DDL on init", async () => {
-    // The first store call triggers ensureTable(), which must create the
-    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
-    // full table scans. Capture which SQL strings are executed and assert.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -100,15 +97,9 @@ describe("settings store", () => {
         )
         .run("corrupt-cached", "{not valid json", Date.now());
 
-      // Seed the request cache with the raw corrupt string via the batch
-      // path, which isolates it as null instead of throwing.
       await getSettings(["corrupt-cached"]);
       rawClient.execute.mockClear();
 
-      // getSetting must still throw when serving that same cached raw value,
-      // not silently return the batch path's null. Asserting no DB call
-      // happened confirms this is the cache-hit branch throwing, not a
-      // fallback re-query that happens to also throw.
       await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
       expect(rawClient.execute).not.toHaveBeenCalled();
     });
@@ -292,8 +283,6 @@ describe("getSettings (batched read)", () => {
   });
 
   it("bypasses and does not populate the request cache when bypassCache is set", async () => {
-    // Write directly, bypassing putSetting's own cache write-through, so
-    // entering the request context finds this key genuinely uncached.
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("k", JSON.stringify({ v: 1 }), Date.now());
@@ -304,8 +293,6 @@ describe("getSettings (batched read)", () => {
       await getSettings(["k"], { bypassCache: true });
       rawClient.execute.mockClear();
 
-      // A later plain getSetting must not see a cache entry seeded by the
-      // bypassed read.
       await getSetting("k");
       expect(rawClient.execute).toHaveBeenCalledTimes(1);
     });

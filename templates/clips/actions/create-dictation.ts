@@ -1,7 +1,3 @@
-/**
- * Create a dictation row from browser, desktop, or mobile voice capture.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { track } from "@agent-native/core/tracking";

@@ -25,7 +25,6 @@ describe("seedYDocFromJson / yDocToJson round-trips", () => {
     const doc = new Y.Doc();
     seedYDocFromJson(doc, "data", json, "map");
 
-    // Shared types are materialized as real Yjs containers, not stored verbatim.
     const ymap = doc.getMap("data");
     expect(ymap.get("meta")).toBeInstanceOf(Y.Map);
     expect(ymap.get("tags")).toBeInstanceOf(Y.Array);
@@ -100,7 +99,6 @@ describe("applyJsonDiff on Y.Map", () => {
       added: [1, 2],
     });
 
-    // A real update was produced (non-empty).
     expect(update.length).toBeGreaterThan(0);
     expect(yDocToJson(doc, "data")).toEqual({
       keep: 1,
@@ -116,7 +114,6 @@ describe("applyJsonDiff on Y.Map", () => {
 
     applyJsonDiff(doc, "data", { nested: { a: 1, b: 99, c: 3 } });
 
-    // Same container object reused (in-place diff, not replaced).
     expect(doc.getMap("data").get("nested")).toBe(nestedBefore);
     expect(yDocToJson(doc, "data")).toEqual({ nested: { a: 1, b: 99, c: 3 } });
   });
@@ -202,7 +199,6 @@ describe("applyJsonDiff on Y.Array by id (stable identity)", () => {
       "array",
     );
 
-    // Move "c" to the front.
     applyJsonDiff(doc, "data", [
       { id: "c", v: 3 },
       { id: "a", v: 1 },
@@ -235,7 +231,6 @@ describe("applyJsonDiff on Y.Array by id (stable identity)", () => {
       { id: "b", v: 2 },
     ]);
 
-    // "a" container reused and mutated in place.
     expect(doc.getArray("data").get(0)).toBe(aBefore);
     expect(yDocToJson(doc, "data")).toEqual([
       { id: "a", v: 11 },
@@ -249,7 +244,6 @@ describe("applyJsonDiff on Y.Array by id (stable identity)", () => {
     seedYDocFromJson(doc, "data", [{ id: 1, v: "old" }], "array");
     const before = doc.getArray("data").get(0);
 
-    // New json uses a string id "1" — should match the numeric id 1.
     applyJsonDiff(doc, "data", [{ id: "1", v: "new" }]);
 
     expect(doc.getArray("data").get(0)).toBe(before);
@@ -309,7 +303,6 @@ describe("applyJsonPatch", () => {
     applyJsonPatch(doc, "data", [{ op: "move", path: "list", from: 0, to: 2 }]);
     expect(yDocToJson(doc, "data")).toEqual({ list: ["b", "c", "a", "d"] });
 
-    // to beyond the end clamps to the last index.
     applyJsonPatch(doc, "data", [
       { op: "move", path: "list", from: 0, to: 99 },
     ]);
@@ -350,19 +343,13 @@ describe("initYDocWithJson", () => {
     const { doc, state } = initYDocWithJson("data", json, "map");
     expect(yDocToJson(doc, "data")).toEqual(json);
 
-    // The encoded state replays into a fresh doc. yDocToJson dispatches on
-    // `doc.share.get(field) instanceof Y.Map/Y.Array`, and a replayed root
-    // type is an untyped AbstractType until claimed with the matching typed
-    // accessor — so the consumer must call getMap/getArray first.
     const replay = new Y.Doc();
     Y.applyUpdate(replay, state);
-    replay.getMap("data"); // claim the root type, as every real consumer does
+    replay.getMap("data");
     expect(yDocToJson(replay, "data")).toEqual(json);
   });
 
   it("yDocToJson returns {} on a replayed doc whose root type was never claimed", () => {
-    // Documents the typed-accessor requirement: without getMap/getArray the
-    // root share is an AbstractType and the instanceof checks fall through.
     const { state } = initYDocWithJson("data", { a: 1 }, "map");
     const replay = new Y.Doc();
     Y.applyUpdate(replay, state);

@@ -17,7 +17,6 @@ export function MobileNav({ showNewChat }: { showNewChat?: boolean }) {
   const location = useLocation();
   const t = useT();
 
-  // Auto-close on route change
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);

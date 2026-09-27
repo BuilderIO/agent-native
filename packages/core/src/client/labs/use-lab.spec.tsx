@@ -65,8 +65,6 @@ describe("useLabState / useLab / useLabs session gating", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    // useLab defaults true (not yet known -> not gated off) while isSuccess
-    // stays false, matching today's pre-resolution behavior.
     expect(lab).toBe(true);
     expect(labs).toEqual({});
   });
@@ -120,9 +118,6 @@ describe("useLabState / useLab / useLabs session gating", () => {
     await mountProbe(Probe);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
-    // The get-labs query is disabled here, so its own isLoading is false;
-    // the gate must still report loading so callers don't read a signed-in
-    // user's lab as "known off".
     expect(isLoading).toBe(true);
   });
 });

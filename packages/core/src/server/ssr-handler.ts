@@ -1,21 +1,4 @@
 import { defineEventHandler } from "h3";
-/**
- * Shared SSR catch-all handler for React Router framework mode.
- *
- * Templates wire this up via:
- *
- *   // server/routes/[...page].get.ts
- *   import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
- *   export default createH3SSRHandler(
- *     () => import("virtual:react-router/server-build"),
- *   );
- *
- * The `getBuild` callback MUST live in the template's own source so Vite's
- * @react-router/dev plugin can resolve the `virtual:` module. Pulling the
- * import into core (e.g. via a re-export) puts it in node_modules where
- * Vite's SSR externalizer leaves it untouched and Node's ESM loader rejects
- * the unknown scheme — silently 302'ing every request to "/".
- */
 import { createRequestHandler } from "react-router";
 
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
@@ -159,15 +142,6 @@ function prefixMountedHtml(html: string, basePath: string): string {
       return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
     });
 
-  // React Router serializes the server-side basename into its hydration
-  // context. The request above is deliberately rendered mount-relative, so
-  // that value is normally "/" even though the browser URL is mounted at a
-  // workspace prefix such as "/analytics". If the client hydrates that
-  // context unchanged, the mounted pathname no longer matches the route tree:
-  // index redirects can stall and child pages can fall through to the 404.
-  // Keep the serialized router state consistent with the URLs we just
-  // prefixed. Template entry clients also set this defensively for older
-  // responses, but the initial hydration state must be correct at the source.
   return prefixedHtml.replace(
     /(window\.__reactRouterContext\s*=\s*\{\s*"basename"\s*:\s*)"(?:\\.|[^"\\])*"/,
     `$1${JSON.stringify(basePath)}`,
@@ -234,21 +208,6 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-/**
- * A "not found" shell is exactly as impersonal as a 200 shell, and leaving it
- * uncached is expensive in a way that is invisible until it is not: every dead
- * link, stale bookmark, renamed slug and crawler miss re-invoked the render
- * function, and Netlify runs one request per container. Measured on
- * www.agent-native.com, `/docs/<anything>` cost ~5s and cost the SAME ~5s on
- * the very next identical request, because `no-cache` meant nothing was ever
- * stored. Those invocations draw from the account-wide concurrency pool every
- * other site shares, so one crawler walking dead links slowed unrelated apps.
- *
- * Only 404/410 join the shared policy. A 5xx is transient and must stay
- * uncacheable — pinning one at the edge for the SWR window would turn a blip
- * into an outage. 401/403 stay out because an auth-shaped response is the one
- * error that could carry viewer-specific meaning.
- */
 const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
 
 function isSsrHtmlOrDataResponse(
@@ -332,11 +291,6 @@ function applyDefaultSsrCacheHeader(
     else headers.delete("vary");
   }
 
-  // Netlify Functions/proxies are not cached by default. Set all three cache
-  // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
-  // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
-  // actually serves SSR HTML/.data from the edge instead of forwarding every
-  // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
@@ -361,44 +315,17 @@ function applyDefaultSpeculationRulesHeader(
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/html")) return;
 
-  // Cloudflare Speed Brain injects its own Speculation-Rules header when the
-  // origin omits one. Those browser prefetches carry `Sec-Purpose: prefetch`,
-  // and Cloudflare refuses cache-ineligible dynamic pages with a 503 before
-  // the request can reach Netlify/origin. We publish an explicit no-op ruleset
-  // by default so Cloudflare does not inject its edge prefetch rules. Preserve
-  // an app-provided Speculation-Rules header above if a template deliberately
-  // owns this behavior.
   const rulesPath = prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath);
   headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
-/**
- * Strip document-level CSP from app HTML responses.
- *
- * Hosted templates inject framework bootstrap scripts, analytics, Sentry config,
- * and app-owned inline scripts whose exact bytes vary by build/template. Any
- * shared CSP header, even Report-Only, can block or noisily report Google Tag
- * Manager and those bootstraps. Extension iframes and webviews keep their own
- * route-specific sandboxes; normal app documents deliberately do not emit CSP.
- */
 function removeDocumentCsp(headers: Headers): void {
   headers.delete("content-security-policy");
   headers.delete("content-security-policy-report-only");
 }
 
-/**
- * Render an error message safely as a `text/plain` body.
- *
- * Vite ids its virtual modules with a leading NUL (`\0virtual:react-router/…`),
- * and those ids travel verbatim inside module-resolution error messages. One raw
- * NUL is enough for curl to refuse to print the response as text, hiding the only
- * line that says what broke. Escape the control bytes rather than deleting them:
- * the NUL is part of the real resolved id, so a reader who greps for it or pastes
- * it into a bug report must be able to see that it is there.
- */
 function textSafeErrorMessage(err: unknown): string {
   const message = String((err as { message?: unknown })?.message ?? err);
-  // C0 controls except tab, newline, and carriage return, which are real formatting.
   return message.replace(
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
     (char) => {
@@ -495,10 +422,6 @@ async function rewriteMountedResponse(
   );
 }
 
-/**
- * Create an h3 catch-all that hands page routes to React Router and
- * returns 404 for framework / asset paths that React Router doesn't own.
- */
 export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
@@ -511,17 +434,6 @@ export function createH3SSRHandler(getBuild: () => unknown) {
       const request = requestForAnonymousSsr(
         requestWithPathname(event.req as Request, p, basePath),
       );
-      // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
-      // request's session/cookies here, and pin an explicitly anonymous request
-      // context. That keeps the SSR HTML/.data identical for every visitor so it
-      // can be hard-cached at the CDN for everyone (see applyDefaultSsrCacheHeader).
-      //
-      // Consequence: SSR loaders that call `getRequestUserEmail()` / `accessFilter()`
-      // always see the unauthenticated branch and render public content only. Any
-      // per-user view (private records, share-grant access, who's logged in) MUST
-      // be resolved CLIENT-SIDE after load, never baked into SSR. Do not re-pin the
-      // session here to "fix" a per-user page — that silently makes the page
-      // uncacheable and/or leaks one user's data into another's cached copy.
       const ctx = { userEmail: undefined, orgId: undefined };
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
@@ -550,10 +462,6 @@ export function createH3SSRHandler(getBuild: () => unknown) {
         request.url,
       );
     } catch (err) {
-      // Log the full stack server-side, but never leak it to the client.
-      // Stack traces expose file paths, library versions, and code structure
-      // that aid reconnaissance attacks. In dev we surface the message text
-      // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
       captureError(err, {
         route: p,
