@@ -48,13 +48,6 @@ function dayName(date: string, timezone: string, locale: LocaleCode): string {
     .toLowerCase();
 }
 
-interface CheckAvailabilitySlot {
-  start: string;
-  end: string;
-  startAt: string;
-  endAt: string;
-}
-
 function projectTimeChoice(result: unknown) {
   const projected = normalizeActionChangeResult(result);
   return projected?.change.kind === "calendar-time-choice" ? projected : null;
