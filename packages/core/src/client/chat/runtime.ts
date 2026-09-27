@@ -1591,6 +1591,7 @@ function pendingApprovalStructuredHistory(
             type: "tool-result" as const,
             toolCallId: part.toolCallId,
             content: part.result,
+            ...(part.isError ? { isError: true } : {}),
           },
         ],
       },

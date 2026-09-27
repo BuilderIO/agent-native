@@ -985,6 +985,19 @@ describe("createAgentNativeChatRuntime", () => {
           { type: "text", text: "Waiting for approval. " },
           {
             type: "tool_start",
+            id: "call-0",
+            tool: "read-release",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            id: "call-0",
+            tool: "read-release",
+            result: "Release lookup failed.",
+            isError: true,
+          },
+          {
+            type: "tool_start",
             id: "call-1",
             tool: "publish-release",
             input: approvedInput,
@@ -1042,6 +1055,17 @@ describe("createAgentNativeChatRuntime", () => {
       internalContinuation: true,
       approvedToolCalls: [approvalKey],
       structuredHistory: expect.arrayContaining([
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-0",
+              content: "Release lookup failed.",
+              isError: true,
+            },
+          ],
+        },
         {
           role: "assistant",
           content: [
