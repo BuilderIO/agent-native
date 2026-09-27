@@ -24,7 +24,17 @@ import {
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
+import { startIntervalJob } from "../server/interval-job.js";
 import { evaluateCondition } from "./condition-evaluator.js";
+import {
+  claimNextAutomationTriggerEvent,
+  completeAutomationTriggerEvent,
+  enqueueAutomationTriggerEvent,
+  ensureAutomationTriggerEventQueue,
+  listReadyAutomationTriggerIds,
+  retryAutomationTriggerEvent,
+  type QueuedAutomationTriggerEvent,
+} from "./event-queue.js";
 import type { TriggerFrontmatter } from "./types.js";
 import type { AutomationWebhookTaskPayload } from "./webhook.js";
 
@@ -60,9 +70,11 @@ export type AutomationWebhookTaskResult = "completed" | "retry";
 
 const _eventSubscriptions = new Map<string, string>();
 const _dispatchingTriggers = new Set<string>();
+const _drainingTriggers = new Map<string, Promise<void>>();
 const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
 const MAX_TRIGGER_META_CHARS = 200;
 let _deps: TriggerDispatcherDeps | null = null;
+let _triggerQueueWorkerStarted = false;
 
 export function buildAutomationTriggerPrompt(input: {
   triggerName: string;
@@ -174,7 +186,29 @@ export async function initTriggerDispatcher(
   deps: TriggerDispatcherDeps,
 ): Promise<void> {
   _deps = deps;
+  await ensureAutomationTriggerEventQueue();
   await refreshEventSubscriptions();
+  startTriggerQueueWorker();
+}
+
+function startTriggerQueueWorker(): void {
+  if (_triggerQueueWorkerStarted) return;
+  _triggerQueueWorkerStarted = true;
+  startIntervalJob(
+    async (signal) => {
+      const deps = _deps;
+      if (!deps || signal.aborted) return;
+      const triggerIds = await listReadyAutomationTriggerIds(deps.appId, 100);
+      for (const triggerId of triggerIds) startTriggerDrain(triggerId);
+    },
+    {
+      intervalMs: 10_000,
+      timeoutMs: 10_000,
+      leading: true,
+      onError: (error) =>
+        console.error("[triggers] Event queue recovery scan failed:", error),
+    },
+  );
 }
 
 export async function refreshEventSubscriptions(): Promise<void> {
@@ -221,100 +255,187 @@ async function handleEvent(
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
-    const matchingTriggers = jobResources.filter((r) => {
-      if (!r.path.endsWith(".md")) return false;
-      const { meta } = parseTriggerFrontmatter(r.content);
+    const matchingTriggers = jobResources.filter((resource) => {
+      if (!resource.path.endsWith(".md")) return false;
+      const { meta, body } = parseTriggerFrontmatter(resource.content);
       return (
+        body.trim().length > 0 &&
         meta.triggerType === "event" &&
         meta.event === eventName &&
         meta.enabled &&
-        jobBelongsToApp(meta, deps.appId) &&
-        !isBackgroundAutomationRunActive(meta)
+        jobBelongsToApp(meta, deps.appId)
       );
     });
 
     for (const resource of matchingTriggers) {
-      const { meta, body } = parseTriggerFrontmatter(resource.content);
-      if (!body.trim()) continue;
-
-      let identity: AutomationExecutionIdentity;
-      if (resource.owner === "__shared__") {
-        const userEmail = meta.createdBy || resource.owner;
-        identity = {
-          userEmail,
-          orgId: meta.orgId,
-          eventOwner: userEmail.toLowerCase(),
-        };
-      } else {
-        let resolved;
-        try {
-          resolved = await resolveAutomationExecutionIdentity(
-            resource.owner,
-            meta,
-          );
-        } catch {
-          await recordTriggerSkip(
-            resource,
-            "skipped",
-            "Could not verify the automation execution identity.",
-          );
-          continue;
-        }
-        if (!resolved.ok) {
-          await recordTriggerSkip(resource, "skipped", resolved.reason);
-          continue;
-        }
-        if (!automationMatchesEventOwner(resolved.identity, eventMeta.owner)) {
-          continue;
-        }
-        identity = resolved.identity;
-      }
-
-      const owner = identity.userEmail;
-      const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey = userApiKey || deps.apiKey;
-      if (!apiKey) {
-        await recordTriggerSkip(
-          resource,
-          "error",
-          "No API key is available for this automation",
-        );
-        console.warn(`[triggers] ${meta.lastError}: "${resource.path}"`);
-        continue;
-      }
-
-      let matches: boolean;
-      try {
-        matches = await evaluateCondition(meta.condition, payload, apiKey);
-      } catch (err) {
-        const reason =
-          err instanceof Error ? err.message : "Condition evaluation failed";
-        await recordTriggerSkip(resource, "error", reason);
-        console.warn(`[triggers] ${reason}: "${resource.path}"`);
-        continue;
-      }
-      if (!matches) {
-        await recordTriggerSkip(resource, "skipped", undefined);
-        continue;
-      }
-
-      const dispatchKey = `${resource.owner}:${resource.path}`;
-      if (_dispatchingTriggers.has(dispatchKey)) continue;
-      if (meta.mode === "agentic") {
-        _dispatchingTriggers.add(dispatchKey);
-        try {
-          await dispatchAgentic(resource, payload, eventMeta, identity);
-        } finally {
-          _dispatchingTriggers.delete(dispatchKey);
-        }
-      } else {
-        console.warn(
-          `[triggers] Deterministic mode not yet implemented for "${resource.path}" — skipping`,
-        );
-      }
+      await enqueueAutomationTriggerEvent({
+        triggerId: resource.id,
+        triggerOwner: resource.owner,
+        triggerPath: resource.path,
+        appId: deps.appId,
+        eventName,
+        eventId: eventMeta.eventId,
+        payload,
+        eventOwner: eventMeta.owner,
+        emittedAt: eventMeta.emittedAt,
+      });
+      startTriggerDrain(resource.id);
     }
   } catch (err) {
     console.error(`[triggers] Error handling event "${eventName}":`, err);
+    throw err;
+  }
+}
+
+function startTriggerDrain(triggerId: string): void {
+  if (_drainingTriggers.has(triggerId)) return;
+  const drain = drainTriggerQueue(triggerId)
+    .catch((error) => {
+      console.error(
+        `[triggers] Failed to drain queued events for trigger ${triggerId}:`,
+        error,
+      );
+    })
+    .finally(() => {
+      if (_drainingTriggers.get(triggerId) === drain) {
+        _drainingTriggers.delete(triggerId);
+      }
+    });
+  _drainingTriggers.set(triggerId, drain);
+}
+
+async function drainTriggerQueue(triggerId: string): Promise<void> {
+  for (;;) {
+    const deps = _deps;
+    if (!deps) return;
+    const queued = await claimNextAutomationTriggerEvent(triggerId, deps.appId);
+    if (!queued) return;
+
+    try {
+      const result = await dispatchQueuedAutomationEvent(queued, deps);
+      if (result === "retry") {
+        await retryAutomationTriggerEvent(
+          queued.id,
+          queued.attempts,
+          "Automation trigger is busy; the event remains queued.",
+          5_000,
+        );
+        return;
+      }
+      await completeAutomationTriggerEvent(queued.id);
+    } catch (error) {
+      await retryAutomationTriggerEvent(queued.id, queued.attempts, error);
+      console.error(
+        `[triggers] Queued event ${queued.eventId} will be retried:`,
+        error,
+      );
+      return;
+    }
+  }
+}
+
+async function dispatchQueuedAutomationEvent(
+  queued: QueuedAutomationTriggerEvent,
+  deps: TriggerDispatcherDeps,
+): Promise<"completed" | "retry"> {
+  const resource = await resourceGetByPath(
+    queued.triggerOwner,
+    queued.triggerPath,
+  );
+  if (!resource || resource.id !== queued.triggerId) {
+    return "completed";
+  }
+
+  const { meta, body } = parseTriggerFrontmatter(resource.content);
+  if (
+    meta.triggerType !== "event" ||
+    meta.event !== queued.eventName ||
+    !meta.enabled ||
+    !jobBelongsToApp(meta, deps.appId) ||
+    !body.trim()
+  ) {
+    return "completed";
+  }
+  if (isBackgroundAutomationRunActive(meta)) return "retry";
+
+  let identity: AutomationExecutionIdentity;
+  if (resource.owner === "__shared__") {
+    const userEmail = meta.createdBy || resource.owner;
+    identity = {
+      userEmail,
+      orgId: meta.orgId,
+      eventOwner: userEmail.toLowerCase(),
+    };
+  } else {
+    let resolved;
+    try {
+      resolved = await resolveAutomationExecutionIdentity(resource.owner, meta);
+    } catch (error) {
+      await recordTriggerSkip(
+        resource,
+        "error",
+        "Could not verify the automation execution identity.",
+      );
+      throw error;
+    }
+    if (!resolved.ok) {
+      await recordTriggerSkip(resource, "skipped", resolved.reason);
+      return "completed";
+    }
+    if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
+      return "completed";
+    }
+    identity = resolved.identity;
+  }
+
+  const apiKey =
+    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
+  if (!apiKey) {
+    await recordTriggerSkip(
+      resource,
+      "error",
+      "No API key is available for this automation",
+    );
+    return "completed";
+  }
+
+  let matches: boolean;
+  try {
+    matches = await evaluateCondition(meta.condition, queued.payload, apiKey);
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "Condition evaluation failed";
+    await recordTriggerSkip(resource, "error", reason);
+    throw error;
+  }
+  if (!matches) {
+    await recordTriggerSkip(resource, "skipped", undefined);
+    return "completed";
+  }
+  if (meta.mode !== "agentic") {
+    console.warn(
+      `[triggers] Deterministic mode not yet implemented for "${queued.triggerPath}" — skipping`,
+    );
+    return "completed";
+  }
+
+  const dispatchKey = `${resource.owner}:${resource.path}`;
+  if (_dispatchingTriggers.has(dispatchKey)) return "retry";
+  _dispatchingTriggers.add(dispatchKey);
+  try {
+    const dispatched = await dispatchAgentic(
+      resource,
+      queued.payload,
+      {
+        eventId: queued.eventId,
+        emittedAt: queued.emittedAt,
+        owner: queued.eventOwner,
+      },
+      identity,
+    );
+    return dispatched ? "completed" : "retry";
+  } finally {
+    _dispatchingTriggers.delete(dispatchKey);
   }
 }
 
@@ -376,7 +497,7 @@ export async function dispatchAutomationWebhookTask(
   if (_dispatchingTriggers.has(dispatchKey)) return "retry";
   _dispatchingTriggers.add(dispatchKey);
   try {
-    await dispatchAgentic(
+    const dispatched = await dispatchAgentic(
       resource,
       task.payload,
       {
@@ -386,6 +507,7 @@ export async function dispatchAutomationWebhookTask(
       },
       identity,
     );
+    if (!dispatched) return "retry";
   } finally {
     _dispatchingTriggers.delete(dispatchKey);
   }
@@ -397,8 +519,8 @@ async function dispatchAgentic(
   payload: unknown,
   eventMeta: EventMeta,
   identity: AutomationExecutionIdentity,
-): Promise<void> {
-  if (!_deps) return;
+): Promise<boolean> {
+  if (!_deps) return false;
 
   const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
   const now = new Date();
@@ -411,14 +533,14 @@ async function dispatchAgentic(
     console.log(
       `[triggers] "${resource.path}" changed before dispatch; dropping the event.`,
     );
-    return;
+    return true;
   }
   const latestTrigger = parseTriggerFrontmatter(latest.content);
   if (!jobBelongsToApp(latestTrigger.meta, _deps.appId)) {
     console.log(
       `[triggers] "${resource.path}" belongs to a different app; dropping the event.`,
     );
-    return;
+    return true;
   }
   const runningMeta: TriggerFrontmatter = {
     ...latestTrigger.meta,
@@ -440,9 +562,9 @@ async function dispatchAgentic(
   });
   if (!claimed) {
     console.log(
-      `[triggers] "${resource.path}" was claimed or changed before dispatch; dropping the event.`,
+      `[triggers] "${resource.path}" changed before dispatch; the event will be retried.`,
     );
-    return;
+    return false;
   }
 
   const automation: BackgroundAutomationContext = {
@@ -513,6 +635,7 @@ async function dispatchAgentic(
       lastError: undefined,
     });
     console.log(`[triggers] "${triggerName}" completed successfully`);
+    return true;
   } catch (err) {
     const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
@@ -521,5 +644,6 @@ async function dispatchAgentic(
       lastError,
     });
     console.error(`[triggers] "${triggerName}" failed:`, lastError);
+    return true;
   }
 }

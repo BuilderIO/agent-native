@@ -4,7 +4,7 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import { resolveCredential } from "@agent-native/core/credentials";
-import { emit, listSubscriptions } from "@agent-native/core/event-bus";
+import { emitAsync, listSubscriptions } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
@@ -21,7 +21,11 @@ import {
   type JevContextCredentials,
   type JevResponse,
 } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  getUserSetting,
+  mutateUserSetting,
+  putUserSetting,
+} from "@agent-native/core/settings";
 import {
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
@@ -69,6 +73,7 @@ const MAX_EMAILS_PER_RUN = 50;
 const MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL = 32;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const AUTOMATION_POLL_LEASE_MS = 5 * 60 * 1000;
 
 interface StoredTokens {
   access_token: string;
@@ -78,6 +83,9 @@ interface StoredTokens {
 
 interface Watermark {
   lastHistoryId?: string;
+  pageToken?: string;
+  pendingHistoryId?: string;
+  pendingMessageIds?: string[];
   lastTimestamp: number;
 }
 
@@ -199,6 +207,84 @@ function receivedEventSettingKey(
   return `mail-received-events:${accountEmail.trim().toLowerCase()}:${suffix}`;
 }
 
+function automationPollLeaseSettingKey(accountEmail: string): string {
+  return `mail-automation-poll:${accountEmail.trim().toLowerCase()}:lease`;
+}
+
+async function claimAutomationPoll(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<string | null> {
+  const key = automationPollLeaseSettingKey(accountEmail);
+  const claimToken = nanoid(24);
+  let claimed = false;
+  await mutateUserSetting(ownerEmail, key, (current) => {
+    claimed = false;
+    if (
+      typeof current?.claimToken === "string" &&
+      typeof current.leaseUntil === "number" &&
+      current.leaseUntil > Date.now()
+    ) {
+      return current;
+    }
+    claimed = true;
+    return { claimToken, leaseUntil: Date.now() + AUTOMATION_POLL_LEASE_MS };
+  });
+  return claimed ? claimToken : null;
+}
+
+async function releaseAutomationPoll(
+  ownerEmail: string,
+  accountEmail: string,
+  claimToken: string,
+): Promise<void> {
+  await mutateUserSetting(
+    ownerEmail,
+    automationPollLeaseSettingKey(accountEmail),
+    (current) =>
+      current?.claimToken === claimToken
+        ? { claimToken: "", leaseUntil: 0 }
+        : (current ?? {}),
+  );
+}
+
+async function assertAutomationPollClaim(
+  ownerEmail: string,
+  accountEmail: string,
+  claimToken: string,
+): Promise<void> {
+  const claim = await getUserSetting(
+    ownerEmail,
+    automationPollLeaseSettingKey(accountEmail),
+  );
+  if (
+    claim?.claimToken !== claimToken ||
+    typeof claim.leaseUntil !== "number" ||
+    claim.leaseUntil <= Date.now()
+  ) {
+    throw new Error(
+      `The Mail automation poll lease expired for ${accountEmail}.`,
+    );
+  }
+}
+
+async function initializeReceivedEventCursor(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+): Promise<void> {
+  const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
+  if (await getUserSetting(ownerEmail, watermarkKey)) return;
+  const profile = await gmailGetProfile(accessToken);
+  if (typeof profile.historyId !== "string" || !profile.historyId) {
+    throw new Error("Gmail did not return a history cursor for Mail events.");
+  }
+  await putUserSetting(ownerEmail, watermarkKey, {
+    lastHistoryId: profile.historyId,
+    lastTimestamp: Date.now(),
+  } as any);
+}
+
 async function emitNewReceivedEvents(
   ownerEmail: string,
   accountEmail: string,
@@ -208,14 +294,7 @@ async function emitNewReceivedEvents(
   const storedWatermark = await getUserSetting(ownerEmail, watermarkKey);
   if (storedWatermark === null || storedWatermark === undefined) {
     // Do not replay the recent inbox on first poll; only subsequent arrivals start automations.
-    const profile = await gmailGetProfile(accessToken);
-    if (typeof profile.historyId !== "string" || !profile.historyId) {
-      throw new Error("Gmail did not return a history cursor for Mail events.");
-    }
-    await putUserSetting(ownerEmail, watermarkKey, {
-      lastHistoryId: profile.historyId,
-      lastTimestamp: Date.now(),
-    } as any);
+    await initializeReceivedEventCursor(ownerEmail, accountEmail, accessToken);
     return 0;
   }
   if (
@@ -223,7 +302,18 @@ async function emitNewReceivedEvents(
     Array.isArray(storedWatermark) ||
     typeof (storedWatermark as any).lastHistoryId !== "string" ||
     !(storedWatermark as any).lastHistoryId ||
-    !Number.isFinite((storedWatermark as any).lastTimestamp)
+    !Number.isFinite((storedWatermark as any).lastTimestamp) ||
+    ((storedWatermark as any).pageToken !== undefined &&
+      (typeof (storedWatermark as any).pageToken !== "string" ||
+        !(storedWatermark as any).pageToken)) ||
+    ((storedWatermark as any).pendingHistoryId !== undefined &&
+      (typeof (storedWatermark as any).pendingHistoryId !== "string" ||
+        !(storedWatermark as any).pendingHistoryId)) ||
+    ((storedWatermark as any).pendingMessageIds !== undefined &&
+      (!Array.isArray((storedWatermark as any).pendingMessageIds) ||
+        !(storedWatermark as any).pendingMessageIds.every(
+          (id: unknown) => typeof id === "string",
+        )))
   ) {
     throw new Error("The saved Mail event cursor is unreadable.");
   }
@@ -248,7 +338,7 @@ async function emitNewReceivedEvents(
     }
   }
   const watermark = storedWatermark as unknown as Watermark;
-  const { messages, newHistoryId } = await fetchNewInboxMessages(
+  const { messages, watermark: nextWatermark } = await fetchNewInboxMessages(
     accessToken,
     accountEmail,
     watermark,
@@ -256,7 +346,7 @@ async function emitNewReceivedEvents(
   );
 
   for (const message of messages) {
-    emit(
+    await emitAsync(
       "mail.message.received",
       {
         messageId: message.id,
@@ -268,17 +358,15 @@ async function emitNewReceivedEvents(
         labels: message.labelIds,
         threadId: message.threadId,
       },
-      { owner: ownerEmail },
+      {
+        owner: ownerEmail,
+        eventId: `mail.message.received:${accountEmail.trim().toLowerCase()}:${message.id}`,
+      },
     );
     processedIds.add(message.id);
   }
 
-  if (newHistoryId || messages.length > 0) {
-    await putUserSetting(ownerEmail, watermarkKey, {
-      lastHistoryId: newHistoryId || watermark.lastHistoryId,
-      lastTimestamp: Date.now(),
-    } as any);
-  }
+  await putUserSetting(ownerEmail, watermarkKey, nextWatermark as any);
   await putUserSetting(
     ownerEmail,
     receivedEventSettingKey(accountEmail, "processed-ids"),
@@ -317,6 +405,7 @@ export interface EmailSummary {
   snippet: string;
   labelIds: string[];
   date: string;
+  receivedAt?: number;
 }
 
 async function fetchNewInboxMessages(
@@ -324,62 +413,119 @@ async function fetchNewInboxMessages(
   accountEmail: string,
   watermark: Watermark,
   processedIds: Set<string>,
-): Promise<{ messages: EmailSummary[]; newHistoryId?: string }> {
-  let messageIds: string[] = [];
-  let newHistoryId: string | undefined;
+): Promise<{ messages: EmailSummary[]; watermark: Watermark }> {
+  let messageIds = (watermark.pendingMessageIds || []).filter(
+    (id) => !processedIds.has(id),
+  );
+  let nextWatermark: Watermark = {
+    ...(watermark.lastHistoryId
+      ? { lastHistoryId: watermark.lastHistoryId }
+      : {}),
+    lastTimestamp: Date.now(),
+  };
+  let fallbackToList = !watermark.lastHistoryId;
 
   if (watermark.lastHistoryId) {
-    try {
-      const history = await gmailListHistory(accessToken, {
-        startHistoryId: watermark.lastHistoryId,
-        historyTypes: ["messageAdded"],
-        labelId: "INBOX",
-        maxResults: MAX_EMAILS_PER_RUN,
-      });
+    let pageToken = watermark.pageToken;
+    let historyId = watermark.pendingHistoryId;
+    while (messageIds.length < MAX_EMAILS_PER_RUN) {
+      let history: any;
+      try {
+        history = await gmailListHistory(accessToken, {
+          startHistoryId: watermark.lastHistoryId,
+          historyTypes: ["messageAdded"],
+          labelId: "INBOX",
+          maxResults: MAX_EMAILS_PER_RUN,
+          ...(pageToken ? { pageToken } : {}),
+        });
+      } catch (err: any) {
+        if (pageToken) throw err;
+        console.warn(
+          "[automation-engine] History list failed, falling back to message list:",
+          err.message,
+        );
+        nextWatermark = { lastTimestamp: Date.now() };
+        messageIds = [];
+        fallbackToList = true;
+        break;
+      }
 
-      newHistoryId = history.historyId;
-
-      if (history.history) {
-        for (const entry of history.history) {
-          for (const added of entry.messagesAdded || []) {
-            if (added.message?.id) {
-              const labels = added.message.labelIds || [];
-              if (labels.includes("INBOX")) {
-                messageIds.push(added.message.id);
-              }
-            }
+      historyId = history.historyId || historyId;
+      const queuedMessageIds = new Set(messageIds);
+      for (const entry of history.history || []) {
+        for (const added of entry.messagesAdded || []) {
+          const id = added.message?.id;
+          if (
+            id &&
+            added.message.labelIds?.includes("INBOX") &&
+            !processedIds.has(id) &&
+            !queuedMessageIds.has(id)
+          ) {
+            messageIds.push(id);
+            queuedMessageIds.add(id);
           }
         }
       }
-    } catch (err: any) {
-      console.warn(
-        "[automation-engine] History list failed, falling back to message list:",
-        err.message,
-      );
-      messageIds = [];
-      watermark.lastHistoryId = undefined;
+
+      pageToken = history.nextPageToken;
+      if (messageIds.length >= MAX_EMAILS_PER_RUN) break;
+      if (!pageToken) {
+        nextWatermark = {
+          lastHistoryId: historyId || watermark.lastHistoryId,
+          lastTimestamp: Date.now(),
+        };
+        historyId = undefined;
+        break;
+      }
+    }
+
+    const pendingMessageIds = messageIds.slice(MAX_EMAILS_PER_RUN);
+    messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
+    if (pageToken || pendingMessageIds.length > 0) {
+      nextWatermark = {
+        lastHistoryId: pageToken
+          ? watermark.lastHistoryId
+          : historyId || watermark.lastHistoryId,
+        ...(pageToken ? { pageToken } : {}),
+        ...(pageToken && historyId ? { pendingHistoryId: historyId } : {}),
+        ...(pendingMessageIds.length ? { pendingMessageIds } : {}),
+        lastTimestamp: Date.now(),
+      };
+    } else if (historyId) {
+      nextWatermark = {
+        lastHistoryId: historyId,
+        lastTimestamp: Date.now(),
+      };
     }
   }
 
-  if (!watermark.lastHistoryId) {
+  if (fallbackToList) {
     try {
       const res = await gmailListMessages(accessToken, {
         q: "in:inbox newer_than:3d",
         maxResults: MAX_EMAILS_PER_RUN,
       });
-      newHistoryId = undefined;
-      messageIds = (res.messages || []).map((m: any) => m.id);
+      const listedMessageIds = new Set<string>();
+      for (const message of res.messages || []) {
+        if (typeof message?.id === "string") {
+          listedMessageIds.add(message.id);
+        }
+      }
+      messageIds = [...listedMessageIds];
 
       try {
         const profile = await gmailGetProfile(accessToken);
-        newHistoryId = profile.historyId;
+        nextWatermark = {
+          lastHistoryId: profile.historyId,
+          lastTimestamp: Date.now(),
+        };
       } catch {}
     } catch (err: any) {
       console.error(
         "[automation-engine] Failed to list inbox messages:",
         err.message,
       );
-      return { messages: [] };
+      return { messages: [], watermark: nextWatermark };
     }
   }
 
@@ -388,7 +534,7 @@ async function fetchNewInboxMessages(
   messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
 
   if (messageIds.length === 0) {
-    return { messages: [], newHistoryId };
+    return { messages: [], watermark: nextWatermark };
   }
 
   const batchResults = await gmailBatchGetMessages(
@@ -439,10 +585,13 @@ async function fetchNewInboxMessages(
       snippet: msg.snippet || "",
       labelIds: msg.labelIds || [],
       date: getHeader("Date"),
+      ...(Number.isFinite(Number(msg.internalDate))
+        ? { receivedAt: Number(msg.internalDate) }
+        : {}),
     });
   }
 
-  return { messages, newHistoryId };
+  return { messages, watermark: nextWatermark };
 }
 
 export interface RuleMatch {
@@ -1318,11 +1467,13 @@ export interface ProcessResult {
   suggestionsCreated: number;
 }
 
-export async function processAutomationsForAccount(
+async function runAutomationsForAccount(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
+  claimToken: string,
 ): Promise<ProcessResult> {
+  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
   const result: ProcessResult = {
     accountEmail,
     messagesProcessed: 0,
@@ -1332,9 +1483,14 @@ export async function processAutomationsForAccount(
   };
 
   try {
-    if (listSubscriptions("mail.message.received").length > 0) {
+    if (listSubscriptions("mail.message.received").length > 0)
       await emitNewReceivedEvents(ownerEmail, accountEmail, accessToken);
-    }
+    else
+      await initializeReceivedEventCursor(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+      );
   } catch (error) {
     console.error(
       `[automation-engine] Failed to emit received-mail events for ${accountEmail}:`,
@@ -1373,7 +1529,7 @@ export async function processAutomationsForAccount(
   const watermark = await getWatermark(ownerEmail);
   const processedIds = await getProcessedIds(ownerEmail);
 
-  const { messages, newHistoryId } = await fetchNewInboxMessages(
+  const { messages, watermark: nextWatermark } = await fetchNewInboxMessages(
     accessToken,
     accountEmail,
     watermark,
@@ -1381,12 +1537,8 @@ export async function processAutomationsForAccount(
   );
 
   if (messages.length === 0) {
-    if (newHistoryId) {
-      await setWatermark(ownerEmail, {
-        lastHistoryId: newHistoryId,
-        lastTimestamp: Date.now(),
-      });
-    }
+    await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
+    await setWatermark(ownerEmail, nextWatermark);
     return result;
   }
 
@@ -1403,6 +1555,7 @@ export async function processAutomationsForAccount(
   );
 
   if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
+    await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
     const labelCache = await buildLabelCache(accessToken);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
@@ -1420,7 +1573,13 @@ export async function processAutomationsForAccount(
         const rule = rulesById.get(ruleId);
         if (!rule) continue;
 
-        const actions = JSON.parse(rule.actions) as AutomationAction[];
+        const actions = (JSON.parse(rule.actions) as AutomationAction[]).filter(
+          (action) =>
+            action.type !== "notify" ||
+            (message.receivedAt !== undefined &&
+              message.receivedAt >= Math.max(rule.createdAt, rule.updatedAt)),
+        );
+        if (actions.length === 0) continue;
         const ctx: ActionContext = {
           accessToken,
           messageId,
@@ -1496,15 +1655,47 @@ export async function processAutomationsForAccount(
     await recordAiFilterDecisions(ownerEmail, aiDecisions);
   }
 
-  await setWatermark(ownerEmail, {
-    lastHistoryId: newHistoryId || watermark.lastHistoryId,
-    lastTimestamp: Date.now(),
-  });
+  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
+  await setWatermark(ownerEmail, nextWatermark);
 
   for (const msg of messages) processedIds.add(msg.id);
   await saveProcessedIds(ownerEmail, processedIds);
 
   return result;
+}
+
+export async function processAutomationsForAccount(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+): Promise<ProcessResult> {
+  const claimToken = await claimAutomationPoll(ownerEmail, accountEmail);
+  if (!claimToken) {
+    return {
+      accountEmail,
+      messagesProcessed: 0,
+      actionsExecuted: 0,
+      errors: 0,
+      suggestionsCreated: 0,
+    };
+  }
+  try {
+    return await runAutomationsForAccount(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      claimToken,
+    );
+  } finally {
+    try {
+      await releaseAutomationPoll(ownerEmail, accountEmail, claimToken);
+    } catch (error) {
+      console.warn(
+        `[automation-engine] Failed to release the Mail poll lease for ${accountEmail}:`,
+        error,
+      );
+    }
+  }
 }
 
 export async function processAutomations(ownerEmail?: string): Promise<{

@@ -54,6 +54,61 @@ export function emit(
   payload: unknown,
   meta?: Partial<EventMeta>,
 ): void {
+  const dispatch = prepareDispatch(event, payload, meta, false);
+  if (!dispatch) return;
+
+  for (const listener of dispatch.listeners) {
+    try {
+      const r = listener(dispatch.payload, dispatch.meta);
+      if (r && typeof (r as Promise<void>).catch === "function") {
+        (r as Promise<void>).catch((err) => {
+          console.error(
+            `[event-bus] Async handler for "${event}" rejected:`,
+            err,
+          );
+        });
+      }
+    } catch (err) {
+      console.error(`[event-bus] Handler for "${event}" threw:`, err);
+    }
+  }
+}
+
+/** Emit an event and wait until every subscriber has accepted it. */
+export async function emitAsync(
+  event: string,
+  payload: unknown,
+  meta?: Partial<EventMeta>,
+): Promise<void> {
+  const dispatch = prepareDispatch(event, payload, meta, true);
+  if (!dispatch) return;
+
+  const results = await Promise.allSettled(
+    dispatch.listeners.map((listener) =>
+      Promise.resolve().then(() => listener(dispatch.payload, dispatch.meta)),
+    ),
+  );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      `One or more handlers for "${event}" failed to accept the event.`,
+    );
+  }
+}
+
+function prepareDispatch(
+  event: string,
+  payload: unknown,
+  meta: Partial<EventMeta> | undefined,
+  throwOnInvalid: boolean,
+): {
+  payload: unknown;
+  meta: EventMeta;
+  listeners: Handler[];
+} | null {
   if (typeof event !== "string" || !event) {
     throw new Error("emit: event name is required");
   }
@@ -69,11 +124,16 @@ export function emit(
           `async validation is not supported. Dispatching unvalidated payload.`,
       );
     } else if (result.issues) {
+      const error = new Error(
+        `Payload validation failed for event "${event}".`,
+        { cause: result.issues },
+      );
+      if (throwOnInvalid) throw error;
       console.warn(
         `[event-bus] Payload validation failed for "${event}":`,
         result.issues,
       );
-      return;
+      return null;
     } else {
       validated = (result as { value: unknown }).value;
     }
@@ -91,21 +151,7 @@ export function emit(
   };
 
   const listeners = bus.emitter.listeners(event) as Handler[];
-  for (const listener of listeners) {
-    try {
-      const r = listener(validated, fullMeta);
-      if (r && typeof (r as Promise<void>).catch === "function") {
-        (r as Promise<void>).catch((err) => {
-          console.error(
-            `[event-bus] Async handler for "${event}" rejected:`,
-            err,
-          );
-        });
-      }
-    } catch (err) {
-      console.error(`[event-bus] Handler for "${event}" threw:`, err);
-    }
-  }
+  return { payload: validated, meta: fullMeta, listeners };
 }
 
 export function listSubscriptions(

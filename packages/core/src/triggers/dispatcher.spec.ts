@@ -32,6 +32,76 @@ const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const triggerQueueMocks = vi.hoisted(() => {
+  const rows: Array<Record<string, any>> = [];
+  let sequence = 0;
+  return {
+    rows,
+    reset() {
+      rows.length = 0;
+      sequence = 0;
+    },
+    ensure: vi.fn(async () => {}),
+    enqueue: vi.fn(async (input: Record<string, any>) => {
+      const existing = rows.find(
+        (row) =>
+          row.triggerId === input.triggerId && row.eventId === input.eventId,
+      );
+      if (existing) return { id: existing.id, inserted: false };
+      const id = `queue-${++sequence}`;
+      rows.push({
+        ...input,
+        appId: input.appId ?? null,
+        id,
+        sequenceId: sequence,
+        status: "pending",
+        attempts: 0,
+        availableAt: 0,
+      });
+      return { id, inserted: true };
+    }),
+    ready: vi.fn(async (appId?: string | null) => [
+      ...new Set(
+        rows
+          .filter(
+            (row) =>
+              row.status === "pending" &&
+              row.availableAt <= Date.now() &&
+              row.appId === (appId ?? null),
+          )
+          .sort((a, b) => a.sequenceId - b.sequenceId)
+          .map((row) => row.triggerId),
+      ),
+    ]),
+    claim: vi.fn(async (triggerId: string, appId?: string | null) => {
+      const row = rows
+        .filter(
+          (candidate) =>
+            candidate.triggerId === triggerId &&
+            candidate.appId === (appId ?? null) &&
+            candidate.status === "pending" &&
+            candidate.availableAt <= Date.now(),
+        )
+        .sort((a, b) => a.sequenceId - b.sequenceId)[0];
+      if (!row) return null;
+      row.status = "processing";
+      row.attempts += 1;
+      return { ...row };
+    }),
+    complete: vi.fn(async (id: string) => {
+      const row = rows.find((candidate) => candidate.id === id);
+      if (row) row.status = "completed";
+    }),
+    retry: vi.fn(async (id: string, _attempts: number, error: unknown) => {
+      const row = rows.find((candidate) => candidate.id === id);
+      if (row) {
+        row.status = "pending";
+        row.availableAt = Date.now() + 5_000;
+        row.lastError = String(error);
+      }
+    }),
+  };
+});
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
@@ -55,6 +125,17 @@ vi.mock("../event-bus/index.js", () => ({
   registerEvent: registerEventMock,
   subscribe: subscribeMock,
   unsubscribe: unsubscribeMock,
+}));
+vi.mock("../server/interval-job.js", () => ({
+  startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
+}));
+vi.mock("./event-queue.js", () => ({
+  claimNextAutomationTriggerEvent: triggerQueueMocks.claim,
+  completeAutomationTriggerEvent: triggerQueueMocks.complete,
+  enqueueAutomationTriggerEvent: triggerQueueMocks.enqueue,
+  ensureAutomationTriggerEventQueue: triggerQueueMocks.ensure,
+  listReadyAutomationTriggerIds: triggerQueueMocks.ready,
+  retryAutomationTriggerEvent: triggerQueueMocks.retry,
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -151,6 +232,7 @@ describe("trigger dispatcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    triggerQueueMocks.reset();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
@@ -231,6 +313,82 @@ Respond to the event.`,
     recordUsageMock.mockResolvedValue(undefined);
   });
 
+  async function waitForEvent(eventId: string, status = "completed") {
+    await vi.waitFor(() => {
+      expect(
+        triggerQueueMocks.rows.find((row) => row.eventId === eventId)?.status,
+      ).toBe(status);
+    });
+  }
+
+  it("queues a second event while the prior run is active and drains it FIFO", async () => {
+    let releaseFirstRun!: () => void;
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+    runAgentLoopMock.mockImplementationOnce(async () => {
+      await firstRunGate;
+      return {
+        inputTokens: 200,
+        outputTokens: 50,
+        cacheReadTokens: 20,
+        cacheWriteTokens: 10,
+        engineName: "test-engine",
+        model: "test-model",
+      };
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "test.event.fired",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+    await vi.waitFor(() => expect(runAgentLoopMock).toHaveBeenCalledOnce());
+
+    await handler(
+      { messageId: "message-2" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-2",
+        emittedAt: "2026-09-27T10:00:01.000Z",
+      },
+    );
+
+    expect(triggerQueueMocks.rows.map((row) => row.eventId)).toEqual([
+      "event-1",
+      "event-2",
+    ]);
+    expect(triggerQueueMocks.rows[1]?.status).toBe("pending");
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+
+    releaseFirstRun();
+    await vi.waitFor(() => expect(runAgentLoopMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(triggerQueueMocks.rows.map((row) => row.status)).toEqual([
+        "completed",
+        "completed",
+      ]),
+    );
+
+    const prompts = runAgentLoopMock.mock.calls.map(([options]) =>
+      String(options.messages[0].content[0].text),
+    );
+    expect(prompts[0]).toContain('"messageId": "message-1"');
+    expect(prompts[1]).toContain('"messageId": "message-2"');
+  });
+
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -284,6 +442,7 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-1");
 
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
     const call = runAgentLoopMock.mock.calls[0]?.[0];
@@ -366,6 +525,7 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-2");
 
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
     const call = runAgentLoopMock.mock.calls[0]?.[0];
@@ -400,6 +560,7 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-1");
 
     expect(createThreadMock).toHaveBeenCalledWith(
       "alice+triggers@agent-native.test",
@@ -489,6 +650,7 @@ Update the local follow-up status.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-policy");
 
     expect(runAgentLoopMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -540,6 +702,7 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-1");
 
     expect(recordUsageMock).toHaveBeenCalledWith({
       ownerEmail: "alice+triggers@agent-native.test",
@@ -594,6 +757,7 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-1");
 
     expect(getSystemPrompt).toHaveBeenCalledWith(
       "alice+triggers@agent-native.test",
@@ -672,6 +836,7 @@ Read the calendar.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
     releaseActions();
     await handlerPromise;
+    await waitForEvent("event-mcp");
 
     expect(getActions).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -738,6 +903,7 @@ Read the calendar.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-mcp-missing");
 
     expect(startRunMock).not.toHaveBeenCalled();
     expect(runAgentLoopMock).not.toHaveBeenCalled();
@@ -788,6 +954,7 @@ Handle the organization event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-org-other-member");
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
 
@@ -802,10 +969,11 @@ Handle the organization event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await vi.waitFor(() => expect(resourcePutMock).toHaveBeenCalled());
 
     expect(startRunMock).not.toHaveBeenCalled();
     const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
-    expect(persisted).toContain("lastStatus: skipped");
+    expect(persisted).toContain("lastStatus: error");
     expect(persisted).toContain(
       "Could not verify the automation execution identity",
     );
@@ -848,6 +1016,7 @@ Recover and handle the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await waitForEvent("event-stale");
 
     expect(startRunMock).toHaveBeenCalledOnce();
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
