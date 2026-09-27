@@ -3,7 +3,7 @@ import {
   fail,
   type ActionRunContext,
 } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
@@ -143,7 +143,7 @@ export default defineAction({
     );
     const persistedPayload = { ...payload, accountEmail };
 
-    return createScheduledJobRecord({
+    const job = await createScheduledJobRecord({
       type: "send_later",
       ownerEmail,
       emailId: args.emailId ?? null,
@@ -152,5 +152,14 @@ export default defineAction({
       payload: persistedPayload,
       runAt: args.runAt,
     });
+    return {
+      ...job,
+      change: {
+        verb: "scheduled",
+        kind: "scheduled-email",
+        title: new Date(job.runAt).toISOString(),
+        url: buildDeepLink({ app: "mail", view: "scheduled" }),
+      },
+    };
   },
 });

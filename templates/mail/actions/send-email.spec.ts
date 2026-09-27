@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  buildDeepLink: vi.fn(),
   getRequestUserEmail: vi.fn(),
   getAppProductionUrl: vi.fn(),
   writeAppState: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: mocks.buildDeepLink,
   getAppProductionUrl: mocks.getAppProductionUrl,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
@@ -89,6 +91,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.getAppProductionUrl.mockReturnValue("https://mail.agent-native.com");
+  mocks.buildDeepLink.mockReturnValue(
+    "/_agent-native/open?view=sent&messageId=gmail-message-1",
+  );
   mocks.getUserSetting.mockResolvedValue(null);
   mocks.writeAppState.mockResolvedValue(undefined);
   mocks.getAccountDisplayName.mockReturnValue(undefined);
@@ -115,6 +120,33 @@ afterEach(() => {
 });
 
 describe("send-email action", () => {
+  it("projects successful sends to a compact card without changing the result", () => {
+    const result = "Email sent successfully (id: gmail-message-1)";
+
+    expect(action.chatUI?.when?.(SEND_ARGS, result)).toBe(true);
+    expect(action.chatUI?.when?.(SEND_ARGS, "Error: send failed")).toBe(false);
+    expect(action.chatUI?.projectResult?.(SEND_ARGS, result)).toEqual({
+      change: {
+        verb: "sent",
+        kind: "email",
+        title: "A test message",
+        detail: "recipient@example.com",
+        url: "/_agent-native/open?view=sent&messageId=gmail-message-1",
+      },
+    });
+
+    const localResult = JSON.stringify({
+      id: "local-message-1",
+      isSent: true,
+      body: "private email body",
+    });
+    const localCard = action.chatUI?.projectResult?.(SEND_ARGS, localResult);
+    expect(JSON.stringify(localCard)).not.toContain("private email body");
+    expect(localCard).toMatchObject({
+      change: { verb: "sent", kind: "email", title: "A test message" },
+    });
+  });
+
   it("requires approval for interactive sends", async () => {
     mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
 

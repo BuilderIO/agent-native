@@ -2,10 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertMailJevEnabled: vi.fn(),
+  createAutomationRule: vi.fn(),
   getAiFilterState: vi.fn(),
+  getUserSetting: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  isConnected: vi.fn(),
+  listAutomationRules: vi.fn(),
+  readLocalEmails: vi.fn(),
+  recordAiFilterFeedback: vi.fn(),
   saveAiFilterState: vi.fn(),
+  withLocalEmailMutationLock: vi.fn(),
+  writeLocalEmails: vi.fn(),
   writeAppState: vi.fn(),
+  putUserSetting: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -16,9 +25,14 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: mocks.getUserSetting,
+  putUserSetting: mocks.putUserSetting,
+}));
+
 vi.mock("../server/lib/ai-filter.js", () => ({
   getAiFilterState: mocks.getAiFilterState,
-  recordAiFilterFeedback: vi.fn(),
+  recordAiFilterFeedback: mocks.recordAiFilterFeedback,
   saveAiFilterState: mocks.saveAiFilterState,
 }));
 
@@ -29,8 +43,8 @@ vi.mock("../server/lib/automation-actions.js", () => ({
 
 vi.mock("../server/lib/automations.js", () => ({
   assertMailJevEnabled: mocks.assertMailJevEnabled,
-  createAutomationRule: vi.fn(),
-  listAutomationRules: vi.fn(),
+  createAutomationRule: mocks.createAutomationRule,
+  listAutomationRules: mocks.listAutomationRules,
 }));
 
 vi.mock("../server/lib/google-api.js", () => ({
@@ -38,28 +52,24 @@ vi.mock("../server/lib/google-api.js", () => ({
   gmailModifyThread: vi.fn(),
 }));
 
-vi.mock("../server/lib/google-auth.js", () => ({ isConnected: vi.fn() }));
+vi.mock("../server/lib/google-auth.js", () => ({
+  isConnected: mocks.isConnected,
+}));
 vi.mock("../server/lib/inbox-store-sync.js", () => ({
   syncInboxLabelDelta: vi.fn(),
 }));
 vi.mock("../server/lib/local-email-store.js", () => ({
-  readLocalEmails: vi.fn(),
-  withLocalEmailMutationLock: vi.fn(),
-  writeLocalEmails: vi.fn(),
+  readLocalEmails: mocks.readLocalEmails,
+  withLocalEmailMutationLock: mocks.withLocalEmailMutationLock,
+  writeLocalEmails: mocks.writeLocalEmails,
 }));
 vi.mock("./helpers.js", () => ({ getAccessTokens: vi.fn() }));
 
 import action from "./apply-ai-filter.js";
 
 describe("apply-ai-filter Jev gate", () => {
-  it("only selects the result card when a filter changes messages", () => {
-    expect(action.chatUI?.when?.({ mode: "filter" }, { changed: 0 })).toBe(
-      false,
-    );
-    expect(action.chatUI?.when?.({ mode: "settings" }, { changed: 3 })).toBe(
-      false,
-    );
-    expect(action.chatUI?.when?.({ mode: "keep" }, { changed: 1 })).toBe(true);
+  it("does not register a Mail-specific chat renderer", () => {
+    expect(action.chatUI).toBeUndefined();
   });
 
   beforeEach(() => {
@@ -75,6 +85,25 @@ describe("apply-ai-filter Jev gate", () => {
       decisions: [],
     });
     mocks.writeAppState.mockResolvedValue(undefined);
+    mocks.getUserSetting.mockResolvedValue({
+      labels: [
+        {
+          id: "agent-native-filtered",
+          name: "agent-native-filtered",
+          type: "user",
+        },
+      ],
+    });
+    mocks.putUserSetting.mockResolvedValue(undefined);
+    mocks.recordAiFilterFeedback.mockResolvedValue(undefined);
+    mocks.createAutomationRule.mockResolvedValue(undefined);
+    mocks.listAutomationRules.mockResolvedValue([]);
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.readLocalEmails.mockResolvedValue([]);
+    mocks.withLocalEmailMutationLock.mockImplementation(
+      (_ownerEmail: string, mutate: () => Promise<unknown>) => mutate(),
+    );
+    mocks.writeLocalEmails.mockResolvedValue(undefined);
     mocks.assertMailJevEnabled.mockRejectedValue(
       Object.assign(new Error("Jev is not enabled for this account."), {
         errorCode: "jev_not_enabled",
@@ -114,7 +143,43 @@ describe("apply-ai-filter Jev gate", () => {
     expect(mocks.saveAiFilterState).not.toHaveBeenCalled();
     expect(mocks.writeAppState).not.toHaveBeenCalled();
     expect(result.state).toEqual(currentState);
+    expect(result).not.toHaveProperty("change");
   });
+
+  it.each(["filter", "keep"] as const)(
+    "returns a change for successful %s updates without exposing subjects",
+    async (mode) => {
+      mocks.assertMailJevEnabled.mockResolvedValue(undefined);
+      mocks.readLocalEmails.mockResolvedValue([
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          from: "bot@example.test",
+          subject: "Private subject",
+          labelIds: ["INBOX"],
+          isArchived: false,
+        },
+      ]);
+      mocks.listAutomationRules.mockResolvedValue([
+        { kind: "ai-filter", name: "AI filter learned examples" },
+      ]);
+      mocks.getAiFilterState.mockResolvedValue({ enabled: true });
+
+      const result = await action.run({
+        mode,
+        targets: [{ id: "message-1" }],
+      });
+
+      expect(result.changed).toBe(1);
+      expect(result.change).toEqual({
+        verb: "updated",
+        kind: "mail-filter",
+        title: "AI filter learned examples",
+        detail: "1",
+      });
+      expect(JSON.stringify(result.change)).not.toContain("Private subject");
+    },
+  );
 
   it.each([
     ["automatic filtering", { autoFilter: true }],

@@ -44,15 +44,17 @@ describe("out-of-office action parity", () => {
   });
 
   it("creates an inclusive full-day OOO through the shared action boundary", async () => {
-    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-      createEventAction.run({
-        eventType: "outOfOffice",
-        start: "2026-10-31",
-        end: "2026-11-01",
-        startTimeZone: "America/New_York",
-        fullDay: true,
-        accountEmail: "owner@example.com",
-      }),
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        createEventAction.run({
+          eventType: "outOfOffice",
+          start: "2026-10-31",
+          end: "2026-11-01",
+          startTimeZone: "America/New_York",
+          fullDay: true,
+          accountEmail: "owner@example.com",
+        }),
     );
 
     expect(createGoogleEventMock).toHaveBeenCalledWith(
@@ -77,6 +79,18 @@ describe("out-of-office action parity", () => {
         },
       }),
     );
+    expect(result.change).toMatchObject({
+      verb: "created",
+      kind: "calendar-event",
+      title: "Out of office",
+      detail: "2026-10-31–2026-11-01 America/New_York",
+    });
+    expect(
+      new URL(
+        result.change.url!,
+        "https://calendar.example.test",
+      ).searchParams.get("date"),
+    ).toBe("2026-10-31");
   });
 
   it("persists the same inclusive dates and defaults in an agent-created draft", async () => {

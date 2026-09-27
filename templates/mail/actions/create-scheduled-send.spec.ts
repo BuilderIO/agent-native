@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  buildDeepLink: vi.fn(),
   getRequestUserEmail: vi.fn(),
   createScheduledJobRecord: vi.fn(),
   resolveScheduledSendAccountEmail: vi.fn(),
@@ -8,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: mocks.buildDeepLink,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
@@ -27,8 +29,22 @@ describe("scheduled mail actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.buildDeepLink.mockReturnValue(
+      "/_agent-native/open?app=mail&view=scheduled",
+    );
     mocks.requiresEmailSendApproval.mockResolvedValue(true);
-    mocks.createScheduledJobRecord.mockResolvedValue({ id: "job-1" });
+    mocks.createScheduledJobRecord.mockImplementation(async (input) => ({
+      id: "job-1",
+      type: input.type,
+      ownerEmail: input.ownerEmail,
+      emailId: input.emailId ?? null,
+      threadId: input.threadId ?? null,
+      accountEmail: input.accountEmail ?? null,
+      payload: JSON.stringify(input.payload ?? {}),
+      runAt: input.runAt,
+      status: "pending",
+      createdAt: 1,
+    }));
     mocks.resolveScheduledSendAccountEmail.mockImplementation(
       async (_ownerEmail, requestedEmail) => requestedEmail,
     );
@@ -139,6 +155,68 @@ describe("scheduled mail actions", () => {
         }),
       }),
     );
+  });
+
+  it("returns a scheduled change after persistence without message content", async () => {
+    const runAt = Date.UTC(2027, 0, 3, 4, 5);
+    const payload = {
+      to: "recipient@example.com",
+      subject: "Private subject",
+      body: "Private body",
+    };
+    mocks.createScheduledJobRecord.mockResolvedValueOnce({
+      id: "job-1",
+      type: "send_later",
+      ownerEmail: "owner@example.com",
+      emailId: null,
+      threadId: null,
+      accountEmail: null,
+      runAt,
+      status: "pending",
+      createdAt: 1,
+      payload: JSON.stringify(payload),
+    });
+
+    const result = await action.run({ runAt, payload });
+
+    expect(result).toMatchObject({
+      id: "job-1",
+      type: "send_later",
+      ownerEmail: "owner@example.com",
+      runAt,
+      status: "pending",
+      payload: JSON.stringify(payload),
+    });
+    expect(result.change).toEqual({
+      verb: "scheduled",
+      kind: "scheduled-email",
+      title: new Date(runAt).toISOString(),
+      url: "/_agent-native/open?app=mail&view=scheduled",
+    });
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "mail",
+      view: "scheduled",
+    });
+    expect(JSON.stringify(result.change)).not.toContain(payload.to);
+    expect(JSON.stringify(result.change)).not.toContain(payload.subject);
+    expect(JSON.stringify(result.change)).not.toContain(payload.body);
+  });
+
+  it("does not return a scheduled change when persistence fails", async () => {
+    mocks.createScheduledJobRecord.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      action.run({
+        runAt: Date.now() + 60_000,
+        payload: {
+          to: "recipient@example.com",
+          subject: "Scheduled",
+          body: "body",
+        },
+      }),
+    ).rejects.toThrow("database unavailable");
   });
 
   it("rejects a non-string payload sender at the action boundary", async () => {

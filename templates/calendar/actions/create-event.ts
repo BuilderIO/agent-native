@@ -12,6 +12,11 @@ import {
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  isCalendarTimezone,
+} from "../shared/timezone.js";
+import {
   availabilityInput,
   autoDeclineModeInput,
   attachmentsInput,
@@ -33,6 +38,106 @@ import {
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function eventTimezone(value: string | undefined): string | null {
+  if (!value?.trim()) return "UTC";
+  return isCalendarTimezone(value) ? value : null;
+}
+
+function eventDate(value: string, timezone: string | null): string | undefined {
+  if (DATE_ONLY_PATTERN.test(value)) return value;
+  const instant = new Date(value);
+  return timezone && !Number.isNaN(instant.getTime())
+    ? dateKeyInTimezone(instant, timezone)
+    : undefined;
+}
+
+function eventTime(value: string, timezone: string): string | undefined {
+  const instant = new Date(value);
+  return Number.isNaN(instant.getTime())
+    ? undefined
+    : new Intl.DateTimeFormat("en-GB", {
+        timeZone: timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(instant);
+}
+
+function eventChangeTitle(event: CalendarEvent): string {
+  if (event.title.trim()) return event.title.trim().slice(0, 180);
+  const location = event.workingLocationProperties;
+  if (location?.type === "homeOffice") return "Home";
+  if (location?.type === "officeLocation") {
+    return location.officeLocation?.label || "Office";
+  }
+  if (location?.type === "customLocation") {
+    return location.customLocation?.label || "Working location";
+  }
+  return "Event";
+}
+
+function eventChangeDetail(
+  event: CalendarEvent,
+  args: { eventType?: string; fullDay?: boolean; start: string; end: string },
+): string | undefined {
+  const startTimezone = eventTimezone(event.startTimeZone);
+  const endTimezone = eventTimezone(event.endTimeZone ?? event.startTimeZone);
+  const fullDayOutOfOffice =
+    args.eventType === "outOfOffice" && args.fullDay === true;
+  let when: string | undefined;
+
+  if (
+    fullDayOutOfOffice &&
+    DATE_ONLY_PATTERN.test(args.start) &&
+    DATE_ONLY_PATTERN.test(args.end)
+  ) {
+    when = `${args.start}${args.start === args.end ? "" : `–${args.end}`} ${startTimezone ?? "UTC"}`;
+  } else if (
+    event.allDay ||
+    (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
+  ) {
+    const start = eventDate(event.start, startTimezone);
+    const endExclusive = eventDate(event.end, endTimezone);
+    if (start && endExclusive) {
+      const end = addDaysToDateKey(endExclusive, -1);
+      when = start === end ? start : `${start}–${end}`;
+    }
+  } else if (startTimezone && endTimezone) {
+    const startDate = eventDate(event.start, startTimezone);
+    const endDate = eventDate(event.end, endTimezone);
+    const startTime = eventTime(event.start, startTimezone);
+    const endTime = eventTime(event.end, endTimezone);
+    if (startDate && endDate && startTime && endTime) {
+      when =
+        startDate === endDate && startTimezone === endTimezone
+          ? `${startDate} ${startTime}–${endTime} ${startTimezone}`
+          : `${startDate} ${startTime} ${startTimezone}–${endDate} ${endTime} ${endTimezone}`;
+    }
+  }
+
+  const detail = [when, event.location?.trim()]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ")
+    .slice(0, 500);
+  return detail || undefined;
+}
+
+function eventDeepLink(
+  event: Pick<CalendarEvent, "id" | "start" | "startTimeZone">,
+): string | undefined {
+  if (!event.id) return undefined;
+  return buildDeepLink({
+    app: "calendar",
+    view: "calendar",
+    params: {
+      eventId: event.id,
+      date: eventDate(event.start, eventTimezone(event.startTimeZone)),
+    },
+  });
+}
 
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
@@ -148,26 +253,6 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
-  chatUI: {
-    renderer: "calendar.event-created",
-    projectResult: (_args, result) => {
-      const event = result as Record<string, unknown>;
-      return {
-        id: event.id,
-        title: event.title,
-        start: event.start,
-        end: event.end,
-        startTimeZone: event.startTimeZone,
-        endTimeZone: event.endTimeZone,
-        allDay: event.allDay,
-        location: event.location,
-        hangoutLink: event.hangoutLink,
-        meetingLink: event.meetingLink,
-        conferenceData: event.conferenceData,
-        videoConferenceError: event.videoConferenceError,
-      };
-    },
-  },
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
@@ -304,22 +389,35 @@ export default defineAction({
       actionContext,
     );
 
-    return calEvent;
+    const url = eventDeepLink(calEvent);
+    const detail = eventChangeDetail(calEvent, args);
+    return {
+      ...calEvent,
+      change: {
+        verb: "created",
+        kind: "calendar-event",
+        title: eventChangeTitle(calEvent),
+        ...(detail ? { detail } : {}),
+        ...(url ? { url } : {}),
+      },
+    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const evt = result as { id?: string; start?: string };
-    if (!evt.id) return null;
-    const date =
-      typeof evt.start === "string" && evt.start
-        ? evt.start.slice(0, 10)
-        : undefined;
+    const evt = result as {
+      id?: string;
+      start?: string;
+      startTimeZone?: string;
+    };
+    if (!evt.id || !evt.start) return null;
+    const url = eventDeepLink({
+      id: evt.id,
+      start: evt.start,
+      startTimeZone: evt.startTimeZone,
+    });
+    if (!url) return null;
     return {
-      url: buildDeepLink({
-        app: "calendar",
-        view: "calendar",
-        params: { eventId: evt.id, date },
-      }),
+      url,
       label: "Open event in Calendar",
       view: "calendar",
     };

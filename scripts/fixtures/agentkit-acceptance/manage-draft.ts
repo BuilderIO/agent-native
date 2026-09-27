@@ -8,12 +8,15 @@ export default defineAction({
     subject: z.string(),
     to: z.string(),
   }),
-  chatUI: { renderer: "mail.draft-created", title: "Mail draft" },
   http: false,
   readOnly: true,
   run: async ({ subject, to }) => ({
-    draft: { subject, to },
-    deepLink:
-      "https://mail.agent-native.com/_agent-native/open?draftId=agentkit-sample",
+    change: {
+      verb: "created",
+      kind: "email-draft",
+      title: subject,
+      detail: to,
+      url: "/_agent-native/open?draftId=agentkit-sample",
+    },
   }),
 });

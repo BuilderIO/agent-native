@@ -6,7 +6,9 @@ import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  normalizeActionChangeResult,
 } from "../../../action-ui.js";
 import { normalizeConnectRequiredResult } from "../../../shared/connect-required.js";
 import { useT } from "../../i18n.js";
@@ -56,6 +58,11 @@ const LazyInlineExtensionWidget = lazy(() =>
 const LazyWorkspaceFileWidget = lazy(() =>
   import("./WorkspaceFileWidget.js").then((module) => ({
     default: module.WorkspaceFileWidget,
+  })),
+);
+const LazyRecordChangeWidget = lazy(() =>
+  import("./RecordChangeWidget.js").then((module) => ({
+    default: module.RecordChangeWidget,
   })),
 );
 
@@ -183,6 +190,13 @@ const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
   ) : null;
 };
 
+const BuiltinRecordChangeRenderer: ToolRendererComponent = ({ context }) =>
+  normalizeActionChangeResult(context.resultJson) || context.isRunning ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyRecordChangeWidget context={context} />
+    </Suspense>
+  ) : null;
+
 export function isBuiltinConnectRequiredResult(
   context: ToolRendererContext,
 ): boolean {
@@ -226,6 +240,12 @@ export function resolveBuiltinActionChatRenderer(
     return BuiltinWorkspaceFileRenderer;
   }
   if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER &&
+    (normalizeActionChangeResult(context.resultJson) || context.isRunning)
+  ) {
+    return BuiltinRecordChangeRenderer;
+  }
+  if (
     isBuiltinDataWidgetActionRenderer(context) &&
     normalizeActionDataWidgetResult(context)
   ) {
@@ -246,6 +266,9 @@ export function resolveBuiltinFallbackToolRenderer(
   if (normalizeConnectRequiredResult(context.resultJson)) {
     return BuiltinConnectRequiredRenderer;
   }
+  if (normalizeActionChangeResult(context.resultJson)) {
+    return BuiltinRecordChangeRenderer;
+  }
   return normalizeActionDataWidgetResult(context) !== null
     ? BuiltinDataWidgetRenderer
     : null;
@@ -257,6 +280,7 @@ for (const [id, renderer] of [
   ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
   ["core.data-widget", ACTION_CHAT_UI_DATA_WIDGET_RENDERER],
   ["core.inline-extension", ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER],
+  ["core.record-change", ACTION_CHAT_UI_RECORD_CHANGE_RENDERER],
 ] as const) {
   registerReservedActionChatRenderer({
     id,
@@ -264,7 +288,9 @@ for (const [id, renderer] of [
     Component:
       renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
         ? BuiltinInlineExtensionRenderer
-        : BuiltinDataWidgetRenderer,
+        : renderer === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER
+          ? BuiltinRecordChangeRenderer
+          : BuiltinDataWidgetRenderer,
   });
 }
 
@@ -285,4 +311,10 @@ registerReservedFallbackToolRenderer({
   id: "core.workspace-file",
   match: (context) => normalizeWorkspaceFileResult(context.resultJson) !== null,
   Component: BuiltinWorkspaceFileRenderer,
+});
+
+registerReservedFallbackToolRenderer({
+  id: "core.record-change",
+  match: (context) => normalizeActionChangeResult(context.resultJson) !== null,
+  Component: BuiltinRecordChangeRenderer,
 });

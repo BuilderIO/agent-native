@@ -1,0 +1,125 @@
+import type { AgentApprovalRequest } from "@agent-native/agentkit/protocol";
+import { AgentApprovalPrompt } from "@agent-native/agentkit/react/components";
+import {
+  useAgentKit,
+  useAgentKitControl,
+  useAgentKitMutation,
+  type AgentKitRenderProps,
+} from "@agent-native/agentkit/react/context";
+import { IconShieldCheck } from "@tabler/icons-react";
+
+import { ActionCard } from "../chat/widgets/RecordChangeWidget.js";
+import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
+import { useT } from "../i18n.js";
+
+type ApprovalSlotProps = AgentKitRenderProps<AgentApprovalRequest> & {
+  runId: string;
+};
+
+function safeToolName(request: AgentApprovalRequest): string | undefined {
+  const value = request.metadata?.toolName;
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value)
+  ) {
+    return undefined;
+  }
+  return value.replace(/[._:-]+/g, " ");
+}
+
+function SimpleToolApproval({
+  request,
+  threadId,
+  runId,
+  toolName,
+}: {
+  request: AgentApprovalRequest;
+  threadId: string;
+  runId: string;
+  toolName?: string;
+}) {
+  const t = useT();
+  const { requestComposerFocus } = useAgentKit();
+  const control = useAgentKitControl(threadId);
+  const resolution = useAgentKitMutation(
+    async (decision: "approve" | "deny") => {
+      await control.resolveApproval(runId, request.id, {
+        decision,
+        optionIds: [decision],
+      });
+      if (decision === "deny") await control.send(t("approval.editPrompt"));
+    },
+  );
+  const question = t("approval.question", {
+    tool: toolName ?? t("approval.action"),
+  });
+  const resolve = (decision: "approve" | "deny") =>
+    void resolution
+      .execute(decision)
+      .catch(() => undefined)
+      .finally(() => requestComposerFocus(threadId));
+
+  return (
+    <div
+      className="agentkit-approval"
+      role="group"
+      aria-label={question}
+      aria-busy={resolution.pending}
+    >
+      <ActionCard
+        icon={<IconShieldCheck aria-hidden="true" className="size-4" />}
+        title={question}
+        status={t("approval.pending")}
+        className="border-0 bg-transparent shadow-none"
+        action={
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={resolution.pending}
+              onClick={() => resolve("approve")}
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+            >
+              {t("approval.approve")}
+            </button>
+            <button
+              type="button"
+              disabled={resolution.pending}
+              onClick={() => resolve("deny")}
+              className={compactOutlineButtonClassName}
+            >
+              {t("approval.edit")}
+            </button>
+          </div>
+        }
+      />
+      {resolution.error ? (
+        <p
+          role="alert"
+          className="agentkit-command-error block px-3 pb-3 text-xs"
+        >
+          {resolution.error.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function CoreAgentKitApproval(props: ApprovalSlotProps) {
+  const { value: request, runId } = props;
+  const toolName = safeToolName(request);
+  const simpleToolApproval =
+    (request.kind === undefined || request.kind === "approval") &&
+    !request.input &&
+    (!request.options || request.options.length === 0);
+
+  return simpleToolApproval ? (
+    <SimpleToolApproval
+      request={request}
+      threadId={props.threadId}
+      runId={runId}
+      toolName={toolName}
+    />
+  ) : (
+    <AgentApprovalPrompt request={request} runId={runId} />
+  );
+}

@@ -89,23 +89,6 @@ const acceptanceActionFixtures = [
     ),
   })),
 ];
-const acceptanceRendererFixtures = [
-  {
-    name: "register-mail-draft-card",
-    source: "templates/mail/app/lib/register-mail-draft-card.tsx",
-  },
-  {
-    name: "mail-gmail-filter-confirmation",
-    source: "templates/mail/app/lib/mail-gmail-filter-confirmation.tsx",
-  },
-  {
-    name: "register-chat-renderers",
-    source: "templates/calendar/app/lib/register-chat-renderers.tsx",
-  },
-].map((fixture) => ({
-  ...fixture,
-  source: path.join(repoRoot, fixture.source),
-}));
 const acceptanceTransportFixture = path.join(
   repoRoot,
   "scripts/fixtures/agentkit-acceptance/transport.ts",
@@ -285,45 +268,6 @@ function installAgentKitActionFixtures(): void {
   );
   source = source.replace(initialToolsDeclaration, updatedDeclaration);
   fs.writeFileSync(agentChatPluginPath, source);
-}
-
-function installAgentKitRendererFixtures(): void {
-  const rendererDir = path.join(
-    appDir,
-    "app/lib/agentkit-acceptance/renderers",
-  );
-  fs.mkdirSync(rendererDir, { recursive: true });
-  for (const fixture of acceptanceRendererFixtures) {
-    assert.equal(fs.existsSync(fixture.source), true);
-    fs.copyFileSync(
-      fixture.source,
-      path.join(rendererDir, `${fixture.name}.tsx`),
-    );
-  }
-
-  const chatSurfacePath = path.join(
-    appDir,
-    "app/components/chat/ChatRouteContent.tsx",
-  );
-  let source = fs.readFileSync(chatSurfacePath, "utf8");
-  const importAnchor = 'import { TAB_ID } from "@/lib/tab-id";';
-  assert.equal(
-    source.split(importAnchor).length - 1,
-    1,
-    "generated Chat surface import anchor changed",
-  );
-  const imports = acceptanceRendererFixtures
-    .map(
-      (fixture) =>
-        `import "@/lib/agentkit-acceptance/renderers/${fixture.name}";`,
-    )
-    .filter((line) => !source.includes(line));
-  if (!imports.length) return;
-  source = source.replace(
-    importAnchor,
-    `${importAnchor}\n${imports.join("\n")}`,
-  );
-  fs.writeFileSync(chatSurfacePath, source);
 }
 
 function installViteDiagnosticsFixture(): void {
@@ -2277,26 +2221,29 @@ async function assertActivitiesCollapsed(
 async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
   const draftCard = page
-    .locator("[data-agent-native-custom-ui]")
+    .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance draft" });
   await draftCard.waitFor({ state: "visible" });
   await draftCard
     .getByText("agentkit-recipient@example.test", { exact: false })
     .waitFor({ state: "visible" });
   const draftLink = draftCard.getByRole("link", {
-    name: "Open in Mail",
+    name: "Review",
     exact: true,
   });
   await draftLink.waitFor({ state: "visible" });
   assert.equal(
     new URL((await draftLink.getAttribute("href")) ?? "").pathname,
     "/_agent-native/open",
-    "the draft widget must keep its Open in Mail link",
+    "the draft widget must keep its Review link",
   );
+  await draftCard.getByText("Draft", { exact: true }).waitFor({
+    state: "visible",
+  });
 
   await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
   const filterCard = page
-    .locator("[data-agent-native-custom-ui]")
+    .locator("[data-action-card]")
     .filter({ hasText: "From: digest@example.test" });
   await filterCard
     .getByText("Apply label: AgentKit Sample", { exact: false })
@@ -2321,9 +2268,9 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
 
   await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
   const eventCard = page
-    .locator("[data-agent-native-custom-ui]")
+    .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance event" });
-  await eventCard.getByRole("img", { name: "Event created" }).waitFor({
+  await eventCard.getByText("Created", { exact: true }).waitFor({
     state: "visible",
   });
   await eventCard.getByText("Conference room 4A", { exact: false }).waitFor({
@@ -2340,6 +2287,8 @@ async function screenshotActionWidget(
   await target.waitFor({ state: "visible" });
   await target.scrollIntoViewIfNeeded();
   const rootHandle = await target.evaluateHandle((element) => {
+    const actionCard = element.closest("[data-action-card]");
+    if (actionCard) return actionCard;
     const customSurface = element.closest("[data-agent-native-custom-ui]");
     if (customSurface) return customSurface;
     const messageContent = element.closest(".agentkit-message-content");
@@ -2925,7 +2874,6 @@ async function main(): Promise<void> {
   if (!skipScaffold) {
     scaffoldStandaloneChat();
     installAgentKitActionFixtures();
-    installAgentKitRendererFixtures();
     installAcceptanceTransportFixture();
     await installApp();
     assertStandalonePackageJson();
@@ -2936,7 +2884,6 @@ async function main(): Promise<void> {
       `STANDALONE_CHAT_DEV_SMOKE_SKIP_CREATE=1 requires ${appDir}/package.json`,
     );
     installAgentKitActionFixtures();
-    installAgentKitRendererFixtures();
     installAcceptanceTransportFixture();
   }
 
