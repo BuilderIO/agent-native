@@ -1219,6 +1219,170 @@ describe("list-crm-lists and update-crm-list", () => {
     expect(archived.lists.some((row: any) => row.id === list.id)).toBe(true);
   });
 
+  it("does not return a list whose connection the caller cannot see", async () => {
+    // Org visibility (not an explicit share row) is what makes this list
+    // visible to OTHER; CONNECTION_ID — created in beforeAll, owned solely by
+    // OWNER, never org-scoped — must still gate it out of the page.
+    const SHARE_ORG = "org_list_visibility_share";
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: CONNECTION_ID,
+          name: "Org Visible List Lists",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const visible = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        listCrmLists.run(
+          {},
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+    );
+    expect(visible.lists.some((row: any) => row.id === list.id)).toBe(false);
+  });
+
+  it("does not count list entries whose record's connection the caller cannot see", async () => {
+    const SHARE_ORG = "org_list_entrycount_share";
+    const SHARED_CONNECTION_ID = "conn_lists_entrycount_shared";
+    const PRIVATE_CONNECTION_ID = "conn_lists_entrycount_private";
+    const now = new Date().toISOString();
+
+    await getDb()
+      .insert(schema.crmConnections)
+      .values([
+        {
+          id: SHARED_CONNECTION_ID,
+          provider: "native",
+          label: "Org Shared Connection",
+          mode: "native",
+          status: "connected",
+          accessScopeKey: "native",
+          ownerEmail: OWNER,
+          orgId: SHARE_ORG,
+          visibility: "org",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: PRIVATE_CONNECTION_ID,
+          provider: "native",
+          label: "Private Connection",
+          mode: "native",
+          status: "connected",
+          accessScopeKey: "native",
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_${++counter}`,
+        connectionId: SHARED_CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        label: "companies",
+        pluralLabel: "companies",
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
+      runWithRequestContext(
+        { userEmail: OWNER, orgId: SHARE_ORG },
+        fn,
+      ) as Promise<T>;
+    const ownerInOrgCtx = {
+      caller: "frontend" as const,
+      userEmail: OWNER,
+      orgId: SHARE_ORG,
+    };
+
+    const list = await asOwnerInOrg(() =>
+      createCrmList.run(
+        {
+          connectionId: SHARED_CONNECTION_ID,
+          name: "Cross-Connection Count",
+          parentObjectType: "companies",
+        },
+        ownerInOrgCtx,
+      ),
+    );
+
+    const recordId = `rec_${++counter}`;
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: PRIVATE_CONNECTION_ID,
+        provider: "native",
+        objectType: "companies",
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Cross-connection record",
+        accessScopeKey: "native",
+        accessScopeJson: JSON.stringify(NATIVE_SCOPE),
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmListEntries)
+      .values({
+        id: `entry_${++counter}`,
+        listId: list.id,
+        recordId,
+        position: 0,
+        createdByActorType: "user",
+        createdByActorId: OWNER,
+        ownerEmail: OWNER,
+        orgId: SHARE_ORG,
+        visibility: "org",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    // The list and entry are org-visible, but the ENTRY'S RECORD lives on
+    // PRIVATE_CONNECTION_ID, which OTHER cannot see: the count must not
+    // include it even though the list itself is returned.
+    const page = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        listCrmLists.run(
+          { connectionId: SHARED_CONNECTION_ID },
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+    );
+    const row = page.lists.find((entry: any) => entry.id === list.id);
+    expect(row).toBeTruthy();
+    expect(row.entryCount).toBe(0);
+  });
+
   it("rejects a defaultViewId the caller cannot see", async () => {
     const list = await newList("Default View");
     await expect(

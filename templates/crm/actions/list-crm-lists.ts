@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -31,8 +31,12 @@ export default defineAction({
     const limit = Math.min(args.limit, MAX_LIST_LIMIT);
 
     const rows = await db
-      .select()
+      .select(getTableColumns(schema.crmLists))
       .from(schema.crmLists)
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmLists.connectionId, schema.crmConnections.id),
+      )
       .where(
         and(
           ...(args.connectionId
@@ -42,6 +46,7 @@ export default defineAction({
             ? []
             : [eq(schema.crmLists.archived, false)]),
           accessFilter(schema.crmLists, schema.crmListShares),
+          accessFilter(schema.crmConnections, schema.crmConnectionShares),
         ),
       )
       .orderBy(asc(schema.crmLists.position), asc(schema.crmLists.createdAt))
@@ -50,6 +55,9 @@ export default defineAction({
 
     const page = rows.slice(0, limit);
     const listIds = page.map((list) => list.id);
+    // Counts only entries whose record — and that record's connection — the
+    // caller can see, so a list's count never discloses entries the entries
+    // page itself would withhold.
     const countRows = listIds.length
       ? await db
           .select({
@@ -57,10 +65,20 @@ export default defineAction({
             entries: count(),
           })
           .from(schema.crmListEntries)
+          .innerJoin(
+            schema.crmRecords,
+            eq(schema.crmRecords.id, schema.crmListEntries.recordId),
+          )
+          .innerJoin(
+            schema.crmConnections,
+            eq(schema.crmConnections.id, schema.crmRecords.connectionId),
+          )
           .where(
             and(
               inArray(schema.crmListEntries.listId, listIds),
               accessFilter(schema.crmListEntries, schema.crmListEntryShares),
+              accessFilter(schema.crmRecords, schema.crmRecordShares),
+              accessFilter(schema.crmConnections, schema.crmConnectionShares),
             ),
           )
           .groupBy(schema.crmListEntries.listId)

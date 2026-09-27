@@ -1,5 +1,15 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, exists, inArray, isNull, like } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  like,
+  or,
+} from "drizzle-orm";
 
 import type {
   CrmAccessScope,
@@ -819,7 +829,21 @@ export async function listCrmTasks(input: {
   const db = getDb();
   const offset = decodeCursor(input.cursor);
   const limit = Math.min(input.limit, MAX_RECORD_LIMIT);
-  const conditions = [accessFilter(schema.crmTasks, schema.crmTaskShares)];
+  const conditions = [
+    accessFilter(schema.crmTasks, schema.crmTaskShares),
+    // A standalone task (no recordId/connectionId) is kept as-is; a task
+    // linked to a record only shows if the caller can also see that record
+    // and its connection — a shared task must not reveal a record or
+    // connection the linked-resource pages themselves would withhold.
+    or(
+      isNull(schema.crmTasks.recordId),
+      accessFilter(schema.crmRecords, schema.crmRecordShares),
+    )!,
+    or(
+      isNull(schema.crmTasks.connectionId),
+      accessFilter(schema.crmConnections, schema.crmConnectionShares),
+    )!,
+  ];
   if (input.recordId)
     conditions.push(eq(schema.crmTasks.recordId, input.recordId));
   if (input.status) conditions.push(eq(schema.crmTasks.status, input.status));
@@ -836,6 +860,14 @@ export async function listCrmTasks(input: {
       updatedAt: schema.crmTasks.updatedAt,
     })
     .from(schema.crmTasks)
+    .leftJoin(
+      schema.crmRecords,
+      eq(schema.crmRecords.id, schema.crmTasks.recordId),
+    )
+    .leftJoin(
+      schema.crmConnections,
+      eq(schema.crmConnections.id, schema.crmTasks.connectionId),
+    )
     .where(and(...conditions))
     .orderBy(desc(schema.crmTasks.dueAt), desc(schema.crmTasks.id))
     .limit(limit + 1)
