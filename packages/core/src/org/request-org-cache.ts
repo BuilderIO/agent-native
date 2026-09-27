@@ -78,6 +78,45 @@ export function invalidateMemberOrgCaches(): void {
   processMemberships.clear();
 }
 
+export const ACTIVE_ORG_SETTING_KEY = "active-org-id";
+
+export type ActiveOrgSetting = { orgId: string | null } | null;
+
+/**
+ * The `active-org-id` preference, held across requests for the same TTL as
+ * the memberships it selects from. It only chooses among memberships, so a
+ * stale value can never select an org the caller no longer belongs to; on
+ * another instance it can keep the previous selection for up to the TTL after
+ * a switch. `user-settings` invalidates it on every write to the key, and the
+ * generation check stops a read that raced a write from caching the old value.
+ */
+const processActiveOrgSettings = createTtlCache<ActiveOrgSetting>({
+  ttlMs: MEMBER_ORGS_TTL_MS,
+  maxEntries: 2_048,
+});
+let activeOrgSettingGeneration = 0;
+
+export async function cachedActiveOrgSetting(
+  email: string,
+  load: () => Promise<ActiveOrgSetting>,
+): Promise<ActiveOrgSetting> {
+  const key = email.trim().toLowerCase();
+  const hit = processActiveOrgSettings.get(key);
+  if (hit !== undefined) return hit;
+  const generation = activeOrgSettingGeneration;
+  const setting = await load();
+  if (generation === activeOrgSettingGeneration) {
+    processActiveOrgSettings.set(key, setting);
+  }
+  return setting;
+}
+
+export function invalidateActiveOrgSettingCache(): void {
+  activeOrgSettingGeneration += 1;
+  processActiveOrgSettings.clear();
+}
+
 export function __resetProcessMemberOrgCacheForTests(): void {
   processMemberships.clear();
+  processActiveOrgSettings.clear();
 }

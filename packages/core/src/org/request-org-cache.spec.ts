@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockExecute = vi.fn();
 const mockGetUserSetting = vi.fn();
@@ -17,6 +17,11 @@ vi.mock("../settings/store.js", () => ({ getSetting: vi.fn() }));
 
 import { runWithRequestContext } from "../server/request-context.js";
 import { createOrganization, resolveOrgIdForEmail } from "./context.js";
+import {
+  __resetProcessMemberOrgCacheForTests,
+  cachedActiveOrgSetting,
+  invalidateActiveOrgSettingCache,
+} from "./request-org-cache.js";
 
 function memberRowQueries() {
   return mockExecute.mock.calls.filter((c) =>
@@ -138,5 +143,84 @@ describe("per-request org membership memo", () => {
 
     expect(result).toBe("org1");
     expect(memberRowQueries()).toHaveLength(2);
+  });
+});
+
+describe("cross-request active-org preference cache", () => {
+  let now = 1_000_000;
+
+  beforeEach(() => {
+    __resetProcessMemberOrgCacheForTests();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reuses a read, including an absent preference, until the TTL passes", async () => {
+    const load = vi.fn(async () => null);
+
+    await cachedActiveOrgSetting("Alice@Builder.IO", load);
+    await cachedActiveOrgSetting("alice@builder.io", load);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    now += 15_001;
+    await cachedActiveOrgSetting("alice@builder.io", load);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads after a write invalidates it", async () => {
+    const load = vi
+      .fn<() => Promise<{ orgId: string | null } | null>>()
+      .mockResolvedValueOnce({ orgId: "org-before" })
+      .mockResolvedValueOnce({ orgId: "org-after" });
+
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", load),
+    ).resolves.toEqual({
+      orgId: "org-before",
+    });
+    invalidateActiveOrgSettingCache();
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", load),
+    ).resolves.toEqual({
+      orgId: "org-after",
+    });
+  });
+
+  it("does not keep a read that raced a write", async () => {
+    let finishRead!: (value: { orgId: string }) => void;
+    const racing = cachedActiveOrgSetting(
+      "alice@builder.io",
+      () =>
+        new Promise((resolve) => {
+          finishRead = resolve;
+        }),
+    );
+    invalidateActiveOrgSettingCache();
+    finishRead({ orgId: "org-before-switch" });
+    await racing;
+
+    const load = vi.fn(async () => ({ orgId: "org-after-switch" }));
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", load),
+    ).resolves.toEqual({
+      orgId: "org-after-switch",
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("never caches a failed read", async () => {
+    const failure = new Error("settings unreadable");
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+
+    const load = vi.fn(async () => ({ orgId: "org1" }));
+    await cachedActiveOrgSetting("alice@builder.io", load);
+    expect(load).toHaveBeenCalledTimes(1);
   });
 });

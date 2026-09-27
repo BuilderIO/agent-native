@@ -4,8 +4,10 @@ import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
+  expireClientStatusResult,
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
+  SESSION_RESULT_LIFETIME_MS,
 } from "./client-status-requests.js";
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
@@ -26,7 +28,7 @@ interface UseSessionResult {
   retry: () => void;
 }
 
-const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_CACHE_TTL_MS = SESSION_RESULT_LIFETIME_MS;
 const SESSION_RETRY_BUDGET_MS = 30_000;
 const SESSION_RETRY_BASE_DELAY_MS = 500;
 const SESSION_RETRY_MAX_DELAY_MS = 5_000;
@@ -115,13 +117,36 @@ function notifyParentAuthState(
   }
 }
 
-function invalidateSessionCache(): void {
+function resetSessionCache(): void {
   sessionGeneration += 1;
   cachedSession = undefined;
   cachedSessionAt = 0;
   sessionRequest = undefined;
-  invalidateClientStatusRequest(SESSION_STATUS_PATH);
+}
+
+function notifySessionSubscribers(): void {
   for (const subscriber of sessionInvalidationSubscribers) subscriber();
+}
+
+function invalidateSessionCache(): void {
+  resetSessionCache();
+  invalidateClientStatusRequest(SESSION_STATUS_PATH);
+  notifySessionSubscribers();
+}
+
+/**
+ * Focus and visibility say only that the answer may be stale; logout, a peer
+ * tab's invalidation, and a 401 each invalidate explicitly. A signed-in answer
+ * inside its lifetime therefore stands, which keeps a hard load to one session
+ * read. A signed-out answer is re-read, because signing in elsewhere is what
+ * focus reports. A read already in flight is shared rather than aborted, so
+ * analytics refreshing on the same focus event does not cost a second request.
+ */
+function revalidateStaleSession(): void {
+  if (hasFreshSessionCache() && cachedSession) return;
+  resetSessionCache();
+  expireClientStatusResult(SESSION_STATUS_PATH);
+  notifySessionSubscribers();
 }
 
 function installSessionInvalidationListeners(): void {
@@ -134,7 +159,7 @@ function installSessionInvalidationListeners(): void {
   }
   sessionInvalidationListenersInstalled = true;
 
-  window.addEventListener("focus", invalidateSessionCache);
+  window.addEventListener("focus", revalidateStaleSession);
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
       invalidateSessionCache();
@@ -143,7 +168,7 @@ function installSessionInvalidationListeners(): void {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      invalidateSessionCache();
+      revalidateStaleSession();
     }
   });
 }

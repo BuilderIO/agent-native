@@ -39,7 +39,10 @@ import {
   isSoleOrgDomain,
   resolveOrgByDomain,
 } from "./context.js";
-import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
+import {
+  __resetProcessMemberOrgCacheForTests,
+  invalidateMemberOrgCaches,
+} from "./request-org-cache.js";
 
 // File-scope, so a describe block added later cannot forget it. The membership
 // and domain-match caches are process state: without this, one test's rows
@@ -639,6 +642,31 @@ describe("getOrgContext", () => {
       expect(ctxA.orgId).toBe("org-a");
       expect(ctxB.orgId).toBe("org-b");
       expect(mockExecute).toHaveBeenCalledTimes(4);
+    });
+
+    it("reuses the active-org preference across requests, validated against memberships", async () => {
+      mockGetSession.mockResolvedValue({ email: "switcher@example.com" });
+      mockExecute.mockResolvedValue({
+        rows: [
+          { orgId: "org-a", role: "owner", orgName: "Org A" },
+          { orgId: "org-b", role: "member", orgName: "Org B" },
+        ],
+      });
+      mockGetUserSetting.mockResolvedValue({ orgId: "org-b" });
+
+      expect(
+        await resolveOrgIdForEmailViaEvent(makeEvent(), "switcher@example.com"),
+      ).toBe("org-b");
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-b");
+      expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
+
+      // Removed from org-b: the cached preference still names it, and must not win.
+      invalidateMemberOrgCaches();
+      mockExecute.mockResolvedValue({
+        rows: [{ orgId: "org-a", role: "owner", orgName: "Org A" }],
+      });
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-a");
+      expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
     });
   });
 

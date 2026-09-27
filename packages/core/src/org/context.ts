@@ -19,9 +19,12 @@ import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import {
+  ACTIVE_ORG_SETTING_KEY,
+  cachedActiveOrgSetting,
   cachedMemberships,
   invalidateMemberOrgCaches,
   requestMemberOrgIds,
+  type ActiveOrgSetting,
 } from "./request-org-cache.js";
 import { implicitServiceOrgRole } from "./service-identity.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
@@ -168,7 +171,13 @@ function markFederationMembershipValidated(
   ] = { email: email.trim().toLowerCase(), orgId };
 }
 
-type ActiveOrgSetting = { orgId: string | null } | null;
+function parseActiveOrgSetting(
+  value: Record<string, unknown> | null,
+): ActiveOrgSetting {
+  if (!value || !("orgId" in value)) return null;
+  if (value.orgId === null) return { orgId: null };
+  return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
+}
 
 function loadActiveOrgSettingForEvent(
   event: H3Event,
@@ -185,11 +194,11 @@ function loadActiveOrgSettingForEvent(
   const normalizedEmail = email.toLowerCase();
   let promise = cache.get(normalizedEmail);
   if (!promise) {
-    promise = getUserSetting(email, "active-org-id").then((value) => {
-      if (!value || !("orgId" in value)) return null;
-      if (value.orgId === null) return { orgId: null };
-      return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
-    });
+    promise = cachedActiveOrgSetting(email, async () =>
+      parseActiveOrgSetting(
+        await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+      ),
+    );
     cache.set(normalizedEmail, promise);
   }
   return promise;
