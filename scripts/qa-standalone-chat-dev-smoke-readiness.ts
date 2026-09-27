@@ -16,22 +16,6 @@ export function isTransientCommittedNavigationResponse(
   return status === 504 || isTransientStartupPollResponse(status, body);
 }
 
-export function isPersistenceReloadFrameworkGetReset(
-  status: number,
-  method: string,
-  pathname: string,
-  body: string,
-  requestWasInFlightAtReload: boolean,
-): boolean {
-  return (
-    requestWasInFlightAtReload &&
-    method === "GET" &&
-    pathname.startsWith("/_agent-native/") &&
-    status === 500 &&
-    (body.trim() === "" || /\bECONNRESET\b/i.test(body))
-  );
-}
-
 export function isRetryableSessionReadErrorMessage(message: string): boolean {
   return (
     message.includes("apiRequestContext.get: Timeout") ||

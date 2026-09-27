@@ -304,7 +304,7 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenLastCalledWith(importError);
   });
 
-  it("logs escaped framework errors with a request ID and ignores aborted resets", () => {
+  it("logs framework errors and handles resets before disconnect flags update", () => {
     const [requestIdHandler, errorHandler] = nitroStartupRecoveryMiddlewares();
     const assignRequestId = requestIdHandler as (
       req: { url: string; method: string; agentNativeRequestId?: string },
@@ -355,8 +355,9 @@ describe("Nitro dev startup recovery", () => {
 
       errorLog.mockClear();
       nextError.mockClear();
-      const activeReset = Object.assign(new Error("read ECONNRESET"), {
+      const activeReset = Object.assign(new Error("write ECONNRESET"), {
         code: "ECONNRESET",
+        syscall: "write",
       });
       logError(activeReset, request, {}, nextError);
       expect(errorLog).toHaveBeenCalledWith(
@@ -364,6 +365,18 @@ describe("Nitro dev startup recovery", () => {
         activeReset,
       );
       expect(nextError).toHaveBeenCalledWith(activeReset);
+
+      errorLog.mockClear();
+      nextError.mockClear();
+      const incomingReadReset = Object.assign(new Error("read ECONNRESET"), {
+        code: "ECONNRESET",
+        syscall: "read",
+      });
+      const activeResponse = { destroyed: false, destroy: vi.fn() };
+      logError(incomingReadReset, request, activeResponse, nextError);
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(nextError).not.toHaveBeenCalled();
+      expect(activeResponse.destroy).toHaveBeenCalledOnce();
 
       errorLog.mockClear();
       nextError.mockClear();

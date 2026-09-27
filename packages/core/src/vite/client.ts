@@ -3111,6 +3111,7 @@ function nitroStartupRecovery(): Plugin {
             cause?: NodeJS.ErrnoException;
           };
           const code = err.code ?? err.cause?.code;
+          const syscall = err.syscall ?? err.cause?.syscall;
           const disconnected =
             req.aborted ||
             req.destroyed ||
@@ -3118,9 +3119,11 @@ function nitroStartupRecovery(): Plugin {
             res.destroyed ||
             res.writableEnded;
           if (
-            disconnected &&
-            (code === "ECONNRESET" || err.message === "read ECONNRESET")
+            (code === "ECONNRESET" && syscall === "read") ||
+            (disconnected &&
+              (code === "ECONNRESET" || err.message === "read ECONNRESET"))
           ) {
+            if (!res.destroyed && !res.writableEnded) res.destroy();
             return;
           }
 

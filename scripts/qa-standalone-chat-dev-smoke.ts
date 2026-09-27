@@ -32,7 +32,6 @@ import {
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
 import {
-  isPersistenceReloadFrameworkGetReset,
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
@@ -1020,8 +1019,6 @@ interface BrowserNetworkState {
   navigationCancellationUntil: number;
   inFlightRequests: Set<PlaywrightRequest>;
   requestsInFlightAtPersistenceReload: Set<PlaywrightRequest>;
-  persistenceReloadCaptureArmed: boolean;
-  persistenceReloadCapturedFrameworkGetPaths: Set<string>;
 }
 
 function isBenignHttpError(
@@ -2742,27 +2739,12 @@ async function assertAgentKitChatAcceptance(
   );
 
   network.requestsInFlightAtPersistenceReload.clear();
-  network.persistenceReloadCapturedFrameworkGetPaths.clear();
-  network.persistenceReloadCaptureArmed = true;
   for (const request of network.inFlightRequests) {
     network.requestsInFlightAtPersistenceReload.add(request);
-    network.persistenceReloadCapturedFrameworkGetPaths.add(
-      new URL(request.url()).pathname,
-    );
   }
-  try {
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await chat.waitFor({ state: "visible" });
-    await composer.waitFor({ state: "visible" });
-  } finally {
-    network.persistenceReloadCaptureArmed = false;
-  }
-  assert.ok(
-    network.persistenceReloadCapturedFrameworkGetPaths.has(
-      "/_agent-native/application-state",
-    ),
-    "persistence reload must capture the navigate application-state GET",
-  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await chat.waitFor({ state: "visible" });
+  await composer.waitFor({ state: "visible" });
   assert.equal(
     new URL(page.url()).pathname,
     threadPath,
@@ -2983,8 +2965,6 @@ async function main(): Promise<void> {
     navigationCancellationUntil: 0,
     inFlightRequests: new Set(),
     requestsInFlightAtPersistenceReload: new Set(),
-    persistenceReloadCaptureArmed: false,
-    persistenceReloadCapturedFrameworkGetPaths: new Set(),
   };
 
   const captureCleanupError = (error: unknown) => {
@@ -3074,12 +3054,6 @@ async function main(): Promise<void> {
         requestUrl.pathname.startsWith("/_agent-native/")
       ) {
         network.inFlightRequests.add(request);
-        if (network.persistenceReloadCaptureArmed) {
-          network.requestsInFlightAtPersistenceReload.add(request);
-          network.persistenceReloadCapturedFrameworkGetPaths.add(
-            requestUrl.pathname,
-          );
-        }
       }
       if (request.frame() !== page.mainFrame()) return;
       if (request.resourceType() !== "document") return;
@@ -3182,27 +3156,11 @@ async function main(): Promise<void> {
       }
       const error = `${status} ${url}`;
       const request = response.request();
-      const wasInFlightAtPersistenceReload =
-        network.requestsInFlightAtPersistenceReload.has(request);
       if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response
             .text()
             .then((detail) => {
-              if (
-                isPersistenceReloadFrameworkGetReset(
-                  status,
-                  request.method(),
-                  new URL(url).pathname,
-                  detail,
-                  wasInFlightAtPersistenceReload,
-                )
-              ) {
-                recordSuppressedNoise(
-                  `persistence reload canceled ${request.method()} ${url}: ${detail.slice(0, 500)}`,
-                );
-                return;
-              }
               httpErrors.push(
                 `${error}${detail ? `: ${detail.slice(0, 500)}` : ""}`,
               );
