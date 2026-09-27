@@ -1057,6 +1057,7 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
+        connectionAttached={!agentEngineConfigured && agentEngine.missing}
         connection={
           agentEngineConfigured ? null : agentEngine.missing ? (
             <BuilderSetupCard

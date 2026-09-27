@@ -44,6 +44,7 @@ describe("prompt home and library", () => {
         title="Create"
         composer={<textarea defaultValue="Draft" />}
         connection={<button>Connect</button>}
+        connectionAttached
         mobileToolbar={<button>Import</button>}
         quickActions={<button>Start</button>}
       >
@@ -100,6 +101,13 @@ describe("prompt home and library", () => {
     );
     render(home(false));
     const textarea = container.querySelector("textarea")!;
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(false);
     textarea.value = "Unsaved user draft";
     render(home(true));
     expect(container.querySelector("textarea")).toBe(textarea);

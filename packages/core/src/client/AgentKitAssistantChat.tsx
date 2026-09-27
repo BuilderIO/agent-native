@@ -3066,6 +3066,7 @@ function AgentKitComposerSurface({
           attached
           bouncePulse={setupBouncePulse}
           layout={props.missingApiKeySetupLayout ?? "default"}
+          onRetry={retryProviderStatus}
           onConnected={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }

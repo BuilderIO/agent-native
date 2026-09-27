@@ -6,6 +6,7 @@ export interface PromptHomeProps {
   composer: ReactNode;
   mobileToolbar?: ReactNode;
   connection?: ReactNode;
+  connectionAttached?: boolean;
   quickActions?: ReactNode;
   children?: ReactNode;
 }
@@ -15,6 +16,7 @@ export function PromptHome({
   composer,
   mobileToolbar,
   connection,
+  connectionAttached,
   quickActions,
   children,
 }: PromptHomeProps) {
@@ -35,7 +37,7 @@ export function PromptHome({
         </h2>
         <div
           className={`agent-prompt-home-composer mt-4 text-start${
-            connection ? " agent-composer-area--attached-above" : ""
+            connectionAttached ? " agent-composer-area--attached-above" : ""
           }`}
         >
           <div
