@@ -443,6 +443,15 @@ const messages = {
     reviewRequired: "需要審核",
     reviewRequiredDescription: "在核准之前對擷取的知識進行排隊",
     cancel: "取消",
+    close: "關閉",
+    checkBuilder: "檢查 Builder 嵌入服務",
+    checkBuilderDescription:
+      "傳送一次測試請求以確認 Builder。來源內容不會傳送或建立索引。",
+    checkBuilderConfirm:
+      "要為 {{source}} 傳送一次 Builder 嵌入測試請求嗎？這可能產生供應商費用。來源內容不會傳送，向量也不會儲存。",
+    runBuilderCheck: "執行一次檢查",
+    checkBuilderSuccess:
+      "Builder 檢查成功：{{provider}} / {{model}}，{{dimensions}} 維。未儲存向量。",
     saveSource: "儲存來源",
     createSource: "建立來源",
     retryAfter: "{{date}} 後重試",
