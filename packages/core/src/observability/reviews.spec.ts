@@ -224,7 +224,7 @@ describe("listOutputReviews", () => {
     });
   });
 
-  it("keeps a prior run's summary on the current thread rollup", async () => {
+  it("keeps a saved summary when its grouped run is excluded from review runs", async () => {
     mockGetTraceSummaries.mockResolvedValueOnce([
       {
         runId: "run-1",
@@ -244,14 +244,6 @@ describe("listOutputReviews", () => {
         userId: "alice@example.com",
         model: "test-model",
         createdAt: 123,
-      },
-      {
-        runId: "run-old",
-        orgId: "org-a",
-        threadId: "thread-1",
-        userId: "alice@example.com",
-        model: "older-model",
-        createdAt: 100,
       },
     ]);
     mockGetHumanReviewSummariesForThreads.mockResolvedValueOnce(
@@ -295,10 +287,7 @@ describe("listOutputReviews", () => {
       ask: "Build a report",
       answer: "Created the weekly dashboard",
       runId: "run-1",
-      runs: [
-        { runId: "run-1", threadId: "thread-1" },
-        { runId: "run-old", threadId: "thread-1", summaryUpdatedAt: 2 },
-      ],
+      runs: [{ runId: "run-1", threadId: "thread-1" }],
     });
     expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith(
       [{ orgId: "org-a", threadId: "thread-1" }],
@@ -356,6 +345,19 @@ describe("listOutputReviews", () => {
         createdAt: 100,
       },
     ]);
+    mockGetFeedback.mockResolvedValueOnce([
+      {
+        id: "legacy-thread-feedback",
+        runId: null,
+        threadId: "thread-old",
+        messageSeq: null,
+        feedbackType: "text",
+        value: "The previous run missed the requested chart",
+        userId: "alice@example.com",
+        orgId: "org-a",
+        createdAt: 101,
+      },
+    ]);
 
     const [row] = await listOutputReviews({
       sinceMs: 0,
@@ -377,6 +379,12 @@ describe("listOutputReviews", () => {
         createdAt: 100,
       },
     ]);
+    expect(row?.feedback).toContainEqual(
+      expect.objectContaining({
+        id: "legacy-thread-feedback",
+        value: "The previous run missed the requested chart",
+      }),
+    );
     expect(mockGetRecentReviewRunsForReviewGroups).toHaveBeenCalledWith({
       runScopes: [
         { orgId: "org-a", runId: "run-new" },
@@ -386,6 +394,10 @@ describe("listOutputReviews", () => {
     });
     expect(mockGetFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
+        threadScopes: [
+          { orgId: "org-a", threadId: "thread-new" },
+          { orgId: "org-a", threadId: "thread-old" },
+        ],
         runScopes: [
           { orgId: "org-a", runId: "run-new" },
           { orgId: "org-a", runId: "run-old" },
