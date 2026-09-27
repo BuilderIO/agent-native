@@ -1313,6 +1313,7 @@ export function ResourcesPanel({
   const pendingResourceUploadsRef = useRef<PendingResourceUpload[]>([]);
   const uploadProbeEpochRef = useRef(0);
   const uploadAttemptIdRef = useRef(0);
+  const handledUploadAttemptIdRef = useRef(0);
   const resumePendingResourceUploadsRef = useRef(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
@@ -1529,6 +1530,7 @@ export function ResourcesPanel({
       fileUploadStatus,
     );
     if (pending) {
+      handledUploadAttemptIdRef.current = uploadAttemptIdRef.current;
       processResourceUploads(pending.uploads, pending.storageConfigured, true);
     }
   }, [
@@ -1711,7 +1713,12 @@ export function ResourcesPanel({
       );
       const probeEpoch = uploadProbeEpochRef.current;
       const processAttempt = (result: ResourceUploadStatusResult) => {
-        if (probeEpoch !== uploadProbeEpochRef.current) return;
+        if (
+          probeEpoch !== uploadProbeEpochRef.current ||
+          attemptId <= handledUploadAttemptIdRef.current
+        ) {
+          return;
+        }
         const pending = takePendingResourceUploads(
           pendingResourceUploadsRef.current,
           result,
@@ -1721,6 +1728,8 @@ export function ResourcesPanel({
           setFileStorageSetupOpen(true);
           return;
         }
+        handledUploadAttemptIdRef.current = attemptId;
+        if (pending.storageConfigured) setFileStorageSetupOpen(false);
         processResourceUploads(
           pending.uploads,
           pending.storageConfigured,

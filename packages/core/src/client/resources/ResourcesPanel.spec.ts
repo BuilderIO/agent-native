@@ -19,6 +19,7 @@ const storageMocks = vi.hoisted(() => ({
     }>
   >(),
   upload: vi.fn<(formData: FormData) => void>(),
+  open: false,
   retry: null as (() => void) | null,
   dismiss: null as (() => void) | null,
   setup: null as (() => void) | null,
@@ -68,6 +69,7 @@ vi.mock("../FileStorageSetupPopover.js", () => ({
     onOpenChange: (open: boolean, reason?: string) => void;
     onRetry?: () => void;
   }) => {
+    storageMocks.open = open;
     if (open) {
       storageMocks.retry = onRetry ?? null;
       storageMocks.dismiss = () => onOpenChange(false, "dismiss");
@@ -374,6 +376,7 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.status = { isError: true, isSuccess: false };
     storageMocks.refetch.mockReset();
     storageMocks.upload.mockReset();
+    storageMocks.open = false;
     storageMocks.retry = null;
     storageMocks.dismiss = null;
     storageMocks.setup = null;
@@ -502,6 +505,56 @@ describe("ResourcesPanel storage retries", () => {
         ([formData]) => (formData.get("file") as File).name,
       ),
     ).toEqual(["earlier.png", "later.png"]);
+  });
+
+  it("ignores an older probe after a later probe uploads both batches", async () => {
+    let resolveEarlierProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    let resolveLaterProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveEarlierProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLaterProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(
+      new File(["earlier"], "earlier.png", { type: "image/png" }),
+    );
+    await chooseFile(new File(["later"], "later.png", { type: "image/png" }));
+
+    await act(async () => {
+      resolveLaterProbe({ isError: false, data: { configured: true } });
+      storageMocks.status = {
+        data: { configured: true },
+        isError: false,
+        isSuccess: true,
+      };
+      await Promise.resolve();
+    });
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(storageMocks.open).toBe(false);
+
+    await act(async () => {
+      resolveEarlierProbe({ isError: true });
+      await Promise.resolve();
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(2);
+    expect(storageMocks.open).toBe(false);
   });
 
   it("resumes queued uploads after storage is configured in settings", async () => {
