@@ -155,14 +155,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }, 0);
   }
 
+  function isRovingFocusSibling(
+    current: Element | null,
+    next: Element,
+  ): boolean {
+    if (!current || current.parentElement !== next.parentElement) return false;
+    var parent = current.parentElement;
+    return !!(
+      parent?.matches(
+        '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]',
+      ) ||
+      (current.hasAttribute("tabindex") && next.hasAttribute("tabindex"))
+    );
+  }
+
   function rememberUserFocusedElement(event: FocusEvent): void {
     var intent = trustedFocusIntent;
     var target = getCanvasFocusTarget(event);
     var navigationTargetMatches =
       intent?.kind !== "navigation" ||
       target === intent.target ||
-      (!!intent.target?.parentElement &&
-        intent.target.parentElement === target?.parentElement);
+      (target !== null && isRovingFocusSibling(intent.target, target));
     if (
       !intent ||
       Date.now() > intent.expiresAt ||

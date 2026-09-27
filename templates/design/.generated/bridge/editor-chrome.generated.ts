@@ -980,10 +980,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         }, 0);
       }, 0);
     }
+    function isRovingFocusSibling(current, next) {
+      if (!current || current.parentElement !== next.parentElement) return false;
+      var parent = current.parentElement;
+      return !!(parent?.matches(
+        '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]'
+      ) || current.hasAttribute("tabindex") && next.hasAttribute("tabindex"));
+    }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
       var target = getCanvasFocusTarget(event);
-      var navigationTargetMatches = intent?.kind !== "navigation" || target === intent.target || !!intent.target?.parentElement && intent.target.parentElement === target?.parentElement;
+      var navigationTargetMatches = intent?.kind !== "navigation" || target === intent.target || target !== null && isRovingFocusSibling(intent.target, target);
       if (!intent || Date.now() > intent.expiresAt || !target || !navigationTargetMatches || intent.kind !== "tab" && intent.kind !== "navigation" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
         trustedFocusIntent = null;
         userFocusedElement = null;

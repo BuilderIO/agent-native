@@ -152,6 +152,10 @@ function loadRememberUserFocusedElement() {
     editorChromeBridgeScript,
     "rememberUserFocusedElement",
   );
+  const isRovingFocusSibling = extractFunction(
+    editorChromeBridgeScript,
+    "isRovingFocusSibling",
+  );
   const clearNavigationIntent = extractFunction(
     editorChromeBridgeScript,
     "clearNavigationFocusIntentAfterAppTasks",
@@ -165,6 +169,7 @@ function loadRememberUserFocusedElement() {
     var trustedFocusIntent = null;
     var window = { setTimeout: function (callback) { timers.push(callback); } };
     function getCanvasFocusTarget(event) { return event.target; }
+    ${isRovingFocusSibling}
     ${source}
     ${clearNavigationIntent}
     return {
@@ -292,14 +297,16 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps arrow-key focus moves to sibling controls", () => {
-    const group = {} as Element;
+    const group = { matches: () => false } as unknown as Element;
     const current = {
       contains: () => false,
       parentElement: group,
+      hasAttribute: (name: string) => name === "tabindex",
     } as unknown as Element;
     const sibling = {
       contains: () => false,
       parentElement: group,
+      hasAttribute: (name: string) => name === "tabindex",
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -314,14 +321,16 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps navigation intent until app-scheduled roving focus runs", () => {
-    const group = {} as Element;
+    const group = { matches: () => false } as unknown as Element;
     const current = {
       contains: () => false,
       parentElement: group,
+      hasAttribute: (name: string) => name === "tabindex",
     } as unknown as Element;
     const sibling = {
       contains: () => false,
       parentElement: group,
+      hasAttribute: (name: string) => name === "tabindex",
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -346,15 +355,17 @@ describe("editor-chrome bridge — focus ownership", () => {
     expect(focusTracker.intent()).toBeNull();
   });
 
-  it("does not trust unrelated focus while deferred navigation is pending", () => {
-    const group = {} as Element;
+  it("does not trust sibling autofocus without a roving-focus group", () => {
+    const group = { matches: () => false } as unknown as Element;
     const current = {
       contains: () => false,
       parentElement: group,
+      hasAttribute: () => false,
     } as unknown as Element;
     const unrelated = {
       contains: () => false,
-      parentElement: {} as Element,
+      parentElement: group,
+      hasAttribute: () => false,
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
