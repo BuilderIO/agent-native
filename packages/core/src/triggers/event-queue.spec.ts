@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
+const ensureColumnExistsMock = vi.hoisted(() => vi.fn(async () => true));
 const ensureIndexExistsMock = vi.hoisted(() => vi.fn(async () => true));
 const ensureTableExistsMock = vi.hoisted(() => vi.fn(async () => true));
 
@@ -8,6 +9,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: ensureColumnExistsMock,
   ensureIndexExists: ensureIndexExistsMock,
   ensureTableExists: ensureTableExistsMock,
 }));
@@ -21,9 +23,11 @@ vi.mock("../agent/run-manager.js", () => ({
 import {
   AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS,
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
+  MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
+  failAutomationTriggerEvent,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
   retryAutomationTriggerEvent,
@@ -107,6 +111,7 @@ describe("automation trigger event queue", () => {
           event_owner: "alice@example.com",
           emitted_at: "2026-09-27T10:00:00.000Z",
           attempts: "1",
+          failure_attempts: "3",
           claimed_at: "1234",
         },
       ],
@@ -120,6 +125,7 @@ describe("automation trigger event queue", () => {
       eventId: "stable-1",
       payload: { messageId: "message-1" },
       attempts: 1,
+      failureAttempts: 3,
       claimedAt: 1234,
     });
     const update = executeMock.mock.calls[0]?.[0] as {
@@ -133,13 +139,14 @@ describe("automation trigger event queue", () => {
     expect(update.args).toContain("mail");
   });
 
-  it("leaves busy or failed events pending with a retry time and error", async () => {
+  it("defers busy events without consuming a failure attempt", async () => {
     await retryAutomationTriggerEvent(
       "queue-1",
       1234,
       2,
+      1,
       new Error("automation is running"),
-      5_000,
+      { delayMs: 5_000, countFailure: false },
     );
 
     const update = executeMock.mock.calls[0]?.[0] as {
@@ -149,14 +156,50 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("SET status = 'pending'");
     expect(update.sql).toContain("claimed_at = NULL");
     expect(update.sql).toContain("available_at = ?");
-    expect(update.sql).toContain("claimed_at = ? AND attempts = ?");
+    expect(update.sql).toContain("failure_attempts = failure_attempts + ?");
+    expect(update.sql).toContain(
+      "claimed_at = ? AND attempts = ? AND failure_attempts = ?",
+    );
     expect(update.sql).not.toContain("payload");
     expect(update.args).toEqual([
       expect.any(Number),
+      0,
       "automation is running",
       "queue-1",
       1234,
       2,
+      1,
+    ]);
+  });
+
+  it("records a terminal failure after the bounded retry limit", async () => {
+    await failAutomationTriggerEvent(
+      "queue-1",
+      1234,
+      8,
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1,
+      new Error("provider unavailable"),
+    );
+
+    const update = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(update.sql).toContain("SET status = 'failed'");
+    expect(update.sql).toContain("payload = ?");
+    expect(update.sql).toContain("completed_at = ?");
+    expect(update.sql).toContain("failure_attempts = failure_attempts + 1");
+    expect(update.sql).toContain(
+      "claimed_at = ? AND attempts = ? AND failure_attempts = ?",
+    );
+    expect(update.args).toEqual([
+      '{"kind":"completed"}',
+      expect.any(Number),
+      "provider unavailable",
+      "queue-1",
+      1234,
+      8,
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1,
     ]);
   });
 
@@ -233,7 +276,9 @@ describe("automation trigger event queue", () => {
       args: unknown[];
       sql: string;
     };
-    expect(query.sql).toContain("status = 'completed' AND completed_at < ?");
+    expect(query.sql).toContain(
+      "status IN ('completed', 'failed') AND completed_at < ?",
+    );
     expect(query.sql).toContain("ORDER BY completed_at ASC");
     expect(query.sql).toContain("LIMIT ?");
     expect(query.args).toEqual([

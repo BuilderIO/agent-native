@@ -96,6 +96,16 @@ interface ProcessedIds {
   updatedAt: number;
 }
 
+interface PendingNotificationAction {
+  ruleId: string;
+  messageId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  createdAt: number;
+  committed?: boolean;
+}
+
 interface RuleRecord {
   id: string;
   ownerEmail: string;
@@ -200,6 +210,105 @@ async function saveProcessedIds(
     ids: arr,
     updatedAt: Date.now(),
   } as any);
+}
+
+function pendingNotificationSettingKey(accountEmail: string): string {
+  return `mail-automation-pending-notifications:${accountEmail.trim().toLowerCase()}`;
+}
+
+function pendingNotificationActionKey(
+  ruleId: string,
+  messageId: string,
+): string {
+  return JSON.stringify([ruleId, messageId]);
+}
+
+function isPendingNotificationAction(
+  value: unknown,
+): value is PendingNotificationAction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const action = value as Record<string, unknown>;
+  return (
+    typeof action.ruleId === "string" &&
+    typeof action.messageId === "string" &&
+    typeof action.from === "string" &&
+    typeof action.subject === "string" &&
+    typeof action.snippet === "string" &&
+    typeof action.createdAt === "number" &&
+    Number.isFinite(action.createdAt)
+  );
+}
+
+async function getPendingNotificationActions(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<PendingNotificationAction[]> {
+  const value = await getUserSetting(
+    ownerEmail,
+    pendingNotificationSettingKey(accountEmail),
+  );
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value) || !value.every(isPendingNotificationAction)) {
+    throw new Error("The saved Mail notification retries are unreadable.");
+  }
+  return value;
+}
+
+async function retryPendingNotificationActions(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+  processedIds: Set<string>,
+  pendingActions: PendingNotificationAction[],
+): Promise<{
+  pendingActions: PendingNotificationAction[];
+  errors: number;
+  successes: number;
+}> {
+  const ready: PendingNotificationAction[] = [];
+  const deferred: PendingNotificationAction[] = [];
+  for (const action of pendingActions) {
+    if (
+      ready.length < MAX_EMAILS_PER_RUN &&
+      (action.committed === true || processedIds.has(action.messageId))
+    ) {
+      ready.push(action);
+    } else {
+      deferred.push(action);
+    }
+  }
+
+  const failed: PendingNotificationAction[] = [];
+  let errors = 0;
+  let successes = 0;
+  for (const action of ready) {
+    const result = await executeActions([{ type: "notify" }], {
+      accessToken,
+      messageId: action.messageId,
+      ownerEmail,
+      accountEmail,
+      labelCache: new Map(),
+      from: action.from,
+      subject: action.subject,
+      snippet: action.snippet,
+    });
+    if (result.failures > 0) {
+      errors += result.failures;
+      failed.push(action);
+    } else {
+      successes += result.successes;
+    }
+  }
+
+  const remaining = [...deferred, ...failed];
+  if (ready.length > 0) {
+    await putUserSetting(
+      ownerEmail,
+      pendingNotificationSettingKey(accountEmail),
+      remaining as any,
+    );
+  }
+  return { pendingActions: remaining, errors, successes };
 }
 
 function receivedEventSettingKey(
@@ -1607,6 +1716,41 @@ async function runAutomationsForAccount(
     result.errors += 1;
   }
 
+  const watermark = await getWatermark(ownerEmail);
+  const processedIds = await getProcessedIds(ownerEmail);
+  let pendingNotifications = await getPendingNotificationActions(
+    ownerEmail,
+    accountEmail,
+  );
+  const committedNotifications = pendingNotifications.map((action) =>
+    processedIds.has(action.messageId)
+      ? { ...action, committed: true }
+      : action,
+  );
+  if (
+    committedNotifications.some(
+      (action, index) =>
+        action.committed !== pendingNotifications[index].committed,
+    )
+  ) {
+    pendingNotifications = committedNotifications;
+    await putUserSetting(
+      ownerEmail,
+      pendingNotificationSettingKey(accountEmail),
+      pendingNotifications as any,
+    );
+  }
+  const retriedNotifications = await retryPendingNotificationActions(
+    ownerEmail,
+    accountEmail,
+    accessToken,
+    processedIds,
+    pendingNotifications,
+  );
+  pendingNotifications = retriedNotifications.pendingActions;
+  result.errors += retriedNotifications.errors;
+  result.actionsExecuted += retriedNotifications.successes;
+
   const aiFilterState = await getAiFilterState(ownerEmail);
   const rules = (await loadActiveRules(ownerEmail, "mail")).filter(
     (rule) =>
@@ -1634,9 +1778,6 @@ async function runAutomationsForAccount(
     return result;
   }
 
-  const watermark = await getWatermark(ownerEmail);
-  const processedIds = await getProcessedIds(ownerEmail);
-
   const { messages, watermark: nextWatermark } = await fetchNewInboxMessages(
     accessToken,
     accountEmail,
@@ -1661,6 +1802,12 @@ async function runAutomationsForAccount(
     modelAccess.jevCredentials,
     modelAccess.legacyTypesafeApiKey,
   );
+  const pendingNotificationKeys = new Set(
+    pendingNotifications.map((action) =>
+      pendingNotificationActionKey(action.ruleId, action.messageId),
+    ),
+  );
+  let pendingNotificationsChanged = false;
 
   if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
     await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
@@ -1685,7 +1832,10 @@ async function runAutomationsForAccount(
           (action) =>
             action.type !== "notify" ||
             (message.receivedAt !== undefined &&
-              message.receivedAt >= Math.max(rule.createdAt, rule.updatedAt)),
+              message.receivedAt >= Math.max(rule.createdAt, rule.updatedAt) &&
+              !pendingNotificationKeys.has(
+                pendingNotificationActionKey(rule.id, messageId),
+              )),
         );
         if (actions.length === 0) continue;
         const ctx: ActionContext = {
@@ -1709,9 +1859,29 @@ async function runAutomationsForAccount(
             : matchedRule.confidence >= aiFilterState.suggestionThreshold;
 
           if (shouldAct) {
-            const { successes, failures } = await executeActions(actions, ctx);
+            const {
+              successes,
+              failures,
+              failedActions = [],
+            } = await executeActions(actions, ctx);
             result.actionsExecuted += successes;
             result.errors += failures;
+            if (failedActions.some((action) => action.type === "notify")) {
+              const key = pendingNotificationActionKey(ruleId, messageId);
+              if (!pendingNotificationKeys.has(key)) {
+                pendingNotifications.push({
+                  ruleId,
+                  messageId,
+                  from: message.from,
+                  subject: message.subject,
+                  snippet: message.snippet,
+                  createdAt: Date.now(),
+                  committed: false,
+                });
+                pendingNotificationKeys.add(key);
+                pendingNotificationsChanged = true;
+              }
+            }
             if (isSpamRule) {
               const decisionBase = {
                 id: nanoid(12),
@@ -1754,20 +1924,63 @@ async function runAutomationsForAccount(
           continue;
         }
 
-        const { successes, failures } = await executeActions(actions, ctx);
+        const {
+          successes,
+          failures,
+          failedActions = [],
+        } = await executeActions(actions, ctx);
         result.actionsExecuted += successes;
         result.errors += failures;
+        if (failedActions.some((action) => action.type === "notify")) {
+          const key = pendingNotificationActionKey(ruleId, messageId);
+          if (!pendingNotificationKeys.has(key)) {
+            pendingNotifications.push({
+              ruleId,
+              messageId,
+              from: message.from,
+              subject: message.subject,
+              snippet: message.snippet,
+              createdAt: Date.now(),
+              committed: false,
+            });
+            pendingNotificationKeys.add(key);
+            pendingNotificationsChanged = true;
+          }
+        }
       }
     }
 
     await recordAiFilterDecisions(ownerEmail, aiDecisions);
   }
 
+  for (const message of messages) processedIds.add(message.id);
+  if (pendingNotificationsChanged) {
+    await putUserSetting(
+      ownerEmail,
+      pendingNotificationSettingKey(accountEmail),
+      pendingNotifications as any,
+    );
+  }
   await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
-  await setWatermark(ownerEmail, nextWatermark);
-
-  for (const msg of messages) processedIds.add(msg.id);
   await saveProcessedIds(ownerEmail, processedIds);
+  const committedRetries = pendingNotifications.map((action) =>
+    processedIds.has(action.messageId)
+      ? { ...action, committed: true }
+      : action,
+  );
+  if (
+    committedRetries.some(
+      (action, index) =>
+        action.committed !== pendingNotifications[index].committed,
+    )
+  ) {
+    await putUserSetting(
+      ownerEmail,
+      pendingNotificationSettingKey(accountEmail),
+      committedRetries as any,
+    );
+  }
+  await setWatermark(ownerEmail, nextWatermark);
 
   return result;
 }

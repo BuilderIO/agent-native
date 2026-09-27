@@ -28,10 +28,12 @@ import { startIntervalJob } from "../server/interval-job.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
+  MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
   ensureAutomationTriggerEventQueue,
+  failAutomationTriggerEvent,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
   retryAutomationTriggerEvent,
@@ -331,8 +333,9 @@ async function drainTriggerQueue(triggerId: string): Promise<void> {
           queued.id,
           queued.claimedAt,
           queued.attempts,
+          queued.failureAttempts,
           "Automation trigger is busy; the event remains queued.",
-          5_000,
+          { delayMs: 5_000, countFailure: false },
         );
         return;
       }
@@ -342,16 +345,32 @@ async function drainTriggerQueue(triggerId: string): Promise<void> {
         queued.attempts,
       );
     } catch (error) {
-      await retryAutomationTriggerEvent(
-        queued.id,
-        queued.claimedAt,
-        queued.attempts,
-        error,
-      );
-      console.error(
-        `[triggers] Queued event ${queued.eventId} will be retried:`,
-        error,
-      );
+      if (queued.failureAttempts + 1 >= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES) {
+        await failAutomationTriggerEvent(
+          queued.id,
+          queued.claimedAt,
+          queued.attempts,
+          queued.failureAttempts,
+          error,
+        );
+        console.error(
+          `[triggers] Queued event ${queued.eventId} failed after ` +
+            `${MAX_AUTOMATION_TRIGGER_EVENT_FAILURES} attempts:`,
+          error,
+        );
+      } else {
+        await retryAutomationTriggerEvent(
+          queued.id,
+          queued.claimedAt,
+          queued.attempts,
+          queued.failureAttempts,
+          error,
+        );
+        console.error(
+          `[triggers] Queued event ${queued.eventId} will be retried:`,
+          error,
+        );
+      }
       return;
     }
   }

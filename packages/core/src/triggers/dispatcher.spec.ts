@@ -10,6 +10,7 @@ import {
   initTriggerDispatcher,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
+import { MAX_AUTOMATION_TRIGGER_EVENT_FAILURES } from "./event-queue.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
@@ -58,6 +59,7 @@ const triggerQueueMocks = vi.hoisted(() => {
         sequenceId: sequence,
         status: "pending",
         attempts: 0,
+        failureAttempts: 0,
         availableAt: 0,
       });
       return { id, inserted: true };
@@ -106,16 +108,41 @@ const triggerQueueMocks = vi.hoisted(() => {
         id: string,
         claimedAt: number,
         attempts: number,
+        failureAttempts: number,
+        error: unknown,
+        options: { countFailure?: boolean } = {},
+      ) => {
+        const row = rows.find((candidate) => candidate.id === id);
+        if (
+          row?.status === "processing" &&
+          row.claimedAt === claimedAt &&
+          row.attempts === attempts &&
+          row.failureAttempts === failureAttempts
+        ) {
+          row.status = "pending";
+          row.failureAttempts += Number(options.countFailure ?? true);
+          row.availableAt = Date.now() + 5_000;
+          row.lastError = String(error);
+        }
+      },
+    ),
+    fail: vi.fn(
+      async (
+        id: string,
+        claimedAt: number,
+        attempts: number,
+        failureAttempts: number,
         error: unknown,
       ) => {
         const row = rows.find((candidate) => candidate.id === id);
         if (
           row?.status === "processing" &&
           row.claimedAt === claimedAt &&
-          row.attempts === attempts
+          row.attempts === attempts &&
+          row.failureAttempts === failureAttempts
         ) {
-          row.status = "pending";
-          row.availableAt = Date.now() + 5_000;
+          row.status = "failed";
+          row.failureAttempts += 1;
           row.lastError = String(error);
         }
       },
@@ -151,10 +178,12 @@ vi.mock("../server/interval-job.js", () => ({
 }));
 vi.mock("./event-queue.js", () => ({
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE: 1_000,
+  MAX_AUTOMATION_TRIGGER_EVENT_FAILURES: 8,
   claimNextAutomationTriggerEvent: triggerQueueMocks.claim,
   completeAutomationTriggerEvent: triggerQueueMocks.complete,
   enqueueAutomationTriggerEvent: triggerQueueMocks.enqueue,
   ensureAutomationTriggerEventQueue: triggerQueueMocks.ensure,
+  failAutomationTriggerEvent: triggerQueueMocks.fail,
   listReadyAutomationTriggerIds: triggerQueueMocks.ready,
   purgeExpiredAutomationTriggerEvents: triggerQueueMocks.purge,
   retryAutomationTriggerEvent: triggerQueueMocks.retry,
@@ -417,6 +446,66 @@ Respond to the event.`,
     );
     expect(prompts[0]).toContain('"messageId": "message-1"');
     expect(prompts[1]).toContain('"messageId": "message-2"');
+  });
+
+  it("marks a repeatedly failing event terminal so later events can proceed", async () => {
+    const eventName = "poison.event.fired";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: ${eventName}\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\n---\n\nRespond to the event.`,
+      },
+    ]);
+    await triggerQueueMocks.enqueue({
+      triggerId: "resource-1",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName,
+      eventId: "poison-event",
+      payload: { messageId: "message-1" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: "2026-09-27T10:00:00.000Z",
+    });
+    triggerQueueMocks.rows[0]!.failureAttempts =
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1;
+    await triggerQueueMocks.enqueue({
+      triggerId: "resource-1",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName,
+      eventId: "later-event",
+      payload: { messageId: "message-2" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: "2026-09-27T10:00:01.000Z",
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    resourceGetByPathMock.mockRejectedValueOnce(
+      new Error("provider unavailable"),
+    );
+    const handler = subscribeMock.mock.calls.find(
+      ([subscribedEventName]) => subscribedEventName === eventName,
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "poison-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("poison-event", "failed");
+    expect(triggerQueueMocks.fail).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.rows[1]?.status).toBe("pending");
   });
 
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {

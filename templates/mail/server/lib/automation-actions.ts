@@ -96,7 +96,7 @@ export async function executeAction(
           {
             severity: "info",
             channels: ["inbox"],
-            title: ctx.subject?.trim() || "Important email",
+            title: ctx.subject?.trim() || ctx.from?.trim() || ctx.accountEmail,
             body: [ctx.from?.trim(), ctx.snippet?.trim()]
               .filter(Boolean)
               .join(" · "),
@@ -193,19 +193,25 @@ export async function executeAction(
 export async function executeActions(
   actions: AutomationAction[],
   ctx: ActionContext,
-): Promise<{ successes: number; failures: number }> {
+): Promise<{
+  successes: number;
+  failures: number;
+  failedActions: AutomationAction[];
+}> {
   let successes = 0;
   let failures = 0;
+  const failedActions: AutomationAction[] = [];
   for (const action of actions) {
     const result = await executeAction(action, ctx);
     if (result.success) successes++;
     else {
       failures++;
+      failedActions.push(action);
       console.error(
         `[automation-actions] Action ${action.type} failed for ${ctx.messageId}:`,
         result.error,
       );
     }
   }
-  return { successes, failures };
+  return { successes, failures, failedActions };
 }

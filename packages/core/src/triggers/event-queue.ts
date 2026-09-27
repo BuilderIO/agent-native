@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getDbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 
 const TABLE = "automation_trigger_event_queue";
@@ -11,9 +15,11 @@ const UNIQUE_INDEX = "idx_automation_trigger_event_queue_dedupe";
 const ORDER_INDEX = "idx_automation_trigger_event_queue_order";
 const READY_INDEX = "idx_automation_trigger_event_queue_ready";
 const COMPLETED_INDEX = "idx_automation_trigger_event_queue_completed";
+const FAILED_INDEX = "idx_automation_trigger_event_queue_failed";
 export const AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS =
   7 * 24 * 60 * 60_000;
 export const AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE = 1_000;
+export const MAX_AUTOMATION_TRIGGER_EVENT_FAILURES = 8;
 const CLAIM_LEASE_MS = () =>
   Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
 
@@ -31,6 +37,7 @@ const CREATE_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${TABLE} (
   emitted_at TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   attempts BIGINT NOT NULL DEFAULT 0,
+  failure_attempts BIGINT NOT NULL DEFAULT 0,
   available_at BIGINT NOT NULL,
   claimed_at BIGINT,
   created_at BIGINT NOT NULL,
@@ -50,7 +57,17 @@ export const AUTOMATION_TRIGGER_EVENT_MIGRATIONS: MigrationEntry[] = [
       CREATE INDEX IF NOT EXISTS ${READY_INDEX}
         ON ${TABLE} (app_id, status, available_at, claimed_at);
       CREATE INDEX IF NOT EXISTS ${COMPLETED_INDEX}
-        ON ${TABLE} (completed_at) WHERE status = 'completed'`,
+        ON ${TABLE} (completed_at) WHERE status = 'completed';
+      CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
+        ON ${TABLE} (completed_at) WHERE status = 'failed'`,
+  },
+  {
+    version: 2,
+    name: "automation-trigger-event-failure-attempts",
+    sql: `ALTER TABLE ${TABLE}
+        ADD COLUMN IF NOT EXISTS failure_attempts BIGINT NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
+        ON ${TABLE} (completed_at) WHERE status = 'failed'`,
   },
 ];
 
@@ -68,6 +85,12 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       await ensureTableExists(TABLE, CREATE_TABLE_SQL);
+      await ensureColumnExists(
+        TABLE,
+        "failure_attempts",
+        `ALTER TABLE ${TABLE}
+          ADD COLUMN IF NOT EXISTS failure_attempts BIGINT NOT NULL DEFAULT 0`,
+      );
       await ensureIndexExists(
         UNIQUE_INDEX,
         `CREATE UNIQUE INDEX IF NOT EXISTS ${UNIQUE_INDEX}
@@ -82,6 +105,11 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
         READY_INDEX,
         `CREATE INDEX IF NOT EXISTS ${READY_INDEX}
           ON ${TABLE} (app_id, status, available_at, claimed_at)`,
+      );
+      await ensureIndexExists(
+        FAILED_INDEX,
+        `CREATE INDEX IF NOT EXISTS ${FAILED_INDEX}
+          ON ${TABLE} (completed_at) WHERE status = 'failed'`,
       );
       await ensureIndexExists(
         COMPLETED_INDEX,
@@ -121,6 +149,7 @@ export interface QueuedAutomationTriggerEvent {
   eventOwner?: string;
   emittedAt: string;
   attempts: number;
+  failureAttempts: number;
   claimedAt: number;
 }
 
@@ -161,6 +190,7 @@ function rowToEvent(
     ...(row.event_owner == null ? {} : { eventOwner: String(row.event_owner) }),
     emittedAt: String(row.emitted_at),
     attempts: Number(row.attempts ?? 0),
+    failureAttempts: Number(row.failure_attempts ?? 0),
     claimedAt: Number(row.claimed_at),
   };
 }
@@ -284,7 +314,7 @@ export async function claimNextAutomationTriggerEvent(
             claimed.trigger_owner, claimed.trigger_path, claimed.app_id,
             claimed.event_name, claimed.event_id, claimed.payload,
             claimed.event_owner, claimed.emitted_at, claimed.attempts,
-            claimed.claimed_at`,
+            claimed.failure_attempts, claimed.claimed_at`,
     args: [now, triggerId, ...scope.args, now, cutoff, cutoff],
   });
   return rows[0] ? rowToEvent(rows[0] as Record<string, unknown>) : null;
@@ -310,27 +340,64 @@ export async function retryAutomationTriggerEvent(
   id: string,
   claimedAt: number,
   attempts: number,
+  failureAttempts: number,
   error: unknown,
-  delayMs?: number,
+  options: { delayMs?: number; countFailure?: boolean } = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const message =
     error instanceof Error ? error.message : String(error ?? "Unknown error");
+  const countFailure = options.countFailure ?? true;
+  const nextFailureAttempts = failureAttempts + Number(countFailure);
   const backoffMs =
-    delayMs ??
-    Math.min(60_000, 1_000 * 2 ** Math.min(Math.max(attempts - 1, 0), 6));
+    options.delayMs ??
+    Math.min(
+      60_000,
+      1_000 * 2 ** Math.min(Math.max(nextFailureAttempts - 1, 0), 6),
+    );
   await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = 'pending', claimed_at = NULL, available_at = ?,
-              last_error = ?
+              failure_attempts = failure_attempts + ?, last_error = ?
           WHERE id = ? AND status = 'processing'
-            AND claimed_at = ? AND attempts = ?`,
+            AND claimed_at = ? AND attempts = ? AND failure_attempts = ?`,
     args: [
       Date.now() + backoffMs,
+      Number(countFailure),
       message.slice(0, 500),
       id,
       claimedAt,
       attempts,
+      failureAttempts,
+    ],
+  });
+}
+
+export async function failAutomationTriggerEvent(
+  id: string,
+  claimedAt: number,
+  attempts: number,
+  failureAttempts: number,
+  error: unknown,
+): Promise<void> {
+  await ensureAutomationTriggerEventQueue();
+  const message =
+    error instanceof Error ? error.message : String(error ?? "Unknown error");
+  await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+          SET status = 'failed', payload = ?, claimed_at = NULL,
+              completed_at = ?, failure_attempts = failure_attempts + 1,
+              last_error = ?
+          WHERE id = ? AND status = 'processing'
+            AND claimed_at = ? AND attempts = ? AND failure_attempts = ?`,
+    args: [
+      COMPLETED_PAYLOAD,
+      Date.now(),
+      message.slice(0, 500),
+      id,
+      claimedAt,
+      attempts,
+      failureAttempts,
     ],
   });
 }
@@ -343,7 +410,7 @@ export async function purgeExpiredAutomationTriggerEvents(
     sql: `DELETE FROM ${TABLE}
           WHERE id IN (
             SELECT id FROM ${TABLE}
-            WHERE status = 'completed' AND completed_at < ?
+            WHERE status IN ('completed', 'failed') AND completed_at < ?
             ORDER BY completed_at ASC
             LIMIT ?
           )`,

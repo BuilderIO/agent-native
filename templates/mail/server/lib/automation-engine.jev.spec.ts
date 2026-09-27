@@ -958,6 +958,117 @@ describe("Mail Jev automation routing", () => {
     ]);
   });
 
+  it("retries a failed notification after committing the message cursor", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "notify-rule",
+        kind: "ai-filter",
+        name: "Notify on project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([{ type: "notify" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({
+      enabled: true,
+      feedback: [],
+      suggestionThreshold: 0.5,
+    });
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: {
+        q_0_0: { noul: 0.99 },
+      },
+    });
+    mocks.executeActions
+      .mockResolvedValueOnce({
+        successes: 0,
+        failures: 1,
+        failedActions: [{ type: "notify" }],
+      })
+      .mockResolvedValueOnce({
+        successes: 1,
+        failures: 0,
+        failedActions: [],
+      });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        historyId: "history-2",
+        history: [
+          {
+            messagesAdded: [
+              { message: { id: "failed-notification", labelIds: ["INBOX"] } },
+            ],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ historyId: "history-3" });
+    const emailResponse = [
+      {
+        id: "failed-notification",
+        data: {
+          id: "failed-notification",
+          threadId: "thread-1",
+          internalDate: String(now + 1_000),
+          labelIds: ["INBOX"],
+          payload: {
+            headers: [
+              { name: "From", value: "school@example.test" },
+              { name: "Subject", value: "Field trip update" },
+            ],
+          },
+        },
+      },
+    ];
+    mocks.gmailBatchGetMessages
+      .mockResolvedValueOnce(emailResponse)
+      .mockResolvedValueOnce(emailResponse);
+
+    const first = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(first.errors).toBe(1);
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({ lastHistoryId: "history-2" });
+    expect(
+      mocks.userSettings.get(
+        "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
+      ),
+    ).toMatchObject([
+      {
+        ruleId: "notify-rule",
+        messageId: "failed-notification",
+        committed: true,
+      },
+    ]);
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["failed-notification"] });
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.executeActions).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.userSettings.get(
+        "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
+      ),
+    ).toEqual([]);
+  });
+
   it("baselines event history before an event automation subscribes", async () => {
     mocks.activeRules = [];
 

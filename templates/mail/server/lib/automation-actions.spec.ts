@@ -65,4 +65,23 @@ describe("automation notification action", () => {
       error: "Mail notification was not persisted.",
     });
   });
+
+  it("uses the sender as the notification title when the email has no subject", async () => {
+    await executeAction(
+      { type: "notify" },
+      {
+        accessToken: "google-access-token",
+        messageId: "message-1",
+        ownerEmail: "owner@example.com",
+        accountEmail: "mailbox@example.com",
+        labelCache: new Map(),
+        from: "School <school@example.test>",
+        subject: "  ",
+      },
+    );
+
+    expect(mocks.notify.mock.calls[0]?.[0].title).toBe(
+      "School <school@example.test>",
+    );
+  });
 });
