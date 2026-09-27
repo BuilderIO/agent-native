@@ -31,12 +31,6 @@ import { serializeFrontmatter } from "../../resources/metadata.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "../components/ui/dialog.js";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -48,7 +42,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
@@ -98,6 +92,25 @@ import {
 } from "./use-resources.js";
 
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
+
+type PendingResourceUpload = {
+  file: File;
+  targetScope: ResourceScope;
+};
+
+export function mergePendingResourceUploads(
+  pending: PendingResourceUpload[],
+  next: PendingResourceUpload[],
+): PendingResourceUpload[] {
+  const byResourcePath = new Map<string, PendingResourceUpload>();
+  for (const upload of [...pending, ...next]) {
+    byResourcePath.set(
+      JSON.stringify([upload.targetScope, upload.file.name]),
+      upload,
+    );
+  }
+  return [...byResourcePath.values()];
+}
 
 export function normalizeResourceFileName(name: string): string {
   const trimmed = name.trim();
@@ -1251,6 +1264,7 @@ export function ResourcesPanel({
   >(null);
   const [dragOver, setDragOver] = useState(false);
   const [fileStorageSetupOpen, setFileStorageSetupOpen] = useState(false);
+  const pendingResourceUploadsRef = useRef<PendingResourceUpload[]>([]);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     message: string;
@@ -1397,9 +1411,6 @@ export function ResourcesPanel({
     if (!requestedScope) return;
     setActiveScope(requestedScope);
   }, [requestedScope]);
-  useEffect(() => {
-    if (fileStorageConfigured) setFileStorageSetupOpen(false);
-  }, [fileStorageConfigured]);
   const resourceQuery = useResource(
     selectedResourceId &&
       !parseMcpVirtualId(selectedResourceId) &&
@@ -1410,7 +1421,43 @@ export function ResourcesPanel({
   const createResource = useCreateResource();
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
-  const uploadResource = useUploadResource();
+  const { mutate: uploadResourceFile } = useUploadResource();
+  const processResourceUploads = useCallback(
+    (
+      uploads: PendingResourceUpload[],
+      storageConfigured: boolean,
+      showStoragePrompt: boolean,
+    ) => {
+      const needsStorage: PendingResourceUpload[] = [];
+      for (const upload of uploads) {
+        if (!canUploadResourceFile(upload.file.type, storageConfigured)) {
+          needsStorage.push(upload);
+          continue;
+        }
+        const formData = new FormData();
+        formData.append("file", upload.file);
+        formData.append(
+          "shared",
+          upload.targetScope === "shared" ? "true" : "false",
+        );
+        uploadResourceFile(formData);
+      }
+      if (needsStorage.length) {
+        pendingResourceUploadsRef.current = mergePendingResourceUploads(
+          pendingResourceUploadsRef.current,
+          needsStorage,
+        );
+        if (showStoragePrompt) setFileStorageSetupOpen(true);
+      }
+    },
+    [uploadResourceFile],
+  );
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setFileStorageSetupOpen(false);
+    const pending = pendingResourceUploadsRef.current.splice(0);
+    processResourceUploads(pending, true, false);
+  }, [fileStorageConfigured, processResourceUploads]);
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
@@ -1584,19 +1631,37 @@ export function ResourcesPanel({
 
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (!canUploadResourceFile(file.type, fileStorageConfigured)) {
-          setFileStorageSetupOpen(true);
-          continue;
-        }
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("shared", targetScope === "shared" ? "true" : "false");
-        uploadResource.mutate(formData);
+      const selected = Array.from(files, (file) => ({ file, targetScope }));
+      const processAttempt = (storageConfigured: boolean) => {
+        const pending = pendingResourceUploadsRef.current.splice(0);
+        processResourceUploads(pending, storageConfigured, true);
+      };
+      if (fileUploadStatus.data && !fileUploadStatus.isError) {
+        processResourceUploads(
+          selected,
+          fileUploadStatus.data.configured,
+          true,
+        );
+        return;
       }
+      pendingResourceUploadsRef.current = mergePendingResourceUploads(
+        pendingResourceUploadsRef.current,
+        selected,
+      );
+      void fileUploadStatus
+        .refetch()
+        .then((result) => {
+          if (result.isError || typeof result.data?.configured !== "boolean") {
+            setFileStorageSetupOpen(true);
+            return;
+          }
+          processAttempt(result.data.configured);
+        })
+        .catch(() => {
+          setFileStorageSetupOpen(true);
+        });
     },
-    [fileStorageConfigured, uploadResource],
+    [fileUploadStatus, processResourceUploads],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1742,38 +1807,22 @@ export function ResourcesPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <Dialog
+      <FileStorageSetupPopover
         open={fileStorageSetupOpen}
-        onOpenChange={setFileStorageSetupOpen}
-      >
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="sr-only">
-              {t("onboarding.fileStorage.title")}
-            </DialogTitle>
-          </DialogHeader>
-          {fileUploadStatus.data?.configured === false &&
-          !fileUploadStatus.isError ? (
-            <FileStorageSetupCard />
-          ) : (
-            <div
-              role="status"
-              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-            >
-              <span>{t("onboarding.fileStorage.title")}</span>
-              {fileUploadStatus.isError ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => void fileUploadStatus.refetch()}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(open, reason) => {
+          setFileStorageSetupOpen(open);
+          if (!open && reason === "dismiss") {
+            pendingResourceUploadsRef.current = [];
+          }
+        }}
+        onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
       {/* Toolbar */}
       {isEditing ? (
         <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">

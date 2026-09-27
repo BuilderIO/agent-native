@@ -55,7 +55,7 @@ import {
 } from "@/hooks/use-meeting-start-notifications";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 
-import { CalendarEventRulesFields } from "./CalendarEventRules";
+import { CalendarEventRules } from "./CalendarEventRules";
 import { useCalendarConnections } from "./use-calendar-connections";
 
 export const AVAILABILITY_SETTINGS_PATH = "/booking-links?tab=availability";
@@ -653,7 +653,7 @@ export function CalendarEventRulesArea() {
   return (
     <SettingsGroup id="event-rules">
       <div className="space-y-4 px-5 py-4 sm:px-6">
-        <CalendarEventRulesFields />
+        <CalendarEventRules />
       </div>
     </SettingsGroup>
   );

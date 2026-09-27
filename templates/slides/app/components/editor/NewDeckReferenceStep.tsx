@@ -44,10 +44,6 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
-import {
-  isPromptUploadAuthRequiredError,
-  isPromptUploadNetworkError,
-} from "@/lib/prompt-file-uploads";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -148,6 +144,7 @@ export function NewDeckReferenceStep({
   );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
@@ -209,7 +206,10 @@ export function NewDeckReferenceStep({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    if (!fileStorageConfigured) return;
+    if (!fileStorageConfigured) {
+      setStoragePromptOpen(true);
+      return;
+    }
     setImportingSource(source);
     try {
       const imported = await onImport(files);
@@ -493,7 +493,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -504,7 +506,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -515,7 +519,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -547,37 +553,14 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
-              {storageQuery.isError ? (
-                <div
-                  className="mt-3 flex items-center justify-between gap-3 text-sm text-destructive"
-                  role="alert"
-                >
-                  <span>
-                    {isPromptUploadAuthRequiredError(storageQuery.error)
-                      ? t("home.importMenu.notStarted")
-                      : isPromptUploadNetworkError(storageQuery.error)
-                        ? t("home.importMenu.networkFailed")
-                        : t("home.fileStorageStatusUnavailable")}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="sm"
-                    className="shrink-0 px-1 text-destructive"
-                    onClick={() => void storageQuery.refetch()}
-                  >
-                    {t("home.retry")}
-                  </Button>
-                </div>
-              ) : !storageQuery.isLoading ? (
-                <div className="mt-3">
-                  <UploadStorageGate
-                    configured={fileStorageConfigured}
-                    unavailable={false}
-                    onRetry={() => void storageQuery.refetch()}
-                  />
-                </div>
-              ) : null}
+              <UploadStorageGate
+                configured={fileStorageConfigured}
+                unavailable={!storageQuery.isSuccess}
+                open={storagePromptOpen}
+                onOpenChange={setStoragePromptOpen}
+                onRetry={() => void storageQuery.refetch()}
+                onConnected={() => void storageQuery.refetch()}
+              />
               {selectedSource && (
                 <Input
                   autoFocus
@@ -679,6 +662,8 @@ function FileImportOption({
   importing,
   importingLabel,
   disabled = false,
+  storageConfigured,
+  onStorageRequired,
   onChange,
 }: {
   accept: string;
@@ -689,33 +674,45 @@ function FileImportOption({
   importing: boolean;
   importingLabel: string;
   disabled?: boolean;
+  storageConfigured: boolean;
+  onStorageRequired: () => void;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-        (importing || disabled) && "pointer-events-none opacity-60",
-      )}
-      aria-label={
-        importing
-          ? `${label} - ${importingLabel}`
-          : imported
-            ? `${label} - ${importedLabel}`
-            : label
-      }
-    >
-      {imported ? <IconCheck className="size-4 text-primary" /> : icon}
-      <span>{importing ? importingLabel : label}</span>
+    <>
+      <button
+        type="button"
+        className={cn(
+          "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
+          (importing || disabled) && "pointer-events-none opacity-60",
+        )}
+        disabled={importing || disabled}
+        aria-label={
+          importing
+            ? `${label} - ${importingLabel}`
+            : imported
+              ? `${label} - ${importedLabel}`
+              : label
+        }
+        onClick={() => {
+          if (storageConfigured) inputRef.current?.click();
+          else onStorageRequired();
+        }}
+      >
+        {imported ? <IconCheck className="size-4 text-primary" /> : icon}
+        <span>{importing ? importingLabel : label}</span>
+      </button>
       <input
+        ref={inputRef}
         type="file"
         className="sr-only"
         accept={accept}
         multiple
-        disabled={importing || disabled}
+        disabled={importing || disabled || !storageConfigured}
         onChange={onChange}
       />
-    </label>
+    </>
   );
 }
 

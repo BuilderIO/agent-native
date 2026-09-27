@@ -4,15 +4,31 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 
 interface EventRulesStatus {
+  jevConfigured: boolean;
   enabled: boolean;
   intervalMinutes: number | null;
   message: string | null;
@@ -23,14 +39,27 @@ interface EventRulesStatus {
   registered: boolean;
 }
 
-/** Jev invitation rules: the accept, decline, and hide prompts plus recent activity. */
-export function CalendarEventRulesFields() {
+const EMPTY_EVENT_RULES = { accept: "", decline: "", hide: "" };
+
+/** Jev invitation rules: the accept, decline, and hide prompts, and a Recent activity tab. */
+export function CalendarEventRules() {
   const t = useT();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const eventRulesStatus = useActionQuery<EventRulesStatus>(
     "get-event-rules-status",
+    {},
+    {
+      staleTime: 0,
+      // request-storm-allow: refresh this one capability query when API-key settings return from another tab.
+      refetchOnWindowFocus: true,
+    },
   );
+  const jevConnectFlow = useBuilderConnectFlow({
+    trackingSource: "calendar_jev_invitation_rules",
+    trackingFlow: "connect_jev",
+    onConnected: () => void eventRulesStatus.refetch(),
+  });
   const undoEventRuleActivity = useActionMutation<
     { success: boolean; activityId: string },
     { activityId: string }
@@ -43,11 +72,7 @@ export function CalendarEventRulesFields() {
       toast.error(message ?? t("settings.eventRuleUndoFailed"));
     },
   });
-  const [eventRules, setEventRules] = useState({
-    accept: "",
-    decline: "",
-    hide: "",
-  });
+  const [eventRules, setEventRules] = useState(EMPTY_EVENT_RULES);
   const eventRuleLabels = {
     accept: t("settings.eventRuleAccept"),
     decline: t("settings.eventRuleDecline"),
@@ -90,8 +115,27 @@ export function CalendarEventRulesFields() {
     );
   }
 
+  function handleClearSavedRules() {
+    updateSettings.mutate(
+      { eventRules: EMPTY_EVENT_RULES },
+      {
+        onSuccess: () => {
+          setEventRules(EMPTY_EVENT_RULES);
+          toast.success(t("settings.saved"));
+        },
+        onError: () => toast.error(t("settings.saveFailed")),
+      },
+    );
+  }
+
   const hasEventRules = Object.values(eventRules).some((rule) => rule.trim());
+  const hasSavedEventRules = Object.values(settings?.eventRules ?? {}).some(
+    (rule) => rule?.trim(),
+  );
   const statusData = eventRulesStatus.data;
+  const statusReady = !eventRulesStatus.isLoading && !eventRulesStatus.isError;
+  const jevConfigured = statusData?.jevConfigured === true;
+  const canEditEventRules = statusReady && jevConfigured;
   const unavailableRulesMessage =
     statusData?.enabled === false && hasEventRules
       ? t(
@@ -102,54 +146,153 @@ export function CalendarEventRulesFields() {
               : "settings.eventRulesDisabled",
         )
       : null;
-  const eventRulesStatusError = eventRulesStatus.isError
-    ? t("common.loadFailed")
-    : (statusData?.lastError ??
-      (statusData?.conflictsSkipped
-        ? t("settings.eventRulesConflict")
-        : unavailableRulesMessage));
+  const eventRulesStatusError =
+    statusData?.lastError ??
+    (statusData?.conflictsSkipped
+      ? t("settings.eventRulesConflict")
+      : unavailableRulesMessage);
 
   return (
-    <>
-      {eventRulesStatusError ? (
-        <p className="text-sm text-destructive" role="status">
-          {eventRulesStatusError}
-        </p>
-      ) : null}
-      {statusData?.accountRefreshErrors.map(({ email, error }) => (
-        <p key={email} className="text-sm text-destructive" role="status">
-          {email}: {error}
-        </p>
-      ))}
-      {(["accept", "decline", "hide"] as const).map((rule) => (
-        <div key={rule} className="space-y-2">
-          <Label htmlFor={`event-rule-${rule}`}>{eventRuleLabels[rule]}</Label>
-          <Textarea
-            id={`event-rule-${rule}`}
-            value={eventRules[rule]}
-            onChange={(event) =>
-              setEventRules((current) => ({
-                ...current,
-                [rule]: event.target.value,
-              }))
-            }
-            placeholder={eventRulePlaceholders[rule]}
-            maxLength={2000}
-            rows={2}
-          />
+    <Tabs defaultValue="rules">
+      <div className="flex items-center gap-2">
+        <TabsList
+          aria-label={t("settings.eventRules")}
+          className="grid flex-1 grid-cols-2"
+        >
+          <TabsTrigger value="rules">
+            {t("settings.eventRulesTabRules")}
+          </TabsTrigger>
+          <TabsTrigger value="activity">
+            {t("settings.eventRulesRecentActivity")}
+          </TabsTrigger>
+        </TabsList>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                aria-label={t("settings.eventRulesHelpLabel")}
+              >
+                <IconInfoCircle className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">
+              {t("settings.eventRulesHelp")}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+      <TabsContent value="rules" className="mt-4">
+        <div className="space-y-4">
+          {eventRulesStatus.isError ? (
+            <div
+              className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+              role="alert"
+            >
+              <span className="text-sm text-muted-foreground">
+                {t("common.loadFailed")}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={eventRulesStatus.isFetching}
+                onClick={() => void eventRulesStatus.refetch()}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : eventRulesStatusError ? (
+            <p className="text-sm text-destructive" role="status">
+              {eventRulesStatusError}
+            </p>
+          ) : null}
+          {statusReady && !jevConfigured ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  {t("settings.eventRulesConnectJev")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.eventRulesFreeBuilderOrApiKey")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <BuilderConnectPopover flow={jevConnectFlow}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={jevConnectFlow.connecting}
+                    aria-busy={jevConnectFlow.connecting}
+                  >
+                    {jevConnectFlow.connecting
+                      ? t("common.connecting")
+                      : t("settings.eventRulesConnectBuilder")}
+                  </Button>
+                </BuilderConnectPopover>
+                <Link
+                  to={buildSettingsRoute("keys:secrets:JEV_API_KEY")}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  {t("settings.eventRulesAddJevApiKey")}
+                </Link>
+              </div>
+            </div>
+          ) : null}
+          {statusData?.accountRefreshErrors.map(({ email, error }) => (
+            <p key={email} className="text-sm text-destructive" role="status">
+              {email}: {error}
+            </p>
+          ))}
+          {eventRulesStatus.isLoading ? (
+            <Skeleton className="h-52 w-full" />
+          ) : (
+            (["accept", "decline", "hide"] as const).map((rule) => (
+              <div key={rule} className="space-y-2">
+                <Label htmlFor={`event-rule-${rule}`}>
+                  {eventRuleLabels[rule]}
+                </Label>
+                <Textarea
+                  id={`event-rule-${rule}`}
+                  value={eventRules[rule]}
+                  onChange={(event) =>
+                    setEventRules((current) => ({
+                      ...current,
+                      [rule]: event.target.value,
+                    }))
+                  }
+                  placeholder={eventRulePlaceholders[rule]}
+                  maxLength={2000}
+                  rows={2}
+                  disabled={!canEditEventRules}
+                />
+              </div>
+            ))
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={handleSaveRules}
+              disabled={updateSettings.isPending || !canEditEventRules}
+            >
+              {t("settings.eventRulesSave")}
+            </Button>
+            {statusReady && !jevConfigured && hasSavedEventRules ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClearSavedRules}
+                disabled={updateSettings.isPending}
+              >
+                {t("settings.eventRulesClearSaved")}
+              </Button>
+            ) : null}
+          </div>
         </div>
-      ))}
-      <Button
-        size="sm"
-        onClick={handleSaveRules}
-        disabled={updateSettings.isPending}
-      >
-        {t("settings.eventRulesSave")}
-      </Button>
-      <details className="border-t pt-3">
-        <summary className="cursor-pointer text-sm font-medium">
-          {t("settings.eventRulesRecentActivity")}
-        </summary>
+      </TabsContent>
+      <TabsContent value="activity">
         {settings?.eventRuleActivity?.length ? (
           <ul className="mt-2 divide-y">
             {[...settings.eventRuleActivity].reverse().map((entry) => (
@@ -175,7 +318,7 @@ export function CalendarEventRulesFields() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 shrink-0 px-2"
+                  className="shrink-0"
                   disabled={undoEventRuleActivity.isPending}
                   onClick={() =>
                     undoEventRuleActivity.mutate({
@@ -193,7 +336,7 @@ export function CalendarEventRulesFields() {
             {t("settings.eventRulesNoActivity")}
           </p>
         )}
-      </details>
-    </>
+      </TabsContent>
+    </Tabs>
   );
 }

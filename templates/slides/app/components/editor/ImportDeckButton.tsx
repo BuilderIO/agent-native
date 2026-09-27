@@ -18,7 +18,6 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -85,7 +84,7 @@ export function ImportDeckButton({
   }, [fileStorageConfigured, popover]);
   return (
     <Popover
-      open={popover !== null}
+      open={popover !== null && popover !== "storage"}
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
@@ -168,24 +167,7 @@ export function ImportDeckButton({
             : "home.importMenu.import",
         )}
       >
-        {popover === "storage" ? (
-          storageQuery.isLoading ? (
-            <div
-              className="grid gap-3"
-              aria-label={t("home.importMenu.import")}
-            >
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <UploadStorageGate
-              configured={fileStorageConfigured}
-              unavailable={!storageQuery.isSuccess}
-              onRetry={() => void storageQuery.refetch()}
-            />
-          )
-        ) : popover === "google" ? (
+        {popover === "google" ? (
           <form
             className="grid gap-3"
             onSubmit={(event) => {
@@ -241,6 +223,13 @@ export function ImportDeckButton({
           </div>
         )}
       </PopoverContent>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={popover === "storage"}
+        onOpenChange={(open) => !open && setPopover(null)}
+        onRetry={() => void storageQuery.refetch()}
+      />
     </Popover>
   );
 }

@@ -53,7 +53,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 
 import changelog from "../../CHANGELOG.md?raw";
-import { CalendarEventRulesFields } from "./settings/CalendarEventRules";
+import { CalendarEventRules } from "./settings/CalendarEventRules";
 import {
   AVAILABILITY_SETTINGS_PATH,
   useCalendarSettingsRedesign,
@@ -134,12 +134,6 @@ export default function Settings() {
         hash: "general-settings",
       },
       {
-        id: "calendar-event-rules",
-        label: t("settings.eventRules"),
-        keywords: "jev invitation rules accept decline hide",
-        hash: "event-rules",
-      },
-      {
         id: "calendar-availability",
         label: t("bookingLinks.availability"),
         keywords: "availability available hours booking schedule working hours",
@@ -160,11 +154,36 @@ export default function Settings() {
     ],
     [t],
   );
+  // The redesigned shell shows the rules as the Rules app area instead.
+  const settingsTabs = redesign
+    ? agentSettingsTabs
+    : [
+        ...agentSettingsTabs,
+        {
+          id: "event-rules",
+          label: t("settings.eventRules"),
+          keywords: "jev invitation rules accept decline hide",
+          content: (
+            <Card
+              id="event-rules"
+              className="mx-auto w-full max-w-2xl scroll-mt-16"
+            >
+              <CardHeader>
+                <CardTitle>{t("settings.eventRules")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CalendarEventRules />
+              </CardContent>
+            </Card>
+          ),
+        },
+      ];
+
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       generalLabel={t("settings.general")}
-      extraTabs={agentSettingsTabs}
+      extraTabs={settingsTabs}
       generalSearchEntries={
         redesign ? redesigned.generalSearchEntries : generalSearchEntries
       }
@@ -246,17 +265,6 @@ export default function Settings() {
               }
             />
           </SettingsGroup>
-
-          <Card id="event-rules" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.eventRules")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <CalendarEventRulesFields />
-            </CardContent>
-          </Card>
 
           {/* Google Calendar Connection */}
           {(googleStatus.isError ||

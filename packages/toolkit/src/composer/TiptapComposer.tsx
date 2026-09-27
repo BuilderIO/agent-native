@@ -781,6 +781,7 @@ export interface TiptapComposerProps {
   submitting?: boolean;
   maxDocumentAttachmentBytes?: number;
   attachmentsEnabled?: boolean;
+  onAttachmentRequest?: () => void;
   documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   initialText?: string;
@@ -2327,6 +2328,7 @@ export function TiptapComposer({
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
   attachmentsEnabled = true,
+  onAttachmentRequest,
   focusRef,
   initialText,
   initialTextKey,
@@ -4094,6 +4096,7 @@ export function TiptapComposer({
             addAttachment={
               attachmentsEnabled ? addAttachmentForCurrentScope : undefined
             }
+            onAttachmentRequest={onAttachmentRequest}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onAttachmentError={onAttachmentError}
             onDisabledFocus={() => {
@@ -4119,12 +4122,13 @@ export function TiptapComposer({
               );
               pageTarget?.focus();
             }}
-            disabled={disabled}
+            disabled={disabled && !onAttachmentRequest}
           />
         ) : disabled || plusMenuMode === "hidden" ? null : (
           <ComposerPlusMenu
             addAttachment={addAttachmentForCurrentScope}
             attachmentsEnabled={attachmentsEnabled}
+            onAttachmentRequest={onAttachmentRequest}
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onSelectMode={handleSelectMode}
             mode={plusMenuMode}

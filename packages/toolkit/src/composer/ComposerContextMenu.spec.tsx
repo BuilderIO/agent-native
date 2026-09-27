@@ -270,6 +270,18 @@ describe("connected composer menus", () => {
     expect(attach.mock.calls.map(([file]) => file)).toEqual(files);
     expect(error).toHaveBeenCalledWith("Upload unavailable");
   });
+  it("requests gated upload after the menu closes", async () => {
+    const onAttachmentRequest = vi.fn();
+    await render([], { onAttachmentRequest });
+    await open();
+    await click("Upload File");
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(menus()).toHaveLength(0);
+  });
   it("preserves legacy render, latest updates, dismissal and resume without reselecting", async () => {
     let controls!: ComposerContextPageControls;
     const select = vi.fn();

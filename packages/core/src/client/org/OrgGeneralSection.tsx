@@ -36,7 +36,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useIconPickerLabels, useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { uploadEditorImage } from "../uploads/index.js";
@@ -459,37 +458,6 @@ export function OrgIconControl({
 }
 
 /**
- * File storage setup for the workspace icon upload, shown to owners and admins
- * when storage is missing or its status could not be read.
- */
-export function OrgIconStorageNotice() {
-  const t = useT();
-  const fileUploadStatus = useFileUploadStatus();
-  if (fileUploadStatus.isError) {
-    return (
-      <div
-        role="status"
-        className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-      >
-        <span>{t("onboarding.fileStorage.title")}</span>
-        <ToolkitButton
-          type="button"
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => void fileUploadStatus.refetch()}
-        >
-          {t("agentChat.common.retry")}
-        </ToolkitButton>
-      </div>
-    );
-  }
-  return fileUploadStatus.data?.configured === false ? (
-    <FileStorageSetupCard />
-  ) : null;
-}
-
-/**
  * The "Organization" settings group: icon, name, member count, your role, and
  * the organization switcher. `children` render inside the group, below the
  * summary row and above the switch error.
@@ -547,7 +515,6 @@ export function OrgProfileGroup({ children }: { children?: ReactNode }) {
           ) : undefined
         }
       />
-      {isOwnerOrAdmin && <OrgIconStorageNotice />}
       <ErrorText error={setVisualIdentity.error} />
       {setVisualIdentity.data?.syncPending && (
         <p role="status" className="text-xs text-muted-foreground">

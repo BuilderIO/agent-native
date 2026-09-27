@@ -60,7 +60,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Messages nécessitant une réponse ou ayant une échéance, y compris les commentaires humains sur GitHub. Ignorer les commentaires des robots.",
       aiSetupArchiveSpamPrompt:
-        "Archiver automatiquement : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
+        "Ignorer la boîte de réception : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
       aiSetupCustomTag: "Personnalisé",
       aiSetupDone: "Terminé",
       aiSetupRunAgain: "Relancer la configuration",
@@ -592,8 +592,16 @@ const messages = {
       spamMode: "Indésirable",
       tagMode: "Tag",
       aiTagsTitle: "Tags IA",
+      ruleHelpLabel: "Expliquer les règles {{mode}}",
+      aiTagRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute ce tag aux messages correspondants.",
+      importantRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev marque les messages correspondants comme importants.",
+      skipInboxRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev archive les messages correspondants pour ignorer la boîte de réception.",
+      spamRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
       filteredMode: "Filtrés",
-      autoArchiveMode: "Archivage automatique",
       manageSettings: "Gérer",
       askJev: "Demander à Jev",
       askJevPrompt:
@@ -654,7 +662,7 @@ const messages = {
       promptRulesCleared: "Règles de tri supprimées.",
       tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
       addTag: "Ajouter un tag",
-      triageTitle: "Tri",
+      triageTitle: "Tri par IA",
       connectJev: "Connecter Jev",
       connectJevToRunTriage: "Connectez Jev pour lancer le tri",
       freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
@@ -857,7 +865,7 @@ const messages = {
     slackDraftQueueDescription:
       "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
     openDraftQueue: "Ouvrir la file de brouillons",
-    aiFilter: "Triage",
+    aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
