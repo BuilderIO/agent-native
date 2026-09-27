@@ -4035,7 +4035,7 @@ export function App({
       return;
     }
     if (recorder) {
-      emit("clips:recorder-stop").catch(() => {});
+      emit("clips:tray-stop-request").catch(() => {});
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
