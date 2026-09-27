@@ -1746,7 +1746,12 @@ export function DocumentSidebar({
         });
       }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
-      seedCreatedDocumentNavigation(queryClient, tempDoc, null);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        contentSpaces.find((space) => space.id === rootSpaceId)
+          ?.filesDatabaseId ?? null,
+      );
       navigateToDocument(id);
       onNavigate?.();
 

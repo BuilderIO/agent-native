@@ -339,11 +339,15 @@ describe("optimistic sidebar creates", () => {
 
     seedCreatedDocumentNavigation(queryClient, created, FILES);
 
-    expect(
-      queryClient
-        .getQueryData<ContentNavigationContext>(keys.newPath)
-        ?.path.map((entry) => entry.id),
-    ).toEqual(["section", "page", "new-page"]);
+    const seeded = queryClient.getQueryData<ContentNavigationContext>(
+      keys.newPath,
+    );
+    expect(seeded?.path.map((entry) => entry.id)).toEqual([
+      "section",
+      "page",
+      "new-page",
+    ]);
+    expect(seeded?.path[2]?.databaseId).toBe(FILES);
     expect(
       queryClient
         .getQueryData<any>(keys.sectionChildren)
@@ -358,5 +362,33 @@ describe("optimistic sidebar creates", () => {
     expect(queryClient.getQueryState(keys.sectionChildren)?.isInvalidated).toBe(
       true,
     );
+  });
+
+  it("reveal a new root page through its space's Files collection", () => {
+    seedCreatedDocumentNavigation(
+      queryClient,
+      {
+        id: "new-root",
+        parentId: null,
+        title: "",
+        createdAt: "2026-09-27T00:00:00.000Z",
+        updatedAt: "2026-09-27T00:00:00.000Z",
+      } as Document,
+      FILES,
+    );
+
+    expect(
+      queryClient.getQueryData<ContentNavigationContext>([
+        "action",
+        "get-content-navigation-context",
+        { id: "new-root" },
+      ])?.path,
+    ).toEqual([
+      expect.objectContaining({
+        id: "new-root",
+        parentId: null,
+        databaseId: FILES,
+      }),
+    ]);
   });
 });

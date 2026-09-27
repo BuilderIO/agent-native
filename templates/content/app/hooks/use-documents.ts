@@ -564,6 +564,8 @@ const NAVIGATION_CONTEXT_QUERY_KEY = [
  * and the sidebar would stop revealing the page's ancestors. Seed the path from
  * the parent's cached one and show the parent as expandable; the create's
  * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * The sidebar reveals a path only through its space's Files membership, so
+ * the new entry claims that membership too.
  */
 export function seedCreatedDocumentNavigation(
   queryClient: Pick<
@@ -615,8 +617,9 @@ export function seedCreatedDocumentNavigation(
           parentId,
           title: document.title,
           icon: null,
-          databaseId: null,
-          databaseDocumentId: null,
+          databaseId: workspaceFilesDatabaseId,
+          databaseDocumentId:
+            parentPath[parentPath.length - 1]?.databaseDocumentId ?? null,
           isFavorite: false,
           canEdit: true,
           canManage: true,
