@@ -103,6 +103,7 @@ export interface OutputReviewRun {
   runId: string;
   model: string;
   createdAt: number;
+  summaryUpdatedAt?: number;
 }
 
 export interface HumanReviewArtifactRef {

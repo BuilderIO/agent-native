@@ -1591,7 +1591,7 @@ describe("ObservabilityDashboard human review", () => {
     });
   });
 
-  it("keeps a regeneration queued until the saved summary is newer", async () => {
+  it("keeps a run queued until that run's summary is newer", async () => {
     mockConfirmAgentChat.mockResolvedValue({
       tabId: "review-test",
       delivered: true,
@@ -1605,7 +1605,19 @@ describe("ObservabilityDashboard human review", () => {
     const reviews = mockOutputReviews().data.map(
       (review: Record<string, unknown>) =>
         review.runId === "run-1"
-          ? { ...review, summary: savedSummary, summaryUpdatedAt }
+          ? {
+              ...review,
+              summary: savedSummary,
+              runs: [
+                { runId: "run-1", model: "test-model", createdAt: 30 },
+                {
+                  runId: "run-2",
+                  model: "older-model",
+                  createdAt: 20,
+                  summaryUpdatedAt,
+                },
+              ],
+            }
           : review,
     );
     mockOutputReviews.mockReturnValue({ isLoading: false, data: reviews });
@@ -1657,7 +1669,23 @@ describe("ObservabilityDashboard human review", () => {
       isLoading: false,
       data: reviews.map((review: Record<string, unknown>) =>
         review.runId === "run-1"
-          ? { ...review, summaryUpdatedAt: summaryUpdatedAt + 1 }
+          ? {
+              ...review,
+              runs: [
+                {
+                  runId: "run-1",
+                  model: "test-model",
+                  createdAt: 30,
+                  summaryUpdatedAt: summaryUpdatedAt + 1,
+                },
+                {
+                  runId: "run-2",
+                  model: "older-model",
+                  createdAt: 20,
+                  summaryUpdatedAt,
+                },
+              ],
+            }
           : review,
       ),
     });
@@ -1673,6 +1701,69 @@ describe("ObservabilityDashboard human review", () => {
     await vi.waitFor(() => {
       expect(container.querySelector('[role="status"]')).toBeNull();
     });
+  });
+
+  it("clears expired bulk status when the requested summaries arrive late", async () => {
+    vi.useFakeTimers();
+    mockConfirmAgentChat.mockResolvedValue({
+      tabId: "review-test",
+      delivered: true,
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    const reviewTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Human review"),
+    );
+    await act(async () => reviewTab?.click());
+    const bulkButton = container.querySelector<HTMLButtonElement>(
+      "[data-review-bulk-summary]",
+    );
+    expect(bulkButton).toBeTruthy();
+    await act(async () => {
+      bulkButton?.click();
+      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Request queued.",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "No summary has appeared yet.",
+    );
+
+    const savedSummary = {
+      ask: "Summarize the request",
+      outcome: "The work is complete",
+      artifacts: [],
+    };
+    mockOutputReviews.mockReturnValue({
+      isLoading: false,
+      data: mockOutputReviews().data.map((review: Record<string, unknown>) =>
+        review.threadId
+          ? { ...review, summary: savedSummary, summaryUpdatedAt: Date.now() }
+          : review,
+      ),
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AgentNativeI18nProvider persistPreference={false}>
+            <ObservabilityDashboard showHumanReview />
+          </AgentNativeI18nProvider>
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("makes a queued summary retryable with an explicit expiry state", async () => {

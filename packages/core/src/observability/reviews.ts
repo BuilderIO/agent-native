@@ -520,7 +520,7 @@ export async function getOutputReviewDetailForRun(opts: {
   const savedSummaries = await getHumanReviewSummariesForThreads([
     { orgId: opts.orgId, threadId: summary.threadId },
   ]);
-  const savedSummary = savedSummaries.get(threadKey);
+  const savedSummary = savedSummaries.get(threadKey)?.[0];
   const { ask, answer } = askAndAnswer(summary, threadData);
   return {
     found: true,
@@ -615,15 +615,20 @@ export async function listOutputReviews(opts: {
     }
   }
 
-  const [threadRows, humanSummaries] = await Promise.all([
+  const [threadRows, reviewRuns] = await Promise.all([
     getOrgScopedReviewThreads(threadScopesWithOwner),
-    getHumanReviewSummariesForThreads(threadScopes),
+    getRecentReviewRunsForThreads({
+      threadScopes,
+      sinceMs: opts.sinceMs,
+      perThreadLimit: 6,
+    }),
   ]);
-  const reviewRuns = await getRecentReviewRunsForThreads({
+  const humanSummaries = await getHumanReviewSummariesForThreads(
     threadScopes,
-    sinceMs: opts.sinceMs,
-    perThreadLimit: 6,
-  });
+    reviewRuns.flatMap((run) =>
+      run.orgId ? [{ orgId: run.orgId, runId: run.runId }] : [],
+    ),
+  );
   const runsByThread = new Map<string, TraceSummary[]>();
   for (const run of reviewRuns) {
     if (!run.orgId || !run.threadId) continue;
@@ -650,7 +655,14 @@ export async function listOutputReviews(opts: {
       if (!summary.orgId || !summary.threadId) return null;
       const key = observabilityReviewThreadKey(summary.orgId, summary.threadId);
       if (!threadRows.has(key)) return null;
-      const savedSummary = humanSummaries.get(key) ?? null;
+      const threadSummaries = humanSummaries.get(key) ?? [];
+      const savedSummary = threadSummaries[0] ?? null;
+      const summaryByRun = new Map(
+        threadSummaries.map((reviewSummary) => [
+          reviewSummary.runId,
+          reviewSummary,
+        ]),
+      );
       const threadData = threads.get(key) ?? undefined;
       if (threadData === undefined && !savedSummary) return null;
       const { answer, inlineApp } = askAndAnswer(summary, threadData ?? null);
@@ -714,13 +726,19 @@ export async function listOutputReviews(opts: {
         hasInlineApp: Boolean(inlineApp),
         threadTitle: threadTitle ?? "",
         summary: reviewSummary,
-        ...(savedSummary ? { summaryUpdatedAt: savedSummary.updatedAt } : {}),
+        ...(savedSummary?.runId === summary.runId
+          ? { summaryUpdatedAt: savedSummary.updatedAt }
+          : {}),
         artifacts,
-        runs: (runsByThread.get(key) ?? [summary]).map((run) => ({
-          runId: run.runId,
-          model: run.model,
-          createdAt: run.createdAt,
-        })),
+        runs: (runsByThread.get(key) ?? [summary]).map((run) => {
+          const runSummary = summaryByRun.get(run.runId);
+          return {
+            runId: run.runId,
+            model: run.model,
+            createdAt: run.createdAt,
+            ...(runSummary ? { summaryUpdatedAt: runSummary.updatedAt } : {}),
+          };
+        }),
         runCount: summary.runCount ?? 1,
         ...(authorEmail ? { authorEmail } : {}),
         ...(authorName ? { authorName } : {}),

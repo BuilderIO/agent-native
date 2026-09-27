@@ -1156,7 +1156,16 @@ function ReviewTab({
             candidate.runId === runId ||
             candidate.runs?.some((run) => run.runId === runId),
         );
-        summaryBaselineRef.current.set(runId, review?.summaryUpdatedAt ?? null);
+        const runSummaryUpdatedAt = review?.runs?.find(
+          (run) => run.runId === runId,
+        )?.summaryUpdatedAt;
+        summaryBaselineRef.current.set(
+          runId,
+          runSummaryUpdatedAt ??
+            (review?.runId === runId
+              ? (review.summaryUpdatedAt ?? null)
+              : null),
+        );
       } else if (status === null || status === "failed") {
         summaryBaselineRef.current.delete(runId);
       }
@@ -1195,11 +1204,12 @@ function ReviewTab({
     if (!reviews) return;
     const summarizedRunIds = new Map<string, number>();
     for (const review of reviews) {
-      if (!review.summary || typeof review.summaryUpdatedAt !== "number")
-        continue;
-      summarizedRunIds.set(review.runId, review.summaryUpdatedAt);
+      if (typeof review.summaryUpdatedAt === "number")
+        summarizedRunIds.set(review.runId, review.summaryUpdatedAt);
       for (const run of review.runs ?? []) {
-        summarizedRunIds.set(run.runId, review.summaryUpdatedAt);
+        if (typeof run.summaryUpdatedAt === "number") {
+          summarizedRunIds.set(run.runId, run.summaryUpdatedAt);
+        }
       }
     }
 
@@ -1237,9 +1247,14 @@ function ReviewTab({
 
     const batchRunIds = summaryBatchRunIds.current;
     if (
-      summaryStatus === "queued" &&
+      (summaryStatus === "queued" || summaryStatus === "expired") &&
       batchRunIds.length > 0 &&
-      batchRunIds.every((runId) => summarizedRunIds.has(runId))
+      batchRunIds.every((runId) => {
+        const updatedAt = summarizedRunIds.get(runId);
+        if (updatedAt === undefined) return false;
+        const baseline = summaryBaselineRef.current.get(runId);
+        return baseline == null || updatedAt > baseline;
+      })
     ) {
       if (summaryBatchRetryTimer.current !== null) {
         window.clearTimeout(summaryBatchRetryTimer.current);
@@ -1623,7 +1638,6 @@ function ReviewTab({
         setSummaryStatus("queued");
         summaryBatchRetryTimer.current = window.setTimeout(() => {
           summaryBatchRetryTimer.current = null;
-          summaryBatchRunIds.current = [];
           if (!summaryRequestMounted.current) return;
           setSummaryStatus((current) =>
             current === "queued" ? "expired" : current,
