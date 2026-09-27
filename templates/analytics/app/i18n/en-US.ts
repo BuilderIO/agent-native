@@ -1363,6 +1363,8 @@ export default {
     customRange: "Custom range",
     fromDate: "From",
     toDate: "To",
+    clearFromDate: "Clear start date",
+    clearToDate: "Clear end date",
     signals: "Signals",
     hideEmptySessions: "Hide empty sessions",
     networkErrors: "Network errors",

@@ -1256,6 +1256,8 @@ export default {
     customRange: "कस्टम तारीख सीमा",
     fromDate: "से",
     toDate: "तक",
+    clearFromDate: "आरंभ तिथि साफ़ करें",
+    clearToDate: "समाप्ति तिथि साफ़ करें",
     signals: "संकेत",
     hideEmptySessions: "खाली सत्र छिपाएँ",
     networkErrors: "नेटवर्क त्रुटियाँ",

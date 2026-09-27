@@ -1220,6 +1220,8 @@ export default {
     customRange: "自定义日期范围",
     fromDate: "开始",
     toDate: "结束",
+    clearFromDate: "清除开始日期",
+    clearToDate: "清除结束日期",
     signals: "信号",
     hideEmptySessions: "隐藏空会话",
     networkErrors: "网络错误",

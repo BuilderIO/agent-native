@@ -1302,6 +1302,8 @@ export default {
     customRange: "Rango personalizado",
     fromDate: "Desde",
     toDate: "Hasta",
+    clearFromDate: "Borrar fecha de inicio",
+    clearToDate: "Borrar fecha de fin",
     signals: "Señales",
     hideEmptySessions: "Ocultar sesiones vacías",
     networkErrors: "Errores de red",

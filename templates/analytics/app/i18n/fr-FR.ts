@@ -1312,6 +1312,8 @@ export default {
     customRange: "Plage personnalisée",
     fromDate: "Du",
     toDate: "Au",
+    clearFromDate: "Effacer la date de début",
+    clearToDate: "Effacer la date de fin",
     signals: "Signaux",
     hideEmptySessions: "Masquer les sessions vides",
     networkErrors: "Erreurs réseau",

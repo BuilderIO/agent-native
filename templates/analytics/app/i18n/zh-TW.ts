@@ -1303,6 +1303,8 @@ export default {
     customRange: "自訂日期範圍",
     fromDate: "開始",
     toDate: "結束",
+    clearFromDate: "清除開始日期",
+    clearToDate: "清除結束日期",
     signals: "訊號",
     hideEmptySessions: "隱藏空工作階段",
     networkErrors: "網路錯誤",

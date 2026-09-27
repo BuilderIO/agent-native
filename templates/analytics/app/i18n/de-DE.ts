@@ -1314,6 +1314,8 @@ export default {
     customRange: "Benutzerdefinierter Zeitraum",
     fromDate: "Von",
     toDate: "Bis",
+    clearFromDate: "Startdatum löschen",
+    clearToDate: "Enddatum löschen",
     signals: "Signale",
     hideEmptySessions: "Leere Sitzungen ausblenden",
     networkErrors: "Netzwerkfehler",

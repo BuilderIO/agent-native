@@ -238,17 +238,14 @@ describe("Analytics Settings", () => {
     expect(container.querySelector("#creative-context-agent-tab")).toBeNull();
   });
 
-  it("lists Sessions triage in Labs disabled by default", async () => {
+  it("does not expose the reserved Sessions Lab before its gated features ship", async () => {
     await act(async () => {
       root.render(<Settings />);
     });
 
-    const lab = container.querySelector(
-      '[data-testid="analytics.sessions-triage"]',
-    );
-    expect(lab?.textContent).toContain("sessions.labName");
-    expect(lab?.textContent).toContain("sessions.labDescription");
-    expect(lab?.querySelector('[data-default-enabled="false"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="analytics.sessions-triage"]'),
+    ).toBeNull();
   });
 
   it("shows the Creative Context settings tab when its Lab is enabled", async () => {

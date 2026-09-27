@@ -1267,6 +1267,8 @@ export default {
     customRange: "نطاق مخصص",
     fromDate: "من",
     toDate: "إلى",
+    clearFromDate: "مسح تاريخ البدء",
+    clearToDate: "مسح تاريخ الانتهاء",
     signals: "الإشارات",
     hideEmptySessions: "إخفاء الجلسات الفارغة",
     networkErrors: "أخطاء الشبكة",

@@ -1286,6 +1286,8 @@ export default {
     customRange: "カスタム期間",
     fromDate: "開始",
     toDate: "終了",
+    clearFromDate: "開始日をクリア",
+    clearToDate: "終了日をクリア",
     signals: "シグナル",
     hideEmptySessions: "空のセッションを非表示",
     networkErrors: "ネットワークエラー",

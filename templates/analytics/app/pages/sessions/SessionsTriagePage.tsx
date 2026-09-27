@@ -5,8 +5,9 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconRefresh,
+  IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -28,9 +29,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
-import { formatSessionDuration, useDebouncedUrlFilter } from "./SessionsPage";
+import {
+  EmptySessionsState,
+  formatSessionDuration,
+  useDebouncedUrlFilter,
+} from "./SessionsPage";
 
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
@@ -91,20 +97,55 @@ function rangeFrom(range: Range): string | undefined {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
 }
 
+export function readHideEmptyFilter(params: URLSearchParams): boolean {
+  return params.has("hideEmpty")
+    ? params.get("hideEmpty") !== "false"
+    : params.get("includeZeroMinuteSessions") !== "true";
+}
+
+export function withCustomDate(
+  current: URLSearchParams,
+  key: "fromDate" | "toDate",
+  value: string,
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.set("range", "custom");
+  const bound = key === "fromDate" ? "from" : "to";
+  const iso = key === "fromDate" ? startOfDate(value) : endOfDate(value);
+  if (value && iso) {
+    next.set(key, value);
+    next.set(bound, iso);
+  } else {
+    next.delete(key);
+    next.delete(bound);
+  }
+  next.delete("page");
+  return next;
+}
+
+export function withSessionFilter(
+  current: URLSearchParams,
+  key: string,
+  value: string,
+  resetPage = true,
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  if (value) next.set(key, value);
+  else next.delete(key);
+  if (key === "range" && value !== "custom") {
+    next.delete("fromDate");
+    next.delete("toDate");
+    next.delete("from");
+    next.delete("to");
+  }
+  if (resetPage) next.delete("page");
+  return next;
+}
+
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
-  useEffect(() => {
-    if (params.get("triage") === "1") return;
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set("triage", "1");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [params, setParams]);
+  const storageStatus = useReplayStorageStatus();
   const range = validRange(params.get("range"));
   const app = params.get("app") ?? "";
   const query = params.get("q") ?? "";
@@ -115,7 +156,7 @@ export function SessionsTriagePage() {
   const visitorType = (["internal", "work", "personal"] as VisitorType[]).find(
     (value) => value === params.get("visitorType"),
   );
-  const hideEmpty = params.get("hideEmpty") !== "false";
+  const hideEmpty = readHideEmptyFilter(params);
   const hideInternal = params.get("hideInternal") === "true";
   const hasErrors = params.get("hasErrors") === "true";
   const hasNetworkErrors = params.get("hasNetworkErrors") === "true";
@@ -124,31 +165,15 @@ export function SessionsTriagePage() {
     ? Number(params.get("minDurationMs"))
     : 0;
   const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
-  const fromDate = params.get("fromDate") ?? "";
-  const toDate = params.get("toDate") ?? "";
+  const fromDate =
+    params.get("fromDate") ?? params.get("from")?.slice(0, 10) ?? "";
+  const toDate = params.get("toDate") ?? params.get("to")?.slice(0, 10) ?? "";
 
   const setCustomDate = useCallback(
     (key: "fromDate" | "toDate", value: string) => {
-      setParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          next.set("range", "custom");
-          next.set("triage", "1");
-          const bound = key === "fromDate" ? "from" : "to";
-          const iso =
-            key === "fromDate" ? startOfDate(value) : endOfDate(value);
-          if (value && iso) {
-            next.set(key, value);
-            next.set(bound, iso);
-          } else {
-            next.delete(key);
-            next.delete(bound);
-          }
-          next.delete("page");
-          return next;
-        },
-        { replace: true },
-      );
+      setParams((current) => withCustomDate(current, key, value), {
+        replace: true,
+      });
     },
     [setParams],
   );
@@ -156,15 +181,10 @@ export function SessionsTriagePage() {
   const setFilter = useCallback(
     (key: string, value: string, resetPage = true) => {
       setParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          next.set("triage", "1");
-          if (value) next.set(key, value);
-          else next.delete(key);
-          if (resetPage) next.delete("page");
-          return next;
+        (current) => withSessionFilter(current, key, value, resetPage),
+        {
+          replace: true,
         },
-        { replace: true },
       );
     },
     [setParams],
@@ -301,7 +321,21 @@ export function SessionsTriagePage() {
                   role="group"
                   aria-label={t("sessions.fromDate")}
                 >
-                  <Label>{t("sessions.fromDate")}</Label>
+                  <div className="flex items-center justify-between gap-1">
+                    <Label>{t("sessions.fromDate")}</Label>
+                    {fromDate ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6"
+                        aria-label={t("sessions.clearFromDate")}
+                        onClick={() => setCustomDate("fromDate", "")}
+                      >
+                        <IconX className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
                   <DatePicker
                     value={fromDate}
                     placeholder={t("sessions.fromDate")}
@@ -313,7 +347,21 @@ export function SessionsTriagePage() {
                   role="group"
                   aria-label={t("sessions.toDate")}
                 >
-                  <Label>{t("sessions.toDate")}</Label>
+                  <div className="flex items-center justify-between gap-1">
+                    <Label>{t("sessions.toDate")}</Label>
+                    {toDate ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6"
+                        aria-label={t("sessions.clearToDate")}
+                        onClick={() => setCustomDate("toDate", "")}
+                      >
+                        <IconX className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
                   <DatePicker
                     value={toDate}
                     placeholder={t("sessions.toDate")}
@@ -372,7 +420,7 @@ export function SessionsTriagePage() {
                 label={t("sessions.hideEmptySessions")}
                 checked={hideEmpty}
                 onChange={(checked) =>
-                  setFilter("hideEmpty", checked ? "" : "false")
+                  setFilter("hideEmpty", checked ? "true" : "false")
                 }
               />
               <CheckFilter
@@ -514,7 +562,10 @@ export function SessionsTriagePage() {
             </div>
           ) : (
             <>
-              {recordings.length === 0 ? (
+              {recordings.length === 0 &&
+              storageStatus.data?.configured === false ? (
+                <EmptySessionsState />
+              ) : recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   {t("sessions.noSessions")}
                 </div>

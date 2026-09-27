@@ -1297,6 +1297,8 @@ export default {
     customRange: "Intervalo personalizado",
     fromDate: "De",
     toDate: "Até",
+    clearFromDate: "Limpar data de início",
+    clearToDate: "Limpar data de término",
     signals: "Sinais",
     hideEmptySessions: "Ocultar sessões vazias",
     networkErrors: "Erros de rede",

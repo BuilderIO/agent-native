@@ -1267,6 +1267,8 @@ export default {
     customRange: "사용자 지정 기간",
     fromDate: "시작",
     toDate: "끝",
+    clearFromDate: "시작 날짜 지우기",
+    clearToDate: "종료 날짜 지우기",
     signals: "신호",
     hideEmptySessions: "빈 세션 숨기기",
     networkErrors: "네트워크 오류",
