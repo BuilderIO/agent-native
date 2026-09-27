@@ -269,7 +269,7 @@ describe("list membership", () => {
     // record, and entry visible to OTHER here (requireCrmScope stamps
     // visibility "org" for anything created with an orgId). CONNECTION_ID —
     // created in beforeAll, owned solely by OWNER, never org-scoped — must
-    // still gate the page even though everything else in it is visible.
+    // still gate the list itself even though everything else is visible.
     const SHARE_ORG = "org_list_entries_share";
     const asOwnerInOrg = <T>(fn: () => Promise<T>): Promise<T> =>
       runWithRequestContext(
@@ -323,11 +323,11 @@ describe("list membership", () => {
       addCrmRecordToList.run({ listId: list.id, recordId }, ownerInOrgCtx),
     );
 
-    const page = await runWithRequestContext(
-      { userEmail: OTHER, orgId: SHARE_ORG },
-      () => listCrmListEntries.run({ listId: list.id }, otherInOrgCtx),
-    );
-    expect(page.entries).toHaveLength(0);
+    await expect(
+      runWithRequestContext({ userEmail: OTHER, orgId: SHARE_ORG }, () =>
+        listCrmListEntries.run({ listId: list.id }, otherInOrgCtx),
+      ),
+    ).rejects.toMatchObject({ code: "crm-list-not-found" });
   });
 
   it("rejects a record whose objectType is not the list's parentObjectType", async () => {
@@ -1171,6 +1171,28 @@ describe("access scoping", () => {
     );
     expect(page.entries.map((entry: any) => entry.recordId)).toEqual([visible]);
     expect(page.complete).toBe(true);
+  });
+});
+
+describe("list entry counts", () => {
+  it("counts only entries whose record scope is still current", async () => {
+    const list = await newList("Scope Count");
+    const kept = await createRecord("companies", "Counted Grant");
+    const revoked = await createRecord("companies", "Uncounted Grant", {
+      ...NATIVE_SCOPE,
+      key: "native:previous-grant",
+    });
+    for (const recordId of [kept, revoked]) {
+      await asOwner(() =>
+        addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+      );
+    }
+
+    const page = await asOwner(() =>
+      listCrmLists.run({ connectionId: CONNECTION_ID }, ownerCtx),
+    );
+    const row = page.lists.find((entry: any) => entry.id === list.id);
+    expect(row.entryCount).toBe(1);
   });
 });
 

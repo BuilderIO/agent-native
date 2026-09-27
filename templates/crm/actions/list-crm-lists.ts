@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, count, eq, getTableColumns, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  crmScopeResolver,
+  recordsInCurrentScope,
+} from "../server/lib/crm-query.js";
 import { queryFlag } from "./_crm-action-utils.js";
 import { decodeCrmCursor, MAX_LIST_LIMIT } from "./_crm-list-utils.js";
 
@@ -25,7 +29,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async (args) => {
+  run: async (args, ctx?: ActionRunContext) => {
     const db = getDb();
     const offset = decodeCrmCursor(args.cursor);
     const limit = Math.min(args.limit, MAX_LIST_LIMIT);
@@ -55,13 +59,19 @@ export default defineAction({
 
     const page = rows.slice(0, limit);
     const listIds = page.map((list) => list.id);
-    // Counts only entries whose record — and that record's connection — the
-    // caller can see, so a list's count never discloses entries the entries
-    // page itself would withhold.
+    // Counts only entries the entries page would return: the record and its
+    // connection are visible and the record's stored scope is still current.
+    // Grouping by scope keeps the revalidation to one check per distinct
+    // scope instead of one per entry.
     const countRows = listIds.length
       ? await db
           .select({
             listId: schema.crmListEntries.listId,
+            connectionId: schema.crmRecords.connectionId,
+            provider: schema.crmRecords.provider,
+            objectType: schema.crmRecords.objectType,
+            accessScopeJson: schema.crmRecords.accessScopeJson,
+            workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
             entries: count(),
           })
           .from(schema.crmListEntries)
@@ -81,11 +91,25 @@ export default defineAction({
               accessFilter(schema.crmConnections, schema.crmConnectionShares),
             ),
           )
-          .groupBy(schema.crmListEntries.listId)
+          .groupBy(
+            schema.crmListEntries.listId,
+            schema.crmRecords.connectionId,
+            schema.crmRecords.provider,
+            schema.crmRecords.objectType,
+            schema.crmRecords.accessScopeJson,
+            schema.crmConnections.workspaceConnectionId,
+          )
       : [];
-    const entryCounts = new Map(
-      countRows.map((row) => [row.listId, Number(row.entries)]),
-    );
+    const entryCounts = new Map<string, number>();
+    for (const row of await recordsInCurrentScope(
+      countRows,
+      crmScopeResolver(ctx),
+    )) {
+      entryCounts.set(
+        row.listId,
+        (entryCounts.get(row.listId) ?? 0) + Number(row.entries),
+      );
+    }
 
     return {
       lists: page.map((list) => ({

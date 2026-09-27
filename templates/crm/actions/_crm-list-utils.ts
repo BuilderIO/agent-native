@@ -6,6 +6,7 @@ import {
   asc,
   desc,
   eq,
+  getTableColumns,
   gt,
   gte,
   inArray,
@@ -124,12 +125,19 @@ export async function requireCrmList(
   minRole: "viewer" | "editor",
 ): Promise<CrmListRow> {
   const [list] = await db
-    .select()
+    .select(getTableColumns(schema.crmLists))
     .from(schema.crmLists)
+    .innerJoin(
+      schema.crmConnections,
+      eq(schema.crmConnections.id, schema.crmLists.connectionId),
+    )
     .where(
       and(
         eq(schema.crmLists.id, listId),
         accessFilter(schema.crmLists, schema.crmListShares, undefined, minRole),
+        // Lists can hold records from other connections, so the list's own
+        // connection gates its metadata, attributes, and entries.
+        accessFilter(schema.crmConnections, schema.crmConnectionShares),
       ),
     )
     .limit(1);
