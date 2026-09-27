@@ -2085,6 +2085,50 @@ function startClaimHeartbeat(id: string, claimId: string): () => void {
   return () => clearInterval(heartbeat);
 }
 
+async function releaseRunningClaimForUndo(
+  id: string,
+  claimId: string,
+  state: BackfillState,
+): Promise<void> {
+  await db.transaction(async (tx: any) => {
+    const [current] = await tx
+      .select()
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, id),
+          eq(schema.aiFilterBackfills.claimId, claimId),
+          eq(schema.aiFilterBackfills.status, "undoing"),
+        ),
+      )
+      .for("update");
+    if (!current) return;
+
+    const currentState = parseState(current.stateJson);
+    state.undoFailedKeys = currentState.undoFailedKeys;
+    state.retryCount = currentState.retryCount;
+    if (currentState.retryAfterAt === undefined) delete state.retryAfterAt;
+    else state.retryAfterAt = currentState.retryAfterAt;
+    if (currentState.error === undefined) delete state.error;
+    else state.error = currentState.error;
+    await tx
+      .update(schema.aiFilterBackfills)
+      .set({
+        stateJson: JSON.stringify(state),
+        claimId: null,
+        claimedAt: null,
+        updatedAt: Date.now(),
+      })
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, id),
+          eq(schema.aiFilterBackfills.claimId, claimId),
+          eq(schema.aiFilterBackfills.status, "undoing"),
+        ),
+      );
+  });
+}
+
 export async function processMailAiFilterBackfills(
   ownerEmail?: string,
 ): Promise<void> {
@@ -2159,21 +2203,7 @@ export async function processMailAiFilterBackfills(
             )
             .returning({ id: schema.aiFilterBackfills.id });
           if (!scheduled && activeStatus === "running") {
-            await db
-              .update(schema.aiFilterBackfills)
-              .set({
-                stateJson: JSON.stringify(state),
-                claimId: null,
-                claimedAt: null,
-                updatedAt: Date.now(),
-              })
-              .where(
-                and(
-                  eq(schema.aiFilterBackfills.id, row.id),
-                  eq(schema.aiFilterBackfills.claimId, claimId),
-                  eq(schema.aiFilterBackfills.status, "undoing"),
-                ),
-              );
+            await releaseRunningClaimForUndo(row.id, claimId, state);
           }
           continue;
         }
@@ -2212,21 +2242,7 @@ export async function processMailAiFilterBackfills(
           )
           .returning({ id: schema.aiFilterBackfills.id });
         if (!failed && activeStatus === "running") {
-          await db
-            .update(schema.aiFilterBackfills)
-            .set({
-              stateJson: JSON.stringify(state),
-              claimId: null,
-              claimedAt: null,
-              updatedAt: Date.now(),
-            })
-            .where(
-              and(
-                eq(schema.aiFilterBackfills.id, row.id),
-                eq(schema.aiFilterBackfills.claimId, claimId),
-                eq(schema.aiFilterBackfills.status, "undoing"),
-              ),
-            );
+          await releaseRunningClaimForUndo(row.id, claimId, state);
         }
       } catch (persistError) {
         console.error(

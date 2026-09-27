@@ -492,6 +492,39 @@ describe("startMailAiFilterBackfill", () => {
     expect(state.retryAfterAt).toBeGreaterThan(Date.now());
   });
 
+  it("preserves an explicit undo retry reset when an in-flight run fails", async () => {
+    const archiveRule = rule("rule-archive");
+    archiveRule.actions = [{ type: "archive" }];
+    mocks.rules = [archiveRule];
+    mocks.emails = [localEmail()];
+    const row = runningRow([archiveRule]);
+    const state = JSON.parse(row.stateJson);
+    state.retryCount = 5;
+    state.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.writeLocalEmails.mockImplementation(
+      async (_email: string, emails: Array<Record<string, any>>) => {
+        mocks.emails = structuredClone(emails);
+        await requestMailAiFilterBackfillUndo(
+          ownerEmail,
+          row.id,
+          row.undoToken,
+        );
+        throw new TypeError("fetch failed");
+      },
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("undoing");
+    expect(row.claimId).toBeNull();
+    expect(saved.retryCount).toBe(0);
+    expect(saved).not.toHaveProperty("retryAfterAt");
+    expect(saved).not.toHaveProperty("error");
+  });
+
   it("resets exhausted retries when an explicit undo is requested", async () => {
     mocks.rules = [rule("rule-a")];
     const started = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
