@@ -297,14 +297,16 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps arrow-key focus moves to sibling controls", () => {
-    const group = {} as Element;
+    const group = {
+      matches: (selector: string) => selector.includes('[role="tree"]'),
+    } as unknown as Element;
     const current = {
       contains: () => false,
-      closest: () => group,
+      closest: (selector: string) => (group.matches(selector) ? group : null),
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      closest: () => group,
+      closest: (selector: string) => (group.matches(selector) ? group : null),
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -319,14 +321,16 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps navigation intent until app-scheduled roving focus runs", () => {
-    const group = {} as Element;
+    const group = {
+      matches: (selector: string) => selector.includes('[role="tree"]'),
+    } as unknown as Element;
     const current = {
       contains: () => false,
-      closest: () => group,
+      closest: (selector: string) => (group.matches(selector) ? group : null),
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      closest: () => group,
+      closest: (selector: string) => (group.matches(selector) ? group : null),
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
