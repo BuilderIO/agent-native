@@ -1,5 +1,13 @@
+import type { EmbeddingFamily } from "@agent-native/core/embeddings";
+
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";
+
+export function selectBrainEmbeddingFamily(
+  families: readonly EmbeddingFamily[],
+): EmbeddingFamily | null {
+  return families.find((family) => family.provider === "builder") ?? null;
+}
 
 export const BRAIN_SENSITIVITY_CATEGORIES = [
   "performance",
