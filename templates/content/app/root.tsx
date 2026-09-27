@@ -448,6 +448,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="document"
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{

@@ -42,6 +42,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import "@/lib/register-chat-renderers";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -287,6 +288,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="calendar"
         isPublicPath={isPublicPath}
         sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}

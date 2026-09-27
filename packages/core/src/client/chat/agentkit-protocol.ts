@@ -108,6 +108,7 @@ interface ProtocolRun {
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
   activeMessageCompleted: boolean;
+  pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
@@ -417,7 +418,7 @@ function runtimeEventMessageId(
     const messageId = metadataString(value, "messageId");
     if (messageId) return messageId;
   }
-  return run.activeMessageId;
+  return run.activeMessageCompleted ? undefined : run.activeMessageId;
 }
 
 function runtimeAnnotationToProtocol(
@@ -1479,6 +1480,31 @@ export function createAgentKitProtocolAdapter(
     event: ProtocolEventInput,
     terminalStatus: "completed" | "failed" | "cancelled",
   ): void {
+    if (run.pendingWidgets.size > 0) {
+      let messageId = run.activeMessageId;
+      const occurredAt = event.occurredAt ?? now();
+      if (!messageId) {
+        messageId = createId("message");
+        run.activeMessageId = messageId;
+        run.activeMessageCompleted = false;
+        append(run, {
+          type: "message.created",
+          occurredAt,
+          metadata: event.metadata,
+          message: { id: messageId, role: "assistant", parts: [] },
+        });
+      }
+      for (const widget of run.pendingWidgets.values()) {
+        append(run, {
+          type: "widget.updated",
+          occurredAt,
+          metadata: event.metadata,
+          messageId,
+          widget,
+        });
+      }
+      run.pendingWidgets.clear();
+    }
     if (run.activeMessageId && !run.activeMessageCompleted) {
       append(run, {
         type: "message.completed",
@@ -1567,6 +1593,16 @@ export function createAgentKitProtocolAdapter(
       occurredAt: event.timestamp,
       metadata: mergeProtocolMetadata(run.metadata, event.metadata),
     };
+    const attachPendingWidgets = (messageId: string) => {
+      const widgets = [...run.pendingWidgets.values()];
+      run.pendingWidgets.clear();
+      return widgets.map((widget) => ({
+        type: "widget.updated" as const,
+        ...base,
+        messageId,
+        widget,
+      }));
+    };
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
@@ -1577,6 +1613,7 @@ export function createAgentKitProtocolAdapter(
             ...base,
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
+          ...attachPendingWidgets(event.message.id),
         ];
       case "message-delta":
         run.activeMessageId = event.messageId;
@@ -1592,6 +1629,7 @@ export function createAgentKitProtocolAdapter(
                 ? { format: event.delta.format ?? textFormat }
                 : {}),
             },
+            ...attachPendingWidgets(event.messageId),
           ];
         }
         if (event.delta.type === "reasoning") {
@@ -1602,6 +1640,7 @@ export function createAgentKitProtocolAdapter(
               messageId: event.messageId,
               text: event.delta.text,
             },
+            ...attachPendingWidgets(event.messageId),
           ];
         }
         return [
@@ -1613,6 +1652,7 @@ export function createAgentKitProtocolAdapter(
               delta: event.delta,
             },
           },
+          ...attachPendingWidgets(event.messageId),
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
@@ -1623,6 +1663,7 @@ export function createAgentKitProtocolAdapter(
             ...base,
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
+          ...attachPendingWidgets(event.message.id),
         ];
       case "tool-start": {
         const metadata = mergeProtocolMetadata(
@@ -1700,17 +1741,21 @@ export function createAgentKitProtocolAdapter(
             })
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
+        const activeTool = run.activeTools.get(event.toolCallId);
         return [
           {
             type: "tool.updated",
             ...base,
             metadata,
             toolCall: {
+              ...activeTool,
               id: event.toolCallId,
               name: event.toolName,
               status,
-              output: event.result ?? event.resultText,
+              output:
+                event.result !== undefined ? event.result : event.resultText,
               error,
+              ...(metadata ? { metadata } : {}),
             },
           },
           ...(actionResult
@@ -1890,6 +1935,7 @@ export function createAgentKitProtocolAdapter(
           event.metadata,
         );
         if (event.operation === "remove") {
+          run.pendingWidgets.delete(event.widget.id);
           return [
             {
               type: "widget.removed",
@@ -1898,6 +1944,9 @@ export function createAgentKitProtocolAdapter(
             },
           ];
         }
+        const widget = runtimeWidgetToProtocol(event.widget);
+        if (messageId) run.pendingWidgets.delete(widget.id);
+        else run.pendingWidgets.set(widget.id, widget);
         return [
           {
             type:
@@ -1906,7 +1955,7 @@ export function createAgentKitProtocolAdapter(
                 : "widget.updated",
             ...base,
             ...(messageId ? { messageId } : {}),
-            widget: runtimeWidgetToProtocol(event.widget),
+            widget,
           },
         ];
       }
@@ -2353,13 +2402,6 @@ export function createAgentKitProtocolAdapter(
           "Core requires approval continuations to use resumeRun",
         );
       }
-      const latestUserMessage = [...input.messages]
-        .reverse()
-        .find((message) => message.role === "user");
-      const latestUserMetadata = asRecord(latestUserMessage?.metadata);
-      const recoveryMetadata = asRecord(latestUserMetadata?.custom);
-      const isRecoveryRetry =
-        recoveryMetadata?.agentNativeRecoveryAction === "retry";
       const turnMetadata = mergeTrustedProtocolMetadata(
         options.metadata,
         input.metadata,
@@ -2367,27 +2409,12 @@ export function createAgentKitProtocolAdapter(
         input.options?.agentId ? { agentId: input.options.agentId } : undefined,
         input.options?.locale ? { locale: input.options.locale } : undefined,
         input.options?.mode ? { mode: input.options.mode } : undefined,
-        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
       );
       const session = await getSession(input.threadId, turnMetadata);
       const messages = input.messages.map(protocolMessageToRuntimeMessage);
-      const attachments =
-        latestUserMessage?.parts.flatMap((part) =>
-          part.type === "file"
-            ? [
-                {
-                  name: part.name,
-                  ...(part.fileId ? { id: part.fileId } : {}),
-                  ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-                  ...(part.url ? { url: part.url } : {}),
-                },
-              ]
-            : [],
-        ) ?? [];
       const turn = await session.startTurn({
         prompt: latestUserPrompt(input.messages),
         messages,
-        ...(attachments.length ? { attachments } : {}),
         model: input.options?.model,
         reasoningEffort: input.options?.reasoningEffort,
         temperature: input.options?.temperature,
@@ -2433,6 +2460,7 @@ export function createAgentKitProtocolAdapter(
         activeReaders: 0,
         metadata: runMetadata,
         activeMessageCompleted: false,
+        pendingWidgets: new Map(),
         actions: new Map(),
         activeTools: new Map(),
         activeActivities: new Map(),
@@ -2783,6 +2811,7 @@ export function createAgentKitProtocolAdapter(
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
           activeMessageCompleted: run.activeMessageCompleted,
+          pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
           activeActivities: new Map(run.activeActivities),

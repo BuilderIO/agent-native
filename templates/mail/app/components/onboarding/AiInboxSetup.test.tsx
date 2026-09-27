@@ -200,6 +200,222 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("uses the shared Skip inbox label on the cleanup step", () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.autoArchiveMode")).toBeNull();
+  });
+
+  it("does not save the cleanup examples as archive or spam rules", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    const archiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    }) as HTMLInputElement;
+    const spamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    }) as HTMLInputElement;
+    expect(archiveInput.value).toBe("");
+    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
+    expect(spamInput.value).toBe("");
+    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
+    expect(
+      screen
+        .getAllByRole("switch")
+        .map((toggle) => toggle.getAttribute("aria-checked")),
+    ).toEqual(["false", "false"]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
+    expect(mocks.createRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining([{ type: "archive" }]),
+      }),
+    );
+    expect(mocks.createRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          { type: "label", labelName: AI_FILTER_LABEL },
+        ]),
+      }),
+    );
+  });
+
+  it("keeps cleanup rules off when their prompt is cleared and rewritten", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
+    const archiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    });
+    const spamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    });
+
+    fireEvent.change(archiveInput, {
+      target: { value: "Archive newsletters" },
+    });
+    fireEvent.change(spamInput, {
+      target: { value: "Skip bot notifications" },
+    });
+    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("true");
+    expect(spamSwitch?.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(archiveSwitch!);
+    fireEvent.click(spamSwitch!);
+    fireEvent.change(archiveInput, { target: { value: "" } });
+    fireEvent.change(spamInput, { target: { value: "" } });
+    fireEvent.change(archiveInput, {
+      target: { value: "Archive vendor newsletters" },
+    });
+    fireEvent.change(spamInput, {
+      target: { value: "Skip automated bot notifications" },
+    });
+
+    expect(archiveSwitch?.getAttribute("aria-checked")).toBe("false");
+    expect(spamSwitch?.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("resets cleanup opt-outs when setup is reopened", async () => {
+    mocks.automations = [
+      {
+        id: "existing-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Existing important rule",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+        enabled: true,
+      },
+    ];
+    const { rerender } = render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const archiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    });
+    const spamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    });
+    const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
+
+    fireEvent.change(archiveInput, {
+      target: { value: "Archive older newsletters" },
+    });
+    fireEvent.change(spamInput, {
+      target: { value: "Skip older bot alerts" },
+    });
+    fireEvent.click(archiveSwitch!);
+    fireEvent.click(spamSwitch!);
+
+    rerender(<AiInboxSetup forceOpen={false} />);
+    rerender(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    const reopenedArchiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    });
+    const reopenedSpamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    });
+    const [reopenedArchiveSwitch, reopenedSpamSwitch] =
+      screen.getAllByRole("switch");
+    fireEvent.change(reopenedArchiveInput, {
+      target: { value: "Archive new newsletters" },
+    });
+    fireEvent.change(reopenedSpamInput, {
+      target: { value: "Skip new bot alerts" },
+    });
+
+    expect(reopenedArchiveSwitch?.getAttribute("aria-checked")).toBe("true");
+    expect(reopenedSpamSwitch?.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2"],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "Archive new newsletters",
+        actions: [{ type: "archive" }],
+      }),
+    );
+    expect(mocks.createRule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        condition: "Skip new bot alerts",
+        actions: [
+          { type: "label", labelName: AI_FILTER_LABEL },
+          { type: "archive" },
+        ],
+      }),
+    );
+  });
+
   it("keeps account and Jev loading gates when setup is force-opened", () => {
     const { rerender } = render(<AiInboxSetup forceOpen />);
     mocks.googleStatus.isLoading = true;
@@ -403,13 +619,16 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
     );
 
+    await screen.findByRole("heading", {
+      name: "mail.sort.aiSetupSortingHeadline",
+    });
     await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenCalledWith({
-        operation: "start",
-        ruleIds: ["rule-1", "rule-2"],
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
       }),
     );
-    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
   });
 
   it("does not save or backfill a draft Important rule after skipping that step", async () => {
@@ -526,7 +745,7 @@ describe("AiInboxSetup", () => {
       });
       expect(mocks.startBackfill).toHaveBeenCalledWith({
         operation: "start",
-        ruleIds: ["disabled-receipts", "rule-1", "rule-2", "rule-3"],
+        ruleIds: ["disabled-receipts", "rule-1"],
       });
     });
   });
@@ -622,6 +841,23 @@ describe("AiInboxSetup", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.aiFilter.skipInboxMode",
+      }),
+      { target: { value: "Archive newsletters" } },
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.aiFilter.filteredMode",
+      }),
+      { target: { value: "Skip bot notifications" } },
+    );
+    expect(
+      screen
+        .getAllByRole("switch")
+        .map((toggle) => toggle.getAttribute("aria-checked")),
+    ).toEqual(["true", "true"]);
     fireEvent.click(
       await screen.findByRole("button", {
         name: "mail.sort.aiSetupSortInbox",
@@ -654,7 +890,7 @@ describe("AiInboxSetup", () => {
     ).toBe(labelTabHref(AI_IMPORTANT_LABEL));
     expect(
       screen
-        .getByRole("link", { name: "mail.aiFilter.autoArchiveMode" })
+        .getByRole("link", { name: "mail.aiFilter.skipInboxMode" })
         .getAttribute("href"),
     ).toBe("/archive");
     expect(

@@ -79,14 +79,20 @@ export default defineAction({
         )
         .limit(1);
       if (!scope) fail("Design not found.", { statusCode: 404 });
-      const scopedAccess = await resolveAccess("design", id, {
-        userEmail: scope.ownerEmail,
-        orgId: targetOrgId,
-      });
-      if (!scopedAccess || scopedAccess.resource.orgId !== targetOrgId) {
-        fail("Design not found.", { statusCode: 404 });
+      const directAccess =
+        targetOrgId === orgId ? await resolveAccess("design", id) : null;
+      if (directAccess?.resource.orgId === targetOrgId) {
+        access = directAccess;
+      } else {
+        const scopedAccess = await resolveAccess("design", id, {
+          userEmail: scope.ownerEmail,
+          orgId: targetOrgId,
+        });
+        if (!scopedAccess || scopedAccess.resource.orgId !== targetOrgId) {
+          fail("Design not found.", { statusCode: 404 });
+        }
+        access = { role: "viewer" as const, resource: scopedAccess.resource };
       }
-      access = { role: "viewer" as const, resource: scopedAccess.resource };
     } else {
       access = await resolveAccess("design", id);
     }

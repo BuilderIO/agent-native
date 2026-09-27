@@ -1358,6 +1358,7 @@ function DesignEditor() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+  const reviewPreview = searchParams.get("reviewPreview") === "1";
   const postAuthIntent = useMemo<PostAuthDesignIntent | null>(() => {
     const value = searchParams.get("intent");
     return value === "save" || value === "share" ? value : null;
@@ -3778,7 +3779,7 @@ function DesignEditor() {
     refetch: refetchDesign,
   } = useActionQuery<DesignData | string>(
     "get-design",
-    { id: id! },
+    { id: id!, ...(reviewPreview ? { reviewPreview: true } : {}) },
     {
       enabled: !shellMode,
       refetchInterval: isVisualEditSurface

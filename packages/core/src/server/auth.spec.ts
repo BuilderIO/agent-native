@@ -3354,6 +3354,63 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(503);
     });
 
+    it("keeps org access recovery controls reachable for a disabled app", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      defineAppConfig({
+        app: { id: "account-expert", workspaceId: "community" },
+      });
+      const checkAppAccess = vi.fn(async () => false);
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: checkAppAccess,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({
+          email: "owner@example.com",
+          orgId: "org-1",
+        }),
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const allowed = [
+        ["GET", "/_agent-native/actions/list-workspace-app-access"],
+        ["POST", "/_agent-native/actions/set-workspace-app-access"],
+      ] as const;
+
+      for (const [method, path] of allowed) {
+        const event = createJsonMethodEvent(path, method);
+        await expect(guard(event)).resolves.toBeUndefined();
+        expect(event.res.status).not.toBe(403);
+      }
+
+      for (const [method, path] of [
+        ["GET", "/_agent-native/actions/set-workspace-app-access"],
+        ["POST", "/_agent-native/actions/list-workspace-app-access"],
+        ["GET", "/_agent-native/org/members"],
+        ["GET", "/_agent-native/org/a2a-secret"],
+        ["PUT", "/_agent-native/org/a2a-secret"],
+        ["POST", "/_agent-native/org/a2a-secret/sync"],
+        ["DELETE", "/_agent-native/org/members"],
+        ["GET", "/_agent-native/actions/list"],
+        ["GET", "/api/private"],
+      ] as const) {
+        const event = createJsonMethodEvent(path, method);
+        await expect(guard(event)).resolves.toEqual({
+          error: "You do not have access to this workspace app.",
+        });
+        expect(event.res.status).toBe(403);
+      }
+
+      expect(checkAppAccess).toHaveBeenCalledTimes(9);
+    });
+
     it("allows standalone Dispatch APIs for organization members", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_APP_ID", "dispatch");
@@ -11020,6 +11077,22 @@ function createJsonPostEvent(
   event.req = request;
   event.headers = request.headers;
   event.node.req.method = "POST";
+  event.node.req.headers = requestHeaders;
+  return event;
+}
+
+function createJsonMethodEvent(path: string, method: string): any {
+  const request = new Request(`http://localhost${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    ...(method === "GET" ? {} : { body: "{}" }),
+  });
+  const requestHeaders = Object.fromEntries(request.headers.entries());
+  const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`http://localhost${path}`);
+  event.req = request;
+  event.headers = request.headers;
+  event.node.req.method = method;
   event.node.req.headers = requestHeaders;
   return event;
 }

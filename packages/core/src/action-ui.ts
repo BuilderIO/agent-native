@@ -9,6 +9,10 @@ export interface ActionChatUIConfig {
   renderer: string;
   title?: string;
   description?: string;
+  /** Show this renderer only for matching successful action calls. */
+  when?: (args: Record<string, unknown>, result: unknown) => boolean;
+  /** Return the small result needed by the renderer and interrupted-run recovery. */
+  projectResult?: (args: Record<string, unknown>, result: unknown) => unknown;
 }
 
 export function normalizeActionChatUIConfig(
@@ -28,6 +32,15 @@ export function normalizeActionChatUIConfig(
       : {}),
     ...(typeof record.description === "string" && record.description.trim()
       ? { description: record.description }
+      : {}),
+    ...(typeof record.when === "function"
+      ? { when: record.when as ActionChatUIConfig["when"] }
+      : {}),
+    ...(typeof record.projectResult === "function"
+      ? {
+          projectResult:
+            record.projectResult as ActionChatUIConfig["projectResult"],
+        }
       : {}),
   };
 }

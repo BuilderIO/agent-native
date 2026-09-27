@@ -1,7 +1,7 @@
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
-} from "@agent-native/core/client/agent-chat";
+} from "@agent-native/core/client/agentkit-chat";
 import { lazy, Suspense } from "react";
 
 const VisualAnswerInline = lazy(

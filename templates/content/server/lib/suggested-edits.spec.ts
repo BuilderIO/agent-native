@@ -106,7 +106,12 @@ describe("Content document suggestion adapter", () => {
         ctx: { suggestionAccess: access },
       }),
     ).resolves.toEqual([operation]);
-    expect(exclusions).toHaveBeenCalledOnce();
+    expect(exclusions).toHaveBeenCalledTimes(3);
+    expect(exclusions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("content_database_items"),
+      }),
+    );
   });
 
   it("accepts an editor-normalized proposal against its exact raw Page revision", async () => {
@@ -173,7 +178,7 @@ describe("Content document suggestion adapter", () => {
         },
       }),
     ).resolves.toEqual([operation]);
-    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(tx.execute).toHaveBeenCalledTimes(4);
     expect(exclusions).not.toHaveBeenCalled();
   });
 

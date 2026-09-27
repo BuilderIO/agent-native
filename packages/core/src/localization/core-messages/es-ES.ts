@@ -76,7 +76,6 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Otro",
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
-  "onboarding.useOwnApiKeys": "Usar mis propias claves de API",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Crear cuenta de Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -118,11 +117,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
   "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
+  "onboarding.fileStorage.statusUnavailable":
+    "No se pudo comprobar el almacenamiento",
   "onboarding.fileStorage.description":
     "Conecta Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
   "onboarding.fileStorage.reconnectBuilder": "Volver a conectar Builder.io",
-  "onboarding.fileStorage.custom":
-    "Añadir tus propias claves de almacenamiento",
+  "onboarding.fileStorage.custom": "Usar claves personalizadas",
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
@@ -887,6 +887,8 @@ const messages: AgentChatTranslation = {
     "Cualquier persona de tu organización puede verlo",
   "share.owner": "Propietario",
   "share.peopleWithAccess": "Personas con acceso",
+  "share.people": "Personas",
+  "share.agents": "Agentes",
   "share.private": "Privado",
   "share.privateDescription": "Solo las personas con acceso pueden verlo",
   "share.public": "Público",

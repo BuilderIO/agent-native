@@ -220,6 +220,7 @@ describe("get-design", () => {
 
   it("allows an org admin to read a same-org design for Human Review", async () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.resolveAccess.mockResolvedValueOnce(null);
     mocks.track.mockClear();
 
     const result = await action.run({ id: "design_123", reviewPreview: true });
@@ -233,6 +234,25 @@ describe("get-design", () => {
     expect(result.files[0].content).toBe("<main>Hello</main>");
     expect(mocks.track).not.toHaveBeenCalled();
   });
+
+  it.each(["owner", "editor"] as const)(
+    "preserves direct %s access for a same-org review preview",
+    async (role) => {
+      mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+      mocks.resolveAccess.mockResolvedValueOnce({
+        role,
+        resource: mocks.state.reviewResource,
+      });
+
+      const result = await action.run({
+        id: "design_123",
+        reviewPreview: true,
+      });
+
+      expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_123");
+      expect(result).toMatchObject({ id: "design_123", accessRole: role });
+    },
+  );
 
   it("rejects non-admin Human Review design previews before querying", async () => {
     mocks.state.superOrgId = "org-a";

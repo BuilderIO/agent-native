@@ -47,6 +47,11 @@ export default {
     noEventId: "No event id provided. Add ?id=<eventId> to the URL.",
     openCalendar: "Open calendar",
   },
+  eventCreation: {
+    created: "Event created",
+    zoomNotAdded: "The event was created, but Zoom could not be added.",
+    openInCalendar: "Open event in Calendar",
+  },
   agentSidebar: {
     emptyState: "Ask me anything about your calendar",
     suggestions: {
@@ -250,6 +255,14 @@ export default {
     weekStartSunday: "Sunday - Saturday",
     weekStartMonday: "Monday - Sunday",
     eventRules: "Invitation rules",
+    eventRulesConnectJev: "Connect Jev to run invitation rules",
+    eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
+    eventRulesConnectBuilder: "Connect Builder.io",
+    eventRulesAddJevApiKey: "Add API key",
+    eventRulesTabRules: "Rules",
+    eventRulesHelpLabel: "About invitation rule prompts",
+    eventRulesHelp:
+      "Write prompts that tell Jev which invitations to accept, decline, or hide.",
     eventRuleAccept: "Auto accept",
     eventRuleDecline: "Auto decline",
     eventRuleHide: "Auto hide",
@@ -258,6 +271,7 @@ export default {
       "Example: Decline vendor demos and after-hours events",
     eventRulePlaceholderHide: "Example: Hide focus blocks and reminders",
     eventRulesSave: "Save rules",
+    eventRulesClearSaved: "Clear saved rules",
     eventRulesRecentActivity: "Recent activity",
     eventRulesNoActivity: "No activity yet",
     eventRuleActivityAccepted: "Accepted",

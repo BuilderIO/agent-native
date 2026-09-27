@@ -11,6 +11,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Connect Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -60,7 +61,7 @@ const messages = {
       description:
         "Connect Builder.io (free) or configure your own S3-compatible object storage.",
       reconnectBuilder: "Reconnect Builder.io",
-      custom: "Add your own object storage keys",
+      custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -1014,6 +1015,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",

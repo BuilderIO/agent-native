@@ -26,6 +26,7 @@ import { Link, Navigate, useInRouterContext, useLocation } from "react-router";
 import type { OutputReviewListRow } from "../../observability/types.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "../../shared/agent-sidebar-url.js";
 import { docsUrl } from "../../shared/docs-url.js";
@@ -259,6 +260,45 @@ export function resolveReviewArtifactHref(
   }
 
   return `https://${isBeta ? "beta." : ""}${REVIEW_ARTIFACT_APPS[appId].host}${safePath}`;
+}
+
+export function resolveReviewArtifactOpenHref(
+  appId: keyof typeof REVIEW_ARTIFACT_APPS,
+  artifactId: string,
+  path: string | undefined,
+  options: {
+    threadId?: string | null;
+    readOnly?: boolean;
+    hostname?: string;
+  } = {},
+): string | undefined {
+  const href = resolveReviewArtifactHref(
+    appId,
+    artifactId,
+    path,
+    options.hostname ??
+      (typeof window === "undefined" ? undefined : window.location.hostname),
+  );
+  if (!href || appId !== "design") return href;
+
+  const url = new URL(href);
+  url.pathname = `/design/${encodeURIComponent(artifactId)}`;
+  url.search = "";
+  url.searchParams.set("editorView", "overview");
+  url.searchParams.set("reviewPreview", "1");
+  if (!options.readOnly && options.threadId) {
+    url.searchParams.set("thread", options.threadId);
+    url.searchParams.set(
+      AGENT_SIDEBAR_QUERY_PARAM,
+      AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+    );
+  } else {
+    url.searchParams.set(
+      AGENT_SIDEBAR_QUERY_PARAM,
+      AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+    );
+  }
+  return url.toString();
 }
 
 function latestRenderableReviewArtifact(
@@ -1242,6 +1282,17 @@ function ReviewTab({
     ) ?? selectedArtifactChoices.at(-1);
   const selectedArtifact = selectedArtifactChoice?.artifact;
   const selectedArtifactHref = selectedArtifactChoice?.href;
+  const selectedArtifactOpenHref = selectedArtifact
+    ? resolveReviewArtifactOpenHref(
+        selectedArtifact.appId,
+        selectedArtifact.artifactId,
+        selectedArtifact.path,
+        {
+          threadId: selectedReview?.threadId,
+          readOnly: selectedReview?.readOnly,
+        },
+      )
+    : undefined;
   const selectedArtifactInline = selectedArtifactChoice?.inline === true;
   const selectedSummary =
     activeDetail?.summary ??
@@ -2125,30 +2176,31 @@ function ReviewTab({
                                 </select>
                               )}
                             </div>
-                            {(selectedArtifactHref ||
+                            {(selectedArtifactOpenHref ||
                               selectedReview.threadId) && (
                               <div className="flex items-center gap-1">
-                                {selectedArtifactHref && selectedArtifact && (
-                                  <TooltipProvider delayDuration={200}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <a
-                                          href={selectedArtifactHref}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          aria-label={`${t("runsTray.open")} ${selectedArtifact.title}`}
-                                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        >
-                                          <IconExternalLink size={15} />
-                                        </a>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        {t("runsTray.open")}{" "}
-                                        {selectedArtifact.title}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )}
+                                {selectedArtifactOpenHref &&
+                                  selectedArtifact && (
+                                    <TooltipProvider delayDuration={200}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <a
+                                            href={selectedArtifactOpenHref}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            aria-label={`${t("runsTray.open")} ${selectedArtifact.title}`}
+                                            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                          >
+                                            <IconExternalLink size={15} />
+                                          </a>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          {t("runsTray.open")}{" "}
+                                          {selectedArtifact.title}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  )}
                                 {selectedReview.threadId &&
                                   selectedReview.orgId === activeOrg?.orgId && (
                                     <TooltipProvider delayDuration={200}>
@@ -2634,6 +2686,16 @@ function ReviewTab({
                               </PopoverContent>
                             </Popover>
                           </>
+                        )}
+                        {selectedReview.authorEmail && (
+                          <span
+                            data-review-author-email
+                            dir="ltr"
+                            title={selectedReview.authorEmail}
+                            className="ml-auto min-w-0 max-w-[40%] shrink truncate whitespace-nowrap pl-2 text-right text-xs text-muted-foreground"
+                          >
+                            {selectedReview.authorEmail}
+                          </span>
                         )}
                       </div>
                     </div>

@@ -236,6 +236,7 @@ export default function PromptPopover({
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
   const [importMode, setImportMode] = useState<PromptImportSource | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
     null,
   );
@@ -366,7 +367,10 @@ export default function PromptPopover({
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
-      if (!fileStorageConfigured) return;
+      if (!fileStorageConfigured) {
+        if (files.length > 0) setStoragePromptOpen(true);
+        return;
+      }
       if (files.length === 0 && retainingAttachmentsRef.current) return;
       activeAttachmentFilesRef.current = files;
       syncFiles(files);
@@ -432,7 +436,10 @@ export default function PromptPopover({
       options?: SlidesPromptSubmitOptions,
     ) => {
       files = [...new Set([...files, ...sourceFilesRef.current])];
-      if (files.length > 0 && !fileStorageConfigured) return;
+      if (files.length > 0 && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
       if (sourceFilesRef.current.length) {
         options = {
           ...options,
@@ -599,8 +606,10 @@ export default function PromptPopover({
   });
   const runImport = useCallback(
     (selection: PromptImportSelection) => {
-      if (selection.kind !== "google-slides" && !fileStorageConfigured)
+      if (selection.kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
         return Promise.resolve(false);
+      }
       return runPromptImport(selection);
     },
     [fileStorageConfigured, runPromptImport],
@@ -609,17 +618,28 @@ export default function PromptPopover({
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
       if (!file) return;
+      if (!fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
       setSelectedImportFile(file);
       void runImport({ kind, files: [file] });
     },
     [runImport],
   );
 
-  const chooseImportMode = useCallback((kind: PromptImportSource) => {
-    setImportMode(kind);
-    setSelectedImportFile(null);
-    setGoogleSlidesUrl("");
-  }, []);
+  const chooseImportMode = useCallback(
+    (kind: PromptImportSource) => {
+      if (kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
+      setImportMode(kind);
+      setSelectedImportFile(null);
+      setGoogleSlidesUrl("");
+    },
+    [fileStorageConfigured],
+  );
 
   const returnToPrompt = useCallback(() => {
     if (importingSource) return;
@@ -779,18 +799,22 @@ export default function PromptPopover({
                   initialModelSelection ? handleEffortChange : undefined
                 }
                 onModelSelectionChange={setModelSelection}
+                onAttachmentRequest={
+                  fileStorageConfigured
+                    ? undefined
+                    : () => setStoragePromptOpen(true)
+                }
               />
             </div>
 
-            {!storageQuery.isLoading ? (
-              <div className="border-t border-border/60 px-3 py-2.5">
-                <UploadStorageGate
-                  configured={fileStorageConfigured}
-                  unavailable={storageQuery.isError}
-                  onRetry={() => void storageQuery.refetch()}
-                />
-              </div>
-            ) : null}
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={!storageQuery.isSuccess}
+              open={storagePromptOpen}
+              onOpenChange={setStoragePromptOpen}
+              onRetry={() => void storageQuery.refetch()}
+              anchorRef={panelRef}
+            />
 
             {uploading && (
               <div
@@ -824,12 +848,7 @@ export default function PromptPopover({
                         ? undefined
                         : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                     }
-                    disabled={
-                      loading ||
-                      uploading ||
-                      submitting ||
-                      !fileStorageConfigured
-                    }
+                    disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
                     <IconFileTypePdf className="size-3.5" />
@@ -859,12 +878,7 @@ export default function PromptPopover({
                         ? undefined
                         : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                     }
-                    disabled={
-                      loading ||
-                      uploading ||
-                      submitting ||
-                      !fileStorageConfigured
-                    }
+                    disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
                     <IconPresentation className="size-3.5" />
@@ -946,12 +960,12 @@ export default function PromptPopover({
                       type="button"
                       variant="outline"
                       className="w-full justify-center gap-2"
-                      disabled={
-                        importingSource !== null ||
-                        loading ||
-                        !fileStorageConfigured
-                      }
-                      onClick={() => importInputRef.current?.click()}
+                      disabled={importingSource !== null || loading}
+                      onClick={() => {
+                        if (fileStorageConfigured)
+                          importInputRef.current?.click();
+                        else setStoragePromptOpen(true);
+                      }}
                     >
                       <IconUpload className="size-4" />
                       Upload {importModeLabel}
@@ -961,13 +975,6 @@ export default function PromptPopover({
                         {selectedImportFile.name}
                       </p>
                     )}
-                    {!storageQuery.isLoading ? (
-                      <UploadStorageGate
-                        configured={fileStorageConfigured}
-                        unavailable={storageQuery.isError}
-                        onRetry={() => void storageQuery.refetch()}
-                      />
-                    ) : null}
                   </>
                 )}
               </div>

@@ -48,6 +48,12 @@ export default {
       "Keine Ereignis-ID angegeben. Fügen Sie der URL ?id=<eventId> hinzu.",
     openCalendar: "Kalender öffnen",
   },
+  eventCreation: {
+    created: "Termin erstellt",
+    zoomNotAdded:
+      "Der Termin wurde erstellt, aber Zoom konnte nicht hinzugefügt werden.",
+    openInCalendar: "Termin in Calendar öffnen",
+  },
   agentSidebar: {
     emptyState: "Frage mich alles zu deinem Kalender",
     suggestions: {
@@ -260,6 +266,15 @@ export default {
     weekStartSunday: "Sonntag - Samstag",
     weekStartMonday: "Montag - Sonntag",
     eventRules: "Einladungsregeln",
+    eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
+    eventRulesFreeBuilderOrApiKey:
+      "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+    eventRulesConnectBuilder: "Builder.io verbinden",
+    eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
+    eventRulesTabRules: "Regeln",
+    eventRulesHelpLabel: "Hinweise zu Einladungsregeln",
+    eventRulesHelp:
+      "Schreibe Anweisungen, damit Jev Einladungen automatisch annimmt, ablehnt oder ausblendet.",
     eventRuleAccept: "Automatisch annehmen",
     eventRuleDecline: "Automatisch ablehnen",
     eventRuleHide: "Automatisch ausblenden",
@@ -270,6 +285,7 @@ export default {
     eventRulePlaceholderHide:
       "Beispiel: Fokuszeiten und Erinnerungen ausblenden",
     eventRulesSave: "Regeln speichern",
+    eventRulesClearSaved: "Gespeicherte Regeln löschen",
     eventRulesRecentActivity: "Letzte Aktivitäten",
     eventRulesNoActivity: "Noch keine Aktivitäten",
     eventRuleActivityAccepted: "Angenommen",

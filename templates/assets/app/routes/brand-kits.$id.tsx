@@ -383,6 +383,7 @@ export function BrandKitDetailRoute({
   const queryClient = useQueryClient();
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
@@ -413,6 +414,7 @@ export function BrandKitDetailRoute({
   );
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingStorageUploadRef = useRef<File[] | null>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
@@ -829,7 +831,10 @@ export function BrandKitDetailRoute({
       );
   }
 
-  async function upload(files: FileList | null, category = "style-only") {
+  async function upload(
+    files: FileList | File[] | null,
+    category = "style-only",
+  ) {
     if (!canUploadFiles || !files?.length || uploading) return;
     const selectedFiles = Array.from(files);
     const oversizedFile = selectedFiles.find(
@@ -981,6 +986,28 @@ export function BrandKitDetailRoute({
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
+
+  function requestUpload(files: FileList | null = null) {
+    if (uploading) return;
+    if (canUploadFiles) {
+      if (files?.length) void upload(files);
+      else fileInputRef.current?.click();
+      return;
+    }
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length > 0) {
+      pendingStorageUploadRef.current = selectedFiles;
+    }
+    setStorageSetupOpen(true);
+  }
+
+  useEffect(() => {
+    if (!canUploadFiles) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingStorageUploadRef.current;
+    pendingStorageUploadRef.current = null;
+    if (pendingFiles) void upload(pendingFiles);
+  }, [canUploadFiles, upload]);
 
   async function archiveCurrentLibrary() {
     if (!library || archiveLibrary.isPending) return;
@@ -1165,10 +1192,8 @@ export function BrandKitDetailRoute({
       pendingUploads={uploads}
       folders={folders}
       promotingReferenceKeys={promotingReferenceKeys}
-      onUploadClick={
-        canUploadFiles ? () => fileInputRef.current?.click() : undefined
-      }
-      onDrop={canUploadFiles ? (files) => void upload(files) : undefined}
+      onUploadClick={() => requestUpload()}
+      onDrop={(files) => requestUpload(files)}
       onMoveToReferences={(asset, slot) => {
         void handleMoveToReferences(asset, slot);
       }}
@@ -1185,8 +1210,8 @@ export function BrandKitDetailRoute({
     <Button
       variant="outline"
       className="gap-2"
-      onClick={() => fileInputRef.current?.click()}
-      disabled={!canUploadFiles || uploading}
+      onClick={() => requestUpload()}
+      disabled={uploading}
     >
       {uploading ? (
         <Spinner className="h-4 w-4" />
@@ -1325,7 +1350,10 @@ export function BrandKitDetailRoute({
         multiple
         className="hidden"
         disabled={!canUploadFiles}
-        onChange={(event) => upload(event.target.files)}
+        onChange={(event) => {
+          requestUpload(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
       />
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
@@ -1376,7 +1404,6 @@ export function BrandKitDetailRoute({
         onDragEnter={(e: DragEvent<HTMLDivElement>) => {
           if (!e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
-          if (!canUploadFiles) return;
           dragCounterRef.current += 1;
           if (dragCounterRef.current === 1) setIsDragOver(true);
         }}
@@ -1392,13 +1419,17 @@ export function BrandKitDetailRoute({
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
-          if (canUploadFiles) void upload(e.dataTransfer.files);
+          requestUpload(e.dataTransfer.files);
         }}
       >
         <FileUploadStorageGate
           state={fileStorageState}
+          open={storageSetupOpen}
+          onOpenChange={setStorageSetupOpen}
+          onDismiss={() => {
+            pendingStorageUploadRef.current = null;
+          }}
           onRetry={() => void fileUploadStatus.refetch()}
-          className="mb-4"
         />
         {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
