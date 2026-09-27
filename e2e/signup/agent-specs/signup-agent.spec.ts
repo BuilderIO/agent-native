@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type Request,
+  type TestInfo,
+} from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -33,7 +39,7 @@ type PostLinkState = "onboarding" | "app" | "unresolved";
 
 async function waitForPostLinkState(
   page: Page,
-  pendingRequests?: Map<string, number>,
+  pendingRequests?: Map<Request, number>,
 ): Promise<PostLinkState> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -164,8 +170,7 @@ function agentTargets(): SignupTarget[] {
 
 function trackNetwork(page: Page, origin: string) {
   const networkEvents: string[] = [];
-  const pendingRequests = new Map<string, number>();
-  const secretsRequestStarts = new WeakMap<object, number>();
+  const pendingRequests = new Map<Request, number>();
   const isDiagnosticRequest = (url: string): boolean => {
     try {
       const parsed = new URL(url);
@@ -186,22 +191,15 @@ function trackNetwork(page: Page, origin: string) {
   page.on("request", (request) => {
     const url = request.url();
     if (!isDiagnosticRequest(url)) return;
-    const startedAt = Date.now();
-    pendingRequests.set(url, startedAt);
-    if (SECRETS_ENDPOINTS.has(new URL(url).pathname)) {
-      secretsRequestStarts.set(request, startedAt);
-    }
+    pendingRequests.set(request, Date.now());
   });
   page.on("response", (response) => {
     if (!isDiagnosticRequest(response.url())) return;
     const url = response.url();
     const pathname = new URL(url).pathname;
-    const startedAt = SECRETS_ENDPOINTS.has(pathname)
-      ? secretsRequestStarts.get(response.request())
-      : pendingRequests.get(url);
-    if (!SECRETS_ENDPOINTS.has(pathname)) {
-      pendingRequests.delete(response.url());
-    }
+    const request = response.request();
+    const startedAt = pendingRequests.get(request);
+    if (!SECRETS_ENDPOINTS.has(pathname)) pendingRequests.delete(request);
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
     networkEvents.push(`${response.status()} ${pathname} ${elapsed}`);
@@ -211,8 +209,8 @@ function trackNetwork(page: Page, origin: string) {
     if (!isDiagnosticRequest(url)) return;
     const pathname = new URL(url).pathname;
     if (!SECRETS_ENDPOINTS.has(pathname)) return;
-    const startedAt = secretsRequestStarts.get(request);
-    if (pendingRequests.get(url) === startedAt) pendingRequests.delete(url);
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
     networkEvents.push(`FINISHED ${pathname} ${elapsed}`);
@@ -221,9 +219,9 @@ function trackNetwork(page: Page, origin: string) {
     if (!isDiagnosticRequest(request.url())) return;
     const url = request.url();
     const pathname = new URL(url).pathname;
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
     if (SECRETS_ENDPOINTS.has(pathname)) {
-      const startedAt = secretsRequestStarts.get(request);
-      if (pendingRequests.get(url) === startedAt) pendingRequests.delete(url);
       const elapsed =
         startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
       networkEvents.push(
@@ -231,7 +229,6 @@ function trackNetwork(page: Page, origin: string) {
       );
       return;
     }
-    pendingRequests.delete(url);
     networkEvents.push(
       `FAILED ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
     );
@@ -244,7 +241,7 @@ async function capture(
   label: string,
   consoleErrors: string[],
   networkEvents: string[],
-  pendingRequests: Map<string, number>,
+  pendingRequests: Map<Request, number>,
   testInfo: TestInfo,
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
@@ -302,8 +299,8 @@ async function capture(
     })
     .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
   const pending = [...pendingRequests.entries()].map(
-    ([url, startedAt]) =>
-      `PENDING ${new URL(url).pathname} ${Date.now() - startedAt}ms`,
+    ([request, startedAt]) =>
+      `PENDING ${new URL(request.url()).pathname} ${Date.now() - startedAt}ms`,
   );
   const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
   const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
@@ -525,14 +522,20 @@ for (const target of targets) {
             `GET ${pathname} returned HTTP ${response.status()}`,
           ).toBe(true);
         }
-        await postLinkPage.getByText(/No keys yet/i).waitFor({
-          state: "visible",
-          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
-        });
-        await postLinkPage.getByText(/No keys added yet/i).waitFor({
-          state: "visible",
-          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
-        });
+        await expect
+          .poll(
+            () =>
+              [...postLinkNetwork.pendingRequests.keys()].some((request) =>
+                SECRETS_ENDPOINTS.has(new URL(request.url()).pathname),
+              ),
+            { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+          )
+          .toBe(false);
+        await expect(
+          postLinkPage.locator(
+            '[role="status"][aria-label="Loading settings"]',
+          ),
+        ).toHaveCount(0, { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
         steps.push(
           await capture(
             postLinkPage,
