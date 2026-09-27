@@ -150,6 +150,43 @@ describe("sendEmail", () => {
   );
 
   it.each(["resend", "sendgrid"] as const)(
+    "uses provider idempotency for %s only when supported",
+    async (provider) => {
+      vi.stubEnv(
+        "RESEND_API_KEY",
+        provider === "resend" ? "resend-example-key" : "",
+      );
+      vi.stubEnv(
+        "SENDGRID_API_KEY",
+        provider === "sendgrid" ? "sendgrid-example-key" : "",
+      );
+      vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+      const fetchMock = vi.fn(async () =>
+        provider === "resend"
+          ? Response.json({ id: "email_123" })
+          : new Response(null, { status: 202 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await sendEmail({
+        to: "reader@example.com",
+        subject: "Automation failure",
+        html: "<p>Failure</p>",
+        idempotencyKey: "automation-failure:run-1",
+      });
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as
+        | Record<string, string>
+        | undefined;
+      if (provider === "resend") {
+        expect(headers?.["Idempotency-Key"]).toBe("automation-failure:run-1");
+      } else {
+        expect(headers?.["Idempotency-Key"]).toBeUndefined();
+      }
+    },
+  );
+
+  it.each(["resend", "sendgrid"] as const)(
     "redacts the List-Unsubscribe capability from %s request logs",
     async (provider) => {
       const capabilityUrl =

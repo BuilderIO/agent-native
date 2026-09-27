@@ -17,7 +17,7 @@ import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import { emailStrong, renderEmail } from "./email-template.js";
-import { getEmailReadiness, sendEmail } from "./email.js";
+import { EmailProviderError, getEmailReadiness, sendEmail } from "./email.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -35,6 +35,22 @@ export interface AutomationFailureNotificationInput {
   status: "error" | "interrupted";
   error: string | null;
   errorCode: string | null;
+  idempotencyKey?: string;
+  unsubscribeToken?: string;
+}
+
+export type AutomationFailureNotificationResult =
+  | { status: "sent"; provider: "resend" | "sendgrid" }
+  | { status: "suppressed" | "not-ready" }
+  | {
+      status: "retry" | "uncertain" | "failed";
+      provider: "resend" | "sendgrid";
+    };
+
+interface AutomationFailureNotificationOptions {
+  onProviderReady?: (
+    provider: "resend" | "sendgrid",
+  ) => Promise<boolean | void>;
 }
 
 interface UnsubscribeClaims {
@@ -78,6 +94,16 @@ function createUnsubscribeToken(email: string, appId: string): string {
       expiresAt: Date.now() + UNSUBSCRIBE_TTL_MS,
     } satisfies UnsubscribeClaims),
   );
+}
+
+export function createAutomationFailureUnsubscribeToken(
+  email: string,
+  appId: string | null,
+): string {
+  const appConfig = getAppConfig().app;
+  const resolvedAppId =
+    appId?.trim() || appConfig.id || appConfig.slug || "unknown";
+  return createUnsubscribeToken(email.trim().toLowerCase(), resolvedAppId);
 }
 
 function readUnsubscribeClaims(token: string): UnsubscribeClaims | null {
@@ -207,17 +233,18 @@ export function createAutomationFailureUnsubscribeHandler() {
 
 export async function sendAutomationFailureNotification(
   input: AutomationFailureNotificationInput,
-): Promise<boolean> {
+  options?: AutomationFailureNotificationOptions,
+): Promise<AutomationFailureNotificationResult> {
   const email = input.email.trim().toLowerCase();
-  if (!validEmail(email)) return true;
+  if (!validEmail(email)) return { status: "suppressed" };
 
   const appConfig = getAppConfig().app;
   const appId =
     input.appId?.trim() || appConfig.id || appConfig.slug || "unknown";
   const preferences = await getUserSetting(email, settingKey(appId));
-  if (preferences?.enabled === false) return true;
+  if (preferences?.enabled === false) return { status: "suppressed" };
 
-  const token = createUnsubscribeToken(email, appId);
+  const token = input.unsubscribeToken ?? createUnsubscribeToken(email, appId);
   const unsubscribeUrl = new URL(
     resolvePublicAppUrl(publicFrameworkPath(UNSUBSCRIBE_ROUTE)),
   );
@@ -249,31 +276,62 @@ export async function sendAutomationFailureNotification(
       ...(input.orgId ? { orgId: input.orgId } : {}),
     },
     async () => {
-      const readiness = await getEmailReadiness();
-      if (readiness.status !== "ready") {
-        if (readiness.status !== "not-configured") {
+      const currentReadiness = await getEmailReadiness();
+      if (currentReadiness.status !== "ready") {
+        if (currentReadiness.status !== "not-configured") {
           console.warn(
-            `[automations] Failure alert email is ${readiness.status}; skipping delivery.`,
+            `[automations] Failure alert email is ${currentReadiness.status}; skipping delivery.`,
           );
         }
-        return false;
+        return { status: "not-ready" };
       }
-      await sendEmail({
-        to: email,
-        subject: `Automation ${status}: ${runName}`,
-        html: rendered.html,
-        text: rendered.text,
-        templateId: "core.automation-failure",
-        app: appId,
-        orgId: input.orgId ?? undefined,
-        disableClickTracking: true,
-        timeoutMs: 5_000,
-        headers: {
-          "List-Unsubscribe": `<${unsubscribeUrl.toString()}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        },
-      });
-      return true;
+      const canSend = await options?.onProviderReady?.(
+        currentReadiness.provider,
+      );
+      if (canSend === false) {
+        return { status: "uncertain", provider: currentReadiness.provider };
+      }
+      try {
+        await sendEmail({
+          to: email,
+          subject: `Automation ${status}: ${runName}`,
+          html: rendered.html,
+          text: rendered.text,
+          templateId: "core.automation-failure",
+          app: appId,
+          orgId: input.orgId ?? undefined,
+          disableClickTracking: true,
+          timeoutMs: 5_000,
+          ...(currentReadiness.provider === "resend" && input.idempotencyKey
+            ? { idempotencyKey: input.idempotencyKey }
+            : {}),
+          headers: {
+            "List-Unsubscribe": `<${unsubscribeUrl.toString()}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
+        });
+        return { status: "sent", provider: currentReadiness.provider };
+      } catch (error) {
+        const retryableProviderResponse =
+          error instanceof EmailProviderError &&
+          (error.responseStatus === 429 ||
+            (currentReadiness.provider === "resend" &&
+              error.responseStatus === 409));
+        if (
+          error instanceof EmailProviderError &&
+          !retryableProviderResponse &&
+          error.responseStatus < 500
+        ) {
+          return { status: "failed", provider: currentReadiness.provider };
+        }
+        if (
+          currentReadiness.provider === "resend" ||
+          retryableProviderResponse
+        ) {
+          return { status: "retry", provider: currentReadiness.provider };
+        }
+        return { status: "uncertain", provider: currentReadiness.provider };
+      }
     },
   );
 }

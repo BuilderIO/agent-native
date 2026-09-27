@@ -45,6 +45,7 @@ export interface SendEmailArgs {
   inReplyTo?: string;
   references?: string;
   headers?: Record<string, string>;
+  idempotencyKey?: string;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
   templateId?: string;
@@ -285,7 +286,7 @@ interface DeliveryOutcome {
  * distinguish "the provider rejected it" from a thrown error that never
  * reached the provider (network failure, timeout, credential resolution).
  */
-class EmailProviderError extends Error {
+export class EmailProviderError extends Error {
   readonly provider: EmailProvider;
   readonly from: string;
   readonly requestPayload: string;
@@ -407,6 +408,9 @@ async function deliverEmail(
       headers: {
         Authorization: `Bearer ${config.resendApiKey}`,
         "Content-Type": "application/json",
+        ...(args.idempotencyKey
+          ? { "Idempotency-Key": args.idempotencyKey }
+          : {}),
       },
       body: JSON.stringify(payload),
       signal,
@@ -579,6 +583,17 @@ async function sendEmailWithSignal(
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
+  if (
+    args.idempotencyKey !== undefined &&
+    (!args.idempotencyKey ||
+      args.idempotencyKey.length > 256 ||
+      args.idempotencyKey !== args.idempotencyKey.trim() ||
+      /[\r\n]/.test(args.idempotencyKey))
+  ) {
+    throw new Error(
+      "Email idempotency keys must be single-line values up to 256 characters",
+    );
+  }
   const requestedTimeoutMs = Number(args.timeoutMs);
   if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
     return sendEmailWithSignal(args);

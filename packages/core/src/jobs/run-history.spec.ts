@@ -22,13 +22,19 @@ vi.mock("../event-bus/index.js", () => ({
   registerEvent: vi.fn(),
 }));
 vi.mock("../server/automation-failure-notifications.js", () => ({
+  createAutomationFailureUnsubscribeToken: vi.fn(() => "unsubscribe-token"),
   sendAutomationFailureNotification: sendAutomationFailureNotificationMock,
+}));
+vi.mock("../secrets/crypto.js", () => ({
+  decryptSecretValue: (value: string) => value.replace(/^sealed:/, ""),
+  encryptSecretValue: (value: string) => `sealed:${value}`,
 }));
 
 import {
   finishAutomationRun,
   listLatestAutomationRuns,
   listAutomationRuns,
+  processPendingAutomationFailureAlerts,
   startAutomationRun,
 } from "./run-history.js";
 
@@ -61,7 +67,12 @@ describe("automation run history", () => {
     transactionMock.mockImplementation(
       (run: (tx: DbExec) => Promise<unknown>) => run({ execute: executeMock }),
     );
-    sendAutomationFailureNotificationMock.mockResolvedValue(true);
+    sendAutomationFailureNotificationMock.mockImplementation(
+      async (_input, options) => {
+        await options?.onProviderReady?.("resend");
+        return { status: "sent", provider: "resend" };
+      },
+    );
   });
 
   it("reports a run abandoned past the liveness ceiling as interrupted", async () => {
@@ -163,7 +174,7 @@ describe("automation run history", () => {
       .map(([input]) => input)
       .find(
         (input) =>
-          typeof input === "object" && /UPDATE .* SET status/.test(input.sql),
+          typeof input === "object" && input.sql.includes("SET status ="),
       );
     expect(update.sql).toContain("error_code = ?");
     expect(update.args).toContain("background_automation_cut_off");
@@ -226,7 +237,23 @@ describe("automation run history", () => {
       })
       .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            app_id: "calendar",
+            notification_email: "alice@example.com",
+            status: "error",
+            error: "MCP tool unavailable",
+            error_code: "mcp_missing",
+            failure_alert_state: "evaluating",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun(
@@ -236,16 +263,20 @@ describe("automation run history", () => {
       "mcp_missing",
     );
 
-    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledWith(
+    expect(sendAutomationFailureNotificationMock).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         email: "alice@example.com",
         appId: "calendar",
         automation: "digest",
         status: "error",
         errorCode: "mcp_missing",
+        idempotencyKey: "automation-failure:run-1",
+        unsubscribeToken: "unsubscribe-token",
       }),
+      expect.objectContaining({ onProviderReady: expect.any(Function) }),
     );
-    const lockQuery = executeMock.mock.calls[2]?.[0] as {
+    const lockQuery = executeMock.mock.calls[4]?.[0] as {
       args: unknown[];
       sql: string;
     };
@@ -254,7 +285,7 @@ describe("automation run history", () => {
       "agent-native:automation-failure-alert",
     );
 
-    const priorRunsQuery = executeMock.mock.calls[3]?.[0] as {
+    const priorRunsQuery = executeMock.mock.calls[5]?.[0] as {
       args: unknown[];
       sql: string;
     };
@@ -275,12 +306,26 @@ describe("automation run history", () => {
       })
       .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            notification_email: "alice@example.com",
+            status: "error",
+            error: "MCP tool unavailable",
+            failure_alert_state: "evaluating",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
       .mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun("run-1", "error", "MCP tool unavailable");
 
-    const priorRunsQuery = executeMock.mock.calls[3]?.[0] as {
+    const priorRunsQuery = executeMock.mock.calls[5]?.[0] as {
       args: unknown[];
       sql: string;
     };
@@ -309,21 +354,187 @@ describe("automation run history", () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
         rows: [
-          {
-            status: "interrupted",
+          row({
+            app_id: "calendar",
             notification_email: "alice@example.com",
-            failure_alerted: 1,
-          },
+            status: "error",
+            failure_alert_state: "evaluating",
+          }),
         ],
       });
+    executeMock.mockResolvedValueOnce({ rowsAffected: 1 });
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          status: "interrupted",
+          notification_email: "alice@example.com",
+          failure_alerted: 1,
+        },
+      ],
+    });
+    executeMock.mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun("run-1", "error", "Still unavailable");
 
     expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
   });
 
+  it("retries a durable failure alert with its original idempotency key and link", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            status: "error",
+            error: "MCP tool unavailable",
+            failure_alerted: 1,
+            failure_alert_state: "pending",
+            failure_alert_attempts: 1,
+            failure_alert_next_attempt_at: Date.now() - 1,
+            failure_alert_provider: "resend",
+            failure_alert_first_attempt_at: Date.now() - 10_000,
+            failure_alert_unsubscribe_token: "sealed:unsubscribe-token",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    const result = await processPendingAutomationFailureAlerts();
+
+    expect(result).toMatchObject({ attempted: 1, delivered: 1 });
+    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: "automation-failure:run-1",
+        unsubscribeToken: "unsubscribe-token",
+      }),
+      expect.objectContaining({ onProviderReady: expect.any(Function) }),
+    );
+  });
+
+  it("keeps a failed first delivery queued for a later sweep", async () => {
+    sendAutomationFailureNotificationMock.mockResolvedValueOnce({
+      status: "not-ready",
+    });
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ notification_email: "alice@example.com" })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            status: "error",
+            failure_alert_state: "evaluating",
+            notification_email: "alice@example.com",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "MCP tool unavailable");
+
+    const retry = executeMock.mock.calls.at(-1)?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(retry.sql).toContain("SET failure_alert_state = ?");
+    expect(retry.args[0]).toBe("pending");
+    expect(Number(retry.args[1])).toBeGreaterThan(Date.now());
+    expect(
+      executeMock.mock.calls.some(([input]) =>
+        String(input?.sql ?? input).includes("SET failure_alerted = 0"),
+      ),
+    ).toBe(false);
+  });
+
+  it("stops retrying an alert after its bounded attempt budget", async () => {
+    sendAutomationFailureNotificationMock.mockResolvedValueOnce({
+      status: "not-ready",
+    });
+    executeMock
+      .mockResolvedValueOnce({ rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            status: "error",
+            failure_alerted: 1,
+            failure_alert_state: "pending",
+            failure_alert_attempts: 11,
+            failure_alert_next_attempt_at: Date.now() - 1,
+            failure_alert_unsubscribe_token: "sealed:unsubscribe-token",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await processPendingAutomationFailureAlerts();
+
+    const finish = executeMock.mock.calls.at(-1)?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(finish.sql).toContain("SET failure_alert_state = ?");
+    expect(finish.args[0]).toBe("failed");
+    expect(finish.args[1]).toBeNull();
+  });
+
+  it("keeps an ambiguous SendGrid delivery from being resent", async () => {
+    sendAutomationFailureNotificationMock.mockImplementationOnce(
+      async (_input, options) => {
+        await options?.onProviderReady?.("sendgrid");
+        return { status: "uncertain", provider: "sendgrid" };
+      },
+    );
+    executeMock
+      .mockResolvedValueOnce({ rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            status: "error",
+            failure_alerted: 1,
+            failure_alert_state: "pending",
+            failure_alert_attempts: 1,
+            failure_alert_next_attempt_at: Date.now() - 1,
+            failure_alert_provider: "sendgrid",
+            failure_alert_unsubscribe_token: "sealed:unsubscribe-token",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    const result = await processPendingAutomationFailureAlerts();
+
+    expect(result.uncertain).toBe(1);
+    const finish = executeMock.mock.calls.at(-1)?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(finish.sql).toContain("SET failure_alert_state = ?");
+    expect(finish.args[0]).toBe("uncertain");
+  });
+
   it("serializes failure alerts for overlapping runs", async () => {
-    const alerted = new Set<string>();
+    const runs = new Map(
+      ["run-1", "run-2"].map((id, index) => [
+        id,
+        row({
+          id,
+          app_id: "calendar",
+          notification_email: "alice@example.com",
+          started_at: index + 1,
+        }),
+      ]),
+    );
     const lockTails = new Map<string, Promise<void>>();
     const lockKeys: string[] = [];
     executeMock.mockImplementation(
@@ -335,39 +546,76 @@ describe("automation run history", () => {
           typeof statement === "string" ? [] : (statement.args ?? []);
         if (sql.startsWith("SELECT owner")) {
           const runId = String(args[0]);
-          return {
-            rows: [
-              row({
-                id: runId,
-                app_id: "calendar",
-                notification_email: "alice@example.com",
-                started_at: runId === "run-1" ? 1 : 2,
-              }),
-            ],
-            rowsAffected: 1,
-          };
+          return { rows: [runs.get(runId)], rowsAffected: 1 };
         }
         if (sql.includes("SET status =")) {
+          const run = runs.get(String(args[6]));
+          Object.assign(run!, {
+            status: args[0],
+            error: args[2],
+            error_code: args[3],
+            failure_alert_state: args[4],
+            failure_alert_next_attempt_at: args[5],
+          });
           return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("WHERE failure_alert_state = 'sending' AND")) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (sql.startsWith("SELECT * FROM automation_runs")) {
+          const runId = String(args.at(-1));
+          return { rows: [runs.get(runId)], rowsAffected: 1 };
         }
         if (sql.startsWith("SELECT status, notification_email")) {
           const runId = String(args.at(-1));
           const otherRunId = runId === "run-1" ? "run-2" : "run-1";
+          const previous = runs.get(otherRunId)!;
           return {
             rows: [
               {
-                status: "error",
-                notification_email: "alice@example.com",
-                failure_alerted: alerted.has(otherRunId) ? 1 : 0,
+                status: previous.status,
+                notification_email: previous.notification_email,
+                failure_alerted: previous.failure_alerted,
               },
             ],
             rowsAffected: 1,
           };
         }
-        if (sql.includes("SET failure_alerted = 1")) {
-          const runId = String(args[0]);
-          if (alerted.has(runId)) return { rows: [], rowsAffected: 0 };
-          alerted.add(runId);
+        if (
+          sql.includes(
+            "SET failure_alerted = 1, failure_alert_state = 'sending'",
+          )
+        ) {
+          const run = runs.get(String(args[1]))!;
+          run.failure_alerted = 1;
+          run.failure_alert_state = "sending";
+          run.failure_alert_attempts =
+            Number(run.failure_alert_attempts ?? 0) + 1;
+          run.failure_alert_claimed_at = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET failure_alert_state = 'suppressed'")) {
+          const run = runs.get(String(args[0]))!;
+          run.failure_alerted = 1;
+          run.failure_alert_state = "suppressed";
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET failure_alert_unsubscribe_token")) {
+          const run = runs.get(String(args[1]))!;
+          run.failure_alert_unsubscribe_token = args[0];
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET failure_alert_provider =")) {
+          const run = runs.get(String(args[2]))!;
+          run.failure_alert_provider = args[0];
+          run.failure_alert_first_attempt_at = args[1];
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET failure_alert_state = ?")) {
+          const run = runs.get(String(args[2]))!;
+          run.failure_alert_state = args[0];
+          run.failure_alert_next_attempt_at = args[1];
+          run.failure_alert_claimed_at = null;
           return { rows: [], rowsAffected: 1 };
         }
         return { rows: [], rowsAffected: 1 };
@@ -431,5 +679,6 @@ describe("automation run history", () => {
     const prune = statements.find((sql) => sql.startsWith("DELETE FROM"));
     expect(prune).toBeDefined();
     expect(prune).toContain("LIMIT 50");
+    expect(prune).toContain("NOT IN ('evaluating', 'pending', 'sending')");
   });
 });
