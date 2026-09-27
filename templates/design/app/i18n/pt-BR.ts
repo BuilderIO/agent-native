@@ -1487,6 +1487,13 @@ export default {
         "Mesmo após várias tentativas, a ponte do editor em tempo real não confirmou a conexão.",
       connectionNotConfirmed:
         "A ponte do editor em tempo real não confirmou a conexão. O servidor de desenvolvimento local ainda está em execução?",
+      permissionPromptTitle: "Conecte suas telas locais",
+      permissionPromptDescription:
+        "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
+      permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
+      permissionPromptSettingsInstructions:
+        "Clique no ícone de informações do site, à esquerda da barra de endereço, abra Configurações do site e defina Acesso à rede local como Permitir.",
+      permissionPromptRetry: "Tentar conexão novamente",
     },
   },
   multiScreenCanvas: {

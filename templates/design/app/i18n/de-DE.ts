@@ -1503,6 +1503,13 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
+      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptDescription:
+        "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
+      permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
+      permissionPromptSettingsInstructions:
+        "Klicke links in der Adressleiste auf das Symbol für Website-Informationen, öffne die Website-Einstellungen und stelle Zugriff auf das lokale Netzwerk auf Zulassen.",
+      permissionPromptRetry: "Verbindung wiederholen",
     },
   },
   multiScreenCanvas: {

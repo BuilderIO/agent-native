@@ -1473,6 +1473,13 @@ export default {
   },
   designCanvas: {
     localBridge: {
+      permissionPromptTitle: "Connect your local screens",
+      permissionPromptDescription:
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      permissionPromptNoPrompt: "No Chrome prompt?",
+      permissionPromptSettingsInstructions:
+        "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+      permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
