@@ -36,6 +36,7 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { backgroundAgentTurnIdForReceipt } from "./background-agent-session.js";
 export {
   composerSourceRequestSchema,
   composerSourceListSchema,

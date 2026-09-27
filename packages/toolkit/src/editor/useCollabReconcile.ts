@@ -203,6 +203,24 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
+  const reconcileCallbacksRef = useRef({
+    getMarkdown,
+    setContent,
+    parseValue,
+    normalizeValue,
+    isEditorFocused,
+    onBaseAwareReconcile,
+    onRemoteSnapshotChange,
+  });
+  reconcileCallbacksRef.current = {
+    getMarkdown,
+    setContent,
+    parseValue,
+    normalizeValue,
+    isEditorFocused,
+    onBaseAwareReconcile,
+    onRemoteSnapshotChange,
+  };
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
     revision: string;
@@ -531,6 +549,7 @@ export function useCollabReconcile({
     let retry: ReturnType<typeof setTimeout> | null = null;
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
+      const callbacks = reconcileCallbacksRef.current;
       if (contentUpdatedAt) {
         const rollback = acknowledgementBaseRollbackRef.current;
         const conflictsWithAcceptedAcknowledgement =
@@ -701,12 +720,12 @@ export function useCollabReconcile({
         peerWait.deadline = null;
         return;
       }
-      const currentMarkdown = getMarkdown(editor);
-      const normalizedValue = normalizeValue(value);
+      const currentMarkdown = callbacks.getMarkdown(editor);
+      const normalizedValue = callbacks.normalizeValue(value);
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
-      const editorFocused = isEditorFocused(editor);
+      const editorFocused = callbacks.isEditorFocused(editor);
       const typingRecently =
         editorFocused && Date.now() - lastTypedAtRef.current < 1500;
 
@@ -789,9 +808,10 @@ export function useCollabReconcile({
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        const scheduledCallbacks = reconcileCallbacksRef.current;
         peerWait.deadline = null;
-        const beforeMarkdown = getMarkdown(editor);
-        const normalized = normalizeValue(value);
+        const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
+        const normalized = scheduledCallbacks.normalizeValue(value);
         const unchangedSinceApply =
           lastAppliedSerializedRef.current !== null &&
           beforeMarkdown === lastAppliedSerializedRef.current;
@@ -815,19 +835,21 @@ export function useCollabReconcile({
         const authoritativeBase = authoritativeBaseRef.current;
         if (
           contentRevision &&
-          onBaseAwareReconcile &&
+          scheduledCallbacks.onBaseAwareReconcile &&
           authoritativeBase &&
           authoritativeBase.revision !== contentRevision
         ) {
           const parse =
-            parseValue === false ? null : (parseValue ?? defaultParseValue);
+            scheduledCallbacks.parseValue === false
+              ? null
+              : (scheduledCallbacks.parseValue ?? defaultParseValue);
           const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
           const serverDoc = parse?.(editor, value) ?? null;
           if (!baseDoc || !serverDoc) {
             isSettingContentRef.current = false;
             if (reportedConflictRevisionRef.current !== contentRevision) {
               reportedConflictRevisionRef.current = contentRevision;
-              onBaseAwareReconcile({
+              scheduledCallbacks.onBaseAwareReconcile({
                 status: "failed",
                 content: beforeMarkdown,
                 serverContent: value,
@@ -850,7 +872,7 @@ export function useCollabReconcile({
             isSettingContentRef.current = false;
             if (reportedConflictRevisionRef.current !== contentRevision) {
               reportedConflictRevisionRef.current = contentRevision;
-              onBaseAwareReconcile({
+              scheduledCallbacks.onBaseAwareReconcile({
                 status: reconciled.status,
                 content: beforeMarkdown,
                 serverContent: value,
@@ -860,7 +882,7 @@ export function useCollabReconcile({
             }
             return;
           }
-          const merged = getMarkdown(editor);
+          const merged = scheduledCallbacks.getMarkdown(editor);
           isSettingContentRef.current = false;
           authoritativeBaseRef.current = { value, revision: contentRevision };
           reportedConflictRevisionRef.current = null;
@@ -870,9 +892,10 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = merged;
           if (contentUpdatedAt)
             lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-          if (merged !== beforeMarkdown) onRemoteSnapshotChange?.(merged);
+          if (merged !== beforeMarkdown)
+            scheduledCallbacks.onRemoteSnapshotChange?.(merged);
           if (merged !== normalized) {
-            onBaseAwareReconcile({
+            scheduledCallbacks.onBaseAwareReconcile({
               status: "merged",
               content: merged,
               serverContent: value,
@@ -883,8 +906,8 @@ export function useCollabReconcile({
           return;
         }
         let appliedSurgically = false;
-        if (parseValue !== false) {
-          const parse = parseValue ?? defaultParseValue;
+        if (scheduledCallbacks.parseValue !== false) {
+          const parse = scheduledCallbacks.parseValue ?? defaultParseValue;
           const parsedDoc = parse(editor, value);
           if (parsedDoc) {
             const result = applyDocSurgically(editor, parsedDoc);
@@ -892,10 +915,13 @@ export function useCollabReconcile({
           }
         }
         if (!appliedSurgically) {
-          setContent(editor, value, { emitUpdate: false, addToHistory: false });
+          scheduledCallbacks.setContent(editor, value, {
+            emitUpdate: false,
+            addToHistory: false,
+          });
         }
         isSettingContentRef.current = false;
-        const serialized = getMarkdown(editor);
+        const serialized = scheduledCallbacks.getMarkdown(editor);
         lastEmittedRef.current = serialized;
         pushEmittedRing(recentEmittedRef.current, serialized);
         lastAppliedValueRef.current = value;
@@ -908,7 +934,7 @@ export function useCollabReconcile({
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
         if (serialized !== beforeMarkdown) {
-          onRemoteSnapshotChange?.(serialized);
+          scheduledCallbacks.onRemoteSnapshotChange?.(serialized);
         }
       }, 0);
       retry = applyTimer;
@@ -931,13 +957,6 @@ export function useCollabReconcile({
     collab,
     collabSynced,
     isLeadClient,
-    getMarkdown,
-    setContent,
-    parseValue,
-    normalizeValue,
-    isEditorFocused,
-    onBaseAwareReconcile,
-    onRemoteSnapshotChange,
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,

@@ -215,6 +215,16 @@ export function ComposerContextMenu({
   disabled,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
+  const onDisabledFocusRef = useRef(onDisabledFocus);
+  onDisabledFocusRef.current = onDisabledFocus;
+  const disabledFocusFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (disabledFocusFrame.current !== null)
+        window.cancelAnimationFrame(disabledFocusFrame.current);
+    },
+    [],
+  );
   const [open, setOpen] = useState(false);
   const [triggerTooltipOpen, setTriggerTooltipOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -321,9 +331,11 @@ export function ComposerContextMenu({
     } catch (cause) {
       reportError(cause);
     }
-    const focusFrame = window.requestAnimationFrame(() => onDisabledFocus?.());
-    return () => window.cancelAnimationFrame(focusFrame);
-  }, [disabled, open, changeOpen, onDisabledFocus, reportError]);
+    disabledFocusFrame.current = window.requestAnimationFrame(() => {
+      disabledFocusFrame.current = null;
+      onDisabledFocusRef.current?.();
+    });
+  }, [disabled, open, changeOpen, reportError]);
   const selectAction = (action: ComposerContextMenuAction) => {
     setError(null);
     try {

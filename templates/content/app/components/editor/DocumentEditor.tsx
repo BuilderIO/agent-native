@@ -932,6 +932,7 @@ function DocumentCommentDraftProvider({
     <CommentDraftProvider
       documentId={documentId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
     >
       {children}
     </CommentDraftProvider>
@@ -1900,7 +1901,6 @@ function PageEditorSessionBody({
   const canSuggest = suggestionCapability.canStart;
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
-  const commentAi = useCommentAiRequests(documentId, { enabled: canComment });
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -5191,6 +5191,10 @@ function PageEditorSessionBody({
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
+  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelFocusGenerationRef = useRef(0);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -5242,6 +5246,27 @@ function PageEditorSessionBody({
   const { data: threads, isLoading: commentsLoading } = useComments(
     !isLocalFileDocument ? documentId : null,
   );
+  const commentAi = useCommentAiRequests(documentId, {
+    enabled: !isLocalFileDocument && canComment,
+  });
+  // While AI's result is on screen, a thread it just resolved highlights the
+  // text it wrote, so the card sits beside the change it describes.
+  const editorCommentThreads = useMemo(() => {
+    const fresh = commentAi.freshResolutions;
+    if (!threads || fresh.size === 0) return threads ?? [];
+    return threads.map((thread) => {
+      const change = fresh.get(thread.threadId)?.result?.changes?.[0];
+      if (!thread.resolved || !change?.after || change.truncated) return thread;
+      return {
+        ...thread,
+        resolved: false,
+        quotedText: change.after,
+        prefix: null,
+        suffix: null,
+        startOffset: null,
+      };
+    });
+  }, [commentAi.freshResolutions, threads]);
   const documentLayoutRef = useRef<HTMLDivElement>(null);
   const commentLaneRef = useRef<HTMLElement>(null);
   const anchoredCommentRef = useRef<HTMLElement>(null);
@@ -5256,9 +5281,14 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer && hasUtilityRailSpace;
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
+  // A suggestion whose text is gone lives in the comments panel only, so it
+  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) => suggestion.status === "pending",
+      (suggestion) =>
+        suggestion.status === "pending" &&
+        (!anchoredSuggestionIds ||
+          anchoredSuggestionIds.includes(suggestion.id)),
     ) || draftSuggestions.length > 0;
   const hasSelectedCommentThread =
     !!selectedThreadId &&
@@ -5438,6 +5468,15 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
+      ++utilityPanelFocusGenerationRef.current;
+      const activeElement = globalThis.document.activeElement;
+      if (
+        nextPanel &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body
+      ) {
+        utilityPanelSheetTriggerRef.current = activeElement;
+      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -5869,6 +5908,7 @@ function PageEditorSessionBody({
     visibleThreadId?: string | null,
     alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
+    surface?: "rail" | "popover" | "panel",
   ) => (
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
@@ -5902,6 +5942,7 @@ function PageEditorSessionBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      currentUserOrgId={session?.orgId}
       canComment={canComment}
       canResolve={canEdit}
       alignToAnchors={alignToAnchors}
@@ -6072,6 +6113,8 @@ function PageEditorSessionBody({
       commentAi={commentAi}
       visibleThreadId={visibleThreadId}
       presentation={presentation}
+      surface={surface}
+      onClose={surface === "popover" ? handleEditorEscape : undefined}
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
@@ -6134,11 +6177,38 @@ function PageEditorSessionBody({
       >
         <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
           <h2
-            className="text-sm font-semibold"
+            className="sr-only"
             aria-hidden={!hasUtilityRailSpace || undefined}
           >
             {utilityPanelTitle}
           </h2>
+          <div
+            role="tablist"
+            aria-label={t("comments.panelTabs")}
+            className="flex h-full items-stretch gap-5"
+            data-utility-panel-tabs
+          >
+            {(["comments", "info"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={panel === tab}
+                onClick={() => {
+                  if (panel !== tab) handleUtilityPanelChange(tab);
+                }}
+                className={cn(
+                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
+                  panel === tab && "text-foreground after:bg-foreground",
+                )}
+              >
+                {tab === "comments"
+                  ? t("comments.title")
+                  : t("editor.toolbar.info")}
+              </button>
+            ))}
+          </div>
           {panel === "comments" ? (
             <button
               type="button"
@@ -6160,6 +6230,7 @@ function PageEditorSessionBody({
           ) : null}
           {hasUtilityRailSpace || inSheet ? (
             <button
+              ref={inSheet ? utilityPanelSheetCloseRef : undefined}
               type="button"
               className={cn(
                 "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -6214,6 +6285,10 @@ function PageEditorSessionBody({
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
+          // React bubbles portal clicks (the @ menu, emoji picker, model menu)
+          // through this tree even though they render outside it. Those are
+          // interactions with an open comment, not clicks on the page.
+          if (target && !event.currentTarget.contains(target)) return;
           const commentHighlight = target?.closest("[data-comment-thread]");
           const threadId = commentHighlight?.getAttribute(
             "data-comment-thread",
@@ -6296,6 +6371,7 @@ function PageEditorSessionBody({
             commentsHistoryOpen={showCommentsHistoryDrawer}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
+            commentsTriggerRef={commentsHistoryTriggerRef}
             onOpenBreadcrumbItem={
               host === "page" ? handleOpenToolbarBreadcrumb : undefined
             }
@@ -6788,7 +6864,7 @@ function PageEditorSessionBody({
                               isLocalFileDocument ? document.source?.path : null
                             }
                             onComment={canComment ? handleComment : undefined}
-                            commentThreads={threads ?? []}
+                            commentThreads={editorCommentThreads}
                             activeThreadId={selectedThreadId}
                             hoveredThreadId={hoveredThreadId}
                             pendingHighlight={pendingComment?.range ?? null}
@@ -6944,6 +7020,8 @@ function PageEditorSessionBody({
                     {renderCommentsSidebar(
                       pendingComment ? "__pending-only__" : selectedThreadId,
                       false,
+                      "inline",
+                      "popover",
                     )}
                   </div>
                 </aside>
@@ -6976,11 +7054,10 @@ function PageEditorSessionBody({
         </aside>
 
         <Sheet
+          modal
           open={showUtilityPanelSheet}
           onOpenChange={(open) => {
-            if (!open) {
-              handleUtilityPanelChange(null);
-            }
+            if (!open) handleUtilityPanelChange(null);
           }}
         >
           <SheetContent
@@ -6988,12 +7065,38 @@ function PageEditorSessionBody({
             side="right"
             inert={!showUtilityPanelSheet || undefined}
             onOpenAutoFocus={(event) => {
-              if (hasFocusedCommentReply) event.preventDefault();
+              const activeElement = globalThis.document.activeElement;
+              if (
+                !utilityPanelSheetTriggerRef.current &&
+                activeElement instanceof HTMLElement &&
+                activeElement !== globalThis.document.body &&
+                !utilityPanelSheetContainer?.contains(activeElement)
+              ) {
+                utilityPanelSheetTriggerRef.current = activeElement;
+              }
+              event.preventDefault();
+              const focusedReply = hasFocusedCommentReply
+                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
+                    "[data-comment-reply-composer] [contenteditable=true]",
+                  )
+                : null;
+              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
             }}
             onCloseAutoFocus={(event) => {
-              if (hasInlineCommentSpace && hasFocusedCommentReply) {
-                event.preventDefault();
-              }
+              event.preventDefault();
+              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
+              const focusGeneration = utilityPanelFocusGenerationRef.current;
+              const restoreTarget = utilityPanelSheetTriggerRef.current;
+              const fallbackTarget = commentsHistoryTriggerRef.current;
+              globalThis.setTimeout(() => {
+                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
+                  return;
+                (restoreTarget?.isConnected
+                  ? restoreTarget
+                  : fallbackTarget
+                )?.focus();
+                utilityPanelSheetTriggerRef.current = null;
+              }, 0);
             }}
             className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
             aria-describedby={undefined}
