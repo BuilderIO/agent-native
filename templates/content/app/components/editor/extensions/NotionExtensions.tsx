@@ -628,10 +628,13 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         return;
       }
       if (pageLinkLookupFailed) {
-        void pageLinkQuery.refetch().then((result) => {
-          if (result.data) options.onOpenPageLink?.(result.data.documentId);
-        });
-        return;
+        const retry = pageLinkQuery.refetch();
+        if (!externalUrl) {
+          void retry.then((result) => {
+            if (result.data) options.onOpenPageLink?.(result.data.documentId);
+          });
+          return;
+        }
       }
       if (externalUrl) {
         window.open(externalUrl, "_blank", "noopener,noreferrer");
@@ -669,7 +672,7 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
             />
           </span>
           <span className="notion-page-reference__label">{primary}</span>
-          {!pageLink && !pageLinkLookupFailed && externalUrl ? (
+          {!pageLink && externalUrl ? (
             <IconExternalLink
               className="notion-page-reference__external"
               size={16}

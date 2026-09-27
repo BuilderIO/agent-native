@@ -102,7 +102,14 @@ beforeAll(async () => {
         icon: "📄",
       }),
       page("links-notion", OWNER, { title: "Notion-linked target" }),
-      page("links-private", OUTSIDER, { title: "Someone else's page" }),
+      // Its root would outrank the caller's own match if an unreadable
+      // referencing document could still steer the ranking.
+      page("links-private", OUTSIDER, {
+        title: "Someone else's page",
+        localSource: true,
+        sourcePath: "docs/private.md",
+        sourceRootPath: "team-repo",
+      }),
       page("links-trashed", OWNER, { trashedAt: now }),
       page("links-org-page", TEAMMATE, {
         title: "Team page",
