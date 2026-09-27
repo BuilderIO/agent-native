@@ -1306,8 +1306,10 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
-const widgetPrompt =
-  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, best shared time, and booking link in that order, then summarize them.";
+const widgetFirstBatchPrompt =
+  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
+const widgetSecondBatchPrompt =
+  "Render the sample booking link, then summarize it.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
 const rejectedSteerPrompt =
@@ -1373,6 +1375,18 @@ const widgetToolCalls: Array<{
     id: "call_agentkit_widget_calendar_booking_link",
     name: "create-booking-link",
     arguments: { duration: 30 },
+  },
+];
+const widgetActionBatches = [
+  {
+    prompt: widgetFirstBatchPrompt,
+    calls: widgetToolCalls.slice(0, 6),
+    response: "The first six local sample widgets are ready.",
+  },
+  {
+    prompt: widgetSecondBatchPrompt,
+    calls: widgetToolCalls.slice(6),
+    response: "All seven local sample widgets are ready.",
   },
 ];
 
@@ -1649,22 +1663,27 @@ async function handleLoopbackCompletion(
     return;
   }
 
-  if (prompt === widgetPrompt) {
-    for (const call of widgetToolCalls) {
+  const widgetBatch = widgetActionBatches.find(
+    (batch) => batch.prompt === prompt,
+  );
+  if (widgetBatch) {
+    for (const call of widgetBatch.calls) {
       assert.ok(
         toolNames.includes(call.name),
         `generated app must expose ${call.name}`,
       );
     }
     const completedCallIds = toolResultIds.filter((id) =>
-      widgetToolCalls.some((call) => call.id === id),
+      widgetBatch.calls.some((call) => call.id === id),
     );
     assert.deepEqual(
       completedCallIds,
-      widgetToolCalls.slice(0, completedCallIds.length).map((call) => call.id),
+      widgetBatch.calls
+        .slice(0, completedCallIds.length)
+        .map((call) => call.id),
       "sample widget actions must complete in the requested order",
     );
-    const nextCall = widgetToolCalls[completedCallIds.length];
+    const nextCall = widgetBatch.calls[completedCallIds.length];
     if (nextCall) {
       state.widgetToolCallIds.push(nextCall.id);
       await streamToolCallResponse(response, requestNumber, nextCall);
@@ -1672,7 +1691,7 @@ async function handleLoopbackCompletion(
     }
 
     state.widgetActionResults.push(
-      ...widgetToolCalls.map((call) => {
+      ...widgetBatch.calls.map((call) => {
         const result = toolResults.find(
           (item) => item.tool_call_id === call.id,
         );
@@ -1685,10 +1704,11 @@ async function handleLoopbackCompletion(
     await streamTextResponse(
       response,
       requestNumber,
-      ["All seven local sample widgets are ready."],
+      [widgetBatch.response],
       state,
     );
-    state.widgetRunCompleted = true;
+    state.widgetRunCompleted =
+      state.widgetActionResults.length === widgetToolCalls.length;
     return;
   }
 
@@ -2691,16 +2711,28 @@ async function assertAgentKitChatAcceptance(
   await page.setViewportSize({ width: 1280, height: 900 });
   await setDarkMode(page, false);
 
-  await fillAndSubmitComposer(page, widgetPrompt);
-  await waitForLoopbackState(
-    "sequential completion of all seven sample widget actions",
-    () => provider.widgetRunCompleted,
-    30_000,
-  );
+  for (const [index, batch] of widgetActionBatches.entries()) {
+    await fillAndSubmitComposer(page, batch.prompt);
+    const completedActionCount = widgetActionBatches
+      .slice(0, index + 1)
+      .reduce((total, current) => total + current.calls.length, 0);
+    await waitForLoopbackState(
+      `sequential completion of sample widget batch ${index + 1}`,
+      () => provider.widgetActionResults.length >= completedActionCount,
+      30_000,
+    );
+    assert.deepEqual(
+      provider.widgetToolCallIds,
+      widgetActionBatches
+        .slice(0, index + 1)
+        .flatMap((current) => current.calls.map((call) => call.id)),
+      "sample widget actions must complete sequentially within each batch",
+    );
+  }
   assert.deepEqual(
     provider.widgetToolCallIds,
     widgetToolCalls.map((call) => call.id),
-    "one AgentKit run must call each sample action sequentially",
+    "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page

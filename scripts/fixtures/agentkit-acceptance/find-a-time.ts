@@ -11,7 +11,7 @@ export default defineAction({
       verb: "created",
       kind: "calendar-time-choice",
       title: "Best shared time",
-      detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · America/Los_Angeles",
+      detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · PT",
       url: "/_agent-native/open?app=calendar&view=calendar",
     },
   }),

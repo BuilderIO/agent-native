@@ -23,7 +23,7 @@ export default defineAction({
       verb: "created",
       kind: "calendar-event",
       title,
-      detail: `Oct 1, 2026 · 9:00–10:00 AM America/Los_Angeles · ${location}`,
+      detail: `Oct 1, 2026 · 9:00–10:00 AM PT · ${location}`,
       url: "/calendar?eventId=agentkit-sample-event",
     },
   }),

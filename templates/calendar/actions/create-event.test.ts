@@ -147,8 +147,7 @@ describe("create-event recurrence", () => {
         verb: "created",
         kind: "calendar-event",
         title: "Late planning",
-        detail:
-          "Oct 2, 2026 · 11:30 PM–11:50 PM America/Los_Angeles · Conference room",
+        detail: "Oct 2, 2026 · 11:30 PM–11:50 PM PT · Conference room",
         url: "https://calendar.example.test/event?date=2026-10-02",
       },
     });
@@ -209,7 +208,7 @@ describe("create-event recurrence", () => {
       "America/Los_Angeles",
     );
 
-    expect(result.change.detail).toContain("America/Los_Angeles");
+    expect(result.change.detail).toContain("PT");
     expect(result.change.url).toBe(
       `https://calendar.example.test/event?date=${expectedDate}`,
     );

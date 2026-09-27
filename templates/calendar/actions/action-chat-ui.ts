@@ -1,7 +1,7 @@
 import type { ActionChangeResult } from "@agent-native/core/action-ui";
 import { buildDeepLink } from "@agent-native/core/server";
 
-import { isCalendarTimezone } from "../shared/timezone.js";
+import { isCalendarTimezone, timezoneShortName } from "../shared/timezone.js";
 
 export function calendarTimeChoiceChange(
   start: string,
@@ -32,6 +32,7 @@ export function calendarTimeChoiceChange(
   });
   const startDateLabel = dateFormatter.format(startDate);
   const endDateLabel = dateFormatter.format(endDate);
+  const timezoneLabel = timezoneShortName(timezone);
   const dateLabel =
     startDateLabel === endDateLabel
       ? startDateLabel
@@ -48,7 +49,7 @@ export function calendarTimeChoiceChange(
       verb: "created",
       kind: "calendar-time-choice",
       title: "Best shared time",
-      detail: `${dateLabel} · ${timeFormatter.format(startDate)}–${timeFormatter.format(endDate)} · ${timezone}`,
+      detail: `${dateLabel} · ${timeFormatter.format(startDate)}–${timeFormatter.format(endDate)} · ${timezoneLabel}`,
       url: buildDeepLink({
         app: "calendar",
         view: "calendar",

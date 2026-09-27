@@ -54,7 +54,7 @@ describe("find-a-time chat card", () => {
         verb: "created",
         kind: "calendar-time-choice",
         title: "Best shared time",
-        detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · America/Los_Angeles",
+        detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · PT",
         url: "calendar:/home?createSlot=1&start=2026-04-23T17%3A30%3A00.000Z&end=2026-04-23T18%3A15%3A00.000Z&timezone=America%2FLos_Angeles",
       },
     });
