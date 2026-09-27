@@ -200,15 +200,24 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
             }
             actions = parseActions(args.actions);
           }
-          const kind = isAiFilterRule(actions) ? "ai-filter" : "automation";
-          const rule = await createAutomationRule(ownerEmail, {
+          const kind: "ai-filter" | "automation" = isAiFilterRule(actions)
+            ? "ai-filter"
+            : "automation";
+          // The queued worker validates Jev before applying the rule.
+          const input = {
             name: name!,
             condition,
             actions,
             domain: "mail",
             kind,
             enabled: args.enabled,
-          });
+          };
+          const rule =
+            agentTool && kind === "ai-filter"
+              ? await createAutomationRule(ownerEmail, input, {
+                  deferJevAvailabilityCheck: true,
+                })
+              : await createAutomationRule(ownerEmail, input);
           const backfill =
             kind === "ai-filter"
               ? await startRecentBackfill(ownerEmail, rule)
@@ -258,7 +267,11 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           }
           if (args.enabled !== undefined) patch.enabled = args.enabled;
 
-          const rule = await updateAutomationRule(ownerEmail, args.id, patch);
+          const rule = agentTool
+            ? await updateAutomationRule(ownerEmail, args.id, patch, {
+                deferJevAvailabilityCheck: true,
+              })
+            : await updateAutomationRule(ownerEmail, args.id, patch);
           const backfill =
             rule.domain === "mail" && rule.kind === "ai-filter"
               ? await startRecentBackfill(ownerEmail, rule)
@@ -282,9 +295,12 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         case "enable":
         case "disable": {
           if (!args.id) throw new Error(`--id is required for ${args.action}`);
-          const rule = await updateAutomationRule(ownerEmail, args.id, {
-            enabled: args.action === "enable",
-          });
+          const patch = { enabled: args.action === "enable" };
+          const rule = agentTool
+            ? await updateAutomationRule(ownerEmail, args.id, patch, {
+                deferJevAvailabilityCheck: true,
+              })
+            : await updateAutomationRule(ownerEmail, args.id, patch);
           const backfill =
             args.action === "enable" &&
             rule.domain === "mail" &&

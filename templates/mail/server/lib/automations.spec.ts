@@ -267,6 +267,24 @@ beforeEach(() => {
 });
 
 describe("createAutomationRule AI tags", () => {
+  it("can defer Jev availability checks to queued rule processing", async () => {
+    const rule = await createAutomationRule(
+      "owner@example.test",
+      {
+        name: "AI important: team lead",
+        condition: "Messages from my team lead",
+        actions: [{ type: "label", labelName: "agent-native-important" }],
+        domain: "mail",
+        kind: "ai-filter",
+      },
+      { deferJevAvailabilityCheck: true },
+    );
+
+    expect(rule.enabled).toBe(true);
+    expect(jevMocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(dbMock.calls.insertValues).toHaveLength(1);
+  });
+
   it("pins one shared AI tag label in the default tab order", async () => {
     const input = {
       name: "AI tag: receipts",
@@ -626,6 +644,20 @@ describe("consolidateAutomationRules", () => {
     ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
 
     expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
+  });
+
+  it("can defer Jev availability checks for agent-managed edits", async () => {
+    await updateAutomationRule(
+      "owner@example.test",
+      "keep",
+      { condition: "Messages from the new team lead" },
+      { deferJevAvailabilityCheck: true },
+    );
+
+    expect(jevMocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
+      condition: "Messages from the new team lead",
+    });
   });
 
   it.each([

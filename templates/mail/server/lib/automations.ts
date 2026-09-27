@@ -290,13 +290,16 @@ export async function createAutomationRule(
     kind?: "automation" | "ai-filter";
     enabled?: boolean;
   },
+  options: { deferJevAvailabilityCheck?: boolean } = {},
 ): Promise<AutomationRule> {
   const domain = input.domain ?? "mail";
   const kind = input.kind ?? "automation";
   let existingTagIds = new Set<string>();
   let hadFilteredRule = false;
   if (domain === "mail" && kind === "ai-filter") {
-    await assertMailJevEnabled(ownerEmail);
+    if (!options.deferJevAvailabilityCheck) {
+      await assertMailJevEnabled(ownerEmail);
+    }
     assertAiFilterActions(input.actions);
     const tagLabel = aiTagLabel(domain, kind, input.actions);
     const mode = aiFilterRuleMode({ actions: input.actions });
@@ -353,6 +356,7 @@ export async function updateAutomationRule(
     domain?: string;
     kind?: "automation" | "ai-filter";
   },
+  options: { deferJevAvailabilityCheck?: boolean } = {},
 ): Promise<AutomationRule> {
   const [existing] = await db
     .select()
@@ -368,7 +372,11 @@ export async function updateAutomationRule(
   const disableOnly =
     Object.keys(patch).length === 1 && patch.enabled === false;
   const nextIsMailAiFilter = nextDomain === "mail" && nextKind === "ai-filter";
-  if ((existingIsMailAiFilter || nextIsMailAiFilter) && !disableOnly) {
+  if (
+    (existingIsMailAiFilter || nextIsMailAiFilter) &&
+    !disableOnly &&
+    !options.deferJevAvailabilityCheck
+  ) {
     await assertMailJevEnabled(ownerEmail);
   }
   const nextActions =

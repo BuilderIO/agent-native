@@ -85,6 +85,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.createAutomationRule).toHaveBeenCalledWith(
       ownerEmail,
       expect.objectContaining({ domain: "mail", kind: "ai-filter" }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
       ownerEmail,
@@ -103,6 +104,16 @@ describe("manage-email-rules chat action", () => {
       backfillStatus: "queued",
       settingsHref: "/settings?section=ai-filter",
     });
+  });
+
+  it("keeps the non-agent action's Jev availability check inline", async () => {
+    await createManageEmailRulesAction(false).run({
+      action: "create",
+      mode: "important",
+      sentence: "Messages from my team lead",
+    });
+
+    expect(mocks.createAutomationRule.mock.calls[0]).toHaveLength(2);
   });
 
   it("lists rule names and action effects with their mode classification", async () => {
@@ -205,6 +216,7 @@ describe("manage-email-rules chat action", () => {
         kind: "ai-filter",
         actions: [{ type: "archive" }],
       }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
       ownerEmail,
@@ -319,6 +331,7 @@ describe("manage-email-rules chat action", () => {
         actions: [{ type: "label", labelName: "agent-native-important" }],
         kind: "ai-filter",
       }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({
       mode: "important",
@@ -347,6 +360,7 @@ describe("manage-email-rules chat action", () => {
         actions: [{ type: "label", labelName: "Receipts" }],
         kind: "ai-filter",
       }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
   });
@@ -368,6 +382,7 @@ describe("manage-email-rules chat action", () => {
         ],
         kind: "ai-filter",
       }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({
       mode: "filter",
@@ -420,6 +435,7 @@ describe("manage-email-rules chat action", () => {
           { type: "archive" },
         ],
       }),
+      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
   });
