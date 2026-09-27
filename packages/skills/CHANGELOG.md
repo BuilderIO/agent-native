@@ -1,5 +1,38 @@
 # @agent-native/skills
 
+## 0.3.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [7ecd4d7]
+- Updated dependencies [b863d1f]
+- Updated dependencies [a902062]
+- Updated dependencies [b0b63b4]
+- Updated dependencies [214d5f3]
+- Updated dependencies [fdb196d]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [467eb06]
+- Updated dependencies [fce2dc1]
+- Updated dependencies [b0760e2]
+- Updated dependencies [21055c8]
+- Updated dependencies [adc7497]
+- Updated dependencies [b0760e2]
+- Updated dependencies [57d1d39]
+- Updated dependencies [ed3801e]
+- Updated dependencies [9ec2f7e]
+- Updated dependencies [8362ebb]
+- Updated dependencies [a17945a]
+- Updated dependencies [a050521]
+- Updated dependencies [77acfd8]
+- Updated dependencies [e7b6fcc]
+  - @agent-native/core@0.194.0
+
 ## 0.3.7
 
 ### Patch Changes
@@ -1588,12 +1621,5 @@
 
 - Updated dependencies [379f7ca]
   - @agent-native/core@0.164.12
-
-## 0.2.641
-
-### Patch Changes
-
-- Updated dependencies [ae91302]
-  - @agent-native/core@0.164.11
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
