@@ -456,6 +456,7 @@ describe("createAgentKitProtocolAdapter", () => {
         toolCallId: "tool-1",
         toolName: "run_checks",
         status: "completed",
+        result: { passed: 1 },
         resultText: "1 passed",
       };
       yield { type: "done", reason: "complete" };
@@ -516,7 +517,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
-      toolCall: { name: "run_checks", output: "1 passed" },
+      toolCall: { name: "run_checks", output: { passed: 1 } },
     });
     expect(result[5]).toMatchObject({
       type: "activity.started",

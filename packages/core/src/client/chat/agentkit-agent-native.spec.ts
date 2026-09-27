@@ -36,6 +36,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                     toolName: "apply-ai-filter",
                     args: { mode: "filter" },
                     result: JSON.stringify({ changed: 5 }),
+                    chatUIResult: { changed: 5 },
                     chatUI: {
                       renderer: "mail.ai-filter-confirmation",
                       title: "AI filter result",
@@ -59,7 +60,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           id: "tool-1",
           name: "apply-ai-filter",
           input: { mode: "filter" },
-          output: JSON.stringify({ changed: 5 }),
+          output: { changed: 5 },
           status: "completed",
           messageId: "assistant-1",
         },

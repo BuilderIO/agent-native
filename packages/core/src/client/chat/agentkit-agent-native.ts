@@ -325,7 +325,7 @@ function storedActionWidgets(value: unknown): {
         id: part.toolCallId,
         name: part.toolName,
         ...(input ? { input } : {}),
-        output: part.result,
+        output: "chatUIResult" in part ? part.chatUIResult : part.result,
         status: part.isError === true ? "failed" : "completed",
         messageId,
       };

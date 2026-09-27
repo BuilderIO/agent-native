@@ -34,6 +34,7 @@ interface ContentPart {
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  chatUIResult?: unknown;
   activity?: boolean;
   approval?: {
     approvalKey: string;
@@ -298,6 +299,9 @@ export function buildAssistantMessage(
         if (event.artifacts !== undefined) part.artifacts = event.artifacts;
         if (event.mcpApp) part.mcpApp = event.mcpApp;
         if (event.chatUI) part.chatUI = event.chatUI;
+        if (event.chatUI && event.chatUIResult !== undefined) {
+          part.chatUIResult = event.chatUIResult;
+        }
       }
       continue;
     }

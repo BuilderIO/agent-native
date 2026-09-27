@@ -7163,6 +7163,9 @@ export async function runAgentLoop(opts: {
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
               ...(chatUI ? { chatUI } : {}),
+              ...(chatUI && recoveredActionResult
+                ? { chatUIResult: recoveredActionResult.value }
+                : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
@@ -7438,6 +7441,7 @@ export async function runAgentLoop(opts: {
 
         let result: string;
         let chatUIResult: unknown;
+        let chatUIResultFits = true;
         let isError = false;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -7642,7 +7646,8 @@ export async function runAgentLoop(opts: {
             typeof resultForAgent === "string"
               ? resultForAgent
               : JSON.stringify(resultForAgent, null, 2);
-          if (resultStr.length > toolMaxResultChars) {
+          chatUIResultFits = resultStr.length <= toolMaxResultChars;
+          if (!chatUIResultFits) {
             const truncated = resultStr.slice(0, toolMaxResultChars);
             resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
           }
@@ -7742,13 +7747,15 @@ export async function runAgentLoop(opts: {
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
 
-        const chatUI = actionChatUIForResult(
-          toolCall.name,
-          actionEntry,
-          toolCall.input as Record<string, unknown>,
-          chatUIResult,
-          isError,
-        );
+        const chatUI = chatUIResultFits
+          ? actionChatUIForResult(
+              toolCall.name,
+              actionEntry,
+              toolCall.input as Record<string, unknown>,
+              chatUIResult,
+              isError,
+            )
+          : undefined;
 
         // Auto-refresh the UI after a successful mutating tool call. Any call
         // that isn't read-only — by its own per-call Plan-mode effect, else the
@@ -7795,6 +7802,7 @@ export async function runAgentLoop(opts: {
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(chatUI ? { chatUI } : {}),
+          ...(chatUI ? { chatUIResult } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });

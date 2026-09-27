@@ -303,6 +303,40 @@ describe("tool-call result ledger", () => {
     expect(events.some((event) => event.type === "widget.created")).toBe(false);
   });
 
+  it("emits raw structured results for matching action widgets", async () => {
+    const result = {
+      draft: { subject: "Launch notes" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const action = makeWriteAction();
+    action.run = vi.fn(async () => result);
+    action.chatUI = {
+      renderer: "mail.draft-created",
+      when: (_args, value) =>
+        Boolean(value) && typeof value === "object" && "deepLink" in value,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("manage-draft", { action: "create" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Create a draft" }] },
+      ],
+      actions: { "manage-draft": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
+      result: JSON.stringify(result, null, 2),
+      chatUI: { renderer: "mail.draft-created" },
+      chatUIResult: result,
+    });
+  });
+
   it("returns the ledger result without re-executing on continuation match", async () => {
     // readLedgerEntry returns a cached result — the action must NOT run again.
     const PRIOR_RESULT =
@@ -484,9 +518,12 @@ describe("tool-call result ledger", () => {
     });
 
     expect(action.run).not.toHaveBeenCalled();
-    expect(
-      events.find((event: any) => event.type === "tool_done")?.chatUI,
-    ).toEqual({ renderer: "mail.draft-created" });
+    const toolDone = events.find((event: any) => event.type === "tool_done");
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toEqual({
+      draft: { subject: input.subject, to: input.to },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    });
   });
 
   it("keeps a JSON-looking string result as a string during recovery", async () => {
@@ -555,6 +592,7 @@ describe("tool-call result ledger", () => {
     expect(action.run).not.toHaveBeenCalled();
     expect(toolDone?.result).toBe(result);
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toBe(result);
   });
 
   it("does not guess widget eligibility for legacy ledger results", async () => {

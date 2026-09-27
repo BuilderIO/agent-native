@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Log framework request errors that escape Nitro's Vite middleware in development.
+Preserve structured action results for live and reloaded chat widgets, and log framework request errors that escape Nitro's Vite middleware in development.

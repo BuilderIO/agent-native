@@ -524,6 +524,7 @@ export type AgentChatEvent =
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
+      chatUIResult?: unknown;
     }
   | {
       /**

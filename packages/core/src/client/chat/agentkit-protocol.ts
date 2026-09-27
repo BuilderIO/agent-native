@@ -1779,7 +1779,8 @@ export function createAgentKitProtocolAdapter(
               id: event.toolCallId,
               name: event.toolName,
               status,
-              output: event.result ?? event.resultText,
+              output:
+                event.result !== undefined ? event.result : event.resultText,
               error,
               ...(metadata ? { metadata } : {}),
             },
