@@ -41,7 +41,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
+import {
+  FileStorageSetupPopover,
+  type FileStorageSetupCloseReason,
+} from "../FileStorageSetupPopover.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
@@ -87,6 +90,12 @@ const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
 type PendingResourceUpload = {
   file: File;
   targetScope: ResourceScope;
+  attemptId?: number;
+};
+
+type ResourceUploadStatusResult = {
+  isError: boolean;
+  data?: { configured?: unknown };
 };
 
 export function mergePendingResourceUploads(
@@ -101,6 +110,34 @@ export function mergePendingResourceUploads(
     );
   }
   return [...byResourcePath.values()];
+}
+
+export function takePendingResourceUploads(
+  pending: PendingResourceUpload[],
+  result: ResourceUploadStatusResult,
+  throughAttemptId?: number,
+): { uploads: PendingResourceUpload[]; storageConfigured: boolean } | null {
+  if (result.isError || typeof result.data?.configured !== "boolean") {
+    return null;
+  }
+  const shouldTake = (upload: PendingResourceUpload) =>
+    throughAttemptId === undefined ||
+    upload.attemptId === undefined ||
+    upload.attemptId <= throughAttemptId;
+  const uploads = pending.filter(shouldTake);
+  const remaining = pending.filter((upload) => !shouldTake(upload));
+  pending.splice(0, pending.length, ...remaining);
+  return {
+    uploads,
+    storageConfigured: result.data.configured,
+  };
+}
+
+export function shouldClearPendingResourceUploads(
+  open: boolean,
+  reason?: FileStorageSetupCloseReason,
+): boolean {
+  return !open && reason === "dismiss";
 }
 
 export function normalizeResourceFileName(name: string): string {
@@ -1274,6 +1311,10 @@ export function ResourcesPanel({
   const [dragOver, setDragOver] = useState(false);
   const [fileStorageSetupOpen, setFileStorageSetupOpen] = useState(false);
   const pendingResourceUploadsRef = useRef<PendingResourceUpload[]>([]);
+  const uploadProbeEpochRef = useRef(0);
+  const uploadAttemptIdRef = useRef(0);
+  const handledUploadAttemptIdRef = useRef(0);
+  const resumePendingResourceUploadsRef = useRef(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     message: string;
@@ -1462,11 +1503,43 @@ export function ResourcesPanel({
     [uploadResourceFile],
   );
   useEffect(() => {
-    if (!fileStorageConfigured) return;
+    const resumePendingUploads = () => {
+      resumePendingResourceUploadsRef.current = true;
+    };
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      resumePendingUploads,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        resumePendingUploads,
+      );
+  }, []);
+  useEffect(() => {
+    if (
+      !fileUploadStatus.isSuccess ||
+      !resumePendingResourceUploadsRef.current
+    ) {
+      return;
+    }
+    resumePendingResourceUploadsRef.current = false;
     setFileStorageSetupOpen(false);
-    const pending = pendingResourceUploadsRef.current.splice(0);
-    processResourceUploads(pending, true, false);
-  }, [fileStorageConfigured, processResourceUploads]);
+    const pending = takePendingResourceUploads(
+      pendingResourceUploadsRef.current,
+      fileUploadStatus,
+    );
+    if (pending) {
+      handledUploadAttemptIdRef.current = uploadAttemptIdRef.current;
+      processResourceUploads(pending.uploads, pending.storageConfigured, true);
+    }
+  }, [
+    fileStorageConfigured,
+    fileUploadStatus.data,
+    fileUploadStatus.isError,
+    fileUploadStatus.isSuccess,
+    processResourceUploads,
+  ]);
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
@@ -1628,33 +1701,55 @@ export function ResourcesPanel({
 
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
-      const selected = Array.from(files, (file) => ({ file, targetScope }));
-      const processAttempt = (storageConfigured: boolean) => {
-        const pending = pendingResourceUploadsRef.current.splice(0);
-        processResourceUploads(pending, storageConfigured, true);
-      };
-      if (fileUploadStatus.data && !fileUploadStatus.isError) {
-        processResourceUploads(
-          selected,
-          fileUploadStatus.data.configured,
-          true,
-        );
-        return;
-      }
+      const attemptId = ++uploadAttemptIdRef.current;
+      const selected = Array.from(files, (file) => ({
+        file,
+        targetScope,
+        attemptId,
+      }));
       pendingResourceUploadsRef.current = mergePendingResourceUploads(
         pendingResourceUploadsRef.current,
         selected,
       );
+      const probeEpoch = uploadProbeEpochRef.current;
+      const processAttempt = (result: ResourceUploadStatusResult) => {
+        if (
+          probeEpoch !== uploadProbeEpochRef.current ||
+          attemptId <= handledUploadAttemptIdRef.current
+        ) {
+          return;
+        }
+        const pending = takePendingResourceUploads(
+          pendingResourceUploadsRef.current,
+          result,
+          attemptId,
+        );
+        if (!pending) {
+          setFileStorageSetupOpen(true);
+          return;
+        }
+        handledUploadAttemptIdRef.current = attemptId;
+        if (pending.storageConfigured) setFileStorageSetupOpen(false);
+        processResourceUploads(
+          pending.uploads,
+          pending.storageConfigured,
+          true,
+        );
+      };
+      if (fileUploadStatus.data && !fileUploadStatus.isError) {
+        processAttempt(fileUploadStatus);
+        return;
+      }
       void fileUploadStatus
         .refetch()
-        .then((result) => {
-          if (result.isError || typeof result.data?.configured !== "boolean") {
-            setFileStorageSetupOpen(true);
+        .then(processAttempt)
+        .catch(() => {
+          if (
+            probeEpoch !== uploadProbeEpochRef.current ||
+            attemptId <= handledUploadAttemptIdRef.current
+          ) {
             return;
           }
-          processAttempt(result.data.configured);
-        })
-        .catch(() => {
           setFileStorageSetupOpen(true);
         });
     },
@@ -1808,15 +1903,27 @@ export function ResourcesPanel({
         open={fileStorageSetupOpen}
         onOpenChange={(open, reason) => {
           setFileStorageSetupOpen(open);
-          if (!open && reason === "dismiss") {
+          if (!open && reason === "setup") {
+            uploadProbeEpochRef.current += 1;
+            resumePendingResourceUploadsRef.current = false;
+          }
+          if (shouldClearPendingResourceUploads(open, reason)) {
+            uploadProbeEpochRef.current += 1;
+            resumePendingResourceUploadsRef.current = false;
             pendingResourceUploadsRef.current = [];
           }
         }}
-        onConnected={() => void fileUploadStatus.refetch()}
+        onConnected={() => {
+          resumePendingResourceUploadsRef.current = true;
+          void fileUploadStatus.refetch();
+        }}
         {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
           ? {
               status: "unavailable" as const,
-              onRetry: () => void fileUploadStatus.refetch(),
+              onRetry: () => {
+                resumePendingResourceUploadsRef.current = true;
+                void fileUploadStatus.refetch();
+              },
             }
           : { status: "missing" as const })}
       />

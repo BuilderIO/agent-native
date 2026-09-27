@@ -18,11 +18,13 @@ export function FileUploadStorageGate({
   state,
   open,
   onOpenChange,
+  onDismiss,
   onRetry,
 }: {
   state: FileUploadStorageState;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onDismiss?: () => void;
   onRetry: () => void;
 }) {
   useEffect(() => {
@@ -33,7 +35,10 @@ export function FileUploadStorageGate({
   return (
     <FileStorageSetupPopover
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen, reason) => {
+        if (!nextOpen && reason === "dismiss") onDismiss?.();
+        onOpenChange(nextOpen);
+      }}
       {...(state === "unknown"
         ? { status: "unavailable" as const, onRetry }
         : { status: "missing" as const })}

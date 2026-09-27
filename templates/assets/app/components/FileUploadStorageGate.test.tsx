@@ -15,10 +15,12 @@ vi.mock("@agent-native/core/client/setup-connections", async () => {
       open,
       status,
       onRetry,
+      onOpenChange,
     }: {
       open: boolean;
       status?: string;
       onRetry?: () => void;
+      onOpenChange: (open: boolean, reason?: string) => void;
     }) =>
       open
         ? createElement(
@@ -38,6 +40,14 @@ vi.mock("@agent-native/core/client/setup-connections", async () => {
                   "common.retry",
                 )
               : null,
+            createElement(
+              "button",
+              {
+                onClick: () => onOpenChange(false, "dismiss"),
+                "data-testid": "file-storage-dismiss",
+              },
+              "dismiss",
+            ),
           )
         : null,
   };
@@ -171,5 +181,32 @@ describe("file upload storage gate", () => {
     expect(
       container.querySelector('[data-testid="file-storage-setup-popover"]'),
     ).toBeNull();
+  });
+
+  it("discards a queued upload when setup is dismissed", () => {
+    const onOpenChange = vi.fn();
+    const onDismiss = vi.fn();
+    act(() =>
+      root.render(
+        createElement(FileUploadStorageGate, {
+          state: "missing",
+          open: true,
+          onOpenChange,
+          onDismiss,
+          onRetry: vi.fn(),
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="file-storage-dismiss"]',
+        )
+        ?.click(),
+    );
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

@@ -2729,7 +2729,12 @@ function FilesMediaValueEditor({
       <FileStorageStatusGate
         status={fileUploadStatus}
         open={storageSetupOpen}
-        onOpenChange={setStorageSetupOpen}
+        onOpenChange={(open, reason) => {
+          if (!open && reason === "dismiss") {
+            pendingUploadFilesRef.current = null;
+          }
+          setStorageSetupOpen(open);
+        }}
       />
       <div className="flex justify-end gap-2">
         <Button
