@@ -76,6 +76,19 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未取得",
   "observability.openFullConversation": "会話全体を開く",
   "observability.learnAboutTab": "このタブの詳細を見る",
+  "observability.summarizeWithAgent": "エージェントで要約",
+  "observability.regenerateSummary": "要約を再生成",
+  "observability.summarizeWithAgentHelp":
+    "エージェントにこのスレッドを読み、依頼と結果を要約し、確認済みの成果物のみをリンクするよう依頼します。",
+  "observability.regenerateSummaryHelp":
+    "最新のスレッドと確認済みの成果物をもとに、エージェントにこの要約を更新するよう依頼します。",
+  "observability.summarySending": "エージェントにリクエストを送信中…",
+  "observability.summaryQueued":
+    "リクエストをキューに追加しました。エージェントが要約を保存するとここに表示されます。",
+  "observability.summaryFailed":
+    "リクエストを送信できませんでした。もう一度お試しください。",
+  "observability.summaryExpired":
+    "まだ要約が表示されていません。再試行できますが、エージェントが処理中の可能性があります。",
   "onboarding.back": "戻る",
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",

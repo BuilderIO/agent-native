@@ -75,6 +75,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "캡처되지 않음",
   "observability.openFullConversation": "전체 대화 열기",
   "observability.learnAboutTab": "이 탭 알아보기",
+  "observability.summarizeWithAgent": "에이전트로 요약",
+  "observability.regenerateSummary": "요약 다시 생성",
+  "observability.summarizeWithAgentHelp":
+    "에이전트가 이 스레드를 읽고 요청과 결과를 요약하며 검증된 아티팩트만 링크하도록 요청합니다.",
+  "observability.regenerateSummaryHelp":
+    "최신 스레드와 검증된 아티팩트를 바탕으로 에이전트에게 이 요약을 새로 작성하도록 요청합니다.",
+  "observability.summarySending": "에이전트에 요청을 보내는 중…",
+  "observability.summaryQueued":
+    "요청이 대기열에 추가되었습니다. 에이전트가 요약을 저장하면 여기에 표시됩니다.",
+  "observability.summaryFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
+  "observability.summaryExpired":
+    "아직 요약이 표시되지 않았습니다. 다시 시도할 수 있지만 에이전트가 계속 작업 중일 수 있습니다.",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",

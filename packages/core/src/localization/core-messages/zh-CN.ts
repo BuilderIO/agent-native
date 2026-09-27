@@ -72,6 +72,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未捕获",
   "observability.openFullConversation": "打开完整对话",
   "observability.learnAboutTab": "了解此选项卡",
+  "observability.summarizeWithAgent": "让智能体总结",
+  "observability.regenerateSummary": "重新生成摘要",
+  "observability.summarizeWithAgentHelp":
+    "请智能体阅读此对话，概括请求和结果，并仅链接已验证的产物。",
+  "observability.regenerateSummaryHelp":
+    "请智能体根据最新对话和已验证的产物更新此摘要。",
+  "observability.summarySending": "正在向智能体发送请求…",
+  "observability.summaryQueued":
+    "请求已排队。智能体保存摘要后，它会显示在这里。",
+  "observability.summaryFailed": "无法发送请求，请重试。",
+  "observability.summaryExpired":
+    "尚未显示摘要。你可以重试，但智能体可能仍在处理中。",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "选择你的角色",
   "onboarding.customizeRole": "让我们为你定制体验。",

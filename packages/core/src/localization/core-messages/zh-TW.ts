@@ -73,6 +73,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未擷取",
   "observability.openFullConversation": "開啟完整對話",
   "observability.learnAboutTab": "了解此分頁",
+  "observability.summarizeWithAgent": "請代理程式摘要",
+  "observability.regenerateSummary": "重新產生摘要",
+  "observability.summarizeWithAgentHelp":
+    "請代理程式閱讀此討論串、摘要需求與結果，並且只連結已驗證的產物。",
+  "observability.regenerateSummaryHelp":
+    "請代理程式根據最新討論串與已驗證的產物更新此摘要。",
+  "observability.summarySending": "正在傳送請求給代理程式…",
+  "observability.summaryQueued":
+    "請求已排入佇列。代理程式儲存摘要後，摘要就會顯示在這裡。",
+  "observability.summaryFailed": "無法傳送請求，請再試一次。",
+  "observability.summaryExpired":
+    "摘要尚未顯示。你可以重試，但代理程式可能仍在處理。",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "選擇你的角色",
   "onboarding.customizeRole": "讓我們為你客製化。",

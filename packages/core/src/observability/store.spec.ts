@@ -383,27 +383,39 @@ describe("observability store: per-user isolation", () => {
         },
       ];
       await expect(
-        getHumanReviewSummariesForThreads([
-          { orgId: "org-a", threadId: "thread-a" },
-          { orgId: "org-b", threadId: "thread-a" },
-        ]),
+        getHumanReviewSummariesForThreads(
+          [
+            { orgId: "org-a", threadId: "thread-a" },
+            { orgId: "org-b", threadId: "thread-a" },
+          ],
+          [{ orgId: "org-a", runId: "run-old" }],
+        ),
       ).resolves.toMatchObject(
         new Map([
           [
             JSON.stringify(["org-a", "thread-a"]),
-            {
-              runId: "run-newest",
-              ask: "Current ask",
-              outcome: "Current outcome",
-            },
+            [
+              {
+                runId: "run-newest",
+                ask: "Current ask",
+                outcome: "Current outcome",
+              },
+              {
+                runId: "run-old",
+                ask: "Old ask",
+                outcome: "Old outcome",
+              },
+            ],
           ],
           [
             JSON.stringify(["org-b", "thread-a"]),
-            {
-              runId: "run-other-org",
-              ask: "Other org ask",
-              outcome: "Other org outcome",
-            },
+            [
+              {
+                runId: "run-other-org",
+                ask: "Other org ask",
+                outcome: "Other org outcome",
+              },
+            ],
           ],
         ]),
       );
@@ -420,7 +432,14 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql).toMatch(
         /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
       );
-      expect(call.args).toEqual(["org-a", "thread-a", "org-b", "thread-a"]);
+      expect(call.args).toEqual([
+        "org-a",
+        "thread-a",
+        "org-b",
+        "thread-a",
+        "org-a",
+        "run-old",
+      ]);
     });
 
     it("parses valid persisted summary artifacts", async () => {

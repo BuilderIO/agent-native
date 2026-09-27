@@ -72,6 +72,18 @@ const messages = {
   "observability.notCaptured": "Not captured",
   "observability.openFullConversation": "Open full conversation",
   "observability.learnAboutTab": "Learn about this tab",
+  "observability.summarizeWithAgent": "Summarize with agent",
+  "observability.regenerateSummary": "Regenerate summary",
+  "observability.summarizeWithAgentHelp":
+    "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+  "observability.regenerateSummaryHelp":
+    "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
+  "observability.summarySending": "Sending request to agent…",
+  "observability.summaryQueued":
+    "Request queued. The summary will appear here after the agent saves it.",
+  "observability.summaryFailed": "Could not send the request. Try again.",
+  "observability.summaryExpired":
+    "No summary has appeared yet. You can retry, but the agent may still be working.",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",

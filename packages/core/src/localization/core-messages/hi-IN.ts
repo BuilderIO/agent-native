@@ -74,6 +74,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "कैप्चर नहीं किया गया",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
+  "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
+  "observability.regenerateSummary": "सारांश फिर से बनाएँ",
+  "observability.summarizeWithAgentHelp":
+    "एजेंट से इस थ्रेड को पढ़ने, अनुरोध और नतीजे का सारांश बनाने, और केवल सत्यापित आर्टिफैक्ट लिंक करने को कहें।",
+  "observability.regenerateSummaryHelp":
+    "एजेंट से नवीनतम थ्रेड और सत्यापित आर्टिफैक्ट के आधार पर यह सारांश अपडेट करने को कहें।",
+  "observability.summarySending": "एजेंट को अनुरोध भेजा जा रहा है…",
+  "observability.summaryQueued":
+    "अनुरोध कतार में है। एजेंट के सारांश सहेजने पर वह यहाँ दिखाई देगा।",
+  "observability.summaryFailed": "अनुरोध नहीं भेजा जा सका। फिर से कोशिश करें।",
+  "observability.summaryExpired":
+    "अभी तक कोई सारांश दिखाई नहीं दिया है। आप फिर से कोशिश कर सकते हैं, लेकिन एजेंट अभी भी काम कर रहा हो सकता है।",
   "onboarding.back": "वापस",
   "onboarding.chooseRole": "अपनी भूमिका चुनें",
   "onboarding.customizeRole": "आइए इसे आपके लिए अनुकूलित करें।",
