@@ -40,6 +40,13 @@ export type OnboardingMethod =
   | (OnboardingMethodBase & {
       kind: "agent-task";
       payload: { prompt: string };
+    })
+  | (OnboardingMethodBase & {
+      /**
+       * Renders the shared S3-compatible storage form
+       * (`StorageSettingsForm`), which saves through `manage-file-storage`.
+       */
+      kind: "file-storage";
     });
 
 export interface OnboardingStep {
@@ -73,6 +80,22 @@ export interface OnboardingStepStatus {
   methods: OnboardingMethod[];
 }
 
+/** Services whose provider is picked per service (`manage-service-providers`). */
+export type WorkspaceProviderServiceId = "voice" | "images" | "embeddings";
+
+/** Services only Builder.io provides. */
+export type WorkspaceBuilderOnlyServiceId =
+  | "design-system-intelligence"
+  | "background-agents"
+  | "browser-automation";
+
+/** A service every app in a workspace shares (`WORKSPACE_SERVICES`). */
+export type WorkspaceServiceId =
+  | "model"
+  | "storage"
+  | WorkspaceProviderServiceId
+  | WorkspaceBuilderOnlyServiceId;
+
 export interface OnboardingCapability {
   id: string;
   label: string;
@@ -81,6 +104,10 @@ export interface OnboardingCapability {
   builderIncluded: boolean;
   keySummary: string;
   why: string;
+  /** The shared workspace service this capability stands for. */
+  service?: WorkspaceServiceId;
+  /** Only Builder.io provides it; there is no bring-your-own path. */
+  builderOnly?: boolean;
   labelKey?: string;
   keySummaryKey?: string;
   whyKey?: string;

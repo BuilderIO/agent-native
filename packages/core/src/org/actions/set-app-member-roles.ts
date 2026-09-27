@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { orgAdminAudit } from "../../audit/org-admin.js";
 import { requireOrgMember } from "../actions.js";
 import {
   getRegisteredAppRoles,
@@ -17,18 +18,14 @@ export default defineAction({
     email: z.string().email(),
     roles: z.array(z.string()).max(50),
   }),
-  audit: {
-    target: (args, _result, meta) => ({
-      type: "app-member-roles",
-      id: `${args.appId}:${args.email.toLowerCase()}`,
-      ownerEmail: meta.userEmail,
-      visibility: "org",
-    }),
+  audit: orgAdminAudit({
+    targetType: "app-member-roles",
+    targetId: (args) => `${args.appId}:${args.email.toLowerCase()}`,
     summary: (args, result) => {
       const change = result as { previousRoles?: string[]; roles?: string[] };
       return `Updated ${args.appId} roles for ${args.email}: [${(change.previousRoles ?? []).join(", ")}] -> [${(change.roles ?? []).join(", ")}]`;
     },
-  },
+  }),
   run: async ({ appId, email, roles }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);

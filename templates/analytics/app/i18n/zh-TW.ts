@@ -298,6 +298,9 @@ export default {
     bellSound: "提示音",
     bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
     bellSoundSaveFailed: "無法儲存提示音偏好設定。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "電子郵件",
+    notificationsSoundGroup: "聲音",
     replayStorage: "工作階段回放儲存",
     replayStorageDescription:
       "工作階段回放錄製需要已設定的檔案上傳供應商。連線 Builder.io 以使用免費方案的物件儲存，或使用您自己的 S3 相容儲存桶。",

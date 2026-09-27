@@ -1,4 +1,4 @@
-import { resolveSecret } from "@agent-native/core/server";
+import { resolveGeminiApiKey } from "@agent-native/core/server";
 
 const config = async () => {
   try {
@@ -43,9 +43,11 @@ export default async function main(args: string[]) {
     throw new Error("Script failed");
   }
 
-  const apiKey = await resolveSecret("GEMINI_API_KEY");
+  const apiKey = await resolveGeminiApiKey();
   if (!apiKey) {
-    console.error("Error: GEMINI_API_KEY not configured");
+    console.error(
+      "Error: Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) not configured",
+    );
     throw new Error("Script failed");
   }
 

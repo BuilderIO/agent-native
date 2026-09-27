@@ -40,7 +40,6 @@ const messages = {
     brand: "幻灯片",
     decks: "幻灯片",
     designSystems: "设计系统",
-    team: "团队",
   },
   settings: {
     agentObservability: "代理可观测性",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
     saveFailed: "保存失败",
+    notificationsEmail: "电子邮件",
+    commentsAndReplies: "评论和回复",
+    commentsAndRepliesDescription: "有人在你的演示文稿中发表评论或回复时。",
+    retry: "重试",
+    mcpAbout:
+      "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",
@@ -181,8 +186,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "在应用中打开",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {

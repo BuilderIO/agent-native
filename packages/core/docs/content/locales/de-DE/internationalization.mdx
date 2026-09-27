@@ -106,11 +106,13 @@ Verwenden Sie `useFormatters()` für Datumsangaben, Zahlen, relative Zeit und
 Listen. Fügen Sie keine gebietsschemaabhängige Datums- oder Zahlenformatierung
 in Übersetzungszeichenfolgen ein.
 
-Platzieren Sie `<LanguagePicker />` überall dort, wo die App einem Benutzer
-erlaubt, seine Sprache zu ändern. Das Standardmuster für die
-Einstellungsseite, einschließlich der Frage, wo `openAgentSettings()`
-hineinpasst, finden Sie unter
-[Toolkit: Settings](/docs/toolkit-settings).
+Die Einstellungen enthalten bereits die Zeile **Interface language** unter
+Account › Preferences, und eine Änderung dort gilt in jeder App. Die eigenen
+Einstellungsseiten einer App fügen daher keine zweite Auswahl hinzu. Ist das Flag
+`settings-redesign` aus, gehört die Auswahl in den Tab General der Seite mit Tabs.
+Platzieren Sie `<LanguagePicker />` überall sonst, wo die App einem Benutzer
+erlaubt, seine Sprache zu ändern, etwa als Kurzbefehl in der Kopfzeile. Den
+Vertrag der Einstellungsseite beschreibt [Toolkit: Settings](/docs/toolkit-settings).
 
 ## Actions und Persistenz
 
@@ -158,5 +160,5 @@ Umgebungsvariablennamen oder Anbieternamen.
 ## Was kommt als nächstes?
 
 - [**Übersicht**](/docs/client-overview#app-shell) — der `AppProviders`-Wrapper und weitere Browser-Hooks, auf denen i18n aufbaut
-- [**Toolkit: Settings**](/docs/toolkit-settings) — platzieren Sie `<LanguagePicker>` auf der Standard-Einstellungsseite
+- [**Toolkit: Settings**](/docs/toolkit-settings) — der Vertrag der Einstellungsseite, in der Account › Preferences die Oberflächensprache verwaltet
 - [**Erste Schritte**](/docs/getting-started) — bauen Sie Ihre erste App auf einer Vorlage, die bereits lokalisierte Kataloge mitbringt

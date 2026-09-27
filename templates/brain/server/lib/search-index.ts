@@ -1,7 +1,9 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
+  defaultEmbeddingFamily,
   type EmbeddingFamily,
   readEmbeddingFamilyAvailability,
+  resolveDefaultEmbeddingFamily,
 } from "@agent-native/core/embeddings";
 import {
   deletePgVectors,
@@ -19,7 +21,6 @@ import { nanoid, nowIso } from "./brain.js";
 import {
   BRAIN_SEARCH_INDEX_VERSION,
   BRAIN_SENSITIVITY_POLICY_VERSION,
-  selectBrainEmbeddingFamily,
   type BrainSearchStalenessKey,
 } from "./search-index-contracts.js";
 
@@ -42,6 +43,7 @@ export type BrainSearchArtifact = z.infer<typeof artifactSchema>;
 export type BrainEmbeddingReadinessStatus =
   | "ready"
   | "not-configured"
+  | "ambiguous"
   | "unavailable";
 
 export interface BrainEmbeddingReadiness {
@@ -265,39 +267,60 @@ export function burstRows(
 export function embeddingReadinessFromFamilies(
   families: readonly EmbeddingFamily[],
   unavailableProviders: readonly string[] = [],
+  preferredProvider: string | null = null,
 ): BrainEmbeddingReadiness {
   const configuredProviders = Array.from(
     new Set(families.map((candidate) => candidate.provider)),
   );
-  if (unavailableProviders.includes("builder")) {
+  if (unavailableProviders.length) {
     return {
       status: "unavailable",
       ready: false,
       configuredProviders,
-      unavailableProviders: ["builder"],
+      unavailableProviders: [...unavailableProviders],
       configuredFamilies: families.length,
       provider: null,
       model: null,
       embeddingSetId: null,
       dimensions: null,
       warning:
-        "Builder embedding credential status is temporarily unavailable. Retry before indexing.",
+        "Embedding credential status is temporarily unavailable. Retry before indexing.",
     };
   }
-  const family = selectBrainEmbeddingFamily(families);
+  const family = defaultEmbeddingFamily(families, preferredProvider);
+  if (family) {
+    return {
+      status: "ready",
+      ready: true,
+      configuredProviders,
+      unavailableProviders: [],
+      configuredFamilies: families.length,
+      provider: family.provider,
+      model: family.model,
+      embeddingSetId: family.id,
+      dimensions: family.dimensions,
+      warning: null,
+    };
+  }
+  // A chosen provider without credentials stays off rather than indexing with
+  // another one; only providers outside the known order can be ambiguous.
+  const status: BrainEmbeddingReadinessStatus =
+    families.length && !preferredProvider ? "ambiguous" : "not-configured";
   return {
-    status: family ? "ready" : "not-configured",
-    ready: Boolean(family),
+    status,
+    ready: false,
     configuredProviders,
     unavailableProviders: [],
     configuredFamilies: families.length,
-    provider: family?.provider ?? null,
-    model: family?.model ?? null,
-    embeddingSetId: family?.id ?? null,
-    dimensions: family?.dimensions ?? null,
-    warning: family
-      ? null
-      : "Configure Builder embeddings to enable semantic retrieval.",
+    provider: null,
+    model: null,
+    embeddingSetId: null,
+    dimensions: null,
+    warning: preferredProvider
+      ? `The organization's embeddings provider (${preferredProvider}) isn't set up. Add its key, or choose another provider in Settings > Infrastructure.`
+      : status === "ambiguous"
+        ? "Choose an embeddings provider in Settings > Infrastructure."
+        : "Configure one embedding provider to enable semantic retrieval.",
   };
 }
 
@@ -306,15 +329,12 @@ export async function readEmbeddingReadiness(): Promise<BrainEmbeddingReadiness>
   return embeddingReadinessFromFamilies(
     availability.families,
     availability.unavailableProviders,
+    availability.preferredProvider,
   );
 }
 
-async function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
-  const availability = await readEmbeddingFamilyAvailability();
-  if (availability.unavailableProviders.includes("builder")) {
-    throw new Error("Builder embedding credential status is unavailable.");
-  }
-  return selectBrainEmbeddingFamily(availability.families);
+function configuredEmbeddingFamily(): Promise<EmbeddingFamily | null> {
+  return resolveDefaultEmbeddingFamily();
 }
 
 export interface CaptureEmbeddingCoverage {

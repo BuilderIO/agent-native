@@ -40,7 +40,6 @@ const messages = {
     brand: "슬라이드",
     decks: "덱",
     designSystems: "디자인 시스템",
-    team: "팀",
   },
   settings: {
     agentObservability: "에이전트 관찰성",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
+    notificationsEmail: "이메일",
+    commentsAndReplies: "댓글 및 답글",
+    commentsAndRepliesDescription:
+      "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
+    retry: "다시 시도",
+    mcpAbout:
+      "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -185,8 +191,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "앱에서 열기",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {

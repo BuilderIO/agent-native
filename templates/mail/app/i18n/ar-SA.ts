@@ -44,6 +44,7 @@ const messages = {
       aiSetupArchiveLabel: "تجاوز البريد الوارد",
       aiSetupSave: "حفظ الإعداد",
       aiSetupSkip: "تخط الآن",
+      aiSetupSkipSetup: "تخطي إعداد البريد الوارد",
       aiSetupImportantHeadline: "ما المهم؟",
       aiSetupSkipInboxHeadline: "ما الذي يمكنه تجاوز صندوق الوارد؟",
       aiSetupTagsHeadline: "اختر علامات التبويب",
@@ -445,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "ربط حساب Google",
+      connectionNotConfigured:
+        "اتصال Gmail غير مُعدّ لهذا التطبيق. اطلب من مسؤول النظام تفعيله أو تخطَّ هذه الخطوة الآن.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -807,7 +810,6 @@ const messages = {
     slackPostEndpoint: "نقطة نهاية Slack POST",
     slackPostEndpointHelp:
       "استخدمها في Slack Event Subscriptions. قد يعرض GET من المتصفح Not Found.",
-    teamDescription: "قم بإعداد فريق لمشاركة أتمتات البريد والإعدادات مع زملائك.",
     title: "الإعدادات",
     general: "عام",
     generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",
@@ -833,12 +835,19 @@ const messages = {
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
     automations: "الأتمتة",
+    rules: "القواعد",
+    rulesModel: "نموذج القواعد",
+    rulesModelDescription: "يطابق البريد الوارد مع قواعدك.",
+    slackDraftRequests: "طلبات المسودات",
+    slackDraftQueue: "إضافة المسودات إلى القائمة من Slack",
+    slackDraftQueueDescription:
+      "يذكر زملاؤك الوكيل في Slack لطلب مسودة بريد إلكتروني. تنتظر المسودات المراجعة في قائمة انتظار المسودات.",
+    openDraftQueue: "فتح قائمة انتظار المسودات",
     aiFilter: "الفرز بالذكاء الاصطناعي",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",
     slack: "Slack",
-    team: "الفريق",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },

@@ -42,6 +42,7 @@ export function SchedulingTimezoneField({
         zone: detected,
       })}
       onChange={(timezone) => save.mutate({ timezone })}
+      size={compact ? "sm" : "default"}
     />
   );
 

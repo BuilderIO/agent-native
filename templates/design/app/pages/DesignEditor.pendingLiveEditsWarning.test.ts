@@ -23,7 +23,7 @@ describe("DesignEditor pending live edits", () => {
     );
     expect(toolbar).not.toContain("sessionOnlyWarning");
     expect(toolbar).not.toContain("{pendingVisualEditCount}");
-    expect(toolbar).toContain('"h-9 min-w-0');
+    expect(toolbar).toContain('"min-w-0 shrink-0 cursor-pointer');
     expect(toolbar).toContain('className="h-9 w-8');
     expect(toolbar).not.toContain("h-11");
     expect(toolbar).toContain("canApplyPendingVisualEditsWithAgent");

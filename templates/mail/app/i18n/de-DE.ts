@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
+      aiSetupSkipSetup: "Postfacheinrichtung überspringen",
       aiSetupImportantHeadline: "Was ist wichtig?",
       aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
       aiSetupTagsHeadline: "Tabs auswählen",
@@ -456,6 +457,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
+      connectionNotConfigured:
+        "Die Gmail-Verbindung ist für diese App nicht konfiguriert. Bitte wende dich an die Administration, um sie zu aktivieren, oder überspringe diesen Schritt vorerst.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -844,8 +847,6 @@ const messages = {
     slackPostEndpoint: "Slack-POST-Endpunkt",
     slackPostEndpointHelp:
       "In Slack Event Subscriptions verwenden. Browser-GET kann Not Found anzeigen.",
-    teamDescription:
-      "Richte ein Team ein, um E-Mail-Automatisierungen und Einstellungen mit Kollegen zu teilen.",
     title: "Einstellungen",
     general: "Allgemein",
     generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
@@ -872,12 +873,19 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
+    rules: "Regeln",
+    rulesModel: "Modell für Regeln",
+    rulesModelDescription: "Gleicht eingehende E-Mails mit deinen Regeln ab.",
+    slackDraftRequests: "Entwurfsanfragen",
+    slackDraftQueue: "Entwürfe aus Slack einreihen",
+    slackDraftQueueDescription:
+      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
+    openDraftQueue: "Entwurfswarteschlange öffnen",
     aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

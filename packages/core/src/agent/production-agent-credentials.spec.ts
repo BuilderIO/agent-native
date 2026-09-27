@@ -27,11 +27,24 @@ vi.mock("../server/credential-provider.js", async (importOriginal) => ({
     mockResolveBuilderGatewayAuth(...args),
 }));
 
+const mockIsPersonalProviderKeyUseRestricted = vi.fn();
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    isPersonalProviderKeyUseRestricted: (...args: unknown[]) =>
+      mockIsPersonalProviderKeyUseRestricted(...args),
+  }),
+);
+
 import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
 import {
   getJevContextCredentials,
   getOwnerApiKey,
   getOwnerJevApiKey,
+  missingCredentialsChatError,
 } from "./production-agent.js";
 
 beforeEach(() => {
@@ -42,7 +55,135 @@ beforeEach(() => {
   mockGetRequestOrgId.mockReturnValue(undefined);
   mockResolveBuilderGatewayAuth.mockReset();
   mockResolveBuilderGatewayAuth.mockResolvedValue(null);
+  mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(false);
   resetOptionalKeyCache();
+});
+
+describe("missingCredentialsChatError", () => {
+  it("tells a restricted member why, instead of asking them to add a key", async () => {
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    await expect(
+      missingCredentialsChatError({
+        ownerEmail: "member@example.com",
+        visitorFacing: false,
+      }),
+    ).resolves.toEqual({
+      type: "error",
+      error: "Owners and admins restricted personal API keys.",
+      errorCode: "personal_provider_keys_restricted",
+      recoverable: false,
+    });
+  });
+
+  it("keeps the connect-a-provider copy for everyone else", async () => {
+    await expect(
+      missingCredentialsChatError({
+        ownerEmail: "member@example.com",
+        visitorFacing: false,
+      }),
+    ).resolves.toMatchObject({ errorCode: "missing_credentials" });
+
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    await expect(
+      missingCredentialsChatError({
+        ownerEmail: "visitor@example.com",
+        visitorFacing: true,
+      }),
+    ).resolves.toMatchObject({
+      error: "AI features aren't available on this site right now.",
+      errorCode: "missing_credentials",
+    });
+
+    mockIsPersonalProviderKeyUseRestricted.mockRejectedValue(new Error("blip"));
+    await expect(
+      missingCredentialsChatError({
+        ownerEmail: "member@example.com",
+        visitorFacing: false,
+      }),
+    ).resolves.toMatchObject({ errorCode: "missing_credentials" });
+  });
+});
+
+describe("getOwnerApiKey with personal API keys restricted", () => {
+  it("skips a restricted member's personal rows and uses the org key", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    mockReadAppSecret.mockImplementation(async ({ scope }) =>
+      scope === "org"
+        ? { value: "org-anthropic-key", last4: "-key", updatedAt: 1 }
+        : { value: "personal-anthropic-key", last4: "-key", updatedAt: 1 },
+    );
+
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com"),
+    ).resolves.toBe("org-anthropic-key");
+    expect(mockIsPersonalProviderKeyUseRestricted).toHaveBeenCalledWith({
+      email: "member@example.com",
+      orgId: "org-1",
+    });
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scope)).toEqual([
+      "org",
+    ]);
+  });
+
+  it("never falls back to the legacy personal settings row while restricted", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    mockGetSetting.mockResolvedValue({ key: "legacy-personal-key" });
+
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com"),
+    ).resolves.toBeUndefined();
+    expect(mockGetSetting).not.toHaveBeenCalled();
+  });
+
+  it("still returns a restricted member's personal Jev key, which the policy does not cover", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsPersonalProviderKeyUseRestricted.mockResolvedValue(true);
+    mockReadAppSecret.mockImplementation(async ({ scope }) =>
+      scope === "user"
+        ? { value: "user-jev-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(getOwnerApiKey("jev", "member@example.com")).resolves.toBe(
+      "user-jev-key",
+    );
+    expect(mockIsPersonalProviderKeyUseRestricted).not.toHaveBeenCalled();
+  });
+
+  it("does not fail a Jev lookup when the policy is unreadable", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsPersonalProviderKeyUseRestricted.mockRejectedValue(
+      new Error("settings unavailable"),
+    );
+    mockGetSetting.mockResolvedValue({ key: "legacy-user-jev-key" });
+    const onLookupFailure = vi.fn();
+
+    await expect(
+      getOwnerApiKey("jev", "member@example.com", { onLookupFailure }),
+    ).resolves.toBe("legacy-user-jev-key");
+    expect(onLookupFailure).not.toHaveBeenCalled();
+  });
+
+  it("reports an unreadable restriction as a lookup failure", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsPersonalProviderKeyUseRestricted.mockRejectedValue(
+      new Error("settings unavailable"),
+    );
+    mockReadAppSecret.mockResolvedValue({
+      value: "personal-anthropic-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+    const onLookupFailure = vi.fn();
+
+    await expect(
+      getOwnerApiKey("anthropic", "member@example.com", { onLookupFailure }),
+    ).resolves.toBeUndefined();
+    expect(onLookupFailure).toHaveBeenCalledTimes(1);
+    expect(mockReadAppSecret).not.toHaveBeenCalled();
+  });
 });
 
 describe("getOwnerApiKey", () => {
@@ -128,6 +269,30 @@ describe("getOwnerApiKey", () => {
         scope: "workspace",
         scopeId: "solo:solo@example.com",
       },
+    ]);
+  });
+
+  it("reads a Gemini key saved under either name, the chat name first at each scope", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "GEMINI_API_KEY" && scope === "user"
+          ? { value: "personal-service-key", last4: "-key", updatedAt: 1 }
+          : key === "GOOGLE_GENERATIVE_AI_API_KEY" && scope === "org"
+            ? { value: "org-chat-key", last4: "-key", updatedAt: 1 }
+            : null,
+    );
+
+    await expect(getOwnerApiKey("google", "owner@example.com")).resolves.toBe(
+      "personal-service-key",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      {
+        key: "GOOGLE_GENERATIVE_AI_API_KEY",
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
+      { key: "GEMINI_API_KEY", scope: "user", scopeId: "owner@example.com" },
     ]);
   });
 
