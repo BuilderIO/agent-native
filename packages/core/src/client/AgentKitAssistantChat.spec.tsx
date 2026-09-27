@@ -46,6 +46,7 @@ const chatMocks = vi.hoisted(() => ({
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
+  voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
   transport: { kind: "transport" },
   transportOptions: null as any,
@@ -174,10 +175,29 @@ vi.mock("@agent-native/toolkit/composer", () => ({
     typeof suggestion === "string" ? suggestion : suggestion.prompt,
 }));
 
-vi.mock("@agent-native/toolkit/composer/realtime-voice-transcript", () => ({
-  appendRealtimeVoiceTranscriptToRepository: vi.fn(),
-  realtimeVoiceTranscriptRegistry: { register: () => () => undefined },
-}));
+vi.mock(
+  "@agent-native/toolkit/composer/realtime-voice-transcript",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/toolkit/composer/realtime-voice-transcript")
+      >();
+    return {
+      ...actual,
+      realtimeVoiceTranscriptRegistry: {
+        ...actual.realtimeVoiceTranscriptRegistry,
+        register: (registration: unknown) => {
+          chatMocks.voiceTranscriptRegistration = registration;
+          return () => {
+            if (chatMocks.voiceTranscriptRegistration === registration) {
+              chatMocks.voiceTranscriptRegistration = null;
+            }
+          };
+        },
+      },
+    };
+  },
+);
 
 vi.mock("@tabler/icons-react", () =>
   Object.fromEntries(
@@ -521,6 +541,7 @@ beforeEach(() => {
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
   chatMocks.useRealRoot = false;
+  chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.queueMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.resolveConnectionRequest
@@ -575,6 +596,55 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       composer?.querySelector(".agentkit-after-composer-slot"),
     ).not.toBeNull();
+  });
+
+  it("keeps transient voice messages scoped to the active thread", async () => {
+    const base = baseProps({
+      centerComposerWhenEmpty: true,
+      suggestionPlacement: "context-chips",
+      homeIntroSlot: <h1>What should we do?</h1>,
+      suggestions: ["Explore my apps"],
+    });
+    await mount(base);
+
+    const firstThreadRegistration = chatMocks.voiceTranscriptRegistration;
+    await act(async () => {
+      expect(
+        firstThreadRegistration.append({
+          id: "voice-message-1",
+          threadId: "thread-1",
+          role: "user",
+          text: "Summarize this call",
+          createdAt: "2026-09-27T12:00:00.000Z",
+        }),
+      ).toBe(true);
+    });
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
+
+    chatMocks.threadId = "thread-2";
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            ...base,
+            threadId: "thread-2",
+          })}
+        />,
+      );
+    });
+
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(false);
+    expect(chatMocks.chatProps.emptyComposerPlacement).toBe("center");
+    expect(container.querySelector(".agentkit-home-intro")).not.toBeNull();
+    expect(
+      firstThreadRegistration.append({
+        id: "voice-message-2",
+        threadId: "thread-1",
+        role: "user",
+        text: "Ignore the stale sink",
+        createdAt: "2026-09-27T12:01:00.000Z",
+      }),
+    ).toBe(false);
   });
 
   it("provides the host-pinned thinking display to the direct AgentKit surface", async () => {

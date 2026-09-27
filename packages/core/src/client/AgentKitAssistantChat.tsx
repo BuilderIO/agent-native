@@ -1108,9 +1108,21 @@ const AgentKitAssistantChatBody = forwardRef<
     useState<PendingSelectionContext | null>(null);
   const selectionRevisionRef = useRef(0);
   const selectionLength = pendingSelection?.text.length ?? null;
-  const [voiceTranscriptMessages, setVoiceTranscriptMessages] = useState<
-    AgentMessage[]
-  >([]);
+  const [voiceTranscriptState, setVoiceTranscriptState] = useState({
+    threadId,
+    messages: [] as AgentMessage[],
+  });
+  const voiceTranscriptMessages =
+    voiceTranscriptState.threadId === threadId
+      ? voiceTranscriptState.messages
+      : [];
+  const voiceTranscriptsRef = useRef({
+    threadId,
+    messages: [] as RealtimeVoiceTranscriptMessage[],
+  });
+  if (voiceTranscriptsRef.current.threadId !== threadId) {
+    voiceTranscriptsRef.current = { threadId, messages: [] };
+  }
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
@@ -1123,7 +1135,6 @@ const AgentKitAssistantChatBody = forwardRef<
     voiceTranscriptMessages.some(
       (message) => !threadMessageIds.has(message.id),
     );
-  const voiceTranscriptsRef = useRef<RealtimeVoiceTranscriptMessage[]>([]);
   const seenEventsRef = useRef({
     threadId,
     initialized: false,
@@ -1525,7 +1536,7 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
   saveSnapshotRef.current = () => {
-    const transcripts = voiceTranscriptsRef.current;
+    const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
     }
@@ -1565,19 +1576,25 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const appendRealtimeVoiceTranscript = useCallback(
     (transcript: RealtimeVoiceTranscriptMessage) => {
-      if (isRestoring || isRunning) return false;
+      if (
+        isRestoring ||
+        isRunning ||
+        transcript.threadId !== threadId ||
+        voiceTranscriptsRef.current.threadId !== threadId
+      ) {
+        return false;
+      }
+      const currentTranscripts = voiceTranscriptsRef.current.messages;
       if (
         thread.messages.some((message) => message.id === transcript.id) ||
-        voiceTranscriptsRef.current.some(
-          (message) => message.id === transcript.id,
-        )
+        currentTranscripts.some((message) => message.id === transcript.id)
       ) {
         return true;
       }
-      const transcripts = [...voiceTranscriptsRef.current, transcript];
+      const transcripts = [...currentTranscripts, transcript];
       const messages = transcripts.map(realtimeVoiceTranscriptAgentMessage);
-      voiceTranscriptsRef.current = transcripts;
-      setVoiceTranscriptMessages(messages);
+      voiceTranscriptsRef.current = { threadId, messages: transcripts };
+      setVoiceTranscriptState({ threadId, messages });
       const baseSnapshot = createAgentKitThreadSnapshot(thread);
       const snapshot = appendVoiceTranscriptsToThreadSnapshot(
         baseSnapshot,
@@ -2408,14 +2425,14 @@ const AgentKitAssistantChatBody = forwardRef<
       exportThreadSnapshot: () => {
         if (
           thread.messages.length === 0 &&
-          voiceTranscriptsRef.current.length === 0
+          voiceTranscriptsRef.current.messages.length === 0
         ) {
           return null;
         }
         const snapshot = appendVoiceTranscriptsToThreadSnapshot(
           createAgentKitThreadSnapshot(thread),
           thread,
-          voiceTranscriptsRef.current,
+          voiceTranscriptsRef.current.messages,
         );
         if (!props.createTransport && !props.runtime) {
           storeAgentKitThreadHandoffSnapshot(

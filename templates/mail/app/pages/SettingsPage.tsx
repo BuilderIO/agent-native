@@ -55,7 +55,12 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { AiFilterSection } from "@/components/settings/AiFilterSection";
@@ -1973,8 +1978,9 @@ function MailSettingsShell() {
 
 function LegacyMailSettings() {
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const navState = useNavigationState();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [activeSection, setActiveSection] = useState<string>("integrations");
@@ -2080,15 +2086,24 @@ function LegacyMailSettings() {
     const section = legacyMailSettingsTab(requested) ?? requested;
     if (!section || !validSectionIds.has(section)) return;
     setActiveSection(section);
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("section");
-        return next;
+    const next = new URLSearchParams(searchParams);
+    next.delete("section");
+    const search = next.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+        hash: location.hash,
       },
       { replace: true },
     );
-  }, [searchParams, setSearchParams, validSectionIds]);
+  }, [
+    location.hash,
+    location.pathname,
+    navigate,
+    searchParams,
+    validSectionIds,
+  ]);
 
   useEffect(() => {
     navState.sync({ view: "settings", settingsSection: activeSection });
@@ -2099,7 +2114,11 @@ function LegacyMailSettings() {
     next.set("section", pathTab);
     return (
       <Navigate
-        to={{ pathname: STANDARD_APP_ROUTES.settings, search: `?${next}` }}
+        to={{
+          pathname: STANDARD_APP_ROUTES.settings,
+          search: `?${next}`,
+          hash: location.hash,
+        }}
         replace
       />
     );
