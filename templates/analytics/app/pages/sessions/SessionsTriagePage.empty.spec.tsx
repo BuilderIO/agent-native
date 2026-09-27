@@ -7,12 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   configured: true,
+  error: null as Error | null,
+  refetch: vi.fn(),
   useActionQuery: vi.fn(() => ({
     data: { recordings: [], total: 0, appCounts: [] },
-    error: null,
+    error: mocks.error,
     isLoading: false,
     isFetching: false,
-    refetch: vi.fn(),
+    refetch: mocks.refetch,
   })),
 }));
 
@@ -56,6 +58,7 @@ describe("Sessions empty states", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.error = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -104,5 +107,29 @@ describe("Sessions empty states", () => {
       container.querySelector('[data-testid="installation-snippet"]'),
     ).not.toBeNull();
     expect(container.querySelector('a[href*="session-replay"]')).not.toBeNull();
+  });
+
+  it("shows a list error and retries without replacing it with setup guidance", async () => {
+    mocks.configured = false;
+    mocks.error = new Error("Session list unavailable");
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "sessions.loadFailed",
+    );
+    expect(container.textContent).not.toContain("sessions.storageSetupTitle");
+    expect(container.textContent).not.toContain("sessions.installSnippetTitle");
+    await act(async () => {
+      container
+        .querySelector('button[aria-label="sessions.refresh"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.refetch).toHaveBeenCalledOnce();
   });
 });

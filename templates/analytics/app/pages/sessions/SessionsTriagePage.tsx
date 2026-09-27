@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
+import { sessionDateBound } from "../../../shared/session-date-bounds";
 import {
   EmptySessionsState,
   formatSessionDuration,
@@ -207,11 +208,11 @@ export function SessionsTriagePage() {
     () => ({
       from:
         range === "custom"
-          ? (params.get("from") ?? startOfDate(fromDate))
+          ? (params.get("from") ?? sessionDateBound(fromDate))
           : rangeFrom(range),
       to:
         range === "custom"
-          ? (params.get("to") ?? endOfDate(toDate))
+          ? (params.get("to") ?? sessionDateBound(toDate, true))
           : undefined,
     }),
     [range, fromDate, toDate, params],

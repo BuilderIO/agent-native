@@ -367,6 +367,33 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("uses date-only custom bounds for the same interval as the Sessions UI", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: {
+          range: "custom",
+          fromDate: "2026-09-23",
+          toDate: "2026-09-25",
+        },
+      },
+    );
+
+    const out = await runScreen();
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        from: "2026-09-23T00:00:00.000Z",
+        to: "2026-09-25T23:59:59.999Z",
+      }),
+    );
+    expect(out.sessionReplayPage.fullPageAction.args).toMatchObject({
+      from: "2026-09-23T00:00:00.000Z",
+      to: "2026-09-25T23:59:59.999Z",
+    });
+  });
+
   it("preserves legacy includeZero and lets explicit hideEmpty win", async () => {
     setScreen(
       { view: "sessions" },

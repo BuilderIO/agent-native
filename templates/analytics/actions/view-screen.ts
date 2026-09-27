@@ -22,6 +22,7 @@ import {
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
+import { sessionDateBound } from "../shared/session-date-bounds";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -239,10 +240,12 @@ export default defineAction({
                 : 0;
             const filters: SessionReplayListFilters = {
               from: customRange
-                ? params.from
+                ? (params.from ?? sessionDateBound(params.fromDate))
                 : (replayRangeToIso(readReplayRange(params.range)) ??
                   undefined),
-              to: customRange ? params.to : undefined,
+              to: customRange
+                ? (params.to ?? sessionDateBound(params.toDate, true))
+                : undefined,
               app: params.app || undefined,
               query: params.q || undefined,
               minDurationMs: SESSION_DURATIONS.has(minDurationMs)
