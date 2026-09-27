@@ -168,6 +168,7 @@ function trackNetwork(page: Page, origin: string) {
         parsed.origin === origin &&
         (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
           parsed.pathname.startsWith("/_agent-native/actions/") ||
+          parsed.pathname === "/_agent-native/secrets" ||
           parsed.pathname === "/_agent-native/auth/session" ||
           parsed.pathname === "/_agent-native/org/me" ||
           parsed.pathname === "/ask" ||
@@ -185,12 +186,25 @@ function trackNetwork(page: Page, origin: string) {
   page.on("response", (response) => {
     if (!isDiagnosticRequest(response.url())) return;
     const startedAt = pendingRequests.get(response.url());
-    pendingRequests.delete(response.url());
+    if (new URL(response.url()).pathname !== "/_agent-native/secrets") {
+      pendingRequests.delete(response.url());
+    }
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
     networkEvents.push(
       `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
     );
+  });
+  page.on("requestfinished", (request) => {
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    const pathname = new URL(url).pathname;
+    if (pathname !== "/_agent-native/secrets") return;
+    const startedAt = pendingRequests.get(url);
+    pendingRequests.delete(url);
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(`FINISHED ${pathname} ${elapsed}`);
   });
   page.on("requestfailed", (request) => {
     if (!isDiagnosticRequest(request.url())) return;
@@ -464,6 +478,41 @@ for (const target of targets) {
         ),
       );
     });
+
+    if (target.app === "design") {
+      await test.step("open API keys after signup", async () => {
+        const secretsResponse = postLinkPage.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === "/_agent-native/secrets" &&
+            response.request().method() === "GET",
+          { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+        );
+        await postLinkPage.goto(`${target.origin}/settings/keys`, {
+          waitUntil: "domcontentloaded",
+        });
+        const response = await secretsResponse;
+        expect(
+          response.ok(),
+          `GET /_agent-native/secrets returned HTTP ${response.status()}`,
+        ).toBe(true);
+        await postLinkPage
+          .getByText(/No keys yet/i)
+          .waitFor({
+            state: "visible",
+            timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+          });
+        steps.push(
+          await capture(
+            postLinkPage,
+            "design API keys",
+            postLinkErrors(),
+            postLinkNetwork.networkEvents,
+            postLinkNetwork.pendingRequests,
+            testInfo,
+          ),
+        );
+      });
+    }
 
     // A review that could not run is not a clean review: let this throw and
     // fail the lane rather than reporting an empty finding list.
