@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  markdownSuggestionOperations,
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationsForReplacements,
 } from "./suggestion-diff.js";
+import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
 function proposedFrom(
   before: string,
@@ -21,6 +23,24 @@ function proposedFrom(
 }
 
 describe("suggestion decomposition", () => {
+  it("keeps a middle edit reviewable after accepting both outer edits", () => {
+    const before = "Alpha quick bravo, middle ready, omega slow.";
+    const after = "Apex quick bravo, middle set, omega fast.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(operations).toHaveLength(3);
+
+    let current = before;
+    for (const operation of [operations[0]!, operations[2]!, operations[1]!]) {
+      const range = resolveMarkdownSuggestionRange(current, operation);
+      expect(range).not.toBeNull();
+      current =
+        current.slice(0, range!.from) +
+        operation.after.changedText +
+        current.slice(range!.to);
+    }
+    expect(current).toBe(after);
+  });
+
   it("keeps punctuation and a separate word independently reviewable", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";

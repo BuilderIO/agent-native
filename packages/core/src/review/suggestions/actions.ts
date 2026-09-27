@@ -717,7 +717,7 @@ export const createResourceSuggestionProposal = defineAction({
     "Create or append independently reviewable suggestions under one durable proposal.",
   schema: proposalCreationSchema,
   run: async (args, ctx) => {
-    const access = await assertReviewableResourceAccess(
+    await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       ctx as any,
@@ -747,6 +747,12 @@ export const createResourceSuggestionProposal = defineAction({
       tx: DbExec,
       prior: NonNullable<Awaited<ReturnType<typeof getProposalCreation>>>,
     ) => {
+      await assertReviewableResourceAccess(
+        args.resourceType,
+        args.resourceId,
+        { ...(ctx as any), transaction: tx },
+        "commenter",
+      );
       if (
         prior.requestHash !== requestHash ||
         prior.authorEmail !== authorEmail ||
@@ -788,6 +794,12 @@ export const createResourceSuggestionProposal = defineAction({
       .transaction(async (tx) => {
         const prior = await getProposalCreation(tx, args.idempotencyKey);
         if (prior) return replay(tx, prior);
+        const access = await assertReviewableResourceAccess(
+          args.resourceType,
+          args.resourceId,
+          { ...(ctx as any), transaction: tx },
+          "commenter",
+        );
         const proposal = args.proposalId
           ? await getSuggestionProposal(tx, args.proposalId)
           : await insertSuggestionProposal(tx, {

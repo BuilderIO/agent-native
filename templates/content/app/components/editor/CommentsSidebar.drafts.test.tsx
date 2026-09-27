@@ -1124,9 +1124,9 @@ it("highlights only changed text beside unchanged markdown formatting", async ()
       {
         ordinal: 0,
         kind: "replace_text",
-        before: { markdown: "**bold** cat", changedText: "**bold** cat" },
-        after: { markdown: "**bold** dog", changedText: "**bold** dog" },
-        anchor: { from: 0, to: 12, prefix: "", suffix: "" },
+        before: { markdown: "**bold** cat!", changedText: "**bold** cat!" },
+        after: { markdown: "**bold** dog!", changedText: "**bold** dog!" },
+        anchor: { from: 0, to: 13, prefix: "", suffix: "" },
         schemaVersion: 1,
       },
     ],
@@ -1155,7 +1155,19 @@ it("highlights only changed text beside unchanged markdown formatting", async ()
       span.className.includes("decoration-[hsl(var(--suggestion))]"),
     );
     expect(changed?.textContent).toBe("dog");
-    expect(card?.textContent).toContain("with: “bold dog”");
+    expect(card?.textContent).toContain("with: “bold dog!”");
+    expect(card?.textContent).not.toContain("Preview unavailable");
+    const detailsButton = [...(card?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "comments.suggestionDetails",
+    );
+    await act(async () => detailsButton?.click());
+    expect(card?.textContent).toContain("Replace: “bold cat!”");
+    expect(card?.textContent).not.toContain("Preview unavailable");
+    expect(
+      [...(card?.querySelectorAll("strong") ?? [])].filter(
+        (element) => element.textContent === "bold",
+      ),
+    ).toHaveLength(2);
   } finally {
     await act(async () => root.unmount());
   }

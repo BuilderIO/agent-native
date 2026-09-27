@@ -11,6 +11,7 @@ import { createGetDb } from "../../db/create-get-db.js";
 import { resolveAccess } from "../../sharing/access.js";
 import { registerShareableResource } from "../../sharing/registry.js";
 import { createSharesTable, ownableColumns } from "../../sharing/schema.js";
+import { registerReviewableResource } from "../registry.js";
 import {
   __resetReviewInitForTests,
   ensureReviewTables,
@@ -128,6 +129,34 @@ afterAll(async () => {
 });
 
 describe.sequential("suggestion actions on native PGlite transactions", () => {
+  it("rechecks proposal creation access in the transaction", async () => {
+    const type = "pglite-review-transaction-revoked-resource";
+    registerReviewableResource({
+      type,
+      resolveAccess: (_id, ctx) => ({
+        role: ctx?.transaction ? "viewer" : "commenter",
+        ownerEmail,
+        visibility: "private",
+      }),
+    });
+    const idempotencyKey = `proposal-revoked-${globalThis.crypto.randomUUID()}`;
+    await expect(
+      createResourceSuggestionProposal.run(
+        {
+          resourceType: type,
+          resourceId,
+          adapterKind: "pglite-review-transaction-adapter",
+          baseRevision,
+          summary: "Revoked edit",
+          idempotencyKey,
+          suggestions: [{ summary: "Edit", operations: [originalOperation] }],
+        },
+        { userEmail: ownerEmail },
+      ),
+    ).rejects.toThrow(`Not allowed to access ${type}:${resourceId}`);
+    expect(await getProposalCreation(getDbExec(), idempotencyKey)).toBeNull();
+    expect(await listSuggestions(type, resourceId)).toEqual([]);
+  });
   it("amends, decides, and releases the client for an ordinary read", async () => {
     const suggestion = await insertSuggestion({
       resourceType,

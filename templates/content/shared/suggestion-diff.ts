@@ -69,6 +69,31 @@ function operationForChange(
   };
 }
 
+function isolateSiblingAnchorContexts(
+  operations: MarkdownSuggestionOperation[],
+): MarkdownSuggestionOperation[] {
+  return operations.map((operation, index) => {
+    const previousEnd = operations[index - 1]?.anchor.to ?? 0;
+    const nextStart =
+      operations[index + 1]?.anchor.from ?? operation.before.markdown.length;
+    const { from, to } = operation.anchor;
+    return {
+      ...operation,
+      anchor: {
+        ...operation.anchor,
+        prefix: operation.before.markdown.slice(
+          Math.max(previousEnd, from - 32),
+          from,
+        ),
+        suffix: operation.before.markdown.slice(
+          to,
+          Math.min(nextStart, to + 32),
+        ),
+      },
+    };
+  });
+}
+
 function lineScopedOperationsForClearedBlocks(
   before: string,
   after: string,
@@ -428,28 +453,30 @@ export function markdownSuggestionOperations(
 ): MarkdownSuggestionOperation[] {
   if (before === after) return [];
   const clearedTextBlocks = lineScopedOperationsForClearedBlocks(before, after);
-  if (clearedTextBlocks) return clearedTextBlocks;
+  if (clearedTextBlocks) return isolateSiblingAnchorContexts(clearedTextBlocks);
   const beforeMarked = suggestionMarkedSourceRanges(before);
   const afterMarked = suggestionMarkedSourceRanges(after);
   const formatting = suggestionFormattingChanges(before, after);
   if (formatting) {
-    return formatting.map((range, index) => ({
-      ...operationForChange(
-        before,
-        range.before.from,
-        range.before.to,
-        after.slice(range.after.from, range.after.to),
-        index,
-      ),
-      kind: "set_inline_mark",
-    }));
+    return isolateSiblingAnchorContexts(
+      formatting.map((range, index) => ({
+        ...operationForChange(
+          before,
+          range.before.from,
+          range.before.to,
+          after.slice(range.after.from, range.after.to),
+          index,
+        ),
+        kind: "set_inline_mark",
+      })),
+    );
   }
   const markedParts = diffParts(before, after);
   if (!markedParts && (beforeMarked?.length || afterMarked?.length))
     throw new SuggestionFormattingMappingError();
   if (markedParts) {
     const marked = markedDiffOperations(before, after, markedParts);
-    if (marked) return marked;
+    if (marked) return isolateSiblingAnchorContexts(marked);
   }
   if (before.length + after.length <= MAX_DOCUMENT_LENGTH) {
     const contiguous = contiguousChange(before, after);
@@ -510,7 +537,9 @@ export function markdownSuggestionOperations(
         )
       : operation;
   });
-  return wholeWordReplacements(before, normalized);
+  return isolateSiblingAnchorContexts(
+    wholeWordReplacements(before, normalized),
+  );
 }
 
 export function suggestionDiffParts(
@@ -736,7 +765,7 @@ export function markdownSuggestionOperationsForReplacements(input: {
       operationForChange(before, group.from, group.to, inserted, result.length),
     );
   }
-  return result;
+  return isolateSiblingAnchorContexts(result);
 }
 
 export function markdownSuggestionOperationsForEditorRevision(input: {
