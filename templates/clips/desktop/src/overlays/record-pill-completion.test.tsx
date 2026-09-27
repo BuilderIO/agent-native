@@ -29,19 +29,12 @@ const tauriEvents = vi.hoisted(() => {
   };
 });
 const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => undefined) }));
-const tauriWindows = vi.hoisted(() => ({
-  getByLabel: vi.fn(async () => ({ label: "toolbar" })),
-}));
-
 vi.mock("@tauri-apps/api/event", () => ({
   emit: tauriEvents.emit,
   listen: tauriEvents.listen,
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: tauriCore.invoke,
-}));
-vi.mock("@tauri-apps/api/webviewWindow", () => ({
-  WebviewWindow: { getByLabel: tauriWindows.getByLabel },
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   currentMonitor: vi.fn(async () => null),
@@ -91,7 +84,6 @@ describe("completion card actions", () => {
     tauriEvents.emit.mockClear();
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
-    tauriWindows.getByLabel.mockReset().mockResolvedValue({ label: "toolbar" });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {

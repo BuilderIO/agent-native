@@ -4036,21 +4036,9 @@ export function App({
       return;
     }
     if (recorder) {
-      void requestRecordingShortcutStop()
-        .then((result) => {
-          if (
-            result.type === "direct" &&
-            result.reason === "toolbar-lookup-failed"
-          ) {
-            console.error(
-              "[clips] Toolbar lookup failed; stopped recording directly:",
-              result.error,
-            );
-          }
-        })
-        .catch((error) => {
-          console.error("[clips] Recording shortcut stop failed:", error);
-        });
+      void requestRecordingShortcutStop().catch((error) => {
+        console.error("[clips] Recording shortcut stop failed:", error);
+      });
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
