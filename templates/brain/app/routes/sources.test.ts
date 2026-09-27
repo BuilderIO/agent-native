@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { messagesByLocale } from "../i18n-data";
+
 function readRouteSource(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
@@ -51,6 +53,33 @@ describe("sources route pointer-lock guards", () => {
 });
 
 describe("Builder embedding check controls", () => {
+  it("translates every message while preserving its interpolation fields", () => {
+    const keys = [
+      "close",
+      "checkBuilder",
+      "checkBuilderDescription",
+      "checkBuilderConfirm",
+      "runBuilderCheck",
+      "checkBuilderSuccess",
+    ] as const;
+    const english = messagesByLocale["en-US"].sources;
+
+    for (const [locale, messages] of Object.entries(messagesByLocale)) {
+      if (locale === "en-US") continue;
+      for (const key of keys) {
+        expect(messages.sources[key], `${locale}: ${key}`).not.toBe(
+          english[key],
+        );
+        const placeholders = (value: string) =>
+          [...value.matchAll(/{{(\w+)}}/g)].map((match) => match[1]).sort();
+        expect(
+          placeholders(messages.sources[key]),
+          `${locale}: ${key}`,
+        ).toEqual(placeholders(english[key]));
+      }
+    }
+  });
+
   it("only shows the check after resolving Admin or Owner source access", () => {
     const source = readRouteSource("./sources.tsx");
 
