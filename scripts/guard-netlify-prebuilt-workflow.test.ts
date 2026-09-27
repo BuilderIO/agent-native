@@ -254,12 +254,9 @@ describe("Netlify PR preview workflow guard", () => {
     assert.match(String(command?.run), /GITHUB_EVENT_PATH/);
     assert.match(
       String(command?.run),
-      /event\.comment\.body\.match\(\/\^\\\/preview /,
+      /previewSiteFromCommand\(event\.comment\.body\)/,
     );
-    assert.match(
-      String(command?.run),
-      /previewEligibleSiteNames\(\)\.includes\(site\)/,
-    );
+    assert.match(String(command?.run), /process\.env\.GITHUB_OUTPUT/);
     assert.match(
       reusableSource,
       /supplies static files; arbitrary PR Functions never reach Netlify\./,

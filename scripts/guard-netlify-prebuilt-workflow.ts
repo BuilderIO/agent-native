@@ -343,9 +343,8 @@ export function validateNetlifyPrPreviewWorkflow(
     !source.includes(
       "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
     ) ||
-    !commandScript.includes("event.comment.body.match(/^\\/preview ") ||
+    !commandScript.includes("previewSiteFromCommand(event.comment.body)") ||
     !commandScript.includes("readFileSync(process.env.GITHUB_EVENT_PATH") ||
-    !commandScript.includes("previewEligibleSiteNames().includes(site)") ||
     !commandScript.includes("process.env.GITHUB_OUTPUT") ||
     !source.includes("github.event.issue.number") ||
     !source.includes("steps.command.outputs.site")

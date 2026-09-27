@@ -47,17 +47,11 @@ jobs:
           set -euo pipefail
           node --experimental-strip-types --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
-          import { previewEligibleSiteNames } from "./scripts/netlify-pr-preview-targets.ts";
+          import { previewSiteFromCommand } from "./scripts/netlify-pr-preview-targets.ts";
 
           const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-          const match = event.comment.body.match(/^\/preview ([a-z][a-z0-9-]*)$/);
-          if (!match) {
-            throw new Error("Use /preview <site> as the entire PR comment.");
-          }
-          const site = match[1];
-          if (!previewEligibleSiteNames().includes(site)) {
-            throw new Error(`Site is not eligible for PR previews: ${site}`);
-          }
+          const site = previewSiteFromCommand(event.comment.body);
+          if (!site) throw new Error("Use /preview <site> for an eligible app.");
           appendFileSync(process.env.GITHUB_OUTPUT, `site=${site}\n`);
           NODE
 
