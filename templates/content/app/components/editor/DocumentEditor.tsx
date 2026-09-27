@@ -4195,10 +4195,11 @@ function PageEditorSessionBody({
       }
       setIsSubmittingSuggestions(true);
       try {
+        type CreatedProposal = Awaited<
+          ReturnType<typeof createSuggestionProposal.mutateAsync>
+        >;
         const recordCreated = (
-          created: Awaited<
-            ReturnType<typeof createSuggestionProposal.mutateAsync>
-          >,
+          created: CreatedProposal,
           pendingKeys: string[],
           operations: ReturnType<typeof suggestionDraftOperations>,
           idempotencyKey: string,
