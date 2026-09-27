@@ -981,11 +981,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }, 0);
     }
     function isRovingFocusSibling(current, next) {
-      if (!current || current.parentElement !== next.parentElement) return false;
-      var parent = current.parentElement;
-      return !!(parent?.matches(
-        '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]'
-      ) || current.hasAttribute("tabindex") && next.hasAttribute("tabindex"));
+      if (!current) return false;
+      var selector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]';
+      var currentGroup = current.closest(selector);
+      return currentGroup !== null && currentGroup === next.closest(selector);
     }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;

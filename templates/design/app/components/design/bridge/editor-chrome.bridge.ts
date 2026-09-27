@@ -159,14 +159,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     current: Element | null,
     next: Element,
   ): boolean {
-    if (!current || current.parentElement !== next.parentElement) return false;
-    var parent = current.parentElement;
-    return !!(
-      parent?.matches(
-        '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]',
-      ) ||
-      (current.hasAttribute("tabindex") && next.hasAttribute("tabindex"))
-    );
+    if (!current) return false;
+    var selector =
+      '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]';
+    var currentGroup = current.closest(selector);
+    return currentGroup !== null && currentGroup === next.closest(selector);
   }
 
   function rememberUserFocusedElement(event: FocusEvent): void {

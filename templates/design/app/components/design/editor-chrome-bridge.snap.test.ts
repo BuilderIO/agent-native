@@ -297,16 +297,14 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps arrow-key focus moves to sibling controls", () => {
-    const group = { matches: () => false } as unknown as Element;
+    const group = {} as Element;
     const current = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => group,
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => group,
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -321,16 +319,14 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("keeps navigation intent until app-scheduled roving focus runs", () => {
-    const group = { matches: () => false } as unknown as Element;
+    const group = {} as Element;
     const current = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => group,
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => group,
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -356,16 +352,18 @@ describe("editor-chrome bridge — focus ownership", () => {
   });
 
   it("does not trust sibling autofocus without a roving-focus group", () => {
-    const group = { matches: () => false } as unknown as Element;
+    const parent = {} as Element;
     const current = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: () => false,
+      parentElement: parent,
+      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => null,
     } as unknown as Element;
     const unrelated = {
       contains: () => false,
-      parentElement: group,
-      hasAttribute: () => false,
+      parentElement: parent,
+      hasAttribute: (name: string) => name === "tabindex",
+      closest: () => null,
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
