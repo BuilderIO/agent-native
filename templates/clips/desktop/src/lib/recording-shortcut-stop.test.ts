@@ -50,11 +50,44 @@ describe("requestRecordingShortcutStop", () => {
     );
   });
 
-  it("stops directly if an ack listener is not ready", async () => {
+  it("waits for an ack listener that is still registering", async () => {
+    let acknowledge!: (event: { payload: string }) => void;
+    let finishRegistration!: (unlisten: () => void) => void;
+    listen.mockImplementation(
+      async (_event, onAck) =>
+        new Promise((resolve) => {
+          acknowledge = onAck;
+          finishRegistration = resolve;
+        }),
+    );
+    const setup = listenForRecordingShortcutStopAcks();
+    const stopRequest = requestRecordingShortcutStop();
+    emit.mockImplementation(async (event, payload) => {
+      if (event === "clips:tray-stop-request") {
+        acknowledge({ payload: payload.requestId });
+      }
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    finishRegistration(vi.fn());
+    unlistenAcks = await setup;
+
+    await expect(stopRequest).resolves.toEqual({ type: "pill" });
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
+      "clips:tray-stop-request",
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+  });
+
+  it("stops directly if ack listener setup does not finish promptly", async () => {
     listen.mockImplementation(() => new Promise<() => void>(() => {}));
     void listenForRecordingShortcutStopAcks();
 
-    await expect(requestRecordingShortcutStop()).resolves.toEqual({
+    const stopRequest = requestRecordingShortcutStop();
+    await vi.advanceTimersByTimeAsync(149);
+    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(stopRequest).resolves.toEqual({
       type: "direct",
       reason: "pill-did-not-acknowledge",
     });

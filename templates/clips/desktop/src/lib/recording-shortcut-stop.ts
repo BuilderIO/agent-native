@@ -1,9 +1,11 @@
 import { emit, listen } from "@tauri-apps/api/event";
 
 const STOP_FALLBACK_TIMEOUT_MS = 250;
+const ACK_LISTENER_READY_TIMEOUT_MS = 150;
 const pendingStops = new Map<string, (handled: boolean) => void>();
 let acknowledgementListenerCount = 0;
 let acknowledgementListenerReady = false;
+let acknowledgementListenerSetup: Promise<boolean> | undefined;
 
 type StopOutcome =
   | { type: "pill" }
@@ -18,9 +20,23 @@ async function stopDirectly(): Promise<StopOutcome> {
 }
 
 export async function listenForRecordingShortcutStopAcks() {
-  const unlisten = await listen<string>("clips:tray-stop-ack", (event) => {
+  const listener = listen<string>("clips:tray-stop-ack", (event) => {
     pendingStops.get(event.payload)?.(true);
   });
+  const setup = listener.then(
+    () => true,
+    () => false,
+  );
+  acknowledgementListenerSetup = setup;
+  let unlisten: () => void;
+  try {
+    unlisten = await listener;
+  } catch (error) {
+    if (acknowledgementListenerSetup === setup) {
+      acknowledgementListenerSetup = undefined;
+    }
+    throw error;
+  }
   acknowledgementListenerCount += 1;
   acknowledgementListenerReady = acknowledgementListenerCount > 0;
   let active = true;
@@ -29,6 +45,12 @@ export async function listenForRecordingShortcutStopAcks() {
     active = false;
     acknowledgementListenerCount -= 1;
     acknowledgementListenerReady = acknowledgementListenerCount > 0;
+    if (
+      !acknowledgementListenerReady &&
+      acknowledgementListenerSetup === setup
+    ) {
+      acknowledgementListenerSetup = undefined;
+    }
     unlisten();
     if (!acknowledgementListenerReady) {
       for (const finish of pendingStops.values()) finish(false);
@@ -37,7 +59,22 @@ export async function listenForRecordingShortcutStopAcks() {
 }
 
 export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
-  if (!acknowledgementListenerReady) return stopDirectly();
+  if (!acknowledgementListenerReady) {
+    if (!acknowledgementListenerSetup) return stopDirectly();
+    let readinessTimeout: ReturnType<typeof setTimeout> | undefined;
+    const listenerReady = await Promise.race([
+      acknowledgementListenerSetup,
+      new Promise<boolean>(
+        (resolve) =>
+          (readinessTimeout = setTimeout(
+            () => resolve(false),
+            ACK_LISTENER_READY_TIMEOUT_MS,
+          )),
+      ),
+    ]);
+    if (readinessTimeout) clearTimeout(readinessTimeout);
+    if (!listenerReady || !acknowledgementListenerReady) return stopDirectly();
+  }
 
   const requestId = crypto.randomUUID();
   const pillHandledRequest = new Promise<boolean>((resolve) => {
