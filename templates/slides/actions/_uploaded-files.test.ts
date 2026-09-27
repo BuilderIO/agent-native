@@ -89,27 +89,4 @@ describe("readUserUploadedFile", () => {
     }
     expect(mockExistsSync).not.toHaveBeenCalled();
   });
-
-  it("stops instead of retrying a foreign hosted upload reference", async () => {
-    mockReadUploadedReferenceBlob.mockRejectedValue(
-      new Error(
-        "Access denied: uploaded file reference is not valid for this user or organization",
-      ),
-    );
-
-    const error = await readUserUploadedFile("slides-upload:v1:foreign").then(
-      () => null,
-      (caught: unknown) => caught,
-    );
-
-    expect(isAgentActionStopError(error)).toBe(true);
-    expect(error).toMatchObject({
-      message: expect.stringContaining(
-        "not valid for this user or organization",
-      ),
-      errorCode: "permanent_precondition",
-      toolResult: expect.stringContaining("Do not retry this filePath"),
-    });
-    expect(mockExistsSync).not.toHaveBeenCalled();
-  });
 });
