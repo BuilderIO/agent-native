@@ -1750,6 +1750,80 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
   });
 
+  it("reports progress when the durable run row is actually missing", async () => {
+    const provider = vi.fn(() => "evt_run_progress_missing_row");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-progress-missing-row-test",
+      provider,
+    );
+    vi.mocked(bumpRunProgress).mockResolvedValue(false);
+    vi.mocked(getRunStatus).mockResolvedValue(null);
+
+    try {
+      const run = startRun(
+        "run-progress-missing-row",
+        "thread-progress-missing-row",
+        async (send, signal) => {
+          send({ type: "tool_input_delta", text: "{" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: "Durable progress update affected no running run row",
+          }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "agent-run-manager",
+              phase: "progress",
+              kind: "no-row",
+            }),
+          }),
+        ),
+      );
+      expect(abortRun("run-progress-missing-row")).toBe(true);
+      await vi.waitFor(() => expect(run.status).toBe("aborted"));
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not report progress writes after another worker terminalizes the run", async () => {
+    const provider = vi.fn(() => "evt_run_progress_terminal_race");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-progress-terminal-race-test",
+      provider,
+    );
+    vi.mocked(bumpRunProgress).mockResolvedValue(false);
+    vi.mocked(getRunStatus).mockResolvedValue("completed");
+
+    try {
+      const run = startRun(
+        "run-progress-terminal-race",
+        "thread-progress-terminal-race",
+        async (send, signal) => {
+          send({ type: "tool_input_delta", text: "{" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(run.status).toBe("aborted"));
+      expect(provider).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
   it("surfaces and retries a failed durable progress write", async () => {
     const provider = vi.fn(() => "evt_run_progress");
     const unregister = registerErrorCaptureProvider(

@@ -44,6 +44,7 @@ export interface SendEmailArgs {
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
+  headers?: Record<string, string>;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
   templateId?: string;
@@ -79,6 +80,36 @@ function resolveAttachments(
     return args.attachments;
   }
   return [...(args.attachments ?? []), getAgentNativeLogoAttachment()];
+}
+
+function resolveEmailHeaders(
+  args: SendEmailArgs,
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  const setHeader = (name: string, value: string) => {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value)) {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    const existingName = Object.keys(headers).find(
+      (existing) => existing.toLowerCase() === name.toLowerCase(),
+    );
+    if (existingName) delete headers[existingName];
+    headers[name] = value;
+  };
+
+  for (const [name, value] of Object.entries(args.headers ?? {})) {
+    if (typeof value !== "string") {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    setHeader(name, value);
+  }
+  if (args.inReplyTo) setHeader("In-Reply-To", args.inReplyTo);
+  if (args.references) setHeader("References", args.references);
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 interface EmailTransportConfig {
@@ -297,6 +328,19 @@ function redactPayloadForLog(payload: Record<string, unknown>): string {
   const loggable: Record<string, unknown> = { ...payload };
   if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
   if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  if (
+    loggable.headers &&
+    typeof loggable.headers === "object" &&
+    !Array.isArray(loggable.headers)
+  ) {
+    const headers = { ...(loggable.headers as Record<string, unknown>) };
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "list-unsubscribe") {
+        headers[name] = "[REDACTED]";
+      }
+    }
+    loggable.headers = headers;
+  }
   if (Array.isArray(loggable.content)) {
     loggable.content = (loggable.content as Record<string, unknown>[]).map(
       (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
@@ -332,6 +376,7 @@ async function deliverEmail(
       : getFromAddress(config, args.from, args.fromName);
   const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
+  const messageHeaders = resolveEmailHeaders(args);
 
   if (provider === "resend") {
     const payload: Record<string, unknown> = {
@@ -354,10 +399,7 @@ async function deliverEmail(
         content_id: a.contentId,
       }));
     }
-    const headers: Record<string, string> = {};
-    if (args.inReplyTo) headers["In-Reply-To"] = args.inReplyTo;
-    if (args.references) headers["References"] = args.references;
-    if (Object.keys(headers).length) payload.headers = headers;
+    if (messageHeaders) payload.headers = messageHeaders;
 
     const requestPayload = redactPayloadForLog(payload);
     const res = await fetch("https://api.resend.com/emails", {
@@ -426,10 +468,7 @@ async function deliverEmail(
         click_tracking: { enable: false },
       };
     }
-    const sgHeaders: Record<string, string> = {};
-    if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
-    if (args.references) sgHeaders["References"] = args.references;
-    if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;
+    if (messageHeaders) sgPayload.headers = messageHeaders;
     if (attachments?.length) {
       sgPayload.attachments = attachments.map((a) => ({
         filename: a.filename,

@@ -180,6 +180,47 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
 
+  it("records unavailable configured MCP tools with a specific failure code", async () => {
+    const automationName = "missing-mcp-tool-check";
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: automationName,
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              mcpTools: ["mcp__linear__search_issues"],
+            },
+            body: "Check Linear.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: `jobs/${automationName}.md`,
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Check Linear.",
+          threadTitle: "Job: missing MCP tool check",
+          runIdPrefix: "job-missing-mcp-tool-check",
+          usageLabel: "recurring-job:missing-mcp-tool-check",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+          appId: "calendar",
+        },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_mcp_tools_unavailable",
+    });
+
+    const run = (await pglite
+      .prepare(`SELECT error_code FROM automation_runs WHERE automation = ?`)
+      .get(automationName)) as { error_code: string } | undefined;
+    expect(run?.error_code).toBe("background_automation_mcp_tools_unavailable");
+  });
+
   it("forwards the automation's configured reasoningEffort into the agent loop", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");

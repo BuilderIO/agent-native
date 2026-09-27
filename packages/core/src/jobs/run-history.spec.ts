@@ -13,13 +13,18 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const emitMock = vi.hoisted(() => vi.fn());
+const sendAutomationFailureNotificationMock = vi.hoisted(() => vi.fn());
 vi.mock("../event-bus/index.js", () => ({
   emit: emitMock,
   registerEvent: vi.fn(),
 }));
+vi.mock("../server/automation-failure-notifications.js", () => ({
+  sendAutomationFailureNotification: sendAutomationFailureNotificationMock,
+}));
 
 import {
   finishAutomationRun,
+  listLatestAutomationRuns,
   listAutomationRuns,
   startAutomationRun,
 } from "./run-history.js";
@@ -34,6 +39,8 @@ function row(overrides: Record<string, unknown>) {
     path: "jobs/digest.md",
     scope: null,
     org_id: null,
+    app_id: null,
+    notification_email: null,
     run_id: null,
     thread_id: null,
     status: "running",
@@ -47,7 +54,8 @@ function row(overrides: Record<string, unknown>) {
 describe("automation run history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    executeMock.mockResolvedValue({ rows: [] });
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    sendAutomationFailureNotificationMock.mockResolvedValue(true);
   });
 
   it("reports a run abandoned past the liveness ceiling as interrupted", async () => {
@@ -91,6 +99,29 @@ describe("automation run history", () => {
     expect(query.args).toEqual(["alice@example.com", "digest", "mail"]);
   });
 
+  it("lists the newest run per resource for the requesting app", async () => {
+    executeMock.mockResolvedValue({ rows: [row({ status: "error" })] });
+
+    const [run] = await listLatestAutomationRuns({
+      owners: ["alice@example.com", "__organization__:org-1"],
+      appId: "calendar",
+    });
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("SELECT DISTINCT ON (owner, path)");
+    expect(query.sql).toContain("ORDER BY owner, path, started_at DESC");
+    expect(query.sql).toContain("(app_id = ? OR app_id IS NULL)");
+    expect(query.args).toEqual([
+      "alice@example.com",
+      "__organization__:org-1",
+      "calendar",
+    ]);
+    expect(run.status).toBe("error");
+  });
+
   it("does not rewrite a finished run's status", async () => {
     executeMock.mockResolvedValue({
       rows: [
@@ -111,6 +142,10 @@ describe("automation run history", () => {
   });
 
   it("persists the failure code alongside the message", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row()] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
     await finishAutomationRun(
       "run-1",
       "error",
@@ -144,9 +179,11 @@ describe("automation run history", () => {
 
   it("announces the terminal outcome with its code and duration", async () => {
     const startedAt = Date.now() - 4_000;
-    executeMock.mockResolvedValue({
-      rows: [row({ id: "run-1", started_at: startedAt })],
-    });
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ id: "run-1", started_at: startedAt })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
 
     await finishAutomationRun(
       "run-1",
@@ -169,6 +206,102 @@ describe("automation run history", () => {
     expect(
       (payload as { durationMs: number }).durationMs,
     ).toBeGreaterThanOrEqual(4_000);
+  });
+
+  it("emails the automation owner once when a failure streak starts", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            app_id: "calendar",
+            notification_email: "alice@example.com",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun(
+      "run-1",
+      "error",
+      "MCP tool unavailable",
+      "mcp_missing",
+    );
+
+    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "alice@example.com",
+        appId: "calendar",
+        automation: "digest",
+        status: "error",
+        errorCode: "mcp_missing",
+      }),
+    );
+    const priorRunsQuery = executeMock.mock.calls[2]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(priorRunsQuery.sql).toContain("(app_id = ? OR app_id IS NULL)");
+    expect(priorRunsQuery.args).toEqual([
+      "alice@example.com",
+      "digest",
+      "jobs/digest.md",
+      "calendar",
+      "run-1",
+    ]);
+  });
+
+  it("checks legacy failure streaks without an untyped app id parameter", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ notification_email: "alice@example.com" })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "MCP tool unavailable");
+
+    const priorRunsQuery = executeMock.mock.calls[2]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(priorRunsQuery.sql).toContain("AND app_id IS NULL");
+    expect(priorRunsQuery.sql).not.toContain("? IS NULL");
+    expect(priorRunsQuery.args).toEqual([
+      "alice@example.com",
+      "digest",
+      "jobs/digest.md",
+      "run-1",
+    ]);
+    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not email again for a continuing failure streak", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            app_id: "calendar",
+            notification_email: "alice@example.com",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            status: "interrupted",
+            notification_email: "alice@example.com",
+            failure_alerted: 1,
+          },
+        ],
+      });
+
+    await finishAutomationRun("run-1", "error", "Still unavailable");
+
+    expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {

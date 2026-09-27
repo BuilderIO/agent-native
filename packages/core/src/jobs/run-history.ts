@@ -11,6 +11,7 @@ import {
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
+import { sendAutomationFailureNotification } from "../server/automation-failure-notifications.js";
 
 registerEvent({
   name: "automation.run.finished",
@@ -61,6 +62,7 @@ export interface StartAutomationRunInput {
   scope?: string | null;
   orgId?: string | null;
   appId?: string | null;
+  notificationEmail?: string | null;
   runId?: string | null;
   threadId?: string | null;
   dispatchPending?: boolean;
@@ -128,6 +130,16 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
     name: "automation-runs-error-code",
     sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
   },
+  {
+    version: 6,
+    name: "automation-runs-notification-email",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS notification_email TEXT`,
+  },
+  {
+    version: 7,
+    name: "automation-runs-failure-alerted",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS failure_alerted INTEGER NOT NULL DEFAULT 0`,
+  },
 ];
 
 export async function runAutomationRunMigrations(
@@ -159,6 +171,8 @@ export async function ensureTable(): Promise<void> {
           finished_at BIGINT,
           error TEXT,
           error_code TEXT,
+          notification_email TEXT,
+          failure_alerted BIGINT NOT NULL DEFAULT 0,
           claimed_at BIGINT,
           dispatch_pending BIGINT NOT NULL DEFAULT 0
         )
@@ -181,6 +195,16 @@ export async function ensureTable(): Promise<void> {
           TABLE,
           "error_code",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+        );
+        await ensureColumnExists(
+          TABLE,
+          "notification_email",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS notification_email TEXT`,
+        );
+        await ensureColumnExists(
+          TABLE,
+          "failure_alerted",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS failure_alerted BIGINT NOT NULL DEFAULT 0`,
         );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
@@ -234,8 +258,8 @@ export async function startAutomationRun(
   await ensureTable();
   const id = randomUUID();
   await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, run_id, thread_id, status, started_at, dispatch_pending)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
+    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, notification_email, run_id, thread_id, status, started_at, dispatch_pending)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
     args: [
       id,
       input.owner,
@@ -244,6 +268,7 @@ export async function startAutomationRun(
       input.scope ?? null,
       input.orgId ?? null,
       input.appId ?? null,
+      input.notificationEmail?.trim().toLowerCase() || null,
       input.runId ?? null,
       input.threadId ?? null,
       Date.now(),
@@ -340,13 +365,13 @@ export async function finishAutomationRun(
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
-  await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ?, error_code = ? WHERE id = ?`,
+  const update = await getDbExec().execute({
+    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ?, error_code = ? WHERE id = ? AND status = 'running'`,
     args: [
       status,
       finishedAt,
@@ -355,7 +380,7 @@ export async function finishAutomationRun(
       id,
     ],
   });
-  if (!row) return;
+  if (!row || Number(update.rowsAffected ?? 0) === 0) return;
   const rawStartedAt = Number(row.started_at);
   const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
   try {
@@ -382,6 +407,83 @@ export async function finishAutomationRun(
       "[automations] terminal-run event delivery failed:",
       eventError,
     );
+  }
+
+  if (status !== "success" && row.notification_email) {
+    try {
+      const appId = row.app_id == null ? null : stringifyValue(row.app_id);
+      const appFilter =
+        appId === null
+          ? "AND app_id IS NULL"
+          : "AND (app_id = ? OR app_id IS NULL)";
+      const priorRuns = await getDbExec().execute({
+        sql: `SELECT status, notification_email, failure_alerted FROM ${TABLE}
+              WHERE owner = ? AND automation = ? AND path = ?
+                ${appFilter}
+                AND id <> ? AND status IN ('success', 'error', 'interrupted')
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [
+          stringifyValue(row.owner),
+          stringifyValue(row.automation),
+          stringifyValue(row.path),
+          ...(appId === null ? [] : [appId]),
+          id,
+        ],
+      });
+      const priorRun = priorRuns.rows?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      const priorStatus = priorRun?.status;
+      const priorNotificationEmail = stringifyValue(
+        priorRun?.notification_email,
+      )
+        .trim()
+        .toLowerCase();
+      const recipient = stringifyValue(row.notification_email)
+        .trim()
+        .toLowerCase();
+      if (
+        (priorStatus !== "error" && priorStatus !== "interrupted") ||
+        priorNotificationEmail !== recipient ||
+        Number(priorRun?.failure_alerted ?? 0) === 0
+      ) {
+        const claim = await getDbExec().execute({
+          sql: `UPDATE ${TABLE} SET failure_alerted = 1 WHERE id = ? AND failure_alerted = 0`,
+          args: [id],
+        });
+        if (Number(claim.rowsAffected ?? 0) > 0) {
+          try {
+            const delivered = await sendAutomationFailureNotification({
+              email: stringifyValue(row.notification_email),
+              appId: row.app_id == null ? null : stringifyValue(row.app_id),
+              automation: stringifyValue(row.automation),
+              path: stringifyValue(row.path),
+              orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+              status,
+              error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+              errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+            });
+            if (!delivered) {
+              await getDbExec().execute({
+                sql: `UPDATE ${TABLE} SET failure_alerted = 0 WHERE id = ? AND failure_alerted = 1`,
+                args: [id],
+              });
+            }
+          } catch (sendError) {
+            await getDbExec().execute({
+              sql: `UPDATE ${TABLE} SET failure_alerted = 0 WHERE id = ? AND failure_alerted = 1`,
+              args: [id],
+            });
+            throw sendError;
+          }
+        }
+      }
+    } catch (notificationError) {
+      console.warn(
+        "[automations] Failure alert delivery failed:",
+        notificationError,
+      );
+    }
   }
 }
 
@@ -427,6 +529,28 @@ export async function listAutomationRuns(options: {
           ${appFilter}
           ORDER BY started_at DESC LIMIT ${limit}`,
     args: [...owners, options.automation, ...(appId ? [appId] : [])],
+  });
+  const now = Date.now();
+  return (result.rows ?? []).map((row) =>
+    toRun(row as Record<string, unknown>, now),
+  );
+}
+
+export async function listLatestAutomationRuns(options: {
+  owners: string[];
+  appId?: string | null;
+}): Promise<AutomationRun[]> {
+  await ensureTable();
+  const owners = options.owners.filter(Boolean);
+  if (!owners.length) return [];
+  const placeholders = owners.map(() => "?").join(", ");
+  const appId = options.appId?.trim() || null;
+  const appFilter = appId ? " AND (app_id = ? OR app_id IS NULL)" : "";
+  const result = await getDbExec().execute({
+    sql: `SELECT DISTINCT ON (owner, path) * FROM ${TABLE}
+          WHERE owner IN (${placeholders})${appFilter}
+          ORDER BY owner, path, started_at DESC`,
+    args: [...owners, ...(appId ? [appId] : [])],
   });
   const now = Date.now();
   return (result.rows ?? []).map((row) =>
