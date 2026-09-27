@@ -284,15 +284,8 @@ function PrivacySensitivitySettings({
     "get-brain-health" as any,
     {} as any,
   );
-  const privacy = (
-    healthQuery.data as BrainHealthResponse & {
-      privacy?: {
-        classifierReady?: boolean;
-        classifierModel?: string | null;
-        quarantineRetentionDays?: number | null;
-      };
-    }
-  )?.privacy;
+  const classifierReadiness = healthQuery.data?.privacy?.classifier;
+  const retentionHours = settings.quarantineRetentionHours ?? 72;
   return (
     <div className="mx-auto w-full max-w-3xl">
       <Card id="privacy-sensitivity" className="scroll-mt-4">
@@ -310,29 +303,67 @@ function PrivacySensitivitySettings({
             <PolicyRow
               label={t("settings.privacyClassifier")}
               value={
-                privacy?.classifierReady
+                classifierReadiness?.configured
                   ? t("settings.ready")
                   : t("settings.readinessPending")
               }
             />
             <PolicyRow
-              label={t("settings.privacyModel")}
-              value={privacy?.classifierModel ?? t("settings.notSet")}
+              label={t("settings.jevCredentialLabel")}
+              value={t(
+                JEV_CREDENTIAL_KEYS[
+                  classifierReadiness?.jevCredential ?? "none"
+                ],
+              )}
             />
             <PolicyRow
               label={t("settings.quarantineRetention")}
               value={
-                privacy?.quarantineRetentionDays
+                retentionHours >= 24
                   ? t("settings.days", {
-                      count: privacy.quarantineRetentionDays,
+                      count: Math.round(retentionHours / 24),
                     })
-                  : t("settings.notSet")
+                  : t("settings.hours", { count: retentionHours })
               }
             />
           </div>
+          {classifierReadiness?.warning ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs leading-5 text-muted-foreground">
+              {classifierReadiness.warning}
+            </p>
+          ) : null}
           <p className="rounded-md border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
             {t("settings.tightenOnly")}
           </p>
+          <div className="grid gap-2">
+            <Label htmlFor="privacy-classifier-choice">
+              {t("settings.privacyClassifierChoice")}
+            </Label>
+            <Select
+              value={settings.privacyClassifier ?? "jev"}
+              onValueChange={(value) =>
+                update(
+                  "privacyClassifier",
+                  value as BrainSettings["privacyClassifier"],
+                )
+              }
+            >
+              <SelectTrigger id="privacy-classifier-choice">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="jev">
+                  {t("settings.privacyClassifierJev")}
+                </SelectItem>
+                <SelectItem value="model">
+                  {t("settings.privacyClassifierCustom")}
+                </SelectItem>
+                <SelectItem value="deterministic">
+                  {t("settings.privacyClassifierDeterministic")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField
               id="privacy-classifier-model"
@@ -357,12 +388,12 @@ function PrivacySensitivitySettings({
               id="quarantine-retention-hours"
               type="number"
               min={1}
-              max={8760}
+              max={720}
               value={settings.quarantineRetentionHours ?? 72}
               onChange={(event) =>
                 update(
                   "quarantineRetentionHours",
-                  Math.max(1, Math.min(8760, Number(event.target.value) || 1)),
+                  Math.max(1, Math.min(720, Number(event.target.value) || 1)),
                 )
               }
             />
@@ -555,10 +586,8 @@ export default function SettingsRoute() {
         label: t("settings.privacySensitivityTitle"),
         icon: IconLock,
         keywords:
-          "privacy sensitivity classifier quarantine retention tighten only",
-        content: (
-          <PrivacySensitivitySettings settings={settings} update={update} />
-        ),
+          "privacy sensitivity classifier jev quarantine retention tighten only",
+        hash: "privacy-sensitivity",
       },
       {
         id: "brain-identity",
@@ -716,6 +745,8 @@ export default function SettingsRoute() {
                   />
                 </CardContent>
               </Card>
+
+              <PrivacySensitivitySettings settings={settings} update={update} />
             </main>
 
             <aside className="grid content-start gap-5">
@@ -978,6 +1009,13 @@ function SettingSwitch({
     </label>
   );
 }
+
+const JEV_CREDENTIAL_KEYS = {
+  "stored-key": "settings.jevCredentialStoredKey",
+  "builder-gateway": "settings.jevCredentialGateway",
+  none: "settings.jevCredentialNone",
+  unavailable: "settings.jevCredentialUnavailable",
+} as const;
 
 function PolicyRow({ label, value }: { label: string; value: string }) {
   return (

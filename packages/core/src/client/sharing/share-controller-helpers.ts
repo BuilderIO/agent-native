@@ -55,6 +55,7 @@ export function createShareQueryKey(params: ShareQueryParams): ShareQueryKey {
 export function useShareQuery<TResponse>(
   resourceType: string,
   resourceId: string,
+  enabled = true,
 ): {
   params: ShareQueryParams;
   queryKey: ShareQueryKey;
@@ -67,7 +68,9 @@ export function useShareQuery<TResponse>(
     [resourceId, resourceType],
   );
   const queryKey = useMemo(() => createShareQueryKey(params), [params]);
-  const query = useActionQuery<TResponse>("list-resource-shares", params);
+  const query = useActionQuery<TResponse>("list-resource-shares", params, {
+    enabled,
+  });
   return { params, queryKey, query, queryClient };
 }
 
@@ -79,11 +82,6 @@ export function useShareMutations() {
   };
 }
 
-/**
- * Apply an optimistic change and return the exact cache value to restore if
- * the action fails. Keeping this snapshot at the mutation boundary prevents a
- * stale request from restoring a newer optimistic result.
- */
 export function optimisticallyUpdateShareCache<TData>(
   queryClient: QueryClient,
   queryKey: ShareQueryKey,

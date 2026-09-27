@@ -177,17 +177,14 @@ describe("readDesignClipboardPayload", () => {
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
-    // A new environment models a remounted editor or separate browser tab:
-    // there are no shared React refs, only the OS clipboard representation.
     const result = await readDesignClipboardPayloadFromSystem({
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
 
     expect(result).toEqual({
-      payload,
-      markerText: html,
-      plainText: "Readable text",
+      status: "found",
+      value: { payload, markerText: html, plainText: "Readable text" },
     });
   });
 
@@ -231,9 +228,8 @@ describe("readDesignClipboardPayload", () => {
     });
 
     expect(result).toEqual({
-      payload,
-      markerText: html,
-      plainText: "Readable text",
+      status: "found",
+      value: { payload, markerText: html, plainText: "Readable text" },
     });
   });
 
@@ -254,9 +250,8 @@ describe("readDesignClipboardPayload", () => {
     });
 
     expect(result).toEqual({
-      payload,
-      markerText,
-      plainText: markerText,
+      status: "found",
+      value: { payload, markerText, plainText: markerText },
     });
   });
 
@@ -271,7 +266,21 @@ describe("readDesignClipboardPayload", () => {
       readDesignClipboardPayloadFromSystem({
         clipboard: { read: denied, readText: denied },
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      status: "unreadable",
+      errors: [expect.anything(), expect.anything()],
+    });
+  });
+
+  it("distinguishes a readable clipboard without a Design marker from an unreadable one", async () => {
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: { readText: async () => "ordinary clipboard text" },
+      }),
+    ).resolves.toEqual({ status: "empty" });
+    await expect(
+      readDesignClipboardPayloadFromSystem({ clipboard: null }),
+    ).resolves.toEqual({ status: "unavailable" });
   });
 
   it("can inspect legacy markers in an explicit migration context", () => {

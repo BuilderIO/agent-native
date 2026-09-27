@@ -28,30 +28,10 @@ import {
   type TabsTab,
 } from "./tabs.config.js";
 
-/**
- * Standard `tabs` block: a horizontal pill-tab container whose tabs each hold a
- * list of child blocks. Lives in core so any app (plan today, content later) can
- * register it.
- *
- * `Read`/`Edit` mirror the legacy plan `TabsBlock` markup byte-for-byte (same
- * `plan-block` section, the `inline-flex` pill tab rail with `role="tablist"`/
- * `role="tab"`, the same active-tab `useState`, and the `compactVisuals`
- * heuristic on the block title) so converting the block to the registry does not
- * change rendered output. The block chrome uses semantic shadcn tokens so the
- * same renderer stays quiet in both the plan and content apps.
- *
- * Child rendering flows through `ctx.renderBlock` — the app's own block
- * dispatcher — so registered children render via their spec and unconverted
- * children fall through the app's legacy switch. This is the coexistence seam:
- * the core tabs block never has to know app-specific child block types.
- */
-
-/** Mint a reasonably-unique tab id without pulling a dep into core. */
 function newTabId(): string {
   return `tab-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Compact embedded visuals for dense tab panes, matching legacy behavior. */
 function isCompact(title: string | undefined): boolean {
   return /interaction|component|note/i.test(title ?? "");
 }
@@ -126,7 +106,6 @@ function tabLabelClass(orientation: TabsOrientation): string | undefined {
   return orientation === "vertical" ? "block min-w-0 truncate" : undefined;
 }
 
-/** Shared pill-tab rail. */
 function TabRail({
   tabs,
   activeId,
@@ -169,7 +148,6 @@ function TabRail({
   );
 }
 
-/** Read renderer: pill tabs, child blocks rendered read-only via the app. */
 export function TabsBlockReader({
   data,
   blockId,
@@ -238,13 +216,6 @@ export function TabsBlockReader({
   );
 }
 
-/**
- * Editor: pill tabs plus tab management (add/remove/rename), with child blocks
- * rendered editable in place through the app dispatcher. A child change updates
- * that child within its tab and commits the whole tabs block — mirroring the
- * legacy `TabsBlock` onChange bubbling so the plan's recursive `updateBlocks`/
- * `findBlock` (`PlanContentRenderer`) keeps working unchanged.
- */
 export function TabsBlockEditor({
   data,
   onChange,
@@ -273,13 +244,13 @@ export function TabsBlockEditor({
 
   const removeTab = (id: string) => {
     const next = data.tabs.filter((tab) => tab.id !== id);
-    if (next.length === 0) return; // tabs must keep at least one (schema min 1)
+    if (next.length === 0) return;
     commit(next);
     if (activeId === id) setActiveId(next[0]?.id ?? "");
   };
 
   const addTab = () => {
-    if (data.tabs.length >= 12) return; // schema max
+    if (data.tabs.length >= 12) return;
     const id = newTabId();
     commit([
       ...data.tabs,
@@ -302,11 +273,6 @@ export function TabsBlockEditor({
       ),
     );
 
-  // Renders BARE (no `plan-block` section / title): in edit mode the app's
-  // block dispatcher already wraps registered editors in a titled `plan-block`
-  // section, so wrapping again here would double-nest. The read renderer
-  // (`TabsBlockReader`) owns its own section because read mode renders the spec
-  // directly.
   return (
     <div
       className={cn("min-w-0", vertical && "@container/tabs")}
@@ -630,12 +596,6 @@ function reorderTabRegion(
   return tabsWith(data, next);
 }
 
-/**
- * The standard tabs block spec (with React `Read`/`Edit`). Apps register this in
- * their browser registry. The schema + MDX config come from `./tabs.config.ts`,
- * the exact same object server / agent code registers, so rendering and source
- * round-trip never drift.
- */
 export const tabsBlock = defineBlock<TabsData>({
   type: "tabs",
   schema: tabsSchema,

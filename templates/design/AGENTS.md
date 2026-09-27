@@ -1,28 +1,26 @@
 # Design — Agent Guide
 
 Design is an agent-native prototyping app. The agent creates and edits
-complete interactive HTML prototypes, design systems, variants, and handoff
-exports through actions against the shared SQL state.
+interactive HTML prototypes, design systems, variants, and handoffs through
+actions against shared SQL state.
 
 ## Skills
 
 Read the relevant skill before deeper work in that area.
 
-- `design-generation` — 5-phase generation flow, aesthetic quality bar, code
-  layers/code workspace, editor extensions, breakpoints/screen
-  states/components, motion, imagery, locked subtrees, generation state.
+- `design-generation` — generation flow, quality bar, code layers/workspace,
+  breakpoints, components, motion, imagery, locked subtrees, and state.
 - `design-templates` — resolving, saving, copying, adapting templates or prior
   Design work without fresh generation.
 - `responsive-breakpoints` — Framer-style breakpoint editing.
-- `design-systems` — tokens, brand extraction, Figma import/read/paste, and the
-  real Figma fidelity contract.
-- `creative-context` — cross-app source reuse, pinned packs, provenance,
-  context opt-out, submitting a design to a governed Context.
+- `design-systems` — tokens, brand extraction, Figma import/read/paste, and
+  fidelity requirements.
+- `creative-context` — source reuse, pinned packs, provenance, opt-out, and
+  governed Context submission.
 - `design-review-feedback` — persisted, element-anchored review comments to a
-  verified close, one root thread at a time.
-- `export-handoff` — HTML/PNG/SVG/ZIP/code and coding-handoff export.
-- `full-app-build` — design source modes and flag-gated fusion-backed full app
-  building.
+  verified close.
+- `export-handoff` — HTML/PNG/SVG/ZIP/code and coding handoffs.
+- `full-app-build` — source modes and flag-gated fusion-backed app building.
 - `shader-fills` — code-backed GLSL shader fills/effects.
 - `capture-learnings` — record a user preference or correction so it outlives
   the thread.
@@ -31,11 +29,14 @@ Read the relevant skill before deeper work in that area.
 
 | Action | Purpose |
 | --- | --- |
-| `list-design-templates` / `list-designs` | Resolve a named template or prior design; paginated (`page`, `pageSize`, `createdBy: "me"`, `search`) |
+| `list-design-templates` / `list-designs` | Search paginated templates or designs |
+| `generate-home-suggestions` | Personalized home prompts |
+| `read-composer-source` | Read bounded Design, Slides, or Figma references |
 | `create-design-from-template` | Copy a template into a new design; screens keep their `createdFromTemplate` locks |
 | `get-design-snapshot` / `get-design-template` | Inspect a copied design's current files, or the original template |
-| `open-visual-edit` | Open a running localhost app as live URL-backed iframe screens without a Design login |
-| `add-localhost-screens` / `update-screen-source` | Add route/state screens or switch one selected screen between live URL and static HTML |
+| `open-visual-edit` | Open a localhost app as live iframe screens without Design login |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set snapshot opt-in; signed-in editors can enable it |
+| `add-localhost-screens` / `update-screen-source` | Add routes/states or switch a screen between live URL and static HTML |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames on the canvas |
 | `edit-design` | Adapt an existing or copied design/screen in place |
 | `apply-visual-edit` | Make deterministic layer edits; `booleanSubtract` creates an editable mask from supported selected sibling shapes |
@@ -68,15 +69,15 @@ Read the relevant skill before deeper work in that area.
   solid fills. The first layer in source order supplies the result paint; the original
   operands remain editable under the Subtract layer. Other shapes, custom
   markup, non-solid paints, and non-sibling selections are not converted.
-- Design source modes are `inline`, `localhost`, and `fusion` — see
-  `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
-  read-only without a session. Only the short-lived,
-  design-scoped `capability:visual-edit` embed minted by `open-visual-edit`
-  may perform its localhost screen, breakpoint, snapshot, and source actions;
-  it is not an account session and cannot save/share/generate or access another
-  design. Bare public links stay read-only. The page-local
-  `get-visual-edit-prompt` tool returns the latest pending source handoff;
-  account operations use `buildSignInReturnHref()`.
+- Source modes are `inline`, `localhost`, and `fusion`; see `full-app-build`.
+  Public `/design/:id` links are read-only; public
+  `/visual-edit/:id` links allow DOM-only localhost edits, signed in or out.
+  Source writes remain editor-gated. The design-scoped
+  `capability:visual-edit` scopes localhost handoff actions, not an account
+  session or access to other designs. Shared snapshots default off; only a
+  signed-in editor can opt in and publish, and viewers get no snapshot while
+  off. `get-visual-edit-prompt` returns the pending handoff; external agents
+  call `get-visual-edit-pending`, browser agents use the page-local tool.
 
 ## Application State
 

@@ -235,11 +235,6 @@ function editableOption(attributeId: string, optionId: string) {
   );
 }
 
-/**
- * Value and position of every option row, deliberately not access-filtered: the
- * unique index on (attribute_id, value) spans rows this caller cannot see, so a
- * scoped check would report a clean insert and then hit a constraint violation.
- */
 function loadOptionSlots(attributeId: string) {
   // guard:allow-unscoped — see the note above: callers are already gated on
   // editor access to the attribute, and only value/position are read.
@@ -252,7 +247,6 @@ function loadOptionSlots(attributeId: string) {
     .where(eq(schema.crmAttributeOptions.attributeId, attributeId));
 }
 
-/** Every option the caller may edit, archived ones included. */
 function loadOptionRows(attributeId: string): Promise<CrmAttributeOptionRow[]> {
   return getDb()
     .select()

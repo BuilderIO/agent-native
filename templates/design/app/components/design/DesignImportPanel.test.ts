@@ -41,6 +41,14 @@ describe("DesignImportPanel", () => {
     );
   });
 
+  it("frees the .fig worker and reports saved frames", () => {
+    expect(source).toContain("pendingFigImportRef.current?.dispose()");
+    expect(source).toContain("prepared.dispose()");
+    expect(source).not.toContain("prepared.decoded");
+    expect(source).toContain('t("designEditor.import.figImportSaving"');
+    expect(source).toContain("const FigImportFrameRow = memo(");
+  });
+
   it("imports a Figma frame URL through the shared action surface", () => {
     const urlIndex = source.indexOf('id="figma-url-import"');
     const pasteIndex = source.indexOf('id="figma-paste-import"');
@@ -138,7 +146,6 @@ describe("DesignImportPanel quota attribution", () => {
 
   it("reads the failure through the shared typed reader", () => {
     expect(source).toContain("readFigmaImportFailure(");
-    // The old ad-hoc property chain and message sniffing are gone.
     expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
     expect(source).not.toMatch(/rate limit\|429\|quota/);
   });

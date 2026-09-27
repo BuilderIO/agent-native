@@ -240,6 +240,7 @@ export default defineAction({
           threadId: context?.threadId ?? null,
           variantScopeId: base.variantScopeId ?? null,
           prompt: slot.prompt,
+          ownerEmail: context?.userEmail ?? null,
           slotId: slot.slotId,
           status: "pending",
         }),

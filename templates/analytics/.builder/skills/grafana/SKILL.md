@@ -100,4 +100,5 @@ For production issues, query Grafana/Prometheus FIRST:
 3. Error rates (`llm_failures_total`)
 4. Instance counts (via Cloud Monitoring)
 
-Then check Sentry for application errors, Cloud Logging for raw logs.
+Then check Agent-Native Analytics Monitoring -> Errors for captured application
+issues, external Sentry when connected, and Cloud Logging for raw logs.

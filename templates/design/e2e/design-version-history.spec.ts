@@ -61,6 +61,34 @@ async function filenames(page: Page, designId: string): Promise<string[]> {
   );
 }
 
+async function overviewScreenIds(page: Page): Promise<string[]> {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"][aria-level="1"]')
+    .evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const id = row
+          .querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.getAttribute("data-layer-node-id");
+        return id ? [id] : [];
+      }),
+    );
+}
+
+async function selectedOverviewScreenIds(page: Page): Promise<string[]> {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
+    .evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const id = row
+          .querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.getAttribute("data-layer-node-id");
+        return id ? [id] : [];
+      }),
+    );
+}
+
 async function openHistory(page: Page): Promise<void> {
   await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("menuitem", { name: "Version history" }).click();
@@ -184,4 +212,127 @@ test("editor checkpoints survive browser restart and restore screen identity", a
   } finally {
     await restartedPage.close();
   }
+});
+
+test("multi-screen delete uses one durable checkpoint, Undo, and redo", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const designId = await newDesign(page, HOME_HTML);
+  await postAction(page, "create-file", {
+    designId,
+    filename: "second.html",
+    content:
+      "<!doctype html><html><head><title>Second</title></head><body>Second</body></html>",
+    fileType: "html",
+  });
+  await postAction(page, "create-file", {
+    designId,
+    filename: "third.html",
+    content:
+      "<!doctype html><html><head><title>Third</title></head><body>Third</body></html>",
+    fileType: "html",
+  });
+
+  await openEditor(page, designId);
+  const originalFileIds = await Promise.all(
+    ["index.html", "second.html", "third.html"].map(async (filename) => [
+      filename,
+      await fileIdByFilename(page, designId, filename),
+    ]),
+  );
+  const filenameByOriginalId = new Map(
+    originalFileIds.map(([filename, fileId]) => [fileId, filename]),
+  );
+  const screens = page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"][aria-level="1"]');
+  await expect(screens).toHaveCount(3);
+  const screenIdsBeforeDelete = await overviewScreenIds(page);
+  expect(screenIdsBeforeDelete).toHaveLength(3);
+  await screens.nth(0).locator("[data-layer-row-button]").click();
+  await page.keyboard.press(
+    `${process.platform === "darwin" ? "Meta" : "Control"}+A`,
+  );
+  await screens
+    .nth(2)
+    .locator("[data-layer-row-button]")
+    .click({
+      modifiers: [process.platform === "darwin" ? "Meta" : "Control"],
+    });
+  await expect(screens.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(screens.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(screens.nth(2)).toHaveAttribute("aria-selected", "false");
+  await expect
+    .poll(() => selectedOverviewScreenIds(page))
+    .toEqual(screenIdsBeforeDelete.slice(0, 2));
+  const versionsBeforeDelete = await listVersions(page, designId);
+  const fullDesignVersionCountBeforeDelete =
+    versionsBeforeDelete.versions.filter(
+      (version) => version.source === "editor" && version.fileCount === 4,
+    ).length;
+
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(async () =>
+      (await filenames(page, designId)).filter(
+        (filename) => filename !== "__board__.html",
+      ),
+    )
+    .toHaveLength(1);
+  await expect(screens).toHaveCount(1);
+  expect(await overviewScreenIds(page)).toEqual([screenIdsBeforeDelete[2]]);
+  await expect.poll(() => selectedOverviewScreenIds(page)).toEqual([]);
+
+  await expect
+    .poll(async () => {
+      const result = await listVersions(page, designId);
+      return (
+        result.versions.filter(
+          (version) => version.source === "editor" && version.fileCount === 4,
+        ).length - fullDesignVersionCountBeforeDelete
+      );
+    })
+    .toBe(1);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect
+    .poll(async () => (await filenames(page, designId)).sort())
+    .toEqual(["__board__.html", "index.html", "second.html", "third.html"]);
+  const deletedFilenames = screenIdsBeforeDelete
+    .slice(0, 2)
+    .map((fileId) => filenameByOriginalId.get(fileId))
+    .filter((filename): filename is string => Boolean(filename));
+  expect(deletedFilenames).toHaveLength(2);
+  const restoredSelectedIds = await Promise.all(
+    deletedFilenames.map((filename) =>
+      fileIdByFilename(page, designId, filename),
+    ),
+  );
+  await expect
+    .poll(() => selectedOverviewScreenIds(page))
+    .toEqual(restoredSelectedIds);
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(async () =>
+      (await filenames(page, designId)).filter(
+        (filename) => filename !== "__board__.html",
+      ),
+    )
+    .toHaveLength(1);
+  await expect(screens).toHaveCount(1);
+  expect(await overviewScreenIds(page)).toEqual([screenIdsBeforeDelete[2]]);
+
+  await page.reload();
+  await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await filenames(page, designId)).filter(
+        (filename) => filename !== "__board__.html",
+      ),
+    )
+    .toHaveLength(1);
+  await expect(screens).toHaveCount(1);
+  expect(await overviewScreenIds(page)).toEqual([screenIdsBeforeDelete[2]]);
 });

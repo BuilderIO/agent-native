@@ -27,7 +27,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import type {
   BuilderConnectFlow,
   BuilderStatus,
@@ -62,7 +62,6 @@ export interface BuilderConnectionMenuProps {
   credentialSource?: BuilderStatus["credentialSource"] | null;
   trackingSource?: string;
   trackingFlow?: string;
-  /** "icon" (default) matches the compact card; "text" shows a labeled "Manage" button for row layouts. */
   variant?: "icon" | "text";
 }
 
@@ -221,6 +220,21 @@ export function BuilderConnectionMenu({
     });
   }, [flow, trackingFlow, trackingSource]);
 
+  if (flow.connecting) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2 text-xs"
+        data-testid="builder-connection-cancel"
+        onClick={flow.cancel}
+      >
+        {t("common.cancel")}
+      </Button>
+    );
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -346,7 +360,7 @@ export function DefaultBuilderConnectCardView({
           {action ? (
             <div className="mt-3">
               {viewModel.connectFlow ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={viewModel.connectFlow}
                   onConnect={action.onPress}
                 >
@@ -361,7 +375,7 @@ export function DefaultBuilderConnectCardView({
                   >
                     {action.label}
                   </ActionButton>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : (
                 <ActionButton
                   type="button"

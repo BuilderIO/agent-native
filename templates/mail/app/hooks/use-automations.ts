@@ -20,11 +20,12 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export function useAutomations() {
+export function useAutomations(options?: { enabled?: boolean }) {
   return useQuery<AutomationRule[]>({
     queryKey: ["automations"],
     queryFn: () => callAction("list-automations", {}, { method: "GET" }),
     staleTime: 60_000,
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -85,6 +86,53 @@ export function useDeleteAutomation() {
     mutationFn: (id: string) =>
       callAction("delete-automation", { id }, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useConsolidateAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      id: string;
+      duplicateIds: string[];
+      expectedRules: {
+        id: string;
+        name: string;
+        condition: string;
+        actions: AutomationAction[];
+      }[];
+      name: string;
+      condition: string;
+      actions: AutomationAction[];
+    }) =>
+      callAction("consolidate-ai-filter-rules", data, {
+        method: "PUT",
+      }) as Promise<{ saved: boolean }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useClearAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "clear",
+        ids,
+      }) as Promise<{ undoId: string }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useRestoreAiFilterRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (undoId: string) =>
+      callAction("manage-ai-filter-rule-undo", {
+        operation: "undo",
+        undoId,
+      }) as Promise<{ restored: true }>,
+    onSettled: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }
 

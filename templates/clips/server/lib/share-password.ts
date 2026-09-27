@@ -17,13 +17,6 @@ import {
   isEncryptedSecretValue,
 } from "@agent-native/core/secrets/crypto";
 
-/**
- * Encrypt a share password for storage. Empty / nullish / whitespace-only
- * input clears it (returns null), matching the prior `args.password ?? null`
- * semantics while also rejecting spaces-only "passwords". Real values are
- * trimmed so accidental leading/trailing whitespace doesn't get baked into
- * the stored password.
- */
 export function encryptSharePassword(
   raw: string | null | undefined,
 ): string | null {
@@ -52,11 +45,6 @@ function decodeStoredPassword(
   return stored;
 }
 
-/**
- * Constant-time check of a supplied password against the stored (encrypted or
- * legacy-plaintext) value. Hashing both sides to a fixed width lets
- * `timingSafeEqual` run without leaking length via an early return.
- */
 export function verifySharePassword(
   supplied: string,
   stored: string | null | undefined,

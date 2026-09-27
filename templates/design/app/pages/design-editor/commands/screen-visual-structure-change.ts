@@ -1,9 +1,9 @@
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
@@ -27,6 +27,7 @@ export interface ScreenVisualStructureChangeArgs {
     },
   ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   handleVisualStructureChange: (
@@ -40,6 +41,7 @@ export interface ScreenVisualStructureChangeArgs {
       anchorElementInfo?: ElementInfo;
       requestId?: string;
       transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -81,6 +83,7 @@ export interface ScreenVisualStructureChangeArgs {
       anchorElementInfo?: ElementInfo;
       requestId?: string;
       transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -106,6 +109,7 @@ export function runScreenVisualStructureChange(
     applyFileContentUpdate,
     applyLinkedComponentEdit,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     getScreenContent,
     handleVisualStructureChange,
@@ -127,6 +131,7 @@ export function runScreenVisualStructureChange(
     anchorElementInfo?: ElementInfo;
     requestId?: string;
     transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -147,8 +152,6 @@ export function runScreenVisualStructureChange(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     replaced?: true;
     replacementSelector?: string;
@@ -157,7 +160,18 @@ export function runScreenVisualStructureChange(
     replacementSnapshotHtml?: string;
   },
 ) {
+  const overviewScreen = overviewScreens.find(
+    (screen) => screen.id === screenId,
+  );
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
+    if (!canEditScreen) return false;
     return handleVisualStructureChange(
       selector,
       anchorSelector,
@@ -166,12 +180,7 @@ export function runScreenVisualStructureChange(
       details,
     );
   }
-  if (!canEditDesign) return false;
-  const overviewScreen = overviewScreens.find(
-    (screen) => screen.id === screenId,
-  );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  if (!canEditScreen) return false;
   const screenFile = {
     ...activeFile,
     id: screenId,
@@ -194,7 +203,7 @@ export function runScreenVisualStructureChange(
           ? publication
           : { status: "refused" as const };
       },
-      canEditDesign,
+      canEditDesign: canEditScreen,
       getFreshActiveContent: () => getScreenContent(screenId),
       recordPendingLiveStructureEdit,
       setSelectedElement,

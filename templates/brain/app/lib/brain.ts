@@ -344,8 +344,10 @@ export interface BrainHealthResponse {
   privacy: {
     classifier: {
       configured: boolean;
+      classifier: "jev" | "model" | "deterministic";
       model: string | null;
       engine: string | null;
+      jevCredential: "stored-key" | "builder-gateway" | "none" | "unavailable";
       warning: string | null;
     };
     events: {
@@ -399,6 +401,24 @@ export interface BrainHealthResponse {
       counts?: Record<string, number>;
     };
     embeddings: {
+      readiness: {
+        status: "ready" | "not-configured" | "ambiguous" | "unavailable";
+        ready: boolean;
+        configuredProviders: string[];
+        unavailableProviders: string[];
+        configuredFamilies: number;
+        provider: string | null;
+        model: string | null;
+        embeddingSetId: string | null;
+        dimensions: number | null;
+        warning: string | null;
+      };
+      coverage: {
+        eligibleArtifacts: number;
+        embeddedArtifacts: number;
+        missingArtifacts: number;
+        percent: number;
+      };
       total: number;
       active: number;
       stale: number;
@@ -986,6 +1006,7 @@ export interface BrainSettings {
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
+  privacyClassifier?: "jev" | "model" | "deterministic";
   privacyClassifierModel?: string;
   privacyClassifierEngine?: string;
   sensitivityCustomInstructions?: string;

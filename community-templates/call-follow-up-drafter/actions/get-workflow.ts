@@ -7,8 +7,8 @@ import { z } from "zod";
 
 import { workflow, type WorkflowSnapshot } from "../app/lib/workflow.js";
 
-const WORKFLOW_STATE_KEY = "workflow-data";
-const SELECTION_STATE_KEY = "workflow-selection";
+const WORKFLOW_STATE_KEY = "call-follow-up-drafter:workflow-data";
+const SELECTION_STATE_KEY = "call-follow-up-drafter:workflow-selection";
 
 const workflowSchema = z.object({
   title: z.string(),
@@ -45,7 +45,7 @@ export async function readWorkflowState(): Promise<
   const parsed = workflowSchema.safeParse(stored);
   if (!parsed.success) {
     throw new Error(
-      "Stored workflow state is invalid. Reset workflow-data before retrying.",
+      `Stored workflow state is invalid. Reset ${WORKFLOW_STATE_KEY} before retrying.`,
     );
   }
   return parsed.data;

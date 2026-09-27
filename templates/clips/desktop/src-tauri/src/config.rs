@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
-const FEATURE_CONFIG_VERSION: u32 = 1;
+const FEATURE_CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,8 +84,6 @@ impl Default for ScreenMemoryConfig {
     }
 }
 
-/// The local capture tracks Rewind is allowed to retain. Audio collection is
-/// explicit so an existing local buffer never begins recording sound by default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RewindCaptureMode {
@@ -127,11 +125,6 @@ pub struct FeatureConfig {
     pub local_recording_mode: LocalRecordingMode,
     #[serde(default = "default_show_meeting_widget_enabled")]
     pub show_meeting_widget_enabled: bool,
-    // Debug / demo aid: when true, Clips's own overlay windows (popover,
-    // toolbar, countdown, finalizing, recording pill, sign-in, voice flow
-    // bar) drop NSWindowSharingNone so they DO appear in screenshots and
-    // screen recordings. Off by default — the windows normally stay out of
-    // captures so they don't leak into the user's recorded video.
     #[serde(default)]
     pub show_in_screen_capture: bool,
     #[serde(default)]
@@ -211,7 +204,7 @@ fn default_screen_memory_exclude_private_windows() -> bool {
 }
 
 fn default_screen_memory_max_bytes() -> u64 {
-    20 * 1024 * 1024 * 1024
+    5 * 1024 * 1024 * 1024
 }
 
 fn default_screen_memory_segment_seconds() -> u64 {
@@ -253,17 +246,18 @@ impl Default for FeatureConfig {
 }
 
 fn migrate_feature_config(mut config: FeatureConfig) -> FeatureConfig {
-    if config.config_version < FEATURE_CONFIG_VERSION {
+    if config.config_version < 1 {
         config.auto_hide_popover_enabled = true;
+    }
+    if config.config_version < 2 && config.screen_memory.max_bytes == 20 * 1024 * 1024 * 1024 {
+        config.screen_memory.max_bytes = default_screen_memory_max_bytes();
+    }
+    if config.config_version < FEATURE_CONFIG_VERSION {
         config.config_version = FEATURE_CONFIG_VERSION;
     }
     config
 }
 
-/// Path to the JSON blob that stores the feature config on disk. Lives in the
-/// Tauri app-data dir (platform-specific — `~/Library/Application
-/// Support/<bundle-id>/` on macOS). Returns None if the app-data dir cannot be
-/// resolved.
 fn config_path(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_data_dir().ok()?;
     if let Err(err) = std::fs::create_dir_all(&dir) {
@@ -277,8 +271,6 @@ fn config_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("feature-config.json"))
 }
 
-/// Load the feature config from disk. Returns the default config if the file
-/// doesn't exist or can't be parsed.
 fn load_config(app: &AppHandle) -> FeatureConfig {
     let Some(path) = config_path(app) else {
         return FeatureConfig::default();
@@ -297,7 +289,6 @@ fn load_config(app: &AppHandle) -> FeatureConfig {
     config
 }
 
-/// Persist the feature config to disk (atomic write via temp + rename).
 fn save_config(app: &AppHandle, config: &FeatureConfig) -> Result<(), String> {
     let Some(path) = config_path(app) else {
         return Err("no app_data_dir".to_string());
@@ -322,9 +313,6 @@ fn apply_launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
         .is_enabled()
         .map_err(|e| format!("read launch-at-login: {e}"))?;
     if enabled {
-        // `is_enabled()` only means a LaunchAgent with this label exists. It
-        // may still point at an old dev binary or be missing our `--autostart`
-        // argument, so rewrite enabled entries instead of trusting the plist.
         if current {
             manager
                 .disable()
@@ -361,13 +349,11 @@ pub fn feature_config(app: &AppHandle) -> FeatureConfig {
     load_config(app)
 }
 
-/// Load feature config from disk and return it to the frontend.
 #[tauri::command]
 pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String> {
     Ok(load_config(&app))
 }
 
-/// Save feature config to disk and emit a change event.
 #[tauri::command]
 pub async fn set_feature_config(
     app: AppHandle,
@@ -397,15 +383,8 @@ pub async fn set_feature_config(
     let capture_changed = previous.show_in_screen_capture != config.show_in_screen_capture;
     save_config(&app, &config)?;
     if capture_changed {
-        // Reapply NSWindow.sharingType to every live overlay window so the
-        // toggle takes effect on anything already on screen (popover,
-        // recording chrome, voice flow bar, etc.) without requiring a
-        // recording-flow round trip.
         crate::util::reapply_capture_exclusion_to_overlays(&app);
     }
-    // Apply the region-guides visibility decision (always-on toggle, preset
-    // changes, master enable/disable) without requiring a recording-flow
-    // round trip. Cheap — it just inspects current state.
     crate::clips::reconcile_region_guides(&app);
     if previous.whisper_model_enabled != config.whisper_model_enabled {
         let _ = app.emit(
@@ -480,6 +459,28 @@ mod tests {
         }))
         .unwrap();
         assert!(!opt_out.auto_hide_popover_enabled);
+    }
+
+    #[test]
+    fn migrates_the_previous_screen_memory_storage_default() {
+        let mut config = FeatureConfig::default();
+        config.config_version = 1;
+        config.auto_hide_popover_enabled = false;
+        config.screen_memory.max_bytes = 20 * 1024 * 1024 * 1024;
+
+        let migrated = migrate_feature_config(config);
+
+        assert_eq!(migrated.config_version, FEATURE_CONFIG_VERSION);
+        assert_eq!(migrated.screen_memory.max_bytes, 5 * 1024 * 1024 * 1024);
+        assert!(!migrated.auto_hide_popover_enabled);
+
+        let mut custom = FeatureConfig::default();
+        custom.config_version = 1;
+        custom.screen_memory.max_bytes = 50 * 1024 * 1024 * 1024;
+        assert_eq!(
+            migrate_feature_config(custom).screen_memory.max_bytes,
+            50 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]

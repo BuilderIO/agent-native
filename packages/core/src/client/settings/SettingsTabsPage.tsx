@@ -1,6 +1,5 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
-  IconArrowUpRight,
   IconFlask,
   IconHistory,
   IconSearch,
@@ -21,6 +20,7 @@ import {
 import { Link, useInRouterContext, useLocation } from "react-router";
 
 import { appMountPath, appMountedPath } from "../../client/api-path.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import type { LabDefinition } from "../../labs/registry.js";
 import {
   buildSettingsRoute,
@@ -33,28 +33,13 @@ import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
 
-/**
- * A single deep-link target inside settings that the settings search can jump
- * to. Entries usually map to a section within a tab (via a `hash`/anchor id),
- * making individual controls discoverable without hunting through every tab.
- */
 export interface SettingsSearchEntry {
-  /** Stable unique id for the entry. */
   id: string;
-  /** Primary label shown in the search results. */
   label: string;
-  /** Extra space-separated terms to match against (synonyms, provider names). */
   keywords?: string;
-  /** Optional secondary description shown under the label. */
   description?: string;
-  /** Tab to activate when the entry is picked. Defaults to the owning tab. */
   tabId?: string;
-  /**
-   * Optional section id / DOM element id to open + scroll to after switching
-   * tabs. Handled by the inner panels' own hash listeners.
-   */
   hash?: string;
-  /** Optional icon override; defaults to the owning tab's icon. */
   icon?: SettingsTabIcon;
 }
 
@@ -63,21 +48,11 @@ export interface SettingsTabItem {
   label: string;
   icon?: SettingsTabIcon;
   content: ReactNode;
-  /** Optional route for settings that live on a canonical page elsewhere. */
   href?: string;
-  /** Whether a parent surface may expose a personal/organization scope for this tab. */
   scopeAware?: boolean;
-  /**
-   * Optional visual navigation group. Adjacent tabs with the same group render
-   * together; a quiet divider separates each group on desktop while mobile
-   * keeps the compact horizontal tab scroller unchanged.
-   */
   group?: string;
-  /** Optional human-readable label for the visual navigation group. */
   groupLabel?: string;
-  /** Extra space-separated terms so this tab is findable via search. */
   keywords?: string;
-  /** Deep-link entries within this tab for the settings search. */
   searchEntries?: SettingsSearchEntry[];
 }
 
@@ -87,7 +62,6 @@ export interface SettingsTabsPageProps {
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: SettingsTabItem[];
-  /** User labs to expose in the searchable settings surface. */
   labs?: readonly LabDefinition[];
   labsLabel?: string;
   labsIntro?: string;
@@ -99,29 +73,13 @@ export interface SettingsTabsPageProps {
   defaultTab?: string;
   className?: string;
   navClassName?: string;
-  /** Optional content rendered at the top of the settings navigation rail. */
   navHeader?: ReactNode;
   contentClassName?: string;
-  /** Whether to render the settings search box. Defaults to true. */
   enableSearch?: boolean;
-  /** Placeholder for the settings search box. */
   searchPlaceholder?: string;
-  /** Extra global search entries (e.g. anchors within the General tab). */
   searchEntries?: SettingsSearchEntry[];
-  /** Deep-link entries for the General tab. */
   generalSearchEntries?: SettingsSearchEntry[];
-  /**
-   * Controlled active tab id. When provided, the parent owns tab state (and is
-   * responsible for URL/app-state sync). Recognized top-level tab hashes still
-   * report through `onValueChange`, so shared links such as
-   * `/settings/organization` can select the matching controlled Team tab.
-   * Legacy hash links remain supported and are canonicalized on load.
-   */
   value?: string;
-  /**
-   * Called whenever the active tab changes via a tab click or a search result
-   * selection. Fires in both controlled and uncontrolled modes.
-   */
   onValueChange?: (tabId: string) => void;
 }
 
@@ -186,15 +144,12 @@ function resolveTabId(
   const normalized = normalizeSettingsRoute(value ?? "");
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
-  // Keep old settings links working after the user-facing tab rename.
   if (
     (normalized === "experiments" || normalized.startsWith("experiments:")) &&
     tabs.some((tab) => tab.id === "labs")
   ) {
     return "labs";
   }
-  // Legacy `#browser` deep links: the Browser Automation section now lives
-  // inside the merged Integrations tab (id varies by consumer).
   if (normalized === "browser") {
     const browserOwner = tabs.find(
       (tab) => tab.id === "integrations" || tab.id === "connections",
@@ -358,6 +313,12 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
+  const visibleLabs = useMemo(() => {
+    if (labs.some((lab) => lab.key === CHATGPT_SUBSCRIPTION_LAB.key)) {
+      return labs;
+    }
+    return [CHATGPT_SUBSCRIPTION_LAB, ...labs];
+  }, [labs]);
   const tabs = useMemo<SettingsTabItem[]>(() => {
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
@@ -387,16 +348,20 @@ function SettingsTabsPageContent({
       });
     }
     next.push(...inlineTabs);
-    if (labs.length > 0) {
+    if (visibleLabs.length > 0) {
       next.push({
         id: "labs",
         label: labsLabel,
         icon: IconFlask,
         keywords: "experimental unstable beta bugs feedback",
         content: (
-          <LabsSettings labs={labs} title={labsLabel} intro={labsIntro} />
+          <LabsSettings
+            labs={visibleLabs}
+            title={labsLabel}
+            intro={labsIntro}
+          />
         ),
-        searchEntries: labs.map((lab) => ({
+        searchEntries: visibleLabs.map((lab) => ({
           id: `lab:${lab.key}`,
           label: lab.displayName ?? lab.key,
           keywords: `${lab.key} ${lab.keywords ?? ""}`,
@@ -429,7 +394,7 @@ function SettingsTabsPageContent({
     account,
     accountLabel,
     extraTabs,
-    labs,
+    visibleLabs,
     labsIntro,
     labsLabel,
     general,
@@ -446,10 +411,6 @@ function SettingsTabsPageContent({
     ? defaultTab
     : (tabs[0]?.id ?? "general");
   const tabGroups = useMemo(() => {
-    // Keyed by group id so tabs sharing a group merge into one section even
-    // when another group's tabs sit between them in `tabs` — adjacency-only
-    // merging left same-id groups duplicated (and rendered with duplicate
-    // React keys) whenever the tab list interleaved groups.
     const groupsById = new Map<
       string,
       { id: string; tabs: SettingsTabItem[] }
@@ -492,7 +453,6 @@ function SettingsTabsPageContent({
   );
 
   useEffect(() => {
-    // In controlled mode the parent owns (and validates) the active tab.
     if (isControlled) return;
     if (tabs.some((tab) => tab.id === internalTab)) return;
     setInternalTab(fallbackTab);
@@ -501,9 +461,6 @@ function SettingsTabsPageContent({
   useEffect(() => {
     if (isControlled) return;
     const syncLocation = (event?: Event) => {
-      // Native history events carry the live browser URL. Reading the
-      // render-captured router location here would re-canonicalize the same
-      // legacy hash before BrowserRouter has rerendered.
       const location = event ? undefined : routerLocation;
       const pathname = location?.pathname ?? window.location.pathname;
       const hash = location?.hash ?? window.location.hash;
@@ -620,7 +577,6 @@ function SettingsTabsPageContent({
     return () => window.cancelAnimationFrame(frame);
   }, [routerLocation, selectedTab]);
 
-  // Flatten tab + deep-link entries into one searchable index.
   const searchIndex = useMemo<ResolvedSearchEntry[]>(() => {
     const entries: ResolvedSearchEntry[] = [];
     const seen = new Set<string>();
@@ -685,7 +641,6 @@ function SettingsTabsPageContent({
     const section = entry.hash?.replace(/^#/, "");
     if (section) {
       updateRouteForTab(entry.tabId, section);
-      // Let the inner panels open + scroll to their section.
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document
@@ -703,8 +658,6 @@ function SettingsTabsPageContent({
     <div
       ref={rootRef}
       className={cn(
-        // Bound to the viewport when the host page gives no height, so the
-        // content pane scrolls and the rail stays put instead of the page.
         "flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background sm:max-h-dvh sm:flex-row",
         className,
       )}
@@ -816,8 +769,6 @@ function SettingsTabsPageContent({
               value: tab.id,
               label: tab.label,
               icon: tab.icon ? <tab.icon className="size-4 shrink-0" /> : null,
-              // The panel stays outside this navigation rail so settings
-              // keeps its existing scroll container and deep-link behavior.
               content: null,
             }))}
             value={activeTab}
@@ -867,12 +818,6 @@ function SettingsTabsPageContent({
                           />
                         ) : null}
                         <span className="truncate">{tab.label}</span>
-                        {tab.href ? (
-                          <IconArrowUpRight
-                            aria-hidden="true"
-                            className="size-3.5 shrink-0 text-muted-foreground/80"
-                          />
-                        ) : null}
                       </>
                     );
                     if (tab.href) {
@@ -927,7 +872,7 @@ function SettingsTabsPageContent({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:border-s sm:border-border/60 sm:px-6 sm:py-6 lg:px-8 lg:py-8",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:pt-4 sm:pb-6 lg:px-8 lg:pt-4 lg:pb-8",
           contentClassName,
         )}
       >

@@ -53,6 +53,7 @@ describe("document page route context", () => {
       databaseId: "database-1",
       databaseDocumentId: "database-page",
       viewId: "ready-view",
+      foreground: true,
     });
   });
 });

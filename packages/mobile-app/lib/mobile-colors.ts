@@ -32,7 +32,6 @@ function asColor(value: string | number | undefined): string {
   return typeof value === "string" ? value : "transparent";
 }
 
-/** Reads resolved Uniwind tokens for native APIs that cannot use className. */
 export function useMobileThemeColors(): MobileThemeColors {
   const { theme } = useUniwind();
   const [

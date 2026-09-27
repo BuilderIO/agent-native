@@ -83,7 +83,6 @@ function asAutomationSource(
   return null;
 }
 
-/** Seed leaf, including create copies like `factory-pr-babysit-2`. */
 export function canonicalSeedLeafName(nameOrPath: string): string | null {
   const leaf = factoryAutomationLeafName(nameOrPath);
   if (LEAF_SOURCE[leaf]) return leaf;
@@ -205,8 +204,6 @@ export function inferAutomationSource(
   nameOrPath: string,
   content?: string,
 ): FactoryAutomationSource | null {
-  // Template, seed leaf, and destination outrank YAML `source`. A Save that
-  // defaulted a GitHub copy to Slack must not keep winning on the next read.
   const templateRaw = content
     ? readFrontmatterValue(content, "template")
     : undefined;
@@ -460,10 +457,6 @@ export const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "sentryEnvironment",
 ]);
 
-/**
- * Seed/metadata repair must not drop editor-owned identity. Compare against the
- * resource as stored before repair, not the in-flight repaired draft.
- */
 export function restoreFactoryAutomationIdentityFields(
   originalContent: string,
   repairedContent: string,
@@ -526,8 +519,6 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
-    // null = omitted (repair/default): keep the existing YAML line.
-    // "" = explicit clear from save: delete the line.
     if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && value == null) {
       continue;
     }
@@ -566,7 +557,7 @@ export function buildGuardrailsText(
   }
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
     lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false and a short reason so the skip or start is recorded.",
+      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
     );
   }
   if (config.source === "slack") {
@@ -658,7 +649,6 @@ export function needsAutomationBodyRepair(content: string): boolean {
   if (alignmentBlocks > 1) return true;
   const revision = readAlignmentRevision(content);
   if (revision >= FACTORY_ALIGNMENT_REVISION) return false;
-  // Missing revision on prompt-only bodies is upgraded through save, not cold start.
   return alignmentBlocks === 1;
 }
 

@@ -1,15 +1,11 @@
 import { defineConfig, type Config } from "drizzle-kit";
 
+import { getAppConfig } from "../app-config/index.js";
+import { getIsolatedTestDatabaseUrl } from "./client.js";
+
 export interface CreateDrizzleConfigOptions {
-  /** Path to the Drizzle schema file. Defaults to `./server/db/schema.ts`. */
   schema?: string;
-  /** Output directory for generated migrations. Defaults to `./server/db/migrations`. */
   out?: string;
-  /**
-   * Connection URL for drizzle-kit, taking precedence over the app's
-   * environment variables. Pass the direct endpoint when the pooled URL is
-   * not permitted to run DDL.
-   */
   url?: string;
 }
 
@@ -47,16 +43,19 @@ function pgliteDataDirFromUrl(url: string): string {
   return dataDir;
 }
 
-/** Create the Postgres drizzle-kit config used by every template. */
 export function createDrizzleConfig(
   opts: CreateDrizzleConfigOptions = {},
 ): Config {
   const { schema = "./server/db/schema.ts", out = "./server/db/migrations" } =
     opts;
-  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const app = getAppConfig().app;
+  const appName = (app.workspaceId || app.name)
+    ?.toUpperCase()
+    .replace(/-/g, "_");
   const explicitUrl = opts.url?.trim();
   const url =
     explicitUrl ||
+    getIsolatedTestDatabaseUrl() ||
     (appName && process.env[`${appName}_DATABASE_URL`]) ||
     process.env.DATABASE_URL ||
     "pglite:./data/pglite";

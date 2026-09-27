@@ -16,7 +16,6 @@ describe("clampHandleInwardReach", () => {
   });
 
   it("clamps to the fraction of the frame dimension when nominal exceeds it", () => {
-    // 25% zoom -> chromeScale 4 -> nominal 28 local px against a 44px frame.
     expect(clampHandleInwardReach(28, 44)).toBe(
       44 * HANDLE_MAX_INWARD_FRACTION,
     );
@@ -49,14 +48,12 @@ describe("getEdgeHandleHitGeometry", () => {
   });
 
   it("keeps the full zoom-compensated slop on large frames at low zoom", () => {
-    // 25% zoom -> chromeScale 4. A tall screen frame keeps 28px in / 28px out.
     const geometry = getEdgeHandleHitGeometry(4, 1000);
     expect(geometry.thickness).toBe(56);
     expect(geometry.outwardOffset).toBe(-28);
   });
 
   it("clamps only the inward reach on small frames at low zoom", () => {
-    // 25% zoom, 44px-tall frame: inward clamped to 11, outward stays 28.
     const geometry = getEdgeHandleHitGeometry(4, 44);
     expect(geometry.outwardOffset).toBe(-28);
     expect(geometry.thickness).toBe(28 + 11);
@@ -70,7 +67,6 @@ describe("getEdgeHandleHitGeometry", () => {
       frameHeight,
     );
     const inwardReach = thickness + outwardOffset;
-    // Pre-fix each bar reached 36.8px into the 46px item (full overlap).
     expect(inwardReach).toBeCloseTo(46 * HANDLE_MAX_INWARD_FRACTION, 10);
     const nBarBottom = inwardReach;
     const sBarTop = frameHeight - inwardReach;
@@ -101,12 +97,9 @@ describe("getCornerHandleGeometry", () => {
   });
 
   it("keeps the on-screen size but shifts outward per clamped axis on small frames", () => {
-    // 25% zoom -> chromeScale 4 -> 40px square vs a 40x44 board rect.
     const geometry = getCornerHandleGeometry(4, 40, 44);
     expect(geometry.size).toBe(40);
-    // inwardX = min(20, 10) = 10 -> offsetX = 10 - 40.
     expect(geometry.offsetX).toBe(-30);
-    // inwardY = min(20, 11) = 11 -> offsetY = 11 - 40.
     expect(geometry.offsetY).toBe(-29);
   });
 

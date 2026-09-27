@@ -1,3 +1,4 @@
+import { decodeHTML } from "entities";
 import { describe, expect, it } from "vitest";
 
 import { ensureGroupRuntime } from "../../shared/group-runtime";
@@ -52,6 +53,73 @@ describe("design export helpers", () => {
     );
     expect(html).toContain("<h1>One</h1>");
     expect(html).toContain("<p>Two</p>");
+  });
+
+  it("stacks multi-file HTML screens in isolated viewports when requested", () => {
+    const html = buildStandaloneHtml({
+      title: "Export",
+      screenLayout: "stacked",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: `<!doctype html>
+<html>
+<head>
+  <style>
+    body { margin: 0; position: relative; }
+    .screen-one {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 200px;
+      height: 100px;
+    }
+  </style>
+</head>
+<body><main class="screen-one" data-screen="one">One</main></body>
+</html>`,
+        },
+        {
+          filename: "screen-2.html",
+          fileType: "html",
+          content: `<!doctype html>
+<html>
+<head>
+  <style>
+    body { margin: 0; position: relative; }
+    .screen-two {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 200px;
+      height: 100px;
+    }
+  </style>
+</head>
+<body><main class="screen-two" data-screen="two">Two</main></body>
+</html>`,
+        },
+        {
+          filename: "styles.css",
+          fileType: "css",
+          content: ".shared-screen-rule { color: red; }",
+        },
+      ],
+    });
+    const screenDocuments = Array.from(
+      html.matchAll(/<iframe\b[^>]*\bsrcdoc="([^"]*)"[^>]*><\/iframe>/g),
+      (match) => decodeHTML(match[1] ?? ""),
+    );
+
+    expect(screenDocuments).toHaveLength(2);
+    expect(html).toContain("height: 100vh");
+    expect(screenDocuments[0]).toContain('data-screen="one"');
+    expect(screenDocuments[0]).not.toContain('data-screen="two"');
+    expect(screenDocuments[1]).toContain('data-screen="two"');
+    expect(screenDocuments[1]).not.toContain('data-screen="one"');
+    expect(screenDocuments[0]).toContain(".shared-screen-rule");
+    expect(screenDocuments[1]).toContain(".shared-screen-rule");
   });
 
   it("deduplicates the measured Group runtime across exported screens", () => {
@@ -215,12 +283,6 @@ describe("design export helpers", () => {
   });
 });
 
-/**
- * The action-side exporter tokenizes stored HTML text while the editor-side
- * exporter walks the live DOM. They ship the same file format, so a directive
- * one of them rejects must be rejected by the other too — they now share
- * shared/xml-export-attributes.ts, and this pins that agreement.
- */
 describe("buildSvgForeignObject XML validity", () => {
   it("drops directives inside <template> markup", () => {
     const svg = buildSvgForeignObject({
@@ -251,12 +313,6 @@ describe("buildSvgForeignObject XML validity", () => {
   });
 });
 
-/**
- * The tokenizer reads raw source text while the client sanitizer reads decoded
- * DOM values, so the two only agree if the tokenizer decodes before deciding.
- * The XML consumer resolves `&#58;` back to `:`, which turned an inert-looking
- * token into an active `javascript:` URL in the exported file.
- */
 describe("buildSvgForeignObject active-content decoding", () => {
   it("drops entity-encoded javascript schemes", () => {
     const svg = buildSvgForeignObject({
@@ -292,8 +348,6 @@ describe("buildSvgForeignObject element parity with the client sanitizer", () =>
     });
     expect(svg).not.toContain("http-equiv");
     expect(svg).not.toContain("example.com/next");
-    // `<meta>` has no end tag: a tokenizer hunting for `</meta>` would drop
-    // everything that follows it.
     expect(svg).toContain("<p>after</p>");
   });
 

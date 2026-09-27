@@ -110,16 +110,36 @@ The foreground chat POST decides **per turn**. It dispatches to the background
 function only when all three hold:
 
 - the app is deployed on Netlify and `AGENT_CHAT_DURABLE_BACKGROUND` is not
-  explicitly falsy (`false` / `0` / `no` / `off`), or a non-Netlify hosted app
-  explicitly opts in with a truthy value (`true` / `1` / `yes` / `on`),
-- the app is running hosted (on the platform, not local dev), and
+  explicitly falsy (`false` / `0` / `no` / `off`), or the app explicitly opts
+  in with a truthy value (`true` / `1` / `yes` / `on`),
+- the app is running hosted (on the platform, not local dev), unless it opted
+  in explicitly, and
 - `A2A_SECRET` is set (the dispatch is an HMAC-signed self-call; without the
   secret it cannot be signed, so the turn stays inline).
 
-If the app is local, `A2A_SECRET` is missing, or the flag is explicitly
-disabled, the turn runs inline exactly as before. The setting is read at
-**both build time** (to decide whether to emit the background function) and
-**runtime** (to decide whether to dispatch), so changing it requires a redeploy.
+If the app is local without an explicit opt-in, `A2A_SECRET` is missing, or the
+flag is explicitly disabled, the turn runs inline exactly as before. An explicit
+opt-in is honored in local development too, so leave the flag unset there to
+keep turns inline. The setting is read at **both build time** (to decide
+whether to emit the background function) and **runtime** (to decide whether to
+dispatch), so changing it requires a redeploy.
+
+## Long-lived Node servers {#long-lived-servers}
+
+A container or VM running `agent-native start` has no second function. With
+`AGENT_CHAT_DURABLE_BACKGROUND=true` and `A2A_SECRET` set, the foreground
+dispatches the turn to the framework's signed `_process-run` route on the same
+deployment, so the turn runs in its own request instead of the one that started
+it. The run's time budget does not change: it is still decided by whether the
+runtime is a hosted platform.
+
+The dispatch goes to the deployment's own public URL by default (the platform
+URL, then `APP_URL`), which is a round trip through the host's edge. Set
+`AGENT_NATIVE_SELF_DISPATCH_URL` to the address this process listens on, such
+as `http://127.0.0.1:3000`, to dispatch over loopback instead. It must be an
+absolute `http(s)` URL, and the app base path is appended to it. It only
+addresses requests the deployment sends to itself, never a URL an outside
+service calls.
 
 ## The lifecycle and the circuit-breaker {#lifecycle}
 
@@ -213,9 +233,10 @@ soft-timeout chunk boundary continue via a server-side self-dispatch on the
 **regular** request function, instead of depending on the client to re-POST
 `auto_continue`.
 
-It composes the same way as `AGENT_CHAT_DURABLE_BACKGROUND`: true only when
-the env flag is explicitly truthy (`true` / `1` / `yes` / `on`), the runtime
-is hosted, and `A2A_SECRET` is configured. The two flags are independent and
+It is true only when the env flag is explicitly truthy (`true` / `1` / `yes` /
+`on`), the runtime is hosted, and `A2A_SECRET` is configured. Unlike
+`AGENT_CHAT_DURABLE_BACKGROUND`, an explicit flag does not lift the hosted
+requirement. The two flags are independent and
 never need to agree — an app can enable this narrower capability without
 opting into the full background-function worker path. When a run already
 qualifies for durable background dispatch, that decision is evaluated first

@@ -14,6 +14,88 @@ import type { DesignFile } from "@/pages/design-editor/types";
 import { runDuplicateSelection } from "./duplicate-selection";
 
 describe("runDuplicateSelection component links", () => {
+  it("duplicates a live layer for a public visual-edit viewer", () => {
+    const designId = "design-live";
+    const fileId = "screen-live";
+    const liveSource = `<!doctype html><html><body><section data-agent-native-node-id="card" style="position:absolute;left:10px;top:20px">Card</section></body></html>`;
+    const source = {
+      kind: "design-file" as const,
+      designId,
+      fileId,
+      filename: "http://localhost:3102/library",
+    };
+    const projection = buildCodeLayerProjection(liveSource, { source });
+    const node = projection.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "card",
+    );
+    expect(node?.source).toBeTruthy();
+    if (!node?.source) return;
+
+    const file = {
+      id: fileId,
+      filename: "library.html",
+      fileType: "html",
+      content: "http://localhost:3102/library",
+      createdAt: "",
+      updatedAt: "",
+    } satisfies DesignFile;
+    const setRuntimeStructureInsertRequest = vi.fn();
+    const sourceWrites = vi.fn();
+    runDuplicateSelection({
+      activeFile: file,
+      designId,
+      applyFileContentUpdate: sourceWrites,
+      applyLocalContentUpdate: sourceWrites,
+      canEditDesign: false,
+      canEditLiveScreen: true,
+      files: [file],
+      getFreshActiveContent: () => {
+        throw new Error("public live duplicate must not read source content");
+      },
+      getScreenContent: () => {
+        throw new Error("public live duplicate must not read source content");
+      },
+      getSelectedLayerSnapshots: () => [
+        {
+          html: liveSource.slice(node.source!.start, node.source!.end),
+          rootNodeId: "card",
+          sourceFileId: fileId,
+          node,
+          sourceIndex: 0,
+          tree: buildCodeLayerTree(projection),
+        },
+      ],
+      handleDuplicateScreen: vi.fn(),
+      lastDuplicateTransformRef: { current: null },
+      overviewSelectedScreenIds: [fileId],
+      remapMotionTracksForClone: vi.fn(),
+      runtimeStructureInsertRevisionRef: { current: 0 },
+      selectedCanvasSelector: '[data-agent-native-node-id="card"]',
+      selectedElement: null,
+      selectedLayerIdsState: ["card"],
+      setRuntimeStructureInsertRequest,
+      setOverviewSelectedScreenIds: vi.fn(),
+      setSelectedElement: vi.fn(),
+      setSelectedLayerIdsState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: { current: null },
+      viewModeRef: { current: "overview" },
+    });
+
+    expect(sourceWrites).not.toHaveBeenCalled();
+    expect(setRuntimeStructureInsertRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        screenId: fileId,
+        anchor: {
+          selector: '[data-agent-native-node-id="card"]',
+          sourceId: "card",
+        },
+        placement: "after",
+      }),
+    );
+  });
+
   it("turns a same-Design duplicate of a main into a linked reference", () => {
     const designId = "design-1";
     const fileId = "screen-1";

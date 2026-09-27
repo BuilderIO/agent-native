@@ -47,6 +47,12 @@ vi.mock("./settings/useBuilderStatus.js", () => ({
   }),
 }));
 
+vi.mock("./settings/deferred-builder-connect-popover.js", async () => {
+  const { BuilderConnectPopover } =
+    await import("./settings/BuilderConnectPopover.js");
+  return { DeferredBuilderConnectPopover: BuilderConnectPopover };
+});
+
 vi.mock("./composer/index.js", async () => {
   const React = await import("react");
   return {

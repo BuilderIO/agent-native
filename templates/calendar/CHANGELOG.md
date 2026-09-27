@@ -3,6 +3,84 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-26
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+## 2026-09-25
+
+### Added
+
+- Add Jev invitation rules for auto-accept, auto-decline, and auto-hide with automation status.
+
+### Improved
+
+- The bookings list shows the latest bookings first and keeps dates and times together.
+- Colleague events use the saved accent color shown in the calendar sidebar.
+- If Zoom cannot confirm a meeting, Calendar keeps the booking and follows up with meeting details
+- Public booking links show their title, description, and duration in previews.
+
+### Fixed
+
+- Bookings with an uncertain Zoom response stay reserved for review without appearing as confirmed calendar events.
+- Canceling a booking now resolves its Zoom meeting first.
+- Public booking pages reject malformed meeting settings before reserving a slot.
+- Shared booking cancellations require editor access, and unresolved Zoom meetings stay protected when meeting settings change.
+- Calendar rule Undo stays consistent during RSVP updates, and one failed event no longer blocks later activity.
+- Gong requests keep legacy credentials paired with their saved API endpoint
+- Reserved bookings reach Google Calendar when Zoom fails, and guests can retry when meeting creation never started.
+- Invitation rules continue scanning after a single RSVP lookup fails
+- Booking links without a meeting type now show a not-found page.
+- Personal booking pages use the host's saved timezone for availability.
+- Booking link previews now show their image in browser-based link preview tools
+- Calendar feeds with the same URL keep their own names and colors.
+- Calendar invitation rules surface expired connections and undo safely without duplicate RSVP updates
+- Restore locally hidden events from activity after disconnecting an account
+
+## 2026-09-24
+
+### Fixed
+
+- Calendar no longer shows an internal server error banner when a shared workspace Google connection can't be authorized
+- Guest inputs wrap beneath existing guests so the active input stays visible
+
+## 2026-09-23
+
+### Improved
+
+- Calendar opens faster by loading translated catalogs only when you need them.
+
+### Fixed
+
+- Bookings no longer confirm without their configured Zoom meeting
+- Release a booking slot when Zoom creation never starts
+- Zoom booking timeouts keep the slot reserved to prevent duplicate meetings.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Calendar shows an app-shaped skeleton while the calendar workspace loads.
+
+### Fixed
+
+- Opening Calendar signed out inside an embedded tab now shows sign-in instead of a page whose actions all fail.
+
+## 2026-09-21
+
+### Fixed
+
+- Events stay editable when their calendar is connected through multiple Google accounts
+
+## 2026-09-18
+
+### Fixed
+
+- Calendar now preserves grouped guest counts and keeps the event detail panel keyboard accessible.
+
 ## 2026-09-16
 
 ### Fixed

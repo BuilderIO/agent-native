@@ -1,15 +1,3 @@
-//! Second, independent corroboration source for the call-ended heuristic in
-//! `silence_detector.rs`: macOS's own mic-in-use indicator.
-//!
-//! macOS 12+ writes an `Active activity attributions changed to [...]` event
-//! to the unified log (subsystem `com.apple.controlcenter`, category
-//! `sensor-indicators`) whenever the orange-mic-dot's owner changes. Each
-//! entry is prefixed `mic:`, `cam:`, `aud:`, or `scr:` and carries the
-//! *responsible app's* bundle id — e.g. `mic:us.zoom.xos` — regardless of
-//! which in-call helper process actually opened the device. That is the
-//! opposite trade-off from `call_activity`'s CoreAudio scan, which sees the
-//! exact helper but only on macOS 14+: the two sources corroborate rather
-//! than duplicate each other.
 
 #[cfg(target_os = "macos")]
 use std::io::{BufRead, BufReader};
@@ -28,28 +16,12 @@ const LOG_PREDICATE: &str = "subsystem == \"com.apple.controlcenter\" AND catego
 #[cfg(target_os = "macos")]
 const ATTRIBUTION_PREFIX: &str = "Active activity attributions changed to ";
 
-/// The live watcher's child slot, so `RunEvent::Exit` — which skips Rust
-/// destructors — can still kill the `log stream` process (see `shutdown`).
 #[cfg(target_os = "macos")]
 static ACTIVE_CHILD: Mutex<Option<Arc<Mutex<Option<Child>>>>> = Mutex::new(None);
 
-/// Set by `shutdown`; a watcher whose child registers after this point kills
-/// it itself, so an exit that races a fresh start cannot orphan a
-/// `log stream` process.
 #[cfg(target_os = "macos")]
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
-/// Parses one line of `log stream`/`log show --style ndjson` output (or
-/// `log show`'s default compact text format) and returns the lowercased
-/// `mic:` bundle ids from an attribution-changed event.
-///
-/// `None` means "not a parsable attribution line" — the ndjson lines carry
-/// their message JSON-escaped one level deeper than the compact format, and
-/// the `log` tool's own "Filtering the log data using ..." startup banner
-/// echoes this predicate's text back, so a naive substring search would
-/// misfire on it. Returning `None` here (rather than an empty Vec) keeps
-/// "nothing attributed" and "couldn't read this line" distinguishable to the
-/// caller.
 #[cfg(target_os = "macos")]
 fn parse_attribution_line(line: &str) -> Option<Vec<String>> {
     let message = ndjson_event_message(line).unwrap_or_else(|| line.to_string());
@@ -71,27 +43,15 @@ fn ndjson_event_message(line: &str) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 struct AttributionState {
-    /// Lowercased `mic:` bundle ids from the most recent parsed attribution
-    /// event. `None` until the seed read or the first stream line lands —
-    /// "unknown", distinct from an empty list meaning "nothing has the mic".
     mic_bundle_ids: Option<Vec<String>>,
     observed_at: Instant,
-    /// Cleared once the `log stream` child fails to spawn or exits, so
-    /// `mic_in_use_by` reports unknown rather than a stale answer.
     available: bool,
 }
 
-/// Streams Control Center's mic-attribution log line by line on a background
-/// thread and exposes the latest reading. `start`/`stop` bracket exactly one
-/// live `/usr/bin/log stream` child; `Drop` stops it too, so a caller that
-/// forgets to call `stop()` explicitly still can't leak the process.
 #[cfg(target_os = "macos")]
 pub(crate) struct MicAttributionWatcher {
     state: Arc<Mutex<AttributionState>>,
     child: Arc<Mutex<Option<Child>>>,
-    /// Set by `stop`; the reader thread checks it right after registering
-    /// its child, so a stop that lands before the spawn finishes still kills
-    /// the process instead of leaking it.
     stopped: Arc<AtomicBool>,
 }
 
@@ -152,8 +112,6 @@ impl Drop for MicAttributionWatcher {
     }
 }
 
-/// Kills the live `log stream` child, if any, on the app-exit path that
-/// bypasses `Drop`.
 #[cfg(target_os = "macos")]
 pub(crate) fn shutdown() {
     SHUTTING_DOWN.store(true, Ordering::SeqCst);
@@ -175,11 +133,6 @@ fn kill_child(slot: &Arc<Mutex<Option<Child>>>) {
     let _ = child.wait();
 }
 
-/// Best-effort seed from recent log history so a watcher started mid-call
-/// doesn't have to wait for the next attribution change to learn who has the
-/// mic. Twenty minutes covers a recording started well into a call; older
-/// than that, the CoreAudio source carries the session until the next change. Leaves `mic_bundle_ids` at `None` (unknown) on any failure — the live
-/// stream reader is the source of truth and will populate it regardless.
 #[cfg(target_os = "macos")]
 fn seed_from_log_show(state: &Arc<Mutex<AttributionState>>) {
     let Ok(output) = Command::new("/usr/bin/log")
@@ -250,9 +203,6 @@ fn spawn_stream_reader(
         let mut slot = match child_slot.lock() {
             Ok(slot) => slot,
             Err(_) => {
-                // Lock poisoned before the watcher could even record the
-                // child — nothing else can stop it, so kill it directly
-                // rather than leak a live log stream process.
                 let _ = child.kill();
                 let _ = child.wait();
                 return;
@@ -276,17 +226,11 @@ fn spawn_stream_reader(
             s.available = true;
         }
 
-        // stdout closed: either `stop()` killed the child, or `log stream`
-        // itself exited. Both mean this reading is no longer current; reap
-        // the child now so an unexpected exit does not linger as a zombie.
         kill_child(&child_slot);
         mark_unavailable(&state, "log stream process exited");
     });
 }
 
-/// Marks the watcher unavailable and logs exactly once on the transition, so
-/// callers stop getting a stale answer without every failed tick spamming
-/// the log.
 #[cfg(target_os = "macos")]
 fn mark_unavailable(state: &Arc<Mutex<AttributionState>>, reason: &str) {
     let Ok(mut s) = state.lock() else { return };

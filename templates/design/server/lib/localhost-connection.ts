@@ -42,48 +42,63 @@ export interface LocalhostConnectionScope {
   orgId: string | null;
 }
 
-/** Owner + org partition for connection and write-grant rows. */
 export async function resolveLocalhostConnectionScope(options?: {
   designId?: string;
+  allowPublicViewer?: boolean;
 }): Promise<LocalhostConnectionScope> {
+  const designId = options?.designId;
+  if (options?.allowPublicViewer && designId) {
+    const access = await resolveAccess("design", designId);
+    const resource = access?.resource as
+      | { ownerEmail?: unknown; orgId?: unknown }
+      | undefined;
+    if (
+      access &&
+      typeof resource?.ownerEmail === "string" &&
+      resource.ownerEmail
+    ) {
+      return {
+        ownerEmail: resource.ownerEmail,
+        orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+      };
+    }
+  }
+
+  const capability = getRequestAuthCapability();
+  if (
+    designId &&
+    capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
+    decodeCapabilityDesignId(capability) === designId
+  ) {
+    const access = await resolveAccess("design", designId);
+    const resource = access?.resource as
+      | { ownerEmail?: unknown; orgId?: unknown }
+      | undefined;
+    if (
+      !access ||
+      access.role !== "editor" ||
+      typeof resource?.ownerEmail !== "string" ||
+      !resource.ownerEmail
+    ) {
+      throw new Error("visual-edit capability is not valid for this design");
+    }
+
+    return {
+      ownerEmail: resource.ownerEmail,
+      orgId: typeof resource.orgId === "string" ? resource.orgId : null,
+    };
+  }
+
   const ownerEmail = getRequestUserEmail();
   if (ownerEmail) {
     const requestOrgId = getRequestOrgId();
     return {
       ownerEmail,
-      // resolveOrgIdForEmail honors an explicit Personal selection, so this
-      // cannot promote a caller into an org they left.
       orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
     };
   }
 
-  const capability = getRequestAuthCapability();
-  const designId = options?.designId;
-  if (
-    !designId ||
-    !capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) ||
-    decodeCapabilityDesignId(capability) !== designId
-  ) {
-    throw new Error("no authenticated user");
-  }
-
-  const access = await resolveAccess("design", designId);
-  const resource = access?.resource as
-    | { ownerEmail?: unknown; orgId?: unknown }
-    | undefined;
-  if (
-    !access ||
-    access.role !== "editor" ||
-    typeof resource?.ownerEmail !== "string" ||
-    !resource.ownerEmail
-  ) {
-    throw new Error("visual-edit capability is not valid for this design");
-  }
-
-  return {
-    ownerEmail: resource.ownerEmail,
-    orgId: typeof resource.orgId === "string" ? resource.orgId : null,
-  };
+  throw new Error("no authenticated user");
 }
 
 function decodeCapabilityDesignId(capability: string): string | null {
@@ -207,11 +222,6 @@ export async function resolveLocalhostBridgeConnection(args: {
   return connection as LocalhostBridgeConnection;
 }
 
-/**
- * POST one bridge operation. A dead bridge rejects `fetch` with a bare
- * TypeError, which is unclassified and therefore reaches the client as a
- * generic 500 — the same opaque failure a missing connection row used to be.
- */
 export async function fetchLocalhostBridge(args: {
   bridgeUrl: string;
   operation: string;
@@ -240,11 +250,6 @@ export async function fetchLocalhostBridge(args: {
   }
 }
 
-/**
- * Classify a non-2xx bridge response. 401/403 means the bridge rejected the
- * token: every bridge start mints a fresh one, so a restart leaves the stored
- * token stale while the connection row still looks healthy.
- */
 export function localhostBridgeRequestError(
   operation: string,
   status: number,
@@ -267,7 +272,6 @@ export function localhostBridgeRequestError(
   );
 }
 
-/** Fetch the read-only DOM snapshot used by live Design screens. */
 export async function fetchLocalhostSnapshot(args: {
   bridgeUrl: string;
   previewToken: string | null;
@@ -321,7 +325,6 @@ export async function fetchLocalhostSnapshot(args: {
   return payload.html;
 }
 
-/** Bridge token for callers that have no other source for one. */
 export function requireLocalhostBridgeToken(
   connectionId: string,
   bridgeToken: string | null,

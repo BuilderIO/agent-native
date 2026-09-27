@@ -6,10 +6,11 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
+import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
@@ -32,7 +33,14 @@ import {
   IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type MouseEvent,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -51,8 +59,18 @@ import {
 } from "@/components/ui/tooltip";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
-import { planReturnPathFromLocation } from "@/lib/plan-local-bridge";
+import { planReturnPathFromLocation } from "@/lib/plan-return-path";
 import { cn } from "@/lib/utils";
+
+const loadPlanBrandingComposer = () =>
+  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+    default: PromptComposer,
+  }));
+const LazyPlanBrandingComposer = lazy(loadPlanBrandingComposer);
+
+function preloadPlanBrandingComposer() {
+  void loadPlanBrandingComposer().catch(() => {});
+}
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
 
@@ -489,12 +507,20 @@ function BrandingCustomizePopover() {
   return (
     <>
       {codeRequiredDialog}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) preloadPlanBrandingComposer();
+          setOpen(nextOpen);
+        }}
+      >
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label={t("sidebar.customizePlanBranding")}
             title={t("sidebar.customizeBranding")}
+            onPointerEnter={preloadPlanBrandingComposer}
+            onFocus={preloadPlanBrandingComposer}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/55 opacity-0 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/brand:opacity-100 group-focus-within/brand:opacity-100 data-[state=open]:opacity-100"
           >
             <IconEdit className="size-3.5" />
@@ -514,15 +540,32 @@ function BrandingCustomizePopover() {
               {t("sidebar.customizeBrandingDescription")}
             </p>
           </div>
-          <PromptComposer
-            autoFocus
-            disabled={isGenerating}
-            attachmentsEnabled={false}
-            showModelSelector={false}
-            placeholder={t("sidebar.customizeBrandingPlaceholder")}
-            draftScope="plans:customize-branding"
-            onSubmit={handleSubmit}
-          />
+          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+            <Suspense
+              fallback={
+                <div
+                  aria-busy="true"
+                  className="flex min-h-36 flex-col justify-between gap-3"
+                >
+                  <Skeleton className="h-24 w-full" />
+                  <div className="flex justify-end gap-2">
+                    <Skeleton className="h-8 w-16" />
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                </div>
+              }
+            >
+              <LazyPlanBrandingComposer
+                autoFocus
+                disabled={isGenerating}
+                attachmentsEnabled={false}
+                showModelSelector={false}
+                placeholder={t("sidebar.customizeBrandingPlaceholder")}
+                draftScope="plans:customize-branding"
+                onSubmit={handleSubmit}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </PopoverContent>
       </Popover>
     </>

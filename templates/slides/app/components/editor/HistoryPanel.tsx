@@ -104,9 +104,6 @@ export default function HistoryPanel({
   const handleRestore = async () => {
     if (!selectedVersionId) return;
     try {
-      // Aborting a fetch cannot undo a server-side write that was already
-      // accepted. Restore only after local saves issued before this click have
-      // settled, so the restore action is the final write in that sequence.
       await flushDeckSave(deckId);
       await restoreVersion.mutateAsync({
         deckId,

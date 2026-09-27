@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
-import { AgentViewCount } from "@/components/player/recording-views-badge";
+import { AgentViewCount } from "@/components/player/agent-view-count";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -124,6 +124,7 @@ export function RecordingCard({
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -221,6 +222,10 @@ export function RecordingCard({
     return recording.thumbnailUrl;
   }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
 
+  useEffect(() => {
+    setThumbnailFailed(false);
+  }, [displayThumbnail]);
+
   const ownerInitials = useMemo(() => {
     const words = displayOwnerName.split(/\s+/).filter(Boolean);
     if (words.length > 1) {
@@ -299,12 +304,14 @@ export function RecordingCard({
 
           {/* Thumbnail */}
           <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
-            {displayThumbnail ? (
+            {displayThumbnail && !thumbnailFailed ? (
               // eslint-disable-next-line jsx-a11y/alt-text
               <img
                 src={displayThumbnail}
                 className="h-full w-full object-cover"
                 draggable={false}
+                onError={() => setThumbnailFailed(true)}
+                loading="lazy"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">

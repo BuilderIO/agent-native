@@ -3,7 +3,9 @@ import type {
   AgentMessagePart,
   AgentObjectReference,
   AgentQueuedMessage,
+  AgentToolCall,
   AgentThreadSnapshot,
+  AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 
@@ -24,7 +26,6 @@ import {
 export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNativeChatRuntimeOptions {
   readonly adapter?: Omit<CreateAgentKitProtocolAdapterOptions, "operations">;
   readonly operations?: CreateAgentKitProtocolAdapterOptions["operations"];
-  /** Override the framework feedback endpoint for a custom host mount. */
   readonly feedbackUrl?: string;
 }
 
@@ -287,6 +288,64 @@ function storedMessageId(value: unknown): string | undefined {
   return typeof message?.id === "string" ? message.id : undefined;
 }
 
+function storedActionWidgets(value: unknown): {
+  toolCalls: AgentToolCall[];
+  widgets: AgentWidgetSnapshot[];
+} {
+  if (!Array.isArray(value)) return { toolCalls: [], widgets: [] };
+  const toolCalls: AgentToolCall[] = [];
+  const widgets: AgentWidgetSnapshot[] = [];
+
+  for (const [index, entry] of value.entries()) {
+    const outer = asRecord(entry);
+    const message = asRecord(outer?.message ?? outer);
+    if (!message || !Array.isArray(message.content)) continue;
+    const messageId =
+      typeof message.id === "string"
+        ? message.id
+        : `repository-message-${index}`;
+
+    for (const value of message.content) {
+      const part = asRecord(value);
+      const chatUI = asRecord(part?.chatUI);
+      if (
+        part?.type !== "tool-call" ||
+        typeof part.toolCallId !== "string" ||
+        typeof part.toolName !== "string" ||
+        typeof chatUI?.renderer !== "string" ||
+        chatUI.renderer.length === 0 ||
+        part.result === undefined
+      ) {
+        continue;
+      }
+
+      const input = asRecord(part.args);
+      const toolCall: AgentToolCall = {
+        id: part.toolCallId,
+        name: part.toolName,
+        ...(input ? { input } : {}),
+        output: "chatUIResult" in part ? part.chatUIResult : part.result,
+        status: part.isError === true ? "failed" : "completed",
+        messageId,
+      };
+      toolCalls.push(toolCall);
+      if (part.isError === true) continue;
+      const widget: AgentWidgetSnapshot["widget"] = {
+        id: `${part.toolCallId}:chat-ui`,
+        kind: chatUI.renderer,
+        data: { toolCallId: part.toolCallId, toolName: part.toolName },
+        ...(typeof chatUI.title === "string" ? { title: chatUI.title } : {}),
+        ...(typeof chatUI.description === "string"
+          ? { metadata: { description: chatUI.description } }
+          : {}),
+      };
+      widgets.push({ messageId, widget });
+    }
+  }
+
+  return { toolCalls, widgets };
+}
+
 async function responseError(response: Response): Promise<Error> {
   let body: string;
   try {
@@ -302,11 +361,6 @@ async function responseError(response: Response): Promise<Error> {
   );
 }
 
-/**
- * Creates the production AgentKit transport for Agent-Native applications.
- * It binds the portable protocol to durable Agent-Native threads, queue
- * persistence, approval continuation, and the built-in streaming endpoint.
- */
 export function createAgentNativeAgentKitTransport(
   options: CreateAgentNativeAgentKitTransportOptions = {},
 ): AgentKitProtocolAdapter {
@@ -352,6 +406,7 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
+    const actionWidgets = storedActionWidgets(repository.messages);
     queueCache.set(threadId, queuedMessages);
     return {
       id: threadId,
@@ -365,6 +420,7 @@ export function createAgentNativeAgentKitTransport(
         options.adapter?.textFormat,
       ),
       queuedMessages,
+      ...actionWidgets,
     };
   }
 

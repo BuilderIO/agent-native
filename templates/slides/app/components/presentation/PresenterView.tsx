@@ -35,11 +35,6 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
-  // `startIndex` is a raw index into the full (unfiltered) deck.slides array.
-  // Skipped slides are absent from safeSlides below, so translate it to the
-  // nearest visible slide's position within safeSlides — matching
-  // PresentationView, whose filtered currentIndex this view's `index` state
-  // otherwise mirrors via the BroadcastChannel.
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -162,9 +157,6 @@ export default function PresenterView({
       return;
     }
 
-    // Read the prior ids before overwriting the ref below — the lookup
-    // needs the slide order from before this update, not the one it's
-    // producing.
     const activeId = prevSafeSlideIdsRef.current[indexRef.current];
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;

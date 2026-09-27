@@ -17,10 +17,6 @@ const RUN_STATUSES = [
 ] as const;
 const RUN_SOURCES = ["chat", "ui", "a2a"] as const;
 
-/**
- * RFC 4180 minimal CSV escape. Wraps the field in double quotes and doubles
- * any embedded quote, which handles commas, newlines, and quotes safely.
- */
 function csv(value: unknown): string {
   if (value === null || value === undefined) return "";
   const s =
@@ -35,15 +31,6 @@ function csv(value: unknown): string {
   return s;
 }
 
-/**
- * Org-admin only. Bulk-exports a CSV of audit runs in a date window.
- *
- * The CSV is uploaded via the same storage layer as image objects (S3 in
- * prod, local fallback in dev). When S3 is configured, returns a presigned
- * URL with a short TTL. In dev, returns a same-origin static URL the
- * `/api/assets/:id/content` route doesn't serve (CSV bypasses that), so dev
- * users can copy the file from `data/assets-objects/audits/...` directly.
- */
 export default defineAction({
   description:
     "Org-admin only. Export the audit log to CSV with the given filters. Returns a presigned download URL valid for 30 minutes.",
@@ -105,7 +92,6 @@ export default defineAction({
       .orderBy(desc(schema.assetGenerationRuns.createdAt))
       .limit(50_000);
 
-    // Library titles in one batch.
     const libIds = [...new Set(rows.map((r) => r.libraryId))];
     const libs =
       libIds.length === 0
@@ -127,7 +113,6 @@ export default defineAction({
             );
     const libTitleById = new Map(libs.map((l) => [l.id, l.title]));
 
-    // Child counts in one batch.
     const childCounts = new Map<string, { total: number; saved: number }>();
     if (rows.length) {
       const runIds = rows.map((r) => r.id);

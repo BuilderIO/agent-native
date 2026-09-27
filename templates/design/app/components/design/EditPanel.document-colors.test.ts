@@ -56,6 +56,31 @@ describe("extractDocumentColorPalette", () => {
     expect(palette).toHaveLength(3);
   });
 
+  it("re-reads a file whose bytes changed under the same id and length", () => {
+    const red = '<div style="color: #FF0000;"></div>';
+    const green = '<div style="color: #00FF00;"></div>';
+    const other = { id: "file-2", content: '<p style="color: #0000FF;"></p>' };
+    const cache = new Map();
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: red }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#FF0000", "#0000FF"]);
+    expect(
+      extractDocumentColorPalette(
+        [{ id: "file-1", content: green }, other],
+        undefined,
+        cache,
+      ),
+    ).toEqual(["#00FF00", "#0000FF"]);
+    expect(extractDocumentColorPalette([other], undefined, cache)).toEqual([
+      "#0000FF",
+    ]);
+    expect([...cache.keys()]).toEqual(["file-2"]);
+  });
+
   it("normalizes different formats of the same color to one deduped entry", () => {
     const palette = extractDocumentColorPalette([
       {
@@ -119,6 +144,24 @@ describe("extractDocumentColorPalette", () => {
     ).toContain("--color-bg: #000000");
   });
 
+  it("reads and rewrites svg paint attributes that an inline style does not override", () => {
+    const content = `<svg fill="none" viewBox="0 0 20 20"><path d="M0 0" fill="rgb(255, 255, 255)"></path><path d="M1 1" stroke="#000000" style="stroke: #a62e2e"></path></svg>`;
+    const scopes = [{ fileId: "file-1", content, wholeDocument: true }];
+
+    expect(selectionColorValues([], scopes).map((c) => c.value)).toEqual([
+      "rgb(255, 255, 255)",
+      "#a62e2e",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        scopes,
+        "rgb(255, 255, 255)",
+        "#ff0000",
+      ),
+    ).toContain('fill="#ff0000"');
+  });
+
   it("orders results by descending frequency (most-used colors first)", () => {
     const palette = extractDocumentColorPalette([
       {
@@ -152,8 +195,6 @@ describe("extractDocumentColorPalette", () => {
   it("caps results at the given limit, keeping the most frequent colors", () => {
     const content = Array.from({ length: 30 }, (_, i) => {
       const hex = i.toString(16).padStart(2, "0");
-      // Repeat earlier colors more often than later ones so frequency order
-      // is unambiguous once capped.
       const repeats = 30 - i;
       return `<div style="color:#${hex}${hex}${hex};">`.repeat(repeats);
     }).join("");
@@ -161,7 +202,6 @@ describe("extractDocumentColorPalette", () => {
     const palette = extractDocumentColorPalette([{ id: "f", content }], 5);
 
     expect(palette).toHaveLength(5);
-    // The 5 most-repeated colors are the first 5 generated (i = 0..4).
     expect(palette).toEqual([
       "#000000",
       "#010101",
@@ -552,10 +592,6 @@ describe("selectionColorValues", () => {
   });
 
   it("skips any other zero-alpha color, not just the two literal spellings", () => {
-    // Regression: this used to only filter the exact strings "transparent"
-    // and "rgba(0, 0, 0, 0)" — a zero-alpha color with any other RGB
-    // channels or formatting (e.g. a non-black rgba, or hsla) slipped
-    // through as a bogus, effectively-invisible "selection color" swatch.
     const values = selectionColorValues(
       fakeElement({
         color: "rgb(0, 0, 0)",
@@ -626,6 +662,66 @@ describe("selectionColorValues", () => {
         { fileId: "screen", content, sourceId: "root" },
       ]),
     ).toEqual([{ property: "color", value: "#0066ff" }]);
+  });
+
+  it("reads and replaces SVG presentation colors only inside the selected subtree", () => {
+    const content = [
+      '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+      '<path fill="#f97316" d="M0 0h30v30z"/>',
+      '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+      "</svg>",
+      '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+    ].join("");
+    const scopes = [{ fileId: "screen", content, sourceId: "logo" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#111111" },
+      { property: "color", value: "#f97316" },
+      { property: "color", value: "#16a34a" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#f97316", "#8b5cf6"),
+    ).toBe(
+      [
+        '<svg data-agent-native-node-id="logo" aria-label="Brand fill=#f97316" data-note="stroke: #f97316" fill="#111111">',
+        '<path fill="#8b5cf6" d="M0 0h30v30z"/>',
+        '<circle fill="#16a34a" cx="60" cy="20" r="15"/>',
+        "</svg>",
+        '<svg><path fill="#f97316" d="M0 0h10v10z"/></svg>',
+      ].join(""),
+    );
+  });
+
+  it("preserves SVG ancestry while scanning nested selected groups and paths", () => {
+    const content =
+      '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#f97316"/></g></svg>';
+
+    for (const sourceId of ["group", "path"]) {
+      const scopes = [{ fileId: "screen", content, sourceId }];
+      expect(selectionColorValues([], scopes)).toEqual([
+        { property: "color", value: "#f97316" },
+      ]);
+      expect(
+        replaceSelectionColorsInHtml(content, scopes, "#f97316", "#2563eb"),
+      ).toBe(
+        '<svg data-an-primitive="pasted-svg"><g data-agent-native-node-id="group"><path data-agent-native-node-id="path" fill="#2563eb"/></g></svg>',
+      );
+    }
+  });
+
+  it("does not treat SVG gradient references as colors but edits stop colors", () => {
+    const content =
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#123456"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>';
+    const scopes = [{ fileId: "screen", content, sourceId: "gradient" }];
+
+    expect(selectionColorValues([], scopes)).toEqual([
+      { property: "color", value: "#123456" },
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(content, scopes, "#123456", "#ef4444"),
+    ).toBe(
+      '<svg data-agent-native-node-id="gradient"><defs><linearGradient id="a1b2c3"><stop stop-color="#ef4444"/></linearGradient></defs><path fill="url(#a1b2c3)" stroke="url(#fff)"/></svg>',
+    );
   });
 
   it("scans every descendant in a selected source range and counts reuse", () => {
@@ -826,8 +922,6 @@ describe("selectionColorValues", () => {
       phase: "preview",
     });
 
-    // Undo restores the source from before the prior commit while the picker
-    // remains open; the old gesture must not target a color in that new source.
     args.scopes = [{ fileId: "screen", content: initial, sourceId: "root" }];
     expect(
       runSelectionColorChange(args, "#f97316", "#22c55e", {

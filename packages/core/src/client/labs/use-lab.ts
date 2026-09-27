@@ -1,4 +1,5 @@
 import { useActionQuery } from "../use-action.js";
+import { useSession } from "../use-session.js";
 
 export type LabValues = Record<string, boolean>;
 
@@ -8,10 +9,14 @@ export function useLabState(key: string): {
   isError: boolean;
   isSuccess: boolean;
 } {
-  const query = useActionQuery<LabValues>("get-labs" as never);
+  const { status } = useSession();
+  const query = useActionQuery<LabValues>("get-labs" as never, undefined, {
+    enabled: status === "authenticated",
+  });
   return {
     enabled: query.data?.[key] === true,
-    isLoading: query.isLoading,
+    isLoading:
+      query.isLoading || (status === "loading" && query.data === undefined),
     isError: query.isError,
     isSuccess: query.isSuccess,
   };
@@ -23,6 +28,9 @@ export function useLab(key: string): boolean {
 }
 
 export function useLabs(): LabValues {
-  const query = useActionQuery<LabValues>("get-labs" as never);
+  const { status } = useSession();
+  const query = useActionQuery<LabValues>("get-labs" as never, undefined, {
+    enabled: status === "authenticated",
+  });
   return query.data ?? {};
 }

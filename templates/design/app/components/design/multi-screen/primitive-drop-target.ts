@@ -23,27 +23,9 @@ export interface PrimitiveDropTarget {
   nodeId: string;
   screenId: string;
   boardRect: FrameGeometry;
-  /** Exact source projection and node used by the geometry hit test. */
   targetIdentity?: ScreenProjectionNodeIdentity;
-  /**
-   * Set when the drop resolves to a flow-insert slot between two auto-layout
-   * (flex/grid) children instead of a plain "append inside" drop — mirrors
-   * the cross-screen hit-test's placement/axis contract (see
-   * getCrossScreenDropGuideForHitTest) so the overview canvas draws the same
-   * Figma-style insertion LINE, and the same anchor + placement can be
-   * threaded straight through onPrimitiveReparent. Undefined means "inside"
-   * (append as the last/only child of `nodeId`), matching pre-existing
-   * behavior.
-   */
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
-  /**
-   * The sibling node to anchor a before/after flow-insert against. Only set
-   * when `placement` is "before" or "after" — `nodeId` still identifies the
-   * containing auto-layout primitive so callers can resolve the drop's
-   * screen/highlight, while `anchorNodeId` is what the actual moveNode/
-   * moveNodeBetweenDocuments call should target as its anchor.
-   */
   anchorNodeId?: string;
 }
 
@@ -51,25 +33,20 @@ export interface ParsedScreenPrimitive {
   nodeId: string;
   screenId: string;
   projectionIdentity?: ScreenProjectionNodeIdentity;
-  /** data-agent-native-node-id of the nearest ancestor primitive, if any. */
   parentNodeId?: string;
   parentProjectionNodeId?: string;
+  projectionAncestorNodeIds?: string[];
   localLeft: number;
   localTop: number;
   localWidth: number;
   localHeight: number;
   isContainer: boolean;
-  /**
-   * Set when this primitive is itself an auto-layout (flex/grid) container,
-   * to the flow axis new children are inserted along ("x" for a row flex/
-   * multi-column grid, "y" for column flex/single-column grid). Wrapped flex
-   * containers keep their main axis here while insertion distance also uses
-   * the cross axis. Undefined for plain absolute/canvas-frame containers,
-   * which only ever accept an "inside" (append) drop.
-   */
   autoLayoutAxis?: CrossScreenDropAxis;
-  /** Wrapped flex containers choose the nearest child by two-dimensional distance. */
   autoLayoutWrapped?: boolean;
+  autoLayoutGrid?: boolean;
+  zIndex?: number;
+  stackingContextZIndices?: number[];
+  stackingContextOrders?: number[];
 }
 
 function primitiveMatchesNodeId(
@@ -82,19 +59,121 @@ function primitiveMatchesNodeId(
   );
 }
 
-/**
- * Mirrors hit-test.bridge.ts's parentFlowAxis: resolves the flow axis new
- * children are inserted along for a flex/grid container, or undefined when
- * the element isn't an auto-layout container at all. Kept in sync with that
- * bridge implementation (which runs against live computed styles inside the
- * iframe) — this version only has the authored inline style available, which
- * is sufficient since auto-layout is always inspector-authored inline CSS.
- */
+function isPrimitiveAncestor(
+  ancestor: ParsedScreenPrimitive,
+  descendant: ParsedScreenPrimitive,
+  primitives: ParsedScreenPrimitive[],
+): boolean {
+  if (descendant.projectionAncestorNodeIds) {
+    return ancestor.projectionIdentity
+      ? descendant.projectionAncestorNodeIds.includes(
+          ancestor.projectionIdentity.nodeId,
+        )
+      : false;
+  }
+  let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
+  const seen = new Set<string>();
+  while (parentId && !seen.has(parentId)) {
+    const currentParentId = parentId;
+    seen.add(currentParentId);
+    if (primitiveMatchesNodeId(ancestor, currentParentId)) return true;
+    const parents = primitives.filter((primitive) =>
+      primitiveMatchesNodeId(primitive, currentParentId),
+    );
+    if (parents.length !== 1) return false;
+    const parent = parents[0];
+    parentId = parent.parentProjectionNodeId ?? parent.parentNodeId;
+  }
+  return false;
+}
+
+function createsAuthoredStackingContext(
+  style: CSSStyleDeclaration,
+  parentDisplay: string,
+): boolean {
+  const value = (property: string) =>
+    style.getPropertyValue(property).trim().toLowerCase();
+  const position = value("position") || "static";
+  const zIndex = Number.parseInt(value("z-index"), 10);
+  const zIndexApplies =
+    position !== "static" ||
+    /^(?:flex|inline-flex|grid|inline-grid)$/.test(parentDisplay);
+
+  if (
+    position === "fixed" ||
+    position === "sticky" ||
+    (Number.isFinite(zIndex) && zIndexApplies)
+  ) {
+    return true;
+  }
+  const opacity = Number.parseFloat(value("opacity"));
+  if (Number.isFinite(opacity) && opacity < 1) return true;
+  if (
+    [
+      "transform",
+      "scale",
+      "rotate",
+      "translate",
+      "filter",
+      "backdrop-filter",
+      "perspective",
+      "clip-path",
+      "mask",
+      "mask-image",
+    ].some((property) => {
+      const propertyValue = value(property);
+      return propertyValue !== "" && propertyValue !== "none";
+    })
+  ) {
+    return true;
+  }
+  if (value("mix-blend-mode") && value("mix-blend-mode") !== "normal") {
+    return true;
+  }
+  if (value("isolation") === "isolate") return true;
+  if (/\b(?:layout|paint|strict|content)\b/.test(value("contain"))) {
+    return true;
+  }
+  if (/^(?:size|inline-size)$/.test(value("container-type"))) return true;
+  return /\b(?:opacity|transform|filter|perspective|clip-path|mask)\b/.test(
+    value("will-change"),
+  );
+}
+
+function compareStackingContexts(
+  left: ParsedScreenPrimitive,
+  right: ParsedScreenPrimitive,
+): number {
+  const leftContexts = left.stackingContextZIndices ?? [];
+  const rightContexts = right.stackingContextZIndices ?? [];
+  const leftOrders = left.stackingContextOrders ?? [];
+  const rightOrders = right.stackingContextOrders ?? [];
+  for (
+    let index = 0;
+    index < Math.min(leftContexts.length, rightContexts.length);
+    index += 1
+  ) {
+    if (
+      leftOrders[index] !== undefined &&
+      rightOrders[index] !== undefined &&
+      leftOrders[index] !== rightOrders[index]
+    ) {
+      if (leftContexts[index] === rightContexts[index]) return 0;
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
+    if (leftContexts[index] !== rightContexts[index]) {
+      return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
+    }
+  }
+  return (left.zIndex ?? 0) - (right.zIndex ?? 0);
+}
+
 function computeAutoLayoutAxis(style: {
   display: string;
   flexDirection: string;
   flexWrap: string;
   gridTemplateColumns: string;
+  gridAutoFlow: string;
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
     const direction = style.flexDirection || "row";
@@ -102,24 +181,153 @@ function computeAutoLayoutAxis(style: {
     return isRow ? "x" : "y";
   }
   if (style.display === "grid" || style.display === "inline-grid") {
-    const columns = (style.gridTemplateColumns || "")
-      .split(" ")
-      .filter(Boolean).length;
+    if (
+      /repeat\(\s*(?:auto-fit|auto-fill)\s*,/i.test(style.gridTemplateColumns)
+    ) {
+      return undefined;
+    }
+    if (/^column(?:-dense)?\b/i.test(style.gridAutoFlow)) return "y";
+    const columns = gridTrackCount(style.gridTemplateColumns);
     return columns > 1 ? "x" : "y";
   }
   return undefined;
 }
 
-/**
- * Resolves a between-children flow-insert slot inside `container` from a
- * screen-local drop point — the nearest child (by flow-axis center, or
- * two-dimensional visual distance for wrapped flex) becomes
- * the anchor with before/after placement, exactly mirroring hit-test.bridge.
- * ts's nearestChildInsertionTarget so overview-canvas drag-drop and in-iframe
- * cross-screen drag-drop produce the same Figma-style insertion behavior.
- * Returns null when the container isn't auto-layout or has no eligible
- * children (callers fall back to "inside" append).
- */
+function gridTrackCount(template: string): number {
+  let count = 0;
+  for (const track of gridTemplateTokens(template)) {
+    if (/^\[[^\]]+\]$/.test(track)) continue;
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    count += repeat ? Number(repeat[1]) * gridTrackCount(repeat[2]) : 1;
+  }
+  return count;
+}
+
+function gridTemplateTokens(template: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  const flush = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (const character of template.trim()) {
+    if (/\s/.test(character) && parenDepth === 0 && bracketDepth === 0) {
+      flush();
+      continue;
+    }
+    token += character;
+    if (character === "(") parenDepth += 1;
+    else if (character === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (character === "[") bracketDepth += 1;
+    else if (character === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+  }
+  flush();
+  return tokens;
+}
+
+function gridTracks(template: string): string[] {
+  const tokens = gridTemplateTokens(template).filter(
+    (track) => track && !/^\[[^\]]+\]$/.test(track),
+  );
+  return tokens.flatMap((track) => {
+    const repeat = track.match(/^repeat\(\s*(\d+)\s*,([\s\S]+)\)$/i);
+    if (!repeat) return [track];
+    return Array.from({ length: Number(repeat[1]) }, () =>
+      gridTracks(repeat[2]),
+    ).flat();
+  });
+}
+
+function extendGridTracks(tracks: string[], minimumCount: number): string[] {
+  const result = tracks.length ? [...tracks] : ["1fr"];
+  const fill = result[result.length - 1] ?? "1fr";
+  while (result.length < minimumCount) result.push(fill);
+  return result;
+}
+
+function gridTrackPixels(
+  tracks: string[],
+  available: number,
+  gap: number,
+): number[] {
+  const fixed = tracks.map((track) => {
+    const px = cssPixelNumber(track);
+    if (px) return { size: px, fr: 0 };
+    const minmax = track.match(
+      /^minmax\(\s*(\d+(?:\.\d+)?)px\s*,\s*([^,]+)\)$/i,
+    );
+    const fr = (minmax?.[2] ?? track).match(/(?:^|,)\s*(\d+(?:\.\d+)?)fr/);
+    return {
+      size: minmax ? Number(minmax[1]) : 0,
+      fr: fr ? Number(fr[1]) : 0,
+    };
+  });
+  const remaining = Math.max(
+    0,
+    available -
+      gap * Math.max(0, tracks.length - 1) -
+      fixed.reduce((sum, item) => sum + (item.fr ? 0 : item.size), 0),
+  );
+  const frTotal = fixed.reduce((sum, item) => sum + item.fr, 0);
+  return fixed.map((item) =>
+    item.fr
+      ? Math.max(item.size, frTotal ? (remaining * item.fr) / frTotal : 0)
+      : item.size,
+  );
+}
+
+function gridLine(template: string, value: string, fallback: number): number {
+  if (/^span(?:\s|$)/i.test(value.trim())) return fallback;
+  const numeric = Number.parseInt(value, 10);
+  if (Number.isFinite(numeric)) {
+    return numeric < 0
+      ? Math.max(1, gridTrackCount(template) + numeric + 2)
+      : numeric;
+  }
+  const match = value.match(/^(?:[\w-]+\s+)?([\w-]+)$/)?.[1];
+  if (!match) return fallback;
+  for (const group of template.matchAll(/\[([^\]]+)\]/g)) {
+    if (group[1].split(/\s+/).includes(match)) {
+      return gridTrackCount(template.slice(0, group.index ?? 0)) + 1;
+    }
+  }
+  return fallback;
+}
+
+function gridStartValue(
+  style: CSSStyleDeclaration,
+  axis: "column" | "row",
+): string {
+  const start = axis === "column" ? style.gridColumnStart : style.gridRowStart;
+  if (start) return start;
+  const shorthand = axis === "column" ? style.gridColumn : style.gridRow;
+  return shorthand.split("/")[0]?.trim() ?? "";
+}
+
+function gridStartIndex(
+  style: CSSStyleDeclaration,
+  axis: "column" | "row",
+  template: string,
+): number | undefined {
+  const value = gridStartValue(style, axis);
+  if (!value || /^auto$/i.test(value)) return undefined;
+  const line = gridLine(template, value, Number.NaN);
+  return Number.isFinite(line) ? line : undefined;
+}
+
+function gridSpan(style: CSSStyleDeclaration, axis: "column" | "row") {
+  const shorthand = axis === "column" ? style.gridColumn : style.gridRow;
+  const end = axis === "column" ? style.gridColumnEnd : style.gridRowEnd;
+  const values = [gridStartValue(style, axis), end, shorthand.split("/")[1]];
+  for (const value of values) {
+    const match = value?.trim().match(/^span\s+(\d+)/i);
+    if (match) return Math.max(1, Number(match[1]));
+  }
+  return 1;
+}
+
 export function findAutoLayoutInsertionAnchor(
   container: ParsedScreenPrimitive,
   screenPrimitives: ParsedScreenPrimitive[],
@@ -153,12 +361,20 @@ export function findAutoLayoutInsertionAnchor(
         ? sibling.localLeft + sibling.localWidth / 2
         : sibling.localTop + sibling.localHeight / 2;
     const pointer = axis === "x" ? localPoint.x : localPoint.y;
-    const distance = container.autoLayoutWrapped
-      ? Math.hypot(
-          localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
-          localPoint.y - (sibling.localTop + sibling.localHeight / 2),
-        )
-      : Math.abs(pointer - center);
+    const gridHasRows =
+      container.autoLayoutGrid === true &&
+      screenPrimitives.some(
+        (candidate) =>
+          candidate.parentNodeId === container.nodeId &&
+          candidate.localTop !== sibling.localTop,
+      );
+    const distance =
+      container.autoLayoutWrapped || gridHasRows
+        ? Math.hypot(
+            localPoint.x - (sibling.localLeft + sibling.localWidth / 2),
+            localPoint.y - (sibling.localTop + sibling.localHeight / 2),
+          )
+        : Math.abs(pointer - center);
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
@@ -198,7 +414,16 @@ export function isPrimitiveContainer(args: {
   display: string;
   borderRadius: string;
 }): boolean {
-  const isDiv = args.tagName.toLowerCase() === "div";
+  const isDiv = [
+    "div",
+    "section",
+    "main",
+    "header",
+    "footer",
+    "article",
+    "nav",
+    "aside",
+  ].includes(args.tagName.toLowerCase());
   const primitiveKind = args.primitiveKind.toLowerCase();
   const isEllipse =
     args.borderRadius === "50%" || args.borderRadius === "50% 50% 50% 50%";
@@ -208,9 +433,6 @@ export function isPrimitiveContainer(args: {
     args.display === "inline-flex" ||
     args.display === "grid" ||
     args.display === "inline-grid";
-  // Canvas frames are structural containers even before Auto layout is
-  // enabled. Treating only rectangles as freeform containers made a freshly
-  // drawn frame reject child drops until the user changed its display mode.
   const isCanvasContainer =
     isDiv &&
     (primitiveKind === "rectangle" ||
@@ -404,6 +626,37 @@ function parentContentSize(
   return style.boxSizing === "border-box" ? Math.max(0, size - padding) : size;
 }
 
+function authoredGridTrackSize(
+  element: Element,
+  parent: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+  cache: AuthoredSizeCache,
+  visiting: Set<Element>,
+) {
+  const parentStyle = (parent as HTMLElement).style;
+  const template =
+    axis === "x"
+      ? parentStyle.gridTemplateColumns
+      : parentStyle.gridTemplateRows;
+  const tracks = gridTracks(template);
+  const line = gridStartIndex(
+    (element as HTMLElement).style,
+    axis === "x" ? "column" : "row",
+    template,
+  );
+  if (!tracks.length || line === undefined || line < 1) return reference;
+  return (
+    gridTrackPixels(
+      tracks,
+      parentContentSize(parent, axis, cache, visiting),
+      cssPixelNumber(
+        parentStyle[axis === "x" ? "columnGap" : "rowGap"] || parentStyle.gap,
+      ),
+    )[line - 1] ?? reference
+  );
+}
+
 function flexItemBaseSize(
   element: Element,
   axis: AuthoredSizeAxis,
@@ -564,7 +817,16 @@ function authoredElementSize(
           );
         } else if (mainAxis === axis) {
           size = flexItemBaseSize(element, axis, reference, cache, visiting);
-        } else if (mainAxis !== axis || parentIsGrid) {
+        } else if (parentIsGrid) {
+          size = authoredGridTrackSize(
+            element,
+            parent,
+            axis,
+            reference,
+            cache,
+            visiting,
+          );
+        } else if (mainAxis !== axis) {
           const alignSelf =
             style.alignSelf || parentStyle.alignItems || "stretch";
           if (alignSelf === "stretch" || parentIsGrid) size = reference;
@@ -574,7 +836,6 @@ function authoredElementSize(
         !isOutOfFlow &&
         element.tagName.toLowerCase() === "div"
       ) {
-        // A block child with width:auto fills its containing block.
         size = reference;
       }
     }
@@ -588,11 +849,16 @@ function authoredElementSize(
   return resolved;
 }
 
-function hasUnsupportedGridAncestor(element: Element) {
+function hasNestedGridAncestor(element: Element) {
   let ancestor = element.parentElement;
   while (ancestor) {
     const display = (ancestor as HTMLElement).style.display;
-    if (display === "grid" || display === "inline-grid") return true;
+    if (
+      (display === "grid" || display === "inline-grid") &&
+      ancestor !== element.parentElement
+    ) {
+      return true;
+    }
     ancestor = ancestor.parentElement;
   }
   return false;
@@ -625,12 +891,6 @@ function estimatedTextLineWidth(
   );
 }
 
-/**
- * Deterministic, string/inline-style-only bounds for drawn auto-sized text.
- * This intentionally avoids layout APIs so the same fallback works in SSR,
- * tests, and before the live iframe answers. It is conservative enough for
- * hit testing while honoring the authored typography and wrap contract.
- */
 export function authoredTextIntrinsicSize(element: Element) {
   const style = (element as HTMLElement).style;
   const fontSize = Math.max(1, cssPixelNumber(style.fontSize) || 16);
@@ -678,19 +938,6 @@ export function authoredTextIntrinsicSize(element: Element) {
   };
 }
 
-/**
- * Approximates an authored node's screen-local position from inline layout.
- * This parser is the no-iframe fallback used while a live bridge is absent;
- * absolute descendants must accumulate positioned ancestors (including
- * inline relative/sticky left/top), and common single-line flex/block
- * flows need their preceding siblings accounted for.
- *
- * Exported so DesignEditor.tsx's getAbsolutePositioningForNodeInHtml can
- * reuse the same ancestor-walking logic instead of reading a node's own
- * inline left/top in isolation (which is only correct for direct children of
- * the screen root — see that function's call sites for the nested-container
- * reparent fix this enables).
- */
 export function authoredElementPosition(
   element: Element,
   cache: AuthoredSizeCache = new Map(),
@@ -724,6 +971,7 @@ export function authoredElementPosition(
       const index = siblings.indexOf(cursor);
       const display = parentStyle.display;
       const isFlex = display === "flex" || display === "inline-flex";
+      const isGrid = display === "grid" || display === "inline-grid";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
       const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
@@ -731,7 +979,162 @@ export function authoredElementPosition(
         if (isRow) x += inlineNumber(cursor, "marginLeft");
         else y += inlineNumber(cursor, "marginTop");
       }
-      if (index > 0) {
+      if (isGrid) {
+        const columnValue = gridStartValue(style, "column");
+        const rowValue = gridStartValue(style, "row");
+        const autoChildren = siblings.filter(
+          (sibling) => !isOutOfFlow(sibling),
+        );
+        const columns = gridTracks(parentStyle.gridTemplateColumns);
+        const rows = gridTracks(parentStyle.gridTemplateRows);
+        const baseColumnCount = Math.max(1, columns.length);
+        const baseRowCount = Math.max(1, rows.length);
+        const columnTracks = extendGridTracks(
+          columns,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.ceil(autoChildren.length / baseRowCount)
+            : baseColumnCount,
+        );
+        const rowTracks = extendGridTracks(
+          rows,
+          parentStyle.gridAutoFlow.includes("column")
+            ? baseRowCount
+            : Math.ceil(autoChildren.length / columnTracks.length),
+        );
+        const columnCount = columnTracks.length;
+        const rowCount = rowTracks.length;
+        const occupied = new Set<string>();
+        for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
+          const explicitColumn = gridStartIndex(
+            siblingStyle,
+            "column",
+            parentStyle.gridTemplateColumns,
+          );
+          const explicitRow = gridStartIndex(
+            siblingStyle,
+            "row",
+            parentStyle.gridTemplateRows,
+          );
+          if (explicitColumn !== undefined || explicitRow !== undefined) {
+            const rowStart = explicitRow ?? 1;
+            const rowEnd = rowStart + gridSpan(siblingStyle, "row");
+            const columnStart = explicitColumn ?? 1;
+            const columnEnd = columnStart + gridSpan(siblingStyle, "column");
+            for (let row = rowStart; row < rowEnd; row += 1) {
+              for (let column = columnStart; column < columnEnd; column += 1) {
+                occupied.add(`${row}:${column}`);
+              }
+            }
+          }
+        }
+        let autoSlot = 0;
+        for (const sibling of autoChildren) {
+          const siblingStyle = (sibling as HTMLElement).style;
+          const explicitColumn = gridStartIndex(
+            siblingStyle,
+            "column",
+            parentStyle.gridTemplateColumns,
+          );
+          const explicitRow = gridStartIndex(
+            siblingStyle,
+            "row",
+            parentStyle.gridTemplateRows,
+          );
+          const hasExplicit =
+            explicitColumn !== undefined || explicitRow !== undefined;
+          if (hasExplicit) continue;
+          if (parentStyle.gridAutoFlow.includes("dense")) autoSlot = 0;
+          while (true) {
+            const row = parentStyle.gridAutoFlow.includes("column")
+              ? (autoSlot % rowCount) + 1
+              : Math.floor(autoSlot / columnCount) + 1;
+            const column = parentStyle.gridAutoFlow.includes("column")
+              ? Math.floor(autoSlot / rowCount) + 1
+              : (autoSlot % columnCount) + 1;
+            const rowSpan = gridSpan(siblingStyle, "row");
+            const columnSpan = gridSpan(siblingStyle, "column");
+            const rowFitsExplicitTracks =
+              row > rowCount ? true : row + rowSpan - 1 <= rowCount;
+            const columnFitsExplicitTracks =
+              column > columnCount
+                ? true
+                : column + columnSpan - 1 <= columnCount;
+            const fitsExplicitTracks =
+              rowFitsExplicitTracks && columnFitsExplicitTracks;
+            const fits =
+              fitsExplicitTracks &&
+              Array.from({ length: rowSpan }).every((_, rowOffset) =>
+                Array.from({ length: columnSpan }).every(
+                  (_, columnOffset) =>
+                    !occupied.has(
+                      `${row + rowOffset}:${column + columnOffset}`,
+                    ),
+                ),
+              );
+            if (fits) break;
+            autoSlot += 1;
+          }
+          if (sibling === cursor) break;
+          const row = parentStyle.gridAutoFlow.includes("column")
+            ? (autoSlot % rowCount) + 1
+            : Math.floor(autoSlot / columnCount) + 1;
+          const column = parentStyle.gridAutoFlow.includes("column")
+            ? Math.floor(autoSlot / rowCount) + 1
+            : (autoSlot % columnCount) + 1;
+          for (
+            let rowOffset = 0;
+            rowOffset < gridSpan(siblingStyle, "row");
+            rowOffset += 1
+          ) {
+            for (
+              let columnOffset = 0;
+              columnOffset < gridSpan(siblingStyle, "column");
+              columnOffset += 1
+            ) {
+              occupied.add(`${row + rowOffset}:${column + columnOffset}`);
+            }
+          }
+          autoSlot += 1;
+        }
+        const autoIndex = autoSlot;
+        const column = gridLine(
+          parentStyle.gridTemplateColumns,
+          columnValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? Math.floor(autoIndex / rowCount) + 1
+            : (autoIndex % columnCount) + 1,
+        );
+        const row = gridLine(
+          parentStyle.gridTemplateRows,
+          rowValue,
+          parentStyle.gridAutoFlow.includes("column")
+            ? (autoIndex % rowCount) + 1
+            : Math.floor(autoIndex / columnCount) + 1,
+        );
+        const gapX = cssPixelNumber(parentStyle.columnGap || parentStyle.gap);
+        const gapY = cssPixelNumber(parentStyle.rowGap || parentStyle.gap);
+        const columnSizes = gridTrackPixels(
+          columnTracks,
+          parentContentSize(parent, "x", cache, visiting),
+          gapX,
+        );
+        const rowSizes = gridTrackPixels(
+          rowTracks,
+          parentContentSize(parent, "y", cache, visiting),
+          gapY,
+        );
+        if (column > 1) {
+          x += columnTracks
+            .slice(0, column - 1)
+            .reduce((sum, _track, index) => sum + columnSizes[index] + gapX, 0);
+        }
+        if (row > 1) {
+          y += rowTracks
+            .slice(0, row - 1)
+            .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
+        }
+      } else if (index > 0) {
         const previous = siblings.slice(0, index);
         for (const sibling of previous as Element[]) {
           if (isOutOfFlow(sibling)) continue;
@@ -797,12 +1200,19 @@ export function parsePrimitivesFromScreen(
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
     const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
+    const projectionParentIdByNodeId = new Map(
+      projection.nodes.map((node) => [node.id, node.parentId]),
+    );
     const projectionIdentityByElement = new Map<
       Element,
       ScreenProjectionNodeIdentity
     >();
     const projectionParentIdByElement = new Map<Element, string>();
     const ambiguousIdentityElements = new Set<Element>();
+    const domOrderByElement = new Map<Element, number>();
+    Array.from(doc.querySelectorAll("*")).forEach((element, index) => {
+      domOrderByElement.set(element, index);
+    });
     for (const node of projection.nodes) {
       const matches = Array.from(doc.querySelectorAll(node.path));
       if (matches.length !== 1 || !matches[0]) continue;
@@ -827,10 +1237,7 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
-      // ponytail: grid placement stays in the live bridge; omit descendants
-      // here until authored track parsing exists instead of returning the
-      // entire grid bounds as a false hit target.
-      if (hasUnsupportedGridAncestor(element)) return;
+      if (hasNestedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
       const style = htmlElement.style;
@@ -854,14 +1261,54 @@ export function parsePrimitivesFromScreen(
         flexDirection: style.flexDirection,
         flexWrap: style.flexWrap,
         gridTemplateColumns: style.gridTemplateColumns,
+        gridAutoFlow: style.gridAutoFlow,
       });
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
+      const autoLayoutGrid =
+        style.display === "grid" || style.display === "inline-grid";
+      const projectionIdentity = projectionIdentityByElement.get(element);
+      const projectionAncestorNodeIds: string[] = [];
+      const seenProjectionIds = new Set<string>();
+      let projectionAncestorId = projectionParentIdByElement.get(element);
+      while (
+        projectionAncestorId &&
+        !seenProjectionIds.has(projectionAncestorId)
+      ) {
+        seenProjectionIds.add(projectionAncestorId);
+        projectionAncestorNodeIds.push(projectionAncestorId);
+        projectionAncestorId =
+          projectionParentIdByNodeId.get(projectionAncestorId);
+      }
+      const parsedZIndex = Number.parseInt(style.zIndex, 10);
+      const stackingContextZIndices: number[] = [];
+      const stackingContextOrders: number[] = [];
+      let contextElement: Element | null = element;
+      while (contextElement) {
+        const contextStyle = (contextElement as HTMLElement).style;
+        const parentDisplay = contextElement.parentElement
+          ? (contextElement.parentElement as HTMLElement).style.display
+          : "";
+        const contextZIndex = Number.parseInt(contextStyle.zIndex, 10);
+        if (createsAuthoredStackingContext(contextStyle, parentDisplay)) {
+          stackingContextZIndices.unshift(
+            Number.isFinite(contextZIndex) ? contextZIndex : 0,
+          );
+          stackingContextOrders.unshift(
+            domOrderByElement.get(contextElement) ?? 0,
+          );
+        }
+        contextElement = contextElement.parentElement;
+      }
+      const zIndexApplies =
+        (style.position || "static") !== "static" ||
+        /^(?:flex|inline-flex|grid|inline-grid)$/.test(
+          element.parentElement
+            ? (element.parentElement as HTMLElement).style.display
+            : "",
+        );
 
-      // Nearest ancestor primitive id, used to resolve direct children of a
-      // container for auto-layout before/after anchor resolution — see
-      // findAutoLayoutInsertionAnchor.
       let parentNodeId: string | undefined;
       let ancestor: Element | null = element.parentElement;
       while (ancestor && ancestor.tagName.toLowerCase() !== "body") {
@@ -876,9 +1323,12 @@ export function parsePrimitivesFromScreen(
       result.push({
         nodeId,
         screenId: screen.id,
-        projectionIdentity: projectionIdentityByElement.get(element),
+        projectionIdentity,
         parentProjectionNodeId: projectionParentIdByElement.get(element),
         parentNodeId,
+        ...(projectionAncestorNodeIds.length
+          ? { projectionAncestorNodeIds }
+          : {}),
         localLeft: position.x,
         localTop: position.y,
         localWidth: width,
@@ -886,6 +1336,12 @@ export function parsePrimitivesFromScreen(
         isContainer,
         autoLayoutAxis,
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
+        ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
+        ...(Number.isFinite(parsedZIndex) && zIndexApplies
+          ? { zIndex: parsedZIndex }
+          : {}),
+        ...(stackingContextZIndices.length ? { stackingContextZIndices } : {}),
+        ...(stackingContextOrders.length ? { stackingContextOrders } : {}),
       });
     });
   } catch {
@@ -1006,15 +1462,13 @@ export function getPrimitiveDropTargetForPoint(
   const metadata = getMetadata(topScreen.screen);
   const primitives = parsePrimitivesFromScreen(topScreen.screen);
   let best: PrimitiveDropTarget | null = null;
+  let bestPrimitive: ParsedScreenPrimitive | null = null;
   for (const primitive of primitives) {
     if (!primitive.isContainer) continue;
     if (draggedNodeId && primitiveMatchesNodeId(primitive, draggedNodeId)) {
       continue;
     }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
-    // A reparent target must contain the dragged layer's rendered bounds. The
-    // loop naturally falls through from an undersized nested target to an
-    // eligible ancestor when one exists.
     if (
       draggedBoardRect &&
       (draggedBoardRect.width > boardRect.width + 1 ||
@@ -1030,21 +1484,37 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     if (geometryContainsPoint(boardRect, point)) {
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
+        !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
+      ) {
+        if (compareStackingContexts(primitive, bestPrimitive) < 0) continue;
+        best = {
+          nodeId: primitive.nodeId,
+          screenId: topScreen.screen.id,
+          boardRect,
+          targetIdentity: primitive.projectionIdentity,
+        };
+        bestPrimitive = primitive;
+        continue;
+      }
+      if (
+        bestPrimitive &&
+        !isPrimitiveAncestor(bestPrimitive, primitive, primitives)
+      ) {
+        continue;
+      }
       best = {
         nodeId: primitive.nodeId,
         screenId: topScreen.screen.id,
         boardRect,
         targetIdentity: primitive.projectionIdentity,
       };
+      bestPrimitive = primitive;
     }
   }
 
-  // Auto-layout drop participation: when the winning container is itself a
-  // flex/grid container, resolve the nearest before/after sibling slot
-  // instead of always appending "inside" — matches the cross-screen
-  // hit-test's nearestChildInsertionTarget so overview-canvas primitive
-  // drags into an existing auto-layout screen get the same Figma insertion
-  // index/indicator behavior.
   if (best) {
     const hitTargetIdentity = best.targetIdentity;
     const containerPrimitive = hitTargetIdentity
@@ -1096,12 +1566,6 @@ export function getPrimitiveDropTargetForPoint(
 
   if (best) return best;
 
-  // The bridge's hit-test resolver falls back to document.body for ordinary
-  // block-layout pages. Mirror that fallback here so a board primitive can be
-  // dropped into blank Screen canvas space, not only onto an authored frame.
-  // The body is intentionally resolved from the projection rather than the
-  // primitive parser: body often has no authored width/height and is therefore
-  // not a ParsedScreenPrimitive.
   const source =
     topScreen.screen.codeLayerSource ??
     ({ kind: "design-file" as const, fileId: topScreen.screen.id } as const);

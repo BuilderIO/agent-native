@@ -130,24 +130,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
               id="viewer-comments"
               label={t("playerSettings.comments")}
               checked={recording.enableComments}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableComments: v })}
             />
             <ToggleRow
               id="viewer-reactions"
               label={t("playerSettings.reactions")}
               checked={recording.enableReactions}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableReactions: v })}
             />
             <ToggleRow
               id="viewer-downloads"
               label={t("playerSettings.allowDownloads")}
               checked={recording.enableDownloads}
+              disabled={update.isPending}
               onChange={(v) => patch({ enableDownloads: v })}
             />
             <ToggleRow
               id="viewer-animated-thumbnail"
               label={t("playerSettings.animatedThumbnail")}
               checked={recording.animatedThumbnailEnabled}
+              disabled={update.isPending}
               onChange={(v) => patch({ animatedThumbnailEnabled: v })}
             />
             <div className="flex min-h-8 items-center gap-3 py-1">
@@ -337,11 +341,13 @@ function ToggleRow({
   id,
   label,
   checked,
+  disabled,
   onChange,
 }: {
   id: string;
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -349,7 +355,12 @@ function ToggleRow({
       <Label htmlFor={id} className="cursor-pointer text-sm font-normal">
         {label}
       </Label>
-      <ViewerSwitch id={id} checked={checked} onCheckedChange={onChange} />
+      <ViewerSwitch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+      />
     </div>
   );
 }
@@ -375,9 +386,6 @@ function CtaEditor({
   onSave: (fields: Record<string, unknown>) => void;
   onDelete: () => void;
 }) {
-  // Re-adopt the server/agent CTA fields whenever the user isn't actively
-  // editing this card, so an agent edit to the CTA shows up live. `editing`
-  // flips true while focus is anywhere inside the card.
   const editing = useRef(false);
   const [label, setLabel] = useReconciledState(cta.label, {
     active: editing.current,
@@ -400,7 +408,6 @@ function CtaEditor({
         editing.current = true;
       }}
       onBlurCapture={(e) => {
-        // Only clear when focus leaves the card entirely.
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
           editing.current = false;
         }

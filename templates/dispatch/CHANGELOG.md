@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-23
+
+### Fixed
+
+- App launchers show only apps connected to the current workspace.
+- Usage alerts explain that their thresholds notify you without limiting usage or spend.
+
 ## 2026-09-04
 
 ### Improved

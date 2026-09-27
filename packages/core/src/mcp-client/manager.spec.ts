@@ -8,9 +8,6 @@ import {
   MCP_TOOL_PREFIX,
 } from "./manager.js";
 
-// Fake MCP Client + transports. These stand in for the split MCP v2 packages
-// via vi.mock below.
-
 type FakeTool = {
   name: string;
   title?: string;
@@ -35,9 +32,6 @@ const originalFetch = globalThis.fetch;
 const originalOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
 const originalConnectTimeout =
   process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
-// This is the first path that lazily loads the A2A/JWT signing modules. Under
-// root prep's parallel load that one-time work can exceed Vitest's default 5s,
-// then continue after timeout and pollute the next test.
 const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -78,6 +72,9 @@ class FakeClient {
   }
   async connect(transport: FakeTransport) {
     this.transport = transport;
+    if (transport instanceof FakeHttp) {
+      transport.sessionId = `session-${fakeClients.indexOf(this)}`;
+    }
   }
   getTransport() {
     return this.transport;
@@ -122,6 +119,7 @@ class FakeStdio {
 
 class FakeHttp {
   key: string;
+  sessionId?: string;
   onerror?: (error: unknown) => void;
   requestInit?: Record<string, unknown>;
   fetchImpl?: (input: unknown, init?: unknown) => Promise<unknown>;
@@ -392,6 +390,115 @@ describe("McpClientManager", () => {
     ]);
   });
 
+  it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
+    let calls = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        calls += 1;
+        if (calls <= 2) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "pong" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    const results = await Promise.all([
+      mgr.callTool("mcp__remote__ping", {}),
+      mgr.callTool("mcp__remote__ping", {}),
+    ]);
+
+    expect(results).toEqual([
+      { content: [{ type: "text", text: "pong" }] },
+      { content: [{ type: "text", text: "pong" }] },
+    ]);
+    expect(calls).toBe(4);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
+  it("waits for pending HTTP calls before closing an expired transport", async () => {
+    let calls = 0;
+    let releaseSecond!: () => void;
+    let secondStarted!: () => void;
+    const secondCallStarted = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        if (calls === 2) {
+          await new Promise<void>((resolve) => {
+            releaseSecond = resolve;
+            secondStarted();
+          });
+          if ((fakeClients[0]?.getTransport() as FakeHttp).closed) {
+            throw new Error("request aborted by stale transport close");
+          }
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { content: [{ type: "text", text: "pong" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    const first = mgr.callTool("mcp__remote__ping", {});
+    const second = mgr.callTool("mcp__remote__ping", {});
+    await secondCallStarted;
+    releaseSecond();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { content: [{ type: "text", text: "pong" }] },
+      { content: [{ type: "text", text: "pong" }] },
+    ]);
+    expect(calls).toBe(4);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
+  it("reconnects and replays ui resources after an HTTP session expires", async () => {
+    let reads = 0;
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "show" }],
+      callImpl: () => ({ content: [] }),
+      readResourceImpl: (uri) => {
+        reads += 1;
+        if (reads === 1) {
+          throw Object.assign(new Error("session expired"), { status: 404 });
+        }
+        return { contents: [{ uri, text: "<p>hi</p>" }] };
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+
+    await expect(
+      mgr.readResource("remote", "ui://remote/show"),
+    ).resolves.toEqual({
+      contents: [{ uri: "ui://remote/show", text: "<p>hi</p>" }],
+    });
+
+    expect(reads).toBe(2);
+    expect(fakeClients).toHaveLength(2);
+    expect(staleTransport.closed).toBe(true);
+  });
+
   it(
     "injects per-request identity only for trusted org-scoped first-party HTTP servers",
     async () => {
@@ -531,14 +638,11 @@ describe("McpClientManager", () => {
   });
 
   it("reports errors for servers that fail to connect", async () => {
-    // No fixture for "bad-bin" → listTools returns empty. We simulate a crash
-    // by overriding connect on the fake client for this one run.
     serverFixtures["good-bin"] = {
       tools: [{ name: "ok" }],
       callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
     };
 
-    // Patch FakeClient.connect to throw for "boom-bin".
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeStdio) {
       if (transport.key === "boom-bin") throw new Error("spawn failed");
@@ -583,6 +687,72 @@ describe("McpClientManager", () => {
       "mcp__late__late_tool",
     ]);
     expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("does not replay an expired request onto a reconfigured server", async () => {
+    serverFixtures["http https://old.example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    serverFixtures["http https://new.example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "new" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: {
+        remote: { type: "http", url: "https://old.example.com/mcp" },
+      },
+    });
+    await mgr.start();
+
+    const request = mgr.callTool("mcp__remote__ping", {});
+    await mgr.reconfigure({
+      servers: {
+        remote: { type: "http", url: "https://new.example.com/mcp" },
+      },
+    });
+
+    await expect(request).rejects.toMatchObject({ status: 404 });
+    expect(fakeClients).toHaveLength(2);
+    expect(mgr.connectedServers).toEqual(["remote"]);
+  });
+
+  it("does not resurrect a manager when stop races session reconnect", async () => {
+    serverFixtures["http https://example.com/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => {
+        throw Object.assign(new Error("session expired"), { status: 404 });
+      },
+    };
+    const mgr = new McpClientManager({
+      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+    });
+    await mgr.start();
+    const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
+    let releaseClose!: () => void;
+    let closeStarted!: () => void;
+    const closeStartedPromise = new Promise<void>((resolve) => {
+      closeStarted = resolve;
+    });
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    staleTransport.close = async () => {
+      staleTransport.closed = true;
+      closeStarted();
+      await closeGate;
+    };
+
+    const request = mgr.callTool("mcp__remote__ping", {});
+    await closeStartedPromise;
+    const stop = mgr.stop();
+    releaseClose();
+
+    await Promise.all([stop, request.catch(() => undefined)]);
+    expect(mgr.connectedServers).toEqual([]);
+    expect(mgr.getTools()).toEqual([]);
   });
 
   it("retries unchanged servers left in an error state on reconfigure", async () => {
@@ -661,8 +831,6 @@ describe("McpClientManager", () => {
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeTransport) {
       if (transport.key === "http https://stalled.example.com/mcp") {
-        // Attach the transport (as the real SDK does at the start of connect)
-        // before stalling, so the manager can close it on timeout.
         await origConnect.call(this, transport);
         await new Promise(() => {
           // Intentionally never resolves.
@@ -700,14 +868,6 @@ describe("McpClientManager", () => {
   });
 
   it("attaches transport.onerror before connect so SDK transport errors don't leak as unhandled rejections", async () => {
-    // The MCP SDK's StreamableHTTPClientTransport has fire-and-forget code
-    // paths (initial SSE stream open, scheduled reconnects) that route
-    // errors through `this.onerror?.(...)`. On AWS Lambda the long-lived
-    // socket gets reaped ~60s after the function returns, surfacing as a
-    // `socket hang up` unhandled rejection — see `processStream()` in
-    // @modelcontextprotocol/client. The manager must
-    // attach a transport.onerror handler BEFORE client.connect() so those
-    // errors are captured even when Client's wiring hasn't run yet.
     const seenOnError: Array<((error: unknown) => void) | undefined> = [];
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeTransport) {
@@ -730,10 +890,6 @@ describe("McpClientManager", () => {
       expect(seenOnError).toHaveLength(1);
       expect(typeof seenOnError[0]).toBe("function");
 
-      // Calling the handler with a synthetic socket error must not throw —
-      // the no-op recorder swallows transport errors during connect so the
-      // SDK's `this.onerror?.(error); throw error;` pattern can't fire an
-      // unhandled rejection before Client.connect() wires its own handler.
       expect(() => seenOnError[0]?.(new Error("socket hang up"))).not.toThrow();
     } finally {
       FakeClient.prototype.connect = origConnect;

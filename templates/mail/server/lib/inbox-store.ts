@@ -1,24 +1,8 @@
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
-/**
- * Data access for the synced inbox store (`mail_inbox_threads` +
- * `mail_sync_accounts`). `inbox-sync.ts` is the only writer of thread rows
- * and sync-account progress; this file is where all of that SQL lives so
- * neither the sync engine nor callers hand-roll queries against the tables.
- *
- * The first five exports below (`InboxThreadRow`, `SyncAccountRow`,
- * `readInboxThreads`, `readSyncAccounts`, `readCachedLabels`,
- * `applyLocalLabelDelta`, `inboxRowToItem`) are the contracted surface for
- * the `list-inbox-threads` action. Everything else here is sync-engine
- * plumbing.
- */
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
 
 export type CachedGmailLabel = {
   id: string;
@@ -69,6 +53,7 @@ export type SyncAccountRow = {
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[] | null;
@@ -144,6 +129,7 @@ function toSyncAccountRow(
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
+    lastPushGeneration: row.lastPushGeneration,
     syncClaimId: row.syncClaimId,
     syncClaimedAt: row.syncClaimedAt,
     labels: row.labelsJson
@@ -154,10 +140,6 @@ function toSyncAccountRow(
     updatedAt: row.updatedAt,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Reads
-// ---------------------------------------------------------------------------
 
 export async function readInboxThreads(
   ownerEmail: string,
@@ -179,7 +161,11 @@ export async function readInboxThreads(
     .select()
     .from(schema.mailInboxThreads)
     .where(and(...conditions))
-    .orderBy(desc(schema.mailInboxThreads.latestDate));
+    .orderBy(
+      desc(schema.mailInboxThreads.latestDate),
+      desc(schema.mailInboxThreads.latestMessageId),
+      desc(schema.mailInboxThreads.id),
+    );
   return rows.map(toInboxThreadRow);
 }
 
@@ -193,9 +179,6 @@ export async function readSyncAccounts(
   return rows.map(toSyncAccountRow);
 }
 
-// Mirrors actions/list-labels.ts's Gmail label normalization exactly (same
-// ids/names/system-vs-user split) so a label id computed from the live path
-// and one computed from the cache never disagree.
 const SYSTEM_LABELS: Record<string, { id: string; name: string }> = {
   INBOX: { id: "inbox", name: "Inbox" },
   STARRED: { id: "starred", name: "Starred" },
@@ -265,8 +248,6 @@ export async function readCachedLabels(
     }
   }
 
-  // Never throw on a missing cache — an account that hasn't synced labels
-  // yet (or isn't in `accounts` at all) just contributes an empty map.
   for (const email of requested ?? []) {
     if (!labelMapByAccount.has(email)) labelMapByAccount.set(email, new Map());
   }
@@ -287,25 +268,11 @@ export async function readCachedLabels(
   return { labels: [...labelsById.values()], labelMapByAccount };
 }
 
-// ---------------------------------------------------------------------------
-// Optimistic local mutation
-// ---------------------------------------------------------------------------
-
 export type LocalLabelDelta = {
   add?: string[];
   remove?: string[];
-  /** Gmail history id returned by the mutation, when the provider exposes it. */
   providerHistoryId?: string;
-  /**
-   * "thread" (default): the mutation applies to every message in the thread
-   * (archive, trash, mark-thread-read), so UNREAD/STARRED are derived from
-   * whether the unioned label set contains them, as before.
-   * "message": the mutation only touched `messageIds` (mark-read/star by
-   * message id) — UNREAD/STARRED must be derived from that subset instead,
-   * see below.
-   */
   scope?: "thread" | "message";
-  /** Message ids the delta actually targets; only meaningful for scope "message". */
   messageIds?: string[];
 };
 
@@ -346,9 +313,6 @@ export async function applyLocalLabelDelta(
   if (threadIds.length === 0) return;
   const ids = threadIds.map((t) => threadRowId(ownerEmail, accountEmail, t));
   await getDb().transaction(async (tx) => {
-    // Sync upserts and local deltas must observe and write one row in order.
-    // Without this lock, a read based on the pre-archive labels can restore
-    // INBOX after the archive commits.
     const rows = await tx
       .select({
         id: schema.mailInboxThreads.id,
@@ -436,10 +400,6 @@ export async function applyLocalLabelDelta(
           set.unreadCount = labels.has("UNREAD") ? messageCount : 0;
         }
       } else {
-        // The row stores only aggregate read state, not labels per message.
-        // A message-scoped read delta therefore cannot safely adjust the
-        // aggregate (marking an already-read message read would decrement it
-        // again). Leave it for the next exact thread sync.
         if (delta.add?.includes("STARRED")) {
           set.isStarred = 1;
           labels.add("STARRED");
@@ -461,13 +421,6 @@ export async function applyLocalLabelDelta(
   });
 }
 
-/**
- * Resolves Gmail message ids to their thread id via the store's
- * `messageIdsJson`, for callers (message-level mutations) that only have
- * message ids but need a threadId to patch a thread row. Ids the store
- * hasn't synced yet are simply absent from the result — best-effort, same as
- * {@link applyLocalLabelDelta}.
- */
 export async function findThreadIdsByMessageIds(
   ownerEmail: string,
   accountEmail: string,
@@ -520,10 +473,6 @@ export async function findAccountForThread(
   return rows[0]?.accountEmail ?? null;
 }
 
-/**
- * Same as {@link findAccountForThread} but resolves from a message id via
- * `messageIdsJson`, same scan approach as {@link findThreadIdsByMessageIds}.
- */
 export async function findAccountForMessage(
   ownerEmail: string,
   messageId: string,
@@ -543,11 +492,6 @@ export async function findAccountForMessage(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Row -> API shape
-// ---------------------------------------------------------------------------
-
-// Same category-label remap as gmailToEmailMessage in google-auth.ts.
 const CATEGORY_MAP: Record<string, string> = {
   IMPORTANT: "important",
   CATEGORY_PERSONAL: "personal",
@@ -596,10 +540,6 @@ export function inboxRowToItem(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Sync-engine writes (used only by inbox-sync.ts)
-// ---------------------------------------------------------------------------
-
 export type ThreadUpsertInput = {
   ownerEmail: string;
   accountEmail: string;
@@ -627,6 +567,7 @@ export type ThreadUpsertInput = {
 
 export async function upsertInboxThreadRows(
   rows: ThreadUpsertInput[],
+  db: any = getDb(),
 ): Promise<void> {
   if (rows.length === 0) return;
   const now = Date.now();
@@ -666,7 +607,7 @@ export async function upsertInboxThreadRows(
       localMutationFields: null,
     }));
 
-  await getDb()
+  await db
     .insert(schema.mailInboxThreads)
     .values(values)
     .onConflictDoUpdate({
@@ -696,11 +637,6 @@ export async function upsertInboxThreadRows(
         localMutationHistoryId: sql`excluded.local_mutation_history_id`,
         localMutationFields: sql`excluded.local_mutation_fields`,
       },
-      // A Gmail read started before a local mutation may return the old
-      // labels after that mutation has already updated this row. Keep the
-      // newer local write until a later sync observation catches up. A
-      // history id alone is not evidence that this row observed this
-      // mutation: Gmail history advances for unrelated changes too.
       setWhere: sql`
         excluded.synced_at > ${schema.mailInboxThreads.updatedAt}
         AND (
@@ -743,6 +679,7 @@ export async function deleteInboxThreadRow(
   accountEmail: string,
   threadId: string,
   readStartedAt?: number,
+  db: any = getDb(),
 ): Promise<void> {
   const conditions = [
     eq(
@@ -753,21 +690,16 @@ export async function deleteInboxThreadRow(
   if (readStartedAt !== undefined) {
     conditions.push(lt(schema.mailInboxThreads.updatedAt, readStartedAt));
   }
-  await getDb()
-    .delete(schema.mailInboxThreads)
-    .where(and(...conditions));
+  await db.delete(schema.mailInboxThreads).where(and(...conditions));
 }
 
-/**
- * Threads that left the inbox mid full-sync: rows not touched since
- * `cutoffSyncedAt`.
- */
 export async function markThreadsOutOfInboxBeforeSync(
   ownerEmail: string,
   accountEmail: string,
   cutoffSyncedAt: number,
+  db: any = getDb(),
 ): Promise<void> {
-  await getDb()
+  await db
     .update(schema.mailInboxThreads)
     .set({ inInbox: 0, updatedAt: Date.now() })
     .where(
@@ -810,12 +742,6 @@ export async function ensureSyncAccountRow(
   return toSyncAccountRow(row);
 }
 
-/**
- * Thrown when a claimed sync step finds its claim no longer held — this
- * worker's TTL lapsed and a newer worker has already taken over the account.
- * The sync step must stop immediately rather than continue making Gmail
- * calls whose results it can no longer safely persist.
- */
 export class SyncClaimLostError extends Error {
   constructor(accountEmail: string) {
     super(`Sync claim for ${accountEmail} was lost to another worker`);
@@ -823,34 +749,26 @@ export class SyncClaimLostError extends Error {
   }
 }
 
-/**
- * Guards a batch of row writes (`upsertInboxThreadRows`,
- * `markThreadsOutOfInboxBeforeSync`, `deleteInboxThreadRow`) that have no
- * `sync_claim_id` column of their own to fence against, unlike
- * {@link patchSyncAccount}'s `opts.claimId`. One SELECT immediately before
- * the write; throws {@link SyncClaimLostError} when the claim no longer
- * matches instead of letting a lapsed worker overwrite a newer worker's rows.
- */
-export async function assertSyncClaimHeld(
+export async function withSyncClaim<T>(
   ownerEmail: string,
   accountEmail: string,
   claimId: string,
-): Promise<void> {
-  const rows = await getDb()
-    .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
-    .from(schema.mailSyncAccounts)
-    .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
-    .limit(1);
-  if (rows[0]?.syncClaimId !== claimId)
-    throw new SyncClaimLostError(accountEmail);
+  write: (tx: any) => Promise<T>,
+): Promise<T> {
+  return getDb().transaction(async (tx: any) => {
+    const rows = await tx
+      .select({ syncClaimId: schema.mailSyncAccounts.syncClaimId })
+      .from(schema.mailSyncAccounts)
+      .where(eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)))
+      .for("update")
+      .limit(1);
+    if (rows[0]?.syncClaimId !== claimId)
+      throw new SyncClaimLostError(accountEmail);
+
+    return write(tx);
+  });
 }
 
-/**
- * Atomic CAS claim, same pattern as inventory-cursor.ts's
- * claimInventoryCursor: one UPDATE guarded by a WHERE that only matches an
- * unclaimed or stale-claimed row, so two concurrent Lambdas can't both sync
- * the same account at once.
- */
 export async function claimSyncAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -913,20 +831,55 @@ export type SyncAccountPatch = Partial<{
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
+  lastPushGeneration: number;
   syncClaimId: string | null;
   syncClaimedAt: number | null;
   labels: CachedGmailLabel[];
   labelsUpdatedAt: number;
 }>;
 
-/**
- * Updates one sync-account row. When `opts.claimId` is given, the write is
- * fenced with `AND sync_claim_id = ?` and the return value says whether a row
- * actually matched — a worker whose 90s claim TTL lapsed mid-sync (another
- * worker has since claimed the row) gets `false` back instead of silently
- * overwriting the newer worker's progress. Omit `opts` for label-cache and
- * other non-claimed writes, which stay unconditioned as before.
- */
+export async function recordInboxPushInvalidation(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<void> {
+  await getDb()
+    .insert(schema.mailInboxPushInvalidations)
+    .values({
+      id: rowId(ownerEmail, accountEmail),
+      ownerEmail: ownerEmail.toLowerCase(),
+      accountEmail: accountEmail.toLowerCase(),
+      generation: 1,
+    })
+    .onConflictDoUpdate({
+      target: schema.mailInboxPushInvalidations.id,
+      set: {
+        generation: sql`${schema.mailInboxPushInvalidations.generation} + 1`,
+      },
+    });
+}
+
+export async function readInboxPushGeneration(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ generation: schema.mailInboxPushInvalidations.generation })
+    .from(schema.mailInboxPushInvalidations)
+    .where(
+      and(
+        eq(
+          schema.mailInboxPushInvalidations.ownerEmail,
+          ownerEmail.toLowerCase(),
+        ),
+        eq(
+          schema.mailInboxPushInvalidations.accountEmail,
+          accountEmail.toLowerCase(),
+        ),
+      ),
+    );
+  return rows.reduce((total, row) => total + row.generation, 0);
+}
+
 export async function patchSyncAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -950,15 +903,6 @@ export async function patchSyncAccount(
   return rows.length > 0;
 }
 
-/**
- * Clears the history watermark so the next sync step starts a fresh full
- * sync, and also releases the claim columns — otherwise a worker still
- * running against the reset row keeps its claim, and a later fenced write
- * from that same stale run would succeed and could restore the old
- * watermark. Clearing the claim here means that worker's next fenced write
- * (via `patchSyncAccount`'s `opts.claimId` or `assertSyncClaimHeld`) raises
- * {@link SyncClaimLostError} and stops it instead.
- */
 export async function resetSyncAccountProgress(
   ownerEmail: string,
   accountEmail: string,

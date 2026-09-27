@@ -14,7 +14,6 @@ import {
 
 describe("zoomFactorForWheelDelta", () => {
   it("zooms one mouse notch by exactly one Figma-sized step", () => {
-    // Scroll up (negative delta) zooms in.
     expect(zoomFactorForWheelDelta(-MOUSE_WHEEL_NOTCH_PX, false)).toBeCloseTo(
       ZOOM_STEP_PER_NOTCH,
       6,
@@ -26,13 +25,10 @@ describe("zoomFactorForWheelDelta", () => {
   });
 
   it("is nowhere near the old 2.72x-per-notch behavior", () => {
-    // Regression guard for the reported "zooms too quickly" feel: the previous
-    // exp(-deltaY * 0.01) curve returned e^1 for a single 100px notch.
     expect(zoomFactorForWheelDelta(-100, false)).toBeLessThan(1.2);
   });
 
   it("accumulates pinch deltas independently of frame rate", () => {
-    // Ten fine ticks in one frame must equal one coarse tick of the same total.
     const oneTick = zoomFactorForWheelDelta(-60, true);
     const tenTicks = zoomFactorForWheelDelta(-6 * 10, true);
     expect(tenTicks).toBeCloseTo(oneTick, 10);
@@ -72,7 +68,6 @@ describe("clampZoomFactor", () => {
 
 describe("accumulateZoomFactor", () => {
   it("caps a single frame's change even for an absurd accumulated delta", () => {
-    // deltaMode 2 (page) can produce an 800px delta in one event.
     const factor = clampZoomFactor(accumulateZoomFactor(1, 800, false));
     expect(factor).toBeCloseTo(1 / MAX_ZOOM_FACTOR_PER_FRAME, 10);
     expect(factor).toBeGreaterThan(0);
@@ -119,8 +114,6 @@ describe("accumulateZoomFactor", () => {
   });
 
   it("moves one real mouse notch by a Figma-sized step on every platform", () => {
-    // A Windows notch at fractional display scaling, a macOS accelerated
-    // notch, and Cmd+wheel — the three shapes a real mouse emits.
     const notches = [
       { deltaY: -66.7, ctrlKey: true, metaKey: false },
       { deltaY: -240, ctrlKey: true, metaKey: false },
@@ -159,9 +152,6 @@ describe("resolveExternalZoomAnchor", () => {
   });
 
   it("falls back to the viewport centre when the frame centre is below the fold", () => {
-    // The reported "screens disappear entirely": a frame ~4x taller than the
-    // viewport has its centre far below it, so holding that point fixed pushes
-    // the visible content off screen on the next zoom step.
     expect(
       resolveExternalZoomAnchor({
         frameCenter: { x: 400, y: 3200 },

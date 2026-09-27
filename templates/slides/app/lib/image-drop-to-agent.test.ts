@@ -5,6 +5,7 @@ import {
   buildImageDropAgentPayload,
   canInlineImageDataUrl,
   canInlineImageFile,
+  isStorageSetupRequiredError,
   isMissingUploadProviderError,
 } from "./image-drop-to-agent";
 
@@ -40,15 +41,36 @@ describe("inline image size boundary", () => {
 });
 
 describe("isMissingUploadProviderError", () => {
-  it("treats 503 as missing provider", () => {
-    expect(isMissingUploadProviderError(503, undefined)).toBe(true);
+  it("does not treat an unrelated 503 as missing provider", () => {
+    expect(
+      isMissingUploadProviderError(503, "Private file storage failed."),
+    ).toBe(false);
+  });
+
+  it("recognizes missing storage even when the endpoint returns 503", () => {
+    expect(
+      isMissingUploadProviderError(
+        503,
+        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+      ),
+    ).toBe(true);
   });
 
   it("matches the assets upload error copy", () => {
     expect(
       isMissingUploadProviderError(
         400,
-        "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "No file upload provider is configured. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes the object-storage API error for localized client handling", () => {
+    expect(
+      isStorageSetupRequiredError(
+        new Error(
+          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        ),
       ),
     ).toBe(true);
   });
@@ -116,28 +138,21 @@ describe("buildImageDropAgentPayload", () => {
     expect(payload.context).not.toContain("original image is also attached");
   });
 
-  it("falls back to an inline data URL when no provider is configured", () => {
+  it("blocks image submission when no storage provider is configured", () => {
     const dataUrl = "data:image/jpeg;base64,abc";
-    const payload = buildImageDropAgentPayload({
-      intent: "place it to the right of the text on this slide.",
-      filename: "prd meme.jpg",
-      upload: {
-        ok: false,
-        status: 503,
-        error:
-          "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
-      },
-      dataUrl,
-    });
-
-    expect(payload.kind).toBe("inline");
-    if (payload.kind !== "inline") return;
-    expect(payload.images).toEqual([dataUrl]);
-    expect(payload.message).toBe(
-      "place it to the right of the text on this slide.",
-    );
-    expect(payload.context).toContain("upload-image");
-    expect(payload.context).not.toContain("Image URL (already uploaded)");
+    expect(() =>
+      buildImageDropAgentPayload({
+        intent: "place it to the right of the text on this slide.",
+        filename: "prd meme.jpg",
+        upload: {
+          ok: false,
+          status: 503,
+          error:
+            "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        },
+        dataUrl,
+      }),
+    ).toThrow(/No object storage is connected/);
   });
 
   it("throws when upload fails and no data URL is available", () => {

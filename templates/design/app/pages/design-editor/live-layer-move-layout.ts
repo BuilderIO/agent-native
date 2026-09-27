@@ -34,9 +34,6 @@ type LivePreviewDocumentResult =
   | { status: "unavailable" }
   | { status: "stale" };
 
-/** Resolve the rendered document for a screen using the same Board and active
- * breakpoint routing as live layer movement. Creation uses this to inspect
- * computed layout without treating parsed HTML as a layout oracle. */
 export function getLivePreviewDocument(args: {
   activeBreakpointWidthState?: number;
   activeFileId?: string;
@@ -140,12 +137,11 @@ export function readLiveLayerMoveLayout(args: {
         : candidate.dataAttributes[attribute] === value,
     );
     if (sourceMatches.length !== 1) return null;
-    const liveMatches = Array.from(
-      previewDocument.querySelectorAll("*"),
-    ).filter((candidate) => candidate.getAttribute(attribute) === value);
-    // Canonical publication gives every source node its own identity. A
-    // missing/stale preview or a runtime clone cannot fall back to a path
-    // that may now identify another duplicate after a runtime reorder.
+    const liveMatches = findLiveIdentityMatches(
+      previewDocument,
+      attribute,
+      value,
+    );
     if (liveMatches.length !== 1) return null;
     const element = liveMatches[0];
     return element?.localName === node.tag.toLowerCase() &&
@@ -184,4 +180,30 @@ export function readLiveLayerMoveLayout(args: {
     destinationDisplay:
       destinationView.getComputedStyle(destinationParent).display,
   };
+}
+
+function findLiveIdentityMatches(
+  previewDocument: Document,
+  attribute: "data-agent-native-node-id" | "id",
+  value: string,
+): Element[] {
+  const matches: Element[] = [];
+  const walker = previewDocument.createTreeWalker(
+    previewDocument.documentElement,
+    NodeFilter.SHOW_ELEMENT,
+  );
+  let current: Node | null = walker.currentNode;
+  while (current) {
+    if (current.nodeType === 1) {
+      const candidate = current as Element;
+      if (candidate.getAttribute(attribute) !== value) {
+        current = walker.nextNode();
+        continue;
+      }
+      matches.push(candidate);
+      if (matches.length === 2) break;
+    }
+    current = walker.nextNode();
+  }
+  return matches;
 }

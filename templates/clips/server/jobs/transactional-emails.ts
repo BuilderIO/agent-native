@@ -27,7 +27,9 @@ import {
   isClipsNotificationEnabled,
   type ClipsNotificationCategory,
 } from "../../shared/clips-notification-prefs.js";
+import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
 import { getDb, schema } from "../db/index.js";
+import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   computeMonthlyRecap,
   listOwnersWithMonthlyAudience,
@@ -292,9 +294,6 @@ export function isSuppressedTransactionalRecipient(
 function normalizeShare(share: DirectShare): DirectShare | null {
   const recipient = normalizedEmail(share.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
-  // An unnotified row is an access grant, not a share — meeting participants
-  // are granted the recording silently. Nudging one tells the recipient a
-  // colleague shared a clip with them, which never happened.
   if (!share.notifiedAt) return null;
   return { ...share, recipient };
 }
@@ -542,8 +541,6 @@ function defaultRepository(): TransactionalEmailRepository {
           schema.meetings,
           and(
             eq(schema.meetings.recordingId, schema.recordings.id),
-            // A trashed meeting 404s on its own share route, so it must not
-            // claim the recording's reminder link.
             isNull(schema.meetings.trashedAt),
           ),
         )
@@ -590,8 +587,6 @@ function defaultRepository(): TransactionalEmailRepository {
           schema.meetings,
           and(
             eq(schema.meetings.recordingId, schema.recordings.id),
-            // A trashed meeting 404s on its own share route, so it must not
-            // claim the recording's reminder link.
             isNull(schema.meetings.trashedAt),
           ),
         )
@@ -608,7 +603,12 @@ function defaultRepository(): TransactionalEmailRepository {
         .from(schema.organizationSettings)
         .where(eq(schema.organizationSettings.organizationId, organizationId))
         .limit(1);
-      return settings?.brandLogoUrl?.trim() || null;
+      const stored = settings?.brandLogoUrl?.trim();
+      if (!stored) return null;
+      if (usesOrganizationLogoRoute(stored)) {
+        return organizationLogoAbsoluteUrl(organizationId);
+      }
+      return stored;
     },
     async recipientOwnsRecording(recipient) {
       const [recording] = await db
@@ -941,12 +941,6 @@ async function reconcileFirstImports(
   };
 }
 
-/**
- * Recaps close on the UTC month boundary but wait until `RECAP_SEND_HOUR_UTC`
- * on the 1st so they land mid-morning in the Americas rather than at midnight.
- * A month is only ever enqueued once per owner, so a late first run of the day
- * still sends rather than skipping the month.
- */
 async function reconcileMonthlyRecaps(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
@@ -955,9 +949,6 @@ async function reconcileMonthlyRecaps(
 ): Promise<number> {
   if (now.getUTCHours() < RECAP_SEND_HOUR_UTC) return 0;
   const month = previousRecapMonth(now);
-  // Never recap a month that closed before transactional email was switched
-  // on. A month still open at that point does get a recap: the audience it
-  // reports is the owner's own, and skipping it would cost them a full month.
   if (recapMonthRange(month).endAt <= enabledAt) return 0;
 
   let enqueued = 0;
@@ -967,8 +958,6 @@ async function reconcileMonthlyRecaps(
     const recipient = normalizedEmail(ownerEmail);
     if (!recipient || isSuppressedTransactionalRecipient(recipient)) continue;
     const logicalKey = `monthly-recap:${recipient}:${month}`;
-    // Checked before the analytics work: this pass reruns every minute for the
-    // rest of the month, and recomputing a recap already queued is pure waste.
     if (await store.readJob(logicalKey)) continue;
     const recap = await repository.computeMonthlyRecap(recipient, month);
     if (!recap) continue;
@@ -994,9 +983,6 @@ async function makeSendInput(
   if (!(await isTransactionalEmailEnabled(recipient, job.type))) return null;
 
   if (job.type === "monthly-recap") {
-    // Ranked again at send time instead of trusting the queued clip: a month
-    // whose top clip was trashed or overtaken still deserves its recap, and
-    // the analytics already exclude clips the owner can no longer open.
     if (!job.month) return null;
     const recap = await repository.computeMonthlyRecap(recipient, job.month);
     if (!recap) return null;

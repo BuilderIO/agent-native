@@ -19,7 +19,7 @@ import {
   IconBolt,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -54,9 +54,7 @@ export interface TranscriptPanelProps {
   failureReason?: string | null;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
-  /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
-  /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
 }
@@ -193,6 +191,17 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
       ),
     [displaySegments, currentMs],
   );
+  const segmentRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const activeStartMs =
+    activeIndex >= 0 ? (displaySegments[activeIndex]?.startMs ?? null) : null;
+
+  useEffect(() => {
+    if (activeStartMs === null) return;
+    segmentRefs.current[activeStartMs]?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }, [activeStartMs]);
 
   async function copyAll() {
     const text = displaySegments.map((s) => s.text).join(" ");
@@ -222,9 +231,6 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  // Surface the setup card when transcription failed due to a provider
-  // configuration issue — missing key, quota error, rejected key, etc.
-  // Builder connection is the recommended fix in all these cases.
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -411,6 +417,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <ul className="py-1">
             {filtered.map((seg) => {
               const isActive = displaySegments[activeIndex] === seg;
+              const hasActive = activeIndex >= 0;
               const seekMs = getTranscriptSeekMs(seg, query, visibleSegments);
               return (
                 <li key={seg.startMs}>
@@ -418,6 +425,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                     startMs={seg.startMs}
                     active={isActive}
                     gutter="panel"
+                    segmentRef={(el) => {
+                      segmentRefs.current[seg.startMs] = el;
+                    }}
                     onClick={(event) => {
                       if (hasSelectionWithin(event.currentTarget)) return;
                       onSeek(seekMs);
@@ -430,8 +440,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                   >
                     <span
                       className={cn(
-                        "text-sm leading-normal",
-                        isActive ? "text-foreground" : "text-foreground/80",
+                        "text-sm leading-normal transition-colors",
+                        isActive
+                          ? "text-foreground"
+                          : hasActive
+                            ? "text-foreground/50"
+                            : "text-foreground/80",
                       )}
                       dangerouslySetInnerHTML={{
                         __html: highlight(seg.text, query),
@@ -573,11 +587,6 @@ function BuilderCreditsPausedNotice({
   );
 }
 
-/**
- * Returns true when the transcription failure is due to a provider
- * configuration problem — missing key, quota exceeded, key rejected,
- * no provider at all. Builder connection fixes all of these.
- */
 function isTranscriptionSetupNeeded(
   reason: string | null | undefined,
 ): boolean {
@@ -648,13 +657,6 @@ function friendlyTranscriptFailure(
   return reason;
 }
 
-/**
- * Inline card shown when transcription needs a provider set up.
- *
- * Builder.io is the only cloud fallback — free, one-click, no separate API
- * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
- * not route recording transcription to BYOK speech providers.
- */
 function TranscriptSetupCard({
   failureReason,
   onRetry,

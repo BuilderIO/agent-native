@@ -372,6 +372,46 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("keeps raw structured action results separate from display text", async () => {
+    const result = {
+      draft: { subject: "Launch notes" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const resultText = JSON.stringify(result, null, 2);
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_start", id: "tool-1", tool: "manage-draft", input: {} },
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "manage-draft",
+          result: resultText,
+          chatUI: { renderer: "mail.draft-created" },
+          chatUIResult: result,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession()).startTurn({
+          prompt: "Create a draft",
+        })
+      ).events,
+    );
+    const toolDone = events.find((event) => event.type === "tool-done");
+
+    expect(toolDone).toMatchObject({
+      result,
+      resultText,
+      chatUI: { renderer: "mail.draft-created" },
+    });
+  });
+
   it("exposes truthful rich capabilities for the Agent-Native stream", () => {
     const runtime = createAgentNativeChatRuntime();
 
@@ -705,7 +745,6 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("carries the model-side toolCallId from approval_required", async () => {
-    // The server sends the paused call's id as `toolCallId`, never as `id`.
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         {
@@ -988,7 +1027,6 @@ describe("createAgentChatRuntimeAdapter", () => {
           runtimeId: "external:test",
           async startTurn() {
             async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              // Two calls to the same action are in flight at once.
               yield {
                 type: "tool-start",
                 toolCall: { id: "call-1", name: "start-prospect-run" },
@@ -997,7 +1035,6 @@ describe("createAgentChatRuntimeAdapter", () => {
                 type: "tool-start",
                 toolCall: { id: "call-2", name: "start-prospect-run" },
               };
-              // The gate pauses the FIRST one.
               yield {
                 type: "approval-request",
                 approvalId: "start-prospect-run:call-1",
@@ -1061,8 +1098,6 @@ describe("createAgentChatRuntimeAdapter", () => {
                 type: "tool-start",
                 toolCall: { id: "call-2", name: "start-prospect-run" },
               };
-              // Approval for a call this reader never saw. It must not latch
-              // onto call-2 just because the tool name matches.
               yield {
                 type: "approval-request",
                 approvalId: "start-prospect-run:call-1",
@@ -1097,7 +1132,6 @@ describe("createAgentChatRuntimeAdapter", () => {
     ) as any[];
     const call2 = toolCalls.find((part) => part.toolCallId === "call-2");
     expect(call2?.approval).toBeUndefined();
-    // And no phantom Approve/Deny card was invented for the unseen call.
     expect(toolCalls).toHaveLength(1);
   });
 
@@ -1116,8 +1150,6 @@ describe("createAgentChatRuntimeAdapter", () => {
           runtimeId: "external:test",
           async startTurn() {
             async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              // An external runtime that never announced the call via
-              // tool-start still needs a visible gate.
               yield {
                 type: "approval-request",
                 approvalId: "legacy-approval",

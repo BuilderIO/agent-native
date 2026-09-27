@@ -1,3 +1,4 @@
+import { ALL_TAB_ID, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
@@ -155,33 +156,29 @@ describe("resolvePinnedLabels", () => {
 
 describe("labelTabHref", () => {
   it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
-    // Repro: Jason Yang's "2-Tasks/Jira" label carries mail that's filed out
-    // of the inbox. Routing through /inbox forces `in:inbox` server-side
-    // (gmail-query.ts) and the label reads as empty even though it has mail.
     expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
   });
 
   it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
-    // "important" (and the other category labels) only ever exist inside the
-    // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
   });
 });
 
 describe("resolveDefaultMailHref", () => {
-  it("selects Important by default on fresh install", () => {
+  it("selects All by default on fresh install", () => {
     expect(
       resolveDefaultMailHref({
         pinnedLabels: undefined,
         isGoogleConnected: true,
       }),
-    ).toBe("/inbox?label=important");
+    ).toBe("/inbox?tab=__inbox_all__");
   });
 
-  it("selects the first top label by default when labels are pinned", () => {
+  it("selects the first top label when All is hidden", () => {
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["important", "work"],
         isGoogleConnected: true,
       }),
@@ -189,6 +186,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["work", "important"],
         isGoogleConnected: true,
       }),
@@ -196,6 +194,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: ["starred", "important"],
         isGoogleConnected: true,
       }),
@@ -212,6 +211,7 @@ describe("resolveDefaultMailHref", () => {
 
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: [],
         isGoogleConnected: true,
       }),
@@ -221,6 +221,7 @@ describe("resolveDefaultMailHref", () => {
   it("selects the first saved filter if no pinned labels exist", () => {
     expect(
       resolveDefaultMailHref({
+        showAllTab: false,
         pinnedLabels: [],
         savedFilters: [{ id: "urgent-filter" }],
       }),
@@ -228,7 +229,25 @@ describe("resolveDefaultMailHref", () => {
   });
 });
 
+describe("All inbox tab deep links", () => {
+  it("uses the public all parameter for the built-in tab id", () => {
+    expect(inboxTabHref(ALL_TAB_ID)).toBe("/inbox?tab=__inbox_all__");
+  });
+});
+
 describe("filterInboxTabEmails", () => {
+  it("keeps AI Important mail in Important instead of Other", () => {
+    const important = message({
+      id: "ai-important",
+      labelIds: ["inbox", "agent-native-important"],
+    });
+
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
+    expect(filterInboxTabEmails([important], null, ["important"])).toEqual([]);
+  });
+
   it("keeps saved-filter threads out of pinned tabs and Other", () => {
     const github = message({
       id: "github",

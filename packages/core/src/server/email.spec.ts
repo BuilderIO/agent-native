@@ -178,7 +178,6 @@ describe("sendEmail", () => {
   });
 
   it("warns once without leaking the tenant sender into logs", async () => {
-    // Fresh module: the suppression notice is process-scoped by design.
     vi.resetModules();
     const { sendEmail: freshSendEmail } = await import("./email");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -605,7 +604,6 @@ describe("sendEmail audit logging", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("RESEND_API_KEY", "");
     vi.stubEnv("SENDGRID_API_KEY", "");
-    // No provider configured, so deliverEmail throws before any fetch happens.
 
     await expect(
       sendEmail({

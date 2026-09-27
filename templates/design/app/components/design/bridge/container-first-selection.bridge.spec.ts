@@ -3,29 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity (spec Part 3 + ground truth Round 2): a plain click selects
- * the outermost child of the current container, not the raw deepest hit —
- * and shift+click toggles membership off an already-selected object.
- * Reported by Logan: clicking a shape nested inside Card selected the shape
- * directly instead of Card.
- *
- * Runs the real generated bridge in a real browser: the fix hangs off
- * `document.elementsFromPoint`, which needs a real layout engine, not
- * happy-dom's stub.
- */
 function hydratedEditorChromeBridgeScript(): string {
-  return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
-    .replace("__EDITOR_CHROME_SCALE_X__", "1")
-    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
-    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
+  return (
+    editorChromeBridgeScript
+      .replace("__READ_ONLY__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__EDITOR_CHROME_SCALE_X__", "1")
+      .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
+      // This suite exercises the board's Figma container-first policy. Screen
+      // content intentionally uses direct single-click selection instead.
+      .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+      .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+      .replace(/__INITIAL_SOURCE_HEAD__/g, '""')
+  );
 }
 
 const FIXTURE = `<!doctype html><html><body style="margin:0">
@@ -63,7 +56,6 @@ describe("container-first click selection", () => {
       });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // Kid A sits at (56,56)-(166,136) in page coordinates; click its center.
       await page.mouse.click(111, 96);
       await vi.waitFor(() => expect(selected.length).toBeGreaterThan(0));
 
@@ -81,10 +73,6 @@ describe("container-first click selection", () => {
       await page.setContent(FIXTURE);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // Excludes the always-present combined-bounds overlay (tagged with the
-      // same "multi-selection" value but its own
-      // data-agent-native-multi-selection-bounds attribute) — only the
-      // per-member passive overlays this fix adds/removes should count.
       const overlayCount = () =>
         page.evaluate(
           () =>
@@ -93,7 +81,6 @@ describe("container-first click selection", () => {
             ).length,
         );
 
-      // Solo A center (100,340), Solo B center (250,340).
       await page.mouse.click(100, 340);
       await page.waitForTimeout(50);
       await page.keyboard.down("Shift");
@@ -102,13 +89,10 @@ describe("container-first click selection", () => {
 
       expect(await overlayCount()).toBe(1);
 
-      // Second shift+click on Solo B (the current primary) must remove it,
-      // leaving Solo A as the sole selection.
       await page.mouse.click(250, 340);
       await page.keyboard.up("Shift");
       await page.waitForTimeout(50);
 
-      // Passive overlay count must drop back to zero once Solo B toggles off.
       expect(await overlayCount()).toBe(0);
       const finalPrimary = await page.evaluate(() => {
         const overlay = document.querySelector(
@@ -117,7 +101,6 @@ describe("container-first click selection", () => {
         if (!overlay || overlay.style.display === "none") return null;
         return { left: overlay.style.left, top: overlay.style.top };
       });
-      // Solo A's overlay sits at left ~40; Solo B (toggled off) sits at ~190.
       expect(finalPrimary?.left).toBe("40px");
     } finally {
       await browser.close();

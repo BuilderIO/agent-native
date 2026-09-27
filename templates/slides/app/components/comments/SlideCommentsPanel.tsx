@@ -68,7 +68,6 @@ interface SlideCommentsPanelProps {
   onClose: () => void;
 }
 
-/** Initials avatar */
 function Avatar({ email, name }: { email: string; name?: string | null }) {
   const color = emailToColor(email);
   const avatarUrl = useAvatarUrl(email);
@@ -94,7 +93,6 @@ function Avatar({ email, name }: { email: string; name?: string | null }) {
   );
 }
 
-/** Single comment (inside a thread) */
 export function CommentItem({
   comment,
   deckId,
@@ -307,7 +305,6 @@ export function CommentItem({
   );
 }
 
-/** Pending new comment input */
 function PendingCommentInput({
   quotedText,
   anchor,
@@ -403,7 +400,6 @@ function PendingCommentInput({
   );
 }
 
-/** Inline reply input below a thread */
 export function ReplyInput({
   deckId,
   slideId,
@@ -490,7 +486,6 @@ export function ReplyInput({
   );
 }
 
-/** A single comment thread card */
 function ThreadCard({
   thread,
   deckId,
@@ -749,7 +744,6 @@ export function SlideCommentsPanel({
   const currentPendingComment =
     pendingComment?.slideId === slideId ? pendingComment : null;
 
-  // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
     if (pendingComment && pendingComment.slideId !== slideId) {
       onPendingDone();

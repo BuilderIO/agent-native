@@ -1,4 +1,4 @@
-const messages = {
+export default {
   common: {
     connect: "連線",
     connected: "已連線",
@@ -46,6 +46,11 @@ const messages = {
     couldNotLoadEvent: "無法載入事件",
     noEventId: "未提供事件 ID。請在 URL 中新增 ?id=<eventId>。",
     openCalendar: "開啟行事曆",
+  },
+  eventCreation: {
+    created: "活動已建立",
+    zoomNotAdded: "活動已建立，但無法新增 Zoom。",
+    openInCalendar: "在 Calendar 中開啟活動",
   },
   agentSidebar: {
     emptyState: "問我任何關於你的行事曆的問題",
@@ -237,6 +242,37 @@ const messages = {
     weekStartLabel: "每週開始日",
     weekStartSunday: "週日 - 週六",
     weekStartMonday: "週一 - 週日",
+    eventRules: "邀請規則",
+    eventRulesConnectJev: "連接 Jev 以執行邀請規則",
+    eventRulesFreeBuilderOrApiKey:
+      "透過 Builder.io 免費使用，或新增 API 金鑰。",
+    eventRulesConnectBuilder: "連接 Builder.io",
+    eventRulesAddJevApiKey: "新增 API 金鑰",
+    eventRulesTabRules: "規則",
+    eventRulesHelpLabel: "瞭解邀請規則提示",
+    eventRulesHelp: "撰寫提示，告訴 Jev 要自動接受、拒絕或隱藏哪些邀請。",
+    eventRuleAccept: "自動接受",
+    eventRuleDecline: "自動拒絕",
+    eventRuleHide: "自動隱藏",
+    eventRulePlaceholderAccept: "例如：自動接受與團隊成員的一對一會議",
+    eventRulePlaceholderDecline: "例如：拒絕供應商示範和下班後的活動",
+    eventRulePlaceholderHide: "例如：隱藏專注時段和提醒",
+    eventRulesSave: "儲存規則",
+    eventRulesClearSaved: "清除已儲存的規則",
+    eventRulesRecentActivity: "最近活動",
+    eventRulesNoActivity: "尚無活動",
+    eventRuleActivityAccepted: "已接受",
+    eventRuleActivityDeclined: "已拒絕",
+    eventRuleActivityHidden: "已隱藏",
+    eventRuleUndoDone: "已復原操作",
+    eventRuleUndoFailed: "無法復原此操作",
+    eventRulesActive: "規則每 5 分鐘在已連線帳戶的主要行事曆上執行。",
+    eventRulesDisabled:
+      "請在常駐 Calendar 工作程序中啟用 RUN_BACKGROUND_JOBS=1。",
+    eventRulesDeploymentDisabled: "此部署已停用排程自動化。",
+    eventRulesChecking: "正在檢查自動化狀態…",
+    eventRulesConflict: "接受與拒絕規則同時符合，因此已略過該邀請。",
+    eventRulesUnregistered: "此伺服器未註冊 Calendar 自動化。",
   },
   eventDialog: {
     eventUpdated: "事件已更新",
@@ -460,8 +496,17 @@ const messages = {
     confirmBooking: "確認預訂",
     confirmation: "確認",
     confirmationSent: "你已完成！確認郵件已傳送到你的信箱。",
+    meetingDetailsPending: "您的時段已保留。主持人會再提供會議詳細資訊。",
     confirmed: "已確認",
     confirmedCount: "已確認（{{count}}）",
+    zoomNeedsReview: "重試前請先檢查 Zoom",
+    zoomCancellationNeedsReview: "取消前先檢查 Zoom",
+    zoomCancellationRequiresHostReview:
+      "主辦人必須先檢查 Zoom 會議，才能取消此預約。",
+    zoomCancelTitle: "取消前先檢查 Zoom",
+    zoomCancelDescription:
+      "Zoom 可能已為此預約建立會議。請檢查你的 Zoom 帳戶；如果會議存在，請先在 Zoom 中取消。只有在會議已取消或確認不存在後才能繼續。",
+    zoomCancelConfirm: "我已檢查 Zoom",
     confirming: "確認中",
     conferencing: "會議",
     connectZoom: "連線Zoom",
@@ -938,5 +983,3 @@ const messages = {
     },
   },
 };
-
-export default messages;

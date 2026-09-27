@@ -31,7 +31,6 @@ const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
 const FLUSH_TIMEOUT_MS = 1500;
 
 export interface CliTelemetryOptions {
-  /** Stable identifier for the emitting CLI, e.g. "skills-installer". */
   cli: string;
   cliVersion: string;
   command: string;
@@ -183,11 +182,6 @@ function captureException(
   });
 }
 
-/**
- * Read (or lazily create) a stable per-machine install id, shared across both
- * skills CLIs so one developer counts once. Best-effort: an unwritable home
- * directory just yields an ephemeral id for this run.
- */
 function resolveInstallId(): string {
   try {
     const dir = path.join(os.homedir(), ".agent-native");

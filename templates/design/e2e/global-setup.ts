@@ -8,14 +8,6 @@ import { chromium, type FullConfig } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
 
-/**
- * Global setup: authenticate a test user (email/password; there is no dev auth
- * bypass) and seed one design with a known fixture HTML so specs run against
- * deterministic content. Writes:
- *   e2e/.auth/state.json  - signed session storageState
- *   e2e/.auth/seed.json   - { designId } of the seeded design
- */
-
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
 export const E2E_PASSWORD = "password-e2e-1234";
@@ -102,11 +94,6 @@ async function startLoopbackProvider(port: number): Promise<void> {
   }
 }
 
-/**
- * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
- * (no CDN) so the layout is deterministic and offline. The flex row of two
- * buttons exercises reorder/move; headings and paragraphs exercise select.
- */
 export const FIXTURE_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -248,8 +235,15 @@ async function seedMentionMember(
   const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
   const existingMembers = await ownerContext.request.get(membersURL);
   if (!existingMembers.ok()) {
+    const body = await existingMembers.text();
+    if (
+      existingMembers.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
     throw new Error(
-      `list organization members failed: ${existingMembers.status()} ${await existingMembers.text()}`,
+      `list organization members failed: ${existingMembers.status()} ${body}`,
     );
   }
   const existingPayload = await existingMembers.json();
@@ -273,10 +267,19 @@ async function seedMentionMember(
   let invitationId: string | undefined;
   if (invitation.ok()) {
     invitationId = String((await invitation.json())?.id ?? "") || undefined;
-  } else if (invitation.status() !== 409) {
-    throw new Error(
-      `invite mention member failed: ${invitation.status()} ${await invitation.text()}`,
-    );
+  } else {
+    const body = await invitation.text();
+    if (
+      invitation.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
+    if (invitation.status() !== 409) {
+      throw new Error(
+        `invite mention member failed: ${invitation.status()} ${body}`,
+      );
+    }
   }
 
   if (!invitationId) {
@@ -413,7 +416,6 @@ export default async function globalSetup(config: FullConfig) {
 
     await context.storageState({ path: STATE_PATH });
 
-    // Seed a design + fixture file via the authenticated action surface.
     const created = await postAction(
       context.request,
       baseURL,
@@ -445,10 +447,6 @@ export default async function globalSetup(config: FullConfig) {
     // eslint-disable-next-line no-console
     console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
 
-    // Compile the editor once, here, instead of inside the first test's 30s
-    // budget. DesignEditor.tsx is past Babel's 500KB deopt threshold, so a
-    // cold dev server can take ~40s to first paint — which is why the first
-    // spec in a shard was the one that flaked.
     const warmupPage = await context.newPage();
     try {
       await warmupPage.goto(`${baseURL}/design/${designId}`, {

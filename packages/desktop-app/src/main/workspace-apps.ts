@@ -45,8 +45,6 @@ async function getJson(
     (response.status === 401 || isUnauthenticatedPayload(payload))
   ) {
     try {
-      // Electron's isolated Session transport can return an unauthenticated
-      // response for a cookie that succeeds through the main-process fetch.
       const fallbackResponse = await fetch(url, {
         method: "GET",
         headers,
@@ -55,8 +53,6 @@ async function getJson(
       response = fallbackResponse;
       payload = fallbackPayload;
     } catch (error) {
-      // Preserve the primary response as the authoritative failure when the
-      // fallback transport is unavailable.
       console.debug(
         "[desktop workspace apps] main-process fallback unavailable",
         {
@@ -150,9 +146,6 @@ export async function loadDesktopWorkspaceApps(options: {
       apps,
     };
   } catch (error) {
-    // Preserve the last usable inventory while the rollout or session is
-    // temporarily unavailable. An empty list would look like the feature was
-    // intentionally disabled and make every app disappear.
     console.warn("[desktop workspace apps] failed to load inventory", {
       reason: error instanceof Error ? error.message : "unknown error",
     });

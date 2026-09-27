@@ -4,8 +4,57 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requestMeetingStartNotificationPermissionMock } = vi.hoisted(() => ({
+const {
+  eventRulesStatusMock,
+  eventRulesStatusOptionsMock,
+  requestMeetingStartNotificationPermissionMock,
+  undoEventRuleActivityMock,
+  settingsMock,
+  updateSettingsMock,
+} = vi.hoisted(() => ({
+  eventRulesStatusMock: {
+    data: {
+      jevConfigured: true,
+      enabled: true,
+      intervalMinutes: 5,
+      message: null,
+      lastError: null,
+      accountRefreshErrors: [],
+      conflictsSkipped: false,
+      reason: null,
+      registered: true,
+    },
+    isError: false,
+    isFetching: false,
+    isLoading: false,
+    refetch: vi.fn(async () => undefined),
+  },
+  eventRulesStatusOptionsMock: {
+    options: undefined as Record<string, unknown> | undefined,
+  },
   requestMeetingStartNotificationPermissionMock: vi.fn(async () => "granted"),
+  undoEventRuleActivityMock: vi.fn(),
+  settingsMock: {
+    data: {
+      bookingPageDescription: "",
+      bookingPageTitle: "",
+      defaultEventDuration: 30,
+      eventRuleActivity: [
+        {
+          id: "activity-1",
+          eventId: "event-1",
+          accountEmail: "user@example.test",
+          title: "Project kickoff",
+          action: "accepted",
+          occurredAt: "2026-09-26T18:00:00.000Z",
+        },
+      ],
+      eventRules: { accept: "", decline: "", hide: "" },
+      timezone: "America/New_York",
+      weekStart: "sunday",
+    },
+  },
+  updateSettingsMock: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/changelog", () => ({
@@ -14,6 +63,19 @@ vi.mock("@agent-native/core/client/changelog", () => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn(async () => undefined),
+  useActionMutation: () => ({
+    isPending: false,
+    mutate: undoEventRuleActivityMock,
+  }),
+  useActionQuery: (
+    _name: string,
+    _params?: unknown,
+    options?: Record<string, unknown>,
+  ) => {
+    eventRulesStatusOptionsMock.options = options;
+    return eventRulesStatusMock;
+  },
+  actionErrorMessage: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -27,6 +89,9 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 vi.mock("@agent-native/core/client/settings", () => ({
   AccountSettingsCard: () => null,
+  BuilderConnectPopover: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   SettingsGroup: ({ children }: { children: React.ReactNode }) => (
     <section>{children}</section>
   ),
@@ -47,10 +112,35 @@ vi.mock("@agent-native/core/client/settings", () => ({
       {control}
     </div>
   ),
-  SettingsTabsPage: ({ general }: { general: React.ReactNode }) => (
-    <main>{general}</main>
-  ),
+  SettingsTabsPage: ({
+    general,
+    extraTabs = [],
+  }: {
+    general: React.ReactNode;
+    extraTabs?: Array<{
+      id: string;
+      label: string;
+      content: React.ReactNode;
+    }>;
+  }) => {
+    const [activeTab, setActiveTab] = React.useState("general");
+    const active = extraTabs.find((tab) => tab.id === activeTab);
+    return (
+      <>
+        <nav>
+          <button onClick={() => setActiveTab("general")}>General</button>
+          {extraTabs.map((tab) => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+        <main>{active ? active.content : general}</main>
+      </>
+    );
+  },
   useAgentSettingsTabs: () => [],
+  useBuilderConnectFlow: () => ({ connecting: false }),
 }));
 
 vi.mock("@agent-native/core/client/ui", () => ({
@@ -164,18 +254,10 @@ vi.mock("@/hooks/use-google-auth", () => ({
 }));
 
 vi.mock("@/hooks/use-settings", () => ({
-  useSettings: () => ({
-    data: {
-      bookingPageDescription: "",
-      bookingPageTitle: "",
-      defaultEventDuration: 30,
-      timezone: "America/New_York",
-      weekStart: "sunday",
-    },
-  }),
+  useSettings: () => settingsMock,
   useUpdateSettings: () => ({
     isPending: false,
-    mutate: vi.fn(),
+    mutate: updateSettingsMock,
   }),
 }));
 
@@ -215,6 +297,23 @@ describe("Calendar Settings", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    eventRulesStatusMock.data = {
+      jevConfigured: true,
+      enabled: true,
+      intervalMinutes: 5,
+      message: null,
+      lastError: null,
+      accountRefreshErrors: [],
+      conflictsSkipped: false,
+      reason: null,
+      registered: true,
+    };
+    eventRulesStatusMock.isError = false;
+    eventRulesStatusMock.isFetching = false;
+    eventRulesStatusMock.isLoading = false;
+    eventRulesStatusOptionsMock.options = undefined;
+    settingsMock.data.eventRules = { accept: "", decline: "", hide: "" };
+    updateSettingsMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -250,6 +349,193 @@ describe("Calendar Settings", () => {
     expect(container.textContent).toContain("settings.weekStartLabel");
     expect(container.textContent).toContain("settings.weekStartSunday");
     expect(container.textContent).toContain("settings.weekStartMonday");
+  });
+
+  it("shows localized prompt help when the invitation rules help button is focused", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    const helpButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="settings.eventRulesHelpLabel"]',
+    );
+    expect(helpButton).not.toBeNull();
+
+    await act(async () => {
+      helpButton?.focus();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    });
+
+    expect(document.body.textContent).toContain("settings.eventRulesHelp");
+  });
+
+  it("separates invitation rules and recent activity into tabs", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    expect(container.textContent).toContain("settings.eventRulesTabRules");
+    expect(container.textContent).toContain(
+      "settings.eventRulesRecentActivity",
+    );
+    expect(container.querySelector("#event-rule-accept")).not.toBeNull();
+
+    await act(async () => {
+      Array.from(container.querySelectorAll("[role='tab']"))
+        .find(
+          (button) =>
+            button.textContent === "settings.eventRulesRecentActivity",
+        )
+        ?.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            button: 0,
+            ctrlKey: false,
+          }),
+        );
+    });
+
+    expect(container.textContent).toContain("Project kickoff");
+    expect(container.textContent).toContain(
+      "settings.eventRuleActivityAccepted",
+    );
+    expect(container.querySelector("#event-rule-accept")).toBeNull();
+    expect(container.textContent).not.toContain(
+      "settings.eventRulesNoActivity",
+    );
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "calendarView.undo")
+        ?.click();
+    });
+    expect(undoEventRuleActivityMock).toHaveBeenCalledWith({
+      activityId: "activity-1",
+    });
+  });
+
+  it("shows Builder and API key connection options and disables rule editing without Jev", async () => {
+    eventRulesStatusMock.data = {
+      ...eventRulesStatusMock.data,
+      jevConfigured: false,
+    };
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    expect(container.textContent).toContain("settings.eventRulesConnectJev");
+    expect(container.textContent).toContain(
+      "settings.eventRulesFreeBuilderOrApiKey",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "settings.eventRulesConnectBuilder",
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("a")).some(
+        (link) =>
+          link.textContent === "settings.eventRulesAddJevApiKey" &&
+          link.getAttribute("href")?.includes("keys"),
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("textarea")).every(
+        (textarea) => textarea.disabled,
+      ),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "settings.eventRulesSave",
+      )?.disabled,
+    ).toBe(true);
+  });
+
+  it("clears saved invitation rules when Jev is disconnected", async () => {
+    eventRulesStatusMock.data = {
+      ...eventRulesStatusMock.data,
+      jevConfigured: false,
+    };
+    settingsMock.data.eventRules = {
+      accept: "Accept team meetings",
+      decline: "",
+      hide: "",
+    };
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    const clearButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "settings.eventRulesClearSaved",
+    );
+    expect(clearButton).toBeDefined();
+    await act(async () => clearButton?.click());
+
+    expect(updateSettingsMock).toHaveBeenCalledWith(
+      { eventRules: { accept: "", decline: "", hide: "" } },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it("refreshes Jev status when the settings tab regains focus", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(eventRulesStatusOptionsMock.options).toMatchObject({
+      refetchOnWindowFocus: true,
+      staleTime: 0,
+    });
+  });
+
+  it("keeps invitation rule editing disabled when the Jev status read fails", async () => {
+    eventRulesStatusMock.isError = true;
+
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "common.loadFailed",
+    );
+    expect(
+      Array.from(container.querySelectorAll("textarea")).every(
+        (textarea) => textarea.disabled,
+      ),
+    ).toBe(true);
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "common.retry",
+    );
+    expect(retry).toBeDefined();
+    await act(async () => retry?.click());
+    expect(eventRulesStatusMock.refetch).toHaveBeenCalledOnce();
   });
 
   it("requests system notification permission from the settings row", async () => {

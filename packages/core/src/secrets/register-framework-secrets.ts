@@ -14,6 +14,7 @@
  * key with stricter requirements; the guard below preserves their definition.
  */
 
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
@@ -111,7 +112,9 @@ export function registerFrameworkSecrets(): void {
         kind: "oauth",
         required: false,
         oauthProvider: provider.oauthProvider,
-        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+        oauthConnectUrl: publicFrameworkPath(
+          `/_agent-native/connections/oauth/${provider.id}/start`,
+        ),
       });
     }
   }
@@ -170,7 +173,7 @@ export function registerFrameworkSecrets(): void {
   if (!getRequiredSecret("JEV_API_KEY")) {
     registerRequiredSecret({
       key: "JEV_API_KEY",
-      label: "System one model (Jev)",
+      label: "Decision model (Jev)",
       description:
         "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
       docsUrl: "https://docs.typesafe.ai/",
@@ -191,9 +194,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // The other AI SDK providers the engine can run on. Registering them here
-  // is what makes them show up in Settings → API keys, so bringing your own
-  // OpenRouter or Gemini key is the same flow as OpenAI or Anthropic.
   const modelProviderKeys: {
     key: string;
     label: string;
@@ -242,9 +242,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // PostHog — product analytics, error tracking, and LLM analytics. One key
-  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
-  // while keeping analytics.
   if (!getRequiredSecret("POSTHOG_API_KEY")) {
     registerRequiredSecret({
       key: "POSTHOG_API_KEY",
@@ -258,8 +255,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // Web-search tool backends — optional; the tool selects the first
-  // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{
     key: string;
     label: string;

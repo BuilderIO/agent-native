@@ -38,6 +38,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLinkedComponentEdit } from "./linked-component-structure";
 
+let duplicateSelectionBatchSequence = 0;
+
 function planLinkedDuplicateSelection(args: {
   content: string;
   group: SelectedCanvasLayerSnapshot[];
@@ -134,13 +136,18 @@ export interface DuplicateSelectionArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
   getSelectedLayerSnapshots: () => SelectedCanvasLayerSnapshot[];
   handleDuplicateScreen: (
     screenId: string,
-    request?: { canvasPosition?: { x: number; y: number } },
+    request?: {
+      canvasPosition?: { x: number; y: number };
+      historyBatchId?: string;
+      duplicateStackSourceIds?: string[];
+    },
   ) => void;
   lastDuplicateTransformRef: RefObject<{
     rootNodeIds: string[];
@@ -177,6 +184,7 @@ export function runDuplicateSelection({
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
+  canEditLiveScreen = false,
   files,
   getFreshActiveContent,
   getScreenContent,
@@ -199,7 +207,7 @@ export function runDuplicateSelection({
   viewModeRef,
 }: DuplicateSelectionArgs) {
   trace("structure", "duplicate-selection", {
-    canEdit: canEditDesign,
+    canEdit: canEditDesign || canEditLiveScreen,
     selectedLayers: selectedLayerIdsState.length,
   });
   let structureUnsupported = false;
@@ -209,13 +217,18 @@ export function runDuplicateSelection({
       t("designEditor.componentInstances.linkedStructureUnsupported"),
     );
   };
-  if (!canEditDesign) return;
-  // U19: duplicate is a discrete one-shot action — see the matching note
-  // in handlePasteSelection.
+  const snapshots = getSelectedLayerSnapshots();
+  const liveScreenSelection =
+    canEditLiveScreen &&
+    Boolean(
+      activeFile &&
+      isStandaloneHttpUrl(activeFile.content ?? "") &&
+      snapshots.length > 0 &&
+      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id),
+    );
+  if (!canEditDesign && !liveScreenSelection) return;
   undoManagerRef.current?.stopCapturing();
-  // A repeat's rows are data: duplicating the markup adds a second authored
-  // row next to the template rather than another item.
-  if (activeFile && selectedElement?.repeat) {
+  if (canEditDesign && activeFile && selectedElement?.repeat) {
     const edit = runRepeatItemEdit({
       content: getFreshActiveContent(),
       target: selectedElement.repeat,
@@ -242,26 +255,7 @@ export function runDuplicateSelection({
       return;
     }
   }
-  const snapshots = getSelectedLayerSnapshots();
   if (snapshots.length > 0) {
-    const componentDocuments = files.map((file) => ({
-      source: {
-        kind: "design-file" as const,
-        designId,
-        fileId: file.id,
-        filename: file.filename,
-      },
-      content: getScreenContent(file.id),
-    }));
-    const selectedIds: string[] = [];
-    const selectedScreenIds: string[] = [];
-    let lastActiveNode: CodeLayerNode | null = null;
-
-    // U7: replay the last recorded move delta when duplicating the exact
-    // same selection again (e.g. dup, drag it, dup again repeats the same
-    // offset — matching Figma). Otherwise an absolutely-positioned source
-    // duplicates with zero offset (lands exactly in place) instead of the
-    // previous unconditional stripRootPosition cascade.
     const currentSourceIds = snapshots
       .map((snapshot) => snapshot.rootNodeId ?? snapshot.node.id)
       .sort();
@@ -276,22 +270,12 @@ export function runDuplicateSelection({
         : null;
     const nextDuplicateRootNodeIds: string[] = [];
 
-    // A localhost screen stores its route URL, while the selected layer only
-    // exists in the running iframe. Reusing the design-file clone path here
-    // would ask the URL string for an HTML projection and silently turn Cmd+D
-    // into a no-op. Prepare the runtime snapshots for the same one-shot bridge
-    // insert lifecycle used by paste so the clone gets a fresh identity and
-    // participates in pending-edit undo/redo.
-    if (
-      activeFile &&
-      isStandaloneHttpUrl(activeFile.content ?? "") &&
-      snapshots.every((snapshot) => snapshot.sourceFileId === activeFile.id)
-    ) {
+    if (liveScreenSelection) {
       const sourcePositions = snapshots.map((snapshot) =>
         extractLayerPosition(snapshot.html),
       );
       const prepared = prepareClonedHtmlLayersForLiveInsert(
-        activeFile.content ?? "",
+        activeFile!.content ?? "",
         snapshots.map((snapshot) => snapshot.html),
         {
           stripRootPosition: true,
@@ -316,12 +300,16 @@ export function runDuplicateSelection({
           selectedCanvasSelector ??
           selectedElement?.selector;
         const anchorSourceId =
-          selectedElement?.runtimeSourceId ?? selectedElement?.sourceId;
+          selectedElement?.runtimeSourceId ??
+          selectedElement?.sourceId ??
+          (snapshots.length === 1
+            ? (snapshots[0]!.rootNodeId ?? snapshots[0]!.node.id)
+            : undefined);
         const hasAnchor = Boolean(anchorSelector);
         runtimeStructureInsertRevisionRef.current += 1;
         setRuntimeStructureInsertRequest({
           requestId: runtimeStructureInsertRevisionRef.current,
-          screenId: activeFile.id,
+          screenId: activeFile!.id,
           html: prepared.htmlFragments[0]!,
           additionalHtml: prepared.htmlFragments.slice(1),
           anchor: hasAnchor
@@ -337,6 +325,21 @@ export function runDuplicateSelection({
         return;
       }
     }
+
+    const componentDocuments = files.map((file) => ({
+      source: {
+        kind: "design-file" as const,
+        designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content: getScreenContent(file.id),
+    }));
+    const selectedIds: string[] = [];
+    const selectedScreenIds: string[] = [];
+    let lastActiveNode: CodeLayerNode | null = null;
+
+    if (!canEditDesign) return;
 
     const sortedSnapshotsByFile = new Map(
       files.map((file) => [
@@ -417,9 +420,6 @@ export function runDuplicateSelection({
           onUnsupportedStructure,
           targetSelectors: codeLayerSelectorAliases(anchorNode),
           placement: "after",
-          // Absolutely-positioned board items land exactly in place (or at
-          // the replayed delta); only in-flow elements (no left/top) use
-          // stripRootPosition so they join the document as a plain sibling.
           stripRootPosition: !sourcePosition,
           positions: sourcePosition
             ? [
@@ -440,7 +440,6 @@ export function runDuplicateSelection({
         if (!result) continue;
         content = result.content;
         insertedRootNodeIds.unshift(...result.rootNodeIds);
-        // U14: duplicate keeps the clone's animation.
         remapMotionTracksForClone(result.nodeIdMap, file.id);
       }
       if (insertedRootNodeIds.length === 0) continue;
@@ -481,10 +480,6 @@ export function runDuplicateSelection({
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds(selectedScreenIds);
       }
-      // Track this duplicate as the new "last duplicate" so a subsequent
-      // drag-then-Cmd+D can record/replay a delta against it. Preserve the
-      // previous delta across repeated Cmd+D so chained duplicates (no drag
-      // in between) keep applying the same recorded offset, matching Figma.
       lastDuplicateTransformRef.current = {
         rootNodeIds: [...nextDuplicateRootNodeIds].sort(),
         dx: repeatTransform?.dx ?? 0,
@@ -501,9 +496,6 @@ export function runDuplicateSelection({
       toast.error(t("designEditor.toasts.duplicateElementFailed"));
       return;
     }
-    // B7 fix: duplicate inserts the clone as an in-flow sibling right AFTER
-    // the original — not as an absolutely-positioned body child.  Strip
-    // position/left/top so it joins normal document flow.
     const selector = selectedCanvasSelector ?? selectedElement.selector;
     const strippedHtml = (() => {
       try {
@@ -562,14 +554,17 @@ export function runDuplicateSelection({
     }
     return;
   }
-  // U17: duplicate every selected screen, not just the active one — a
-  // multi-screen overview selection (no deeper layer focus) previously
-  // silently duplicated only activeFile.id and dropped the rest.
   const screenIdsToDuplicate =
-    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 1
+    viewModeRef.current === "overview" && overviewSelectedScreenIds.length > 0
       ? overviewSelectedScreenIds
       : activeFile
         ? [activeFile.id]
         : [];
-  screenIdsToDuplicate.forEach((screenId) => handleDuplicateScreen(screenId));
+  const historyBatchId = `duplicate-selection-${++duplicateSelectionBatchSequence}`;
+  screenIdsToDuplicate.forEach((screenId) =>
+    handleDuplicateScreen(screenId, {
+      historyBatchId,
+      duplicateStackSourceIds: screenIdsToDuplicate,
+    }),
+  );
 }

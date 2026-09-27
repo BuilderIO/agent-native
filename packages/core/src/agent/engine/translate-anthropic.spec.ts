@@ -1,7 +1,10 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { actionsToEngineTools } from "../production-agent.js";
 import {
   createProviderToolNameMap,
   PROVIDER_TOOL_NAME_MAX_LENGTH,
@@ -72,8 +75,71 @@ describe("engineToolsToAnthropic", () => {
     });
     expect(result[0].input_schema).not.toHaveProperty("oneOf");
     expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(result[0].input_schema.required).toEqual(["maybe"]);
     expect(inputSchema).toHaveProperty("oneOf");
     expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("flattens a union action schema instead of dropping its parameters", () => {
+    const branches = [
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("doc"),
+        docId: z.string(),
+      }),
+      z.object({
+        conversationId: z.string(),
+        kind: z.literal("app"),
+        appId: z.string(),
+      }),
+    ] as const;
+
+    for (const schema of [
+      z.union(branches),
+      z.discriminatedUnion("kind", branches),
+    ]) {
+      const tools = actionsToEngineTools({
+        probe: defineAction({
+          description: "Open a surface",
+          schema,
+          run: async () => "ok",
+        }),
+      });
+      expect(tools.map((tool) => tool.name)).toEqual(["probe"]);
+      const inputSchema = engineToolsToAnthropic(tools)[0]!
+        .input_schema as Record<string, any>;
+
+      for (const key of ["anyOf", "oneOf", "allOf"]) {
+        expect(inputSchema).not.toHaveProperty(key);
+      }
+      expect(inputSchema.type).toBe("object");
+      expect(Object.keys(inputSchema.properties).sort()).toEqual([
+        "appId",
+        "conversationId",
+        "docId",
+        "kind",
+      ]);
+      expect([...inputSchema.required].sort()).toEqual([
+        "conversationId",
+        "kind",
+      ]);
+      expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
+        /"doc".*"app"/,
+      );
+    }
+  });
+
+  it("passes a plain object schema through unchanged", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: { q: { type: "string" } },
+      required: ["q"],
+    };
+    const [tool] = engineToolsToAnthropic([
+      { name: "search", description: "Search", inputSchema },
+    ]);
+
+    expect(tool!.input_schema).toBe(inputSchema);
   });
 
   it("narrows db-exec to statements for Anthropic compatibility", () => {
@@ -149,7 +215,6 @@ describe("engineMessagesToAnthropic", () => {
     const result = engineMessagesToAnthropic(messages);
     expect(result).toHaveLength(1);
     expect(result[0].role).toBe("user");
-    // Single text part should coerce to a string for Anthropic
     const content = result[0].content;
     const textPart = Array.isArray(content)
       ? (content as any[]).find((p: any) => p.type === "text")
@@ -518,7 +583,6 @@ describe("tool-result images", () => {
     const messages = withImages([
       { url: "https://cdn.example.com/shot.png", label: "tab" },
     ]);
-    // Blank the toolName so the backfill rebuilds the part.
     (messages[2].content[0] as any).toolName = "";
     (messages[2].content[0] as any).toolInput = "";
     const filled = backfillEngineMessagesToolResults(messages);
@@ -604,8 +668,6 @@ describe("redacted thinking blocks survive the round trip", () => {
       { type: "redacted_thinking", data: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
     ] as any);
-    // Anthropic wants the whole thinking sequence back inside a tool-use turn,
-    // so an unreadable block still has to survive normalization.
     expect(parts).toEqual([
       { type: "thinking", text: "", redactedData: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
@@ -635,9 +697,6 @@ describe("redacted thinking blocks survive the round trip", () => {
 });
 describe("unsendable thinking blocks", () => {
   it("drops an unsigned thinking block rather than sending an empty signature", () => {
-    // An empty signature is rejected by the native API, which kills the whole
-    // request — a turn that streamed fine dies on a provider error that points
-    // nowhere near the cause.
     const replayed = engineMessagesToAnthropic([
       {
         role: "assistant",
@@ -663,8 +722,6 @@ describe("unsendable thinking blocks", () => {
   });
 
   it("keeps the Builder gateway path unchanged", () => {
-    // The gateway's tolerance for an unsigned thinking block is unverified, so
-    // that path is deliberately left as it was.
     const replayed = engineMessagesToBuilderGatewayAnthropic([
       {
         role: "assistant",

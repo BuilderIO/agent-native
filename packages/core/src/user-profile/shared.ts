@@ -13,9 +13,18 @@ export const ONBOARDING_ROLE_VALUES = [
   "other",
 ] as const;
 
-export const onboardingRoleSchema = z.enum(ONBOARDING_ROLE_VALUES);
+export const onboardingRoleSchema = z.string().trim().min(1).max(120);
 
 export type OnboardingRole = z.infer<typeof onboardingRoleSchema>;
+export type OnboardingRoleCategory = (typeof ONBOARDING_ROLE_VALUES)[number];
+
+export function getOnboardingRoleCategory(
+  value: OnboardingRole,
+): OnboardingRoleCategory {
+  return ONBOARDING_ROLE_VALUES.includes(value as OnboardingRoleCategory)
+    ? (value as OnboardingRoleCategory)
+    : "other";
+}
 
 export interface UserProfile {
   email: string;

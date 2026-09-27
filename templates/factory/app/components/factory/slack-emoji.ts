@@ -1,4 +1,3 @@
-/** Standard Slack/Unicode shortcodes. Unknown names stay as `:name:`. */
 const SHORTCODES: Record<string, string> = {
   "+1": "👍",
   "-1": "👎",

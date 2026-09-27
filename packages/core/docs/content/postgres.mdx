@@ -24,6 +24,15 @@ for production connections.
 If your provider offers separate pooled and direct endpoints, use the pooled
 endpoint for runtime traffic and the direct endpoint for migrations.
 
+The framework limits connections per process pool. Set
+`AGENT_NATIVE_DB_POOL_MAX` to override that limit for both Neon and standard
+PostgreSQL clients. The default is 20 for long-lived Node.js processes and is
+smaller for serverless functions. Add the maximum across warm processes, app
+instances, and database URLs when checking your database's connection budget.
+This setting does not combine pools across processes. For self-hosted
+PostgreSQL with many app processes, consider transaction pooling with
+PgBouncer.
+
 ## Migrations
 
 Run production migrations in the release or deployment step. Follow the

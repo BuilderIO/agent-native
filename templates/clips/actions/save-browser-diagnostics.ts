@@ -1,11 +1,3 @@
-/**
- * Save redacted browser diagnostics captured during a recording session.
- *
- * Called by the recorder UI after stop/finalize. Diagnostics are intentionally
- * bounded and body/header-free: interaction markers, console text, plus
- * method/path/status/duration for fetch/XHR requests.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -45,7 +37,7 @@ const networkRequestSchema = z.object({
   type: z.enum(["fetch", "xhr"]).default("fetch"),
   method: z.string().max(24).default("GET"),
   url: z.string().max(8_000),
-  status: z.number().int().min(100).max(599).optional(),
+  status: z.number().int().min(0).max(599).optional(),
   statusText: z.string().max(500).optional(),
   ok: z.boolean().optional(),
   durationMs: z.number().finite().nonnegative(),
@@ -144,7 +136,9 @@ function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
     type: entry.type,
     method: truncate(entry.method.toUpperCase(), 24),
     url: sanitizeUrl(entry.url),
-    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
+    ...(typeof entry.status === "number" && entry.status >= 100
+      ? { status: entry.status }
+      : {}),
     ...(statusText ? { statusText } : {}),
     ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
     durationMs: Math.round(entry.durationMs),

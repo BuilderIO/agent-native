@@ -82,7 +82,7 @@ describe("default onboarding steps", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "jev-key",
-          label: "System one model (Jev)",
+          label: "Decision model (Jev)",
           description: expect.stringContaining("Optional direct Jev API key"),
           badge: "recommended",
           kind: "form",

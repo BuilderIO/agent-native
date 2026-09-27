@@ -64,6 +64,45 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends server exception events to Agent-Native Analytics when configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    const { flushTracking, registerBuiltinProviders } =
+      await freshTrackingModules();
+    const { captureException } = await import("./error-capture.js");
+
+    registerBuiltinProviders();
+    captureException(new Error("server boom"), {
+      handled: false,
+      runtime: "node",
+      source: "server",
+      environment: "production",
+    });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://analytics.example.test/track");
+    expect(JSON.parse(init.body)).toMatchObject({
+      publicKey: "anpk_test",
+      event: "$exception",
+      properties: {
+        exceptionType: "Error",
+        exceptionMessage: "server boom",
+        handled: false,
+        runtime: "node",
+        source: "server",
+        environment: "production",
+      },
+    });
+  });
+
   it("maps the browser session onto each provider's own session field", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
@@ -247,10 +286,6 @@ describe("tracking providers", () => {
     );
     await flushTracking();
 
-    // Top level, not inside `properties`: a `properties.timestamp` is an
-    // ordinary custom property to PostHog, and the event lands at its
-    // ingestion time. An agent run flushes its whole tree at the end, so that
-    // collapsed every span in a multi-minute run onto the same instant.
     for (const [, init] of fetchMock.mock.calls) {
       const body = JSON.parse(init.body);
       expect(body.timestamp).toBe("2026-08-24T17:53:18.793Z");
@@ -292,13 +327,8 @@ describe("tracking providers", () => {
     await flushTracking();
 
     const posted = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body));
-    // PostHog reads an AI event's timestamp as the operation's END and
-    // subtracts `$ai_latency` to recover the start.
     expect(posted[0].timestamp).toBe("2026-08-24T21:56:05.674Z");
-    // The trace carries no latency, so there is nothing to shift.
     expect(posted[1].timestamp).toBe("2026-08-24T21:55:59.154Z");
-    // Every other backend keeps the start it was given — they read the
-    // timestamp verbatim and never reconstruct anything from `$ai_latency`.
     expect(fanOut.map((e) => e.timestamp)).toEqual([
       "2026-08-24T21:55:59.154Z",
       "2026-08-24T21:55:59.154Z",
@@ -336,8 +366,6 @@ describe("tracking providers", () => {
     expect(body.properties.distinct_id).toBe("u1");
     expect(body.properties.app).toBe("content");
     expect(body.properties.$exception_level).toBe("error");
-    // The reshaped exception path is a separate branch from /capture/ — a
-    // server error still has to join the visit that triggered it.
     expect(body.properties.$session_id).toBe("session-1");
     expect(body.properties.$exception_list[0]).toMatchObject({
       type: "TypeError",

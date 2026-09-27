@@ -40,7 +40,7 @@ async function renderCanvas(
       authoredSourceContent={authored}
       contentKey="screen:inline-overview"
       runtimeReplacementContent={next}
-      runtimeReplacementKey={`screen:${next.length}:${next.slice(-24)}`}
+      runtimeReplacementKey="screen:inline-overview"
       screenId="screen"
       zoom={100}
       deviceFrame="none"
@@ -124,9 +124,6 @@ describe("DesignCanvas runtime replacement", () => {
         ),
       );
 
-      // A rebuilt srcdoc reloads the iframe, re-executing the bridge, Tailwind
-      // and Alpine. Managed breakpoint/motion/token CSS lives in the head, so
-      // gating a reload on head equality reloaded the frame on every one.
       expect(canvas.iframe()?.srcdoc).toBe(before);
     } finally {
       await canvas.cleanup();
@@ -162,8 +159,6 @@ describe("DesignCanvas runtime replacement", () => {
         documentWith("<title>Screen</title>", `${BODY}${script}`),
       );
 
-      // Identical script text in a new region: the morph would strip it from
-      // the head and import an inert copy into the body that never executes.
       expect(canvas.iframe()?.srcdoc).not.toBe(before);
     } finally {
       await canvas.cleanup();

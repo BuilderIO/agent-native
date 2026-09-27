@@ -30,6 +30,23 @@ describe("record route lifecycle shell", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the shared classifier and sanitized body for dropped-file uploads", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const uploadStart = source.indexOf("const uploadFile = useCallback");
+    const uploadEnd = source.indexOf("const doStop = useCallback", uploadStart);
+    const uploadFlow = source.slice(uploadStart, uploadEnd);
+
+    expect(uploadStart).toBeGreaterThan(-1);
+    expect(uploadEnd).toBeGreaterThan(uploadStart);
+    expect(uploadFlow).toContain("classifyUploadResponseError");
+    expect(uploadFlow).toContain("responseError.responseText");
+    expect(uploadFlow).toContain("failureCode: responseError.failureCode");
+    expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
+  });
+
   it("announces real progress without including action controls", () => {
     act(() => {
       root.render(
@@ -177,6 +194,21 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain("onUpload={uploadFile}");
     expect(source).not.toContain("importLoomHref=");
     expect(source).not.toContain("autoOpenUpload=");
+  });
+
+  it("clears the saving toolbar state before showing the saved recording", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const start = source.indexOf("const finishSavedRecording");
+    const end = source.indexOf("const doStop = useCallback", start);
+    const finish = source.slice(start, end);
+
+    expect(finish.indexOf("setSavingKind(null);")).toBeGreaterThanOrEqual(0);
+    expect(finish.indexOf("setSavingKind(null);")).toBeLessThan(
+      finish.indexOf('setUiState("complete");'),
+    );
   });
 
   it("keeps the browser route free of server-only app-state imports", () => {

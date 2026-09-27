@@ -4,6 +4,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -14,10 +15,12 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import {
+  type DragEvent,
   type ReactElement,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Link } from "react-router";
@@ -33,6 +36,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
+import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
   useOrganizations,
@@ -46,11 +51,17 @@ import {
   type RecordingSummary,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import {
+  fetchVideoStorageStatus,
+  useVideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
 import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
+import { resolveVideoMimeType } from "@/lib/video-metadata";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
+import { DroppedUploadCard } from "./dropped-upload-card";
 import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
@@ -68,7 +79,6 @@ interface LibraryGridProps {
   view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  /** What empty-state illustration to render. Defaults from `view`. */
   emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
@@ -281,7 +291,6 @@ export function LibraryGrid({
 
   const { data, isLoading, isError, refetch, isRefetching } =
     useRecordings(args);
-  const recordings = data?.recordings ?? [];
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -289,6 +298,32 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
+  const canUploadByDrop = canMoveSelection;
+  const [storageGateIssue, setStorageGateIssue] =
+    useState<VideoStorageGateIssue | null>(null);
+  const storageStatus = useVideoStorageStatus(storageGateIssue !== null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragDepthRef = useRef(0);
+  const { uploads, uploadFiles } = useDropVideoUpload(
+    { spaceId, folderId },
+    setStorageGateIssue,
+  );
+  const activeUploadIds = useMemo(
+    () =>
+      new Set(
+        uploads
+          .map((upload) => upload.recordingId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    [uploads],
+  );
+  const recordings = useMemo(
+    () =>
+      (data?.recordings ?? []).filter(
+        (recording) => !activeUploadIds.has(recording.id),
+      ),
+    [activeUploadIds, data?.recordings],
+  );
   const { data: organizations } = useOrganizations({
     enabled: canMoveSelection,
   });
@@ -315,6 +350,13 @@ export function LibraryGrid({
         : [],
     [folderId, scopedFolders, view],
   );
+  const isEmptyState =
+    !isLoading &&
+    !(view !== "shared" && isFoldersLoading) &&
+    !isError &&
+    recordings.length === 0 &&
+    visibleFolders.length === 0 &&
+    uploads.length === 0;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
   const moveTargets = useMemo(
     () =>
@@ -451,12 +493,67 @@ export function LibraryGrid({
   };
 
   const handleRetry = async (rec: RecordingSummary) => {
+    let storageConfigured = false;
+    try {
+      storageConfigured = (await fetchVideoStorageStatus()).configured;
+    } catch {
+      setStorageGateIssue("unavailable");
+      return;
+    }
+    if (!storageConfigured) {
+      setStorageGateIssue("missing");
+      return;
+    }
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
       toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
     } finally {
       void refetch();
+    }
+  };
+
+  const hasFilesDrag = (event: DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+  const handleDragEnter = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleDragOver = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+  };
+  const handleDragLeave = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleDrop = (event: DragEvent) => {
+    if (!canUploadByDrop || !hasFilesDrag(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFile(false);
+    const files = Array.from(event.dataTransfer.files).filter(
+      (file) => resolveVideoMimeType(file) !== null,
+    );
+    if (files.length === 0) {
+      toast.error(t("recordRoute.uploadFailed"));
+      return;
+    }
+    uploadFiles(files);
+  };
+
+  const retryStorageStatus = async () => {
+    const result = await storageStatus.refetch();
+    if (result.isError || !result.data) {
+      setStorageGateIssue("unavailable");
+    } else if (result.data.configured) {
+      setStorageGateIssue(null);
+    } else {
+      setStorageGateIssue("missing");
     }
   };
 
@@ -497,10 +594,25 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      <FileStorageSetupPopover
+        open={storageGateIssue !== null}
+        onOpenChange={(open) => {
+          if (!open) setStorageGateIssue(null);
+        }}
+        onConnected={() => void retryStorageStatus()}
+        {...(storageGateIssue === "unavailable"
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void retryStorageStatus(),
+            }
+          : { status: "missing" as const })}
+      />
+
       {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (
         <ShareRecordingDialog
           recordingId={sharingRec.id}
+          pendingRedactions={sharingRec.pendingRedactions ?? 0}
           recordingTitle={sharingRec.title}
           initialVisibility={sharingRec.visibility}
           hasPassword={sharingRec.hasPassword}
@@ -539,13 +651,17 @@ export function LibraryGrid({
               <PageBreadcrumb items={pageBreadcrumbItems} />
             ) : null}
           </div>
-          <SearchBar
-            side="bottom"
-            className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
-          />
+          {!isEmptyState && (
+            <SearchBar
+              side="bottom"
+              className="hidden min-w-0 max-w-80 flex-1 md:block lg:w-full lg:max-w-none"
+            />
+          )}
           <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
-            {extraActions}
-            <SortMenu value={sort} onChange={handleSortChange} />
+            {!isEmptyState && extraActions}
+            {!isEmptyState && (
+              <SortMenu value={sort} onChange={handleSortChange} />
+            )}
           </div>
         </div>
       </PageHeader>
@@ -557,7 +673,16 @@ export function LibraryGrid({
       )}
 
       {/* Grid body */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {canUploadByDrop && isDraggingFile && (
+          <div className="pointer-events-none absolute inset-2 z-20 rounded-lg border-2 border-dashed border-primary bg-primary/5" />
+        )}
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto",
@@ -565,6 +690,15 @@ export function LibraryGrid({
           )}
           aria-busy={isLoading}
         >
+          {uploads.length > 0 && (
+            <div className="p-5 pb-0">
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                {uploads.map((item) => (
+                  <DroppedUploadCard key={item.key} item={item} />
+                ))}
+              </div>
+            </div>
+          )}
           <LibraryCanvasContextMenu
             enabled={canMoveSelection}
             onCreateFolder={() => setCreateFolderOpen(true)}
@@ -597,7 +731,9 @@ export function LibraryGrid({
                     {t("libraryGrid.retry")}
                   </Button>
                 </div>
-              ) : recordings.length === 0 && visibleFolders.length === 0 ? (
+              ) : recordings.length === 0 &&
+                visibleFolders.length === 0 &&
+                uploads.length === 0 ? (
                 <EmptyState
                   kind={resolvedEmptyKind}
                   spaceId={spaceId}

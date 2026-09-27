@@ -371,6 +371,110 @@ describe("explicit grid placement repro", () => {
     await browser.close();
   });
 
+  it("retargets cross-grid single-cell sources to the destination cell", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 500 },
+    });
+    await page.setContent(
+      groupedSourceFixture(
+        "grid-column:1;grid-row:1",
+        "grid-column:1;grid-row:2",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __gridDrop?: unknown }).__gridDrop = null;
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change")
+          (window as Window & { __gridDrop?: unknown }).__gridDrop = event.data;
+      });
+    });
+
+    const source = await box(page, "#b");
+    const target = await box(page, "#occupied");
+    await select(page, "#b");
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(source.x + 8, source.y + 8, { steps: 3 });
+    await page.mouse.move(target.x + 10, target.y + 10, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+
+    expect(
+      await page.locator("#b").evaluate((node) => ({
+        parent: node.parentElement?.id,
+        column: getComputedStyle(node).gridColumn,
+        row: getComputedStyle(node).gridRow,
+      })),
+    ).toEqual({ parent: "target", column: "3 / 4", row: "2 / 3" });
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __gridDrop?: { gridPlacement?: unknown } })
+            .__gridDrop?.gridPlacement,
+      ),
+    ).toEqual({ column: 3, columnEnd: 4, row: 2, rowEnd: 3 });
+    await browser.close();
+  });
+
+  it("preserves same-grid one-cell ranges written with end lines", async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 700, height: 500 },
+    });
+    await page.setContent(
+      fixture.replace(
+        "#b{grid-column:span 2;grid-row:span 2;background:#6366f1}",
+        "#b{grid-column:3 / 4;grid-row:1 / 2;background:#6366f1}",
+      ),
+    );
+    await page.addScriptTag({ content: bridge() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as Window & { __gridDrop?: unknown }).__gridDrop = null;
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "visual-structure-change")
+          (window as Window & { __gridDrop?: unknown }).__gridDrop = event.data;
+      });
+    });
+
+    const source = await box(page, "#b");
+    const target = await box(page, "#c");
+    await select(page, "#b");
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(source.x + 8, source.y + 8, { steps: 3 });
+    await page.mouse.move(target.x + 10, target.y + target.height / 2, {
+      steps: 12,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+
+    expect(
+      await page.locator("#b").evaluate((node) => ({
+        parent: node.parentElement?.id,
+        column: getComputedStyle(node).gridColumn,
+        row: getComputedStyle(node).gridRow,
+      })),
+    ).toEqual({ parent: "grid", column: "3 / 4", row: "1 / 2" });
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { __gridDrop?: { gridPlacement?: unknown } })
+            .__gridDrop?.gridPlacement,
+      ),
+    ).toBeUndefined();
+    await browser.close();
+  });
+
   it("maps authored implicit tracks without colliding fallback occupants", async () => {
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({

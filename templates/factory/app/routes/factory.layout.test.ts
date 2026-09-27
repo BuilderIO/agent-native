@@ -79,10 +79,30 @@ describe("Factory route factory switching", () => {
     );
   });
 
+  it("remembers the last selected automation per factory instead of the URL, and forgets it when opening create", () => {
+    const source = readSource();
+    expect(source).toContain(
+      "function lastAutomationStorageKey(factoryId: string): string {",
+    );
+    expect(source).toContain(
+      "const persistedId = selectedId ? null : persistedLastAutomationId(factoryId);",
+    );
+    expect(source).toContain("persistLastAutomationId(factoryId, id);");
+    expect(source).toContain(
+      "if (open) clearPersistedLastAutomationId(factoryId);",
+    );
+    expect(source).toContain(
+      "persistLastAutomationId(factoryId, selected.id);",
+    );
+    expect(
+      source.indexOf("persistLastAutomationId(factoryId, selected.id);"),
+    ).toBeLessThan(
+      source.indexOf("if (!selectedId) {\n      selectAutomation"),
+    );
+  });
+
   it("resyncs the editor after a save and refuses to run a stale config", () => {
     const source = readSource();
-    // Save normalizes the row, so the draft must stop counting as unsaved or it
-    // never accepts a server update again.
     expect(source).toMatch(
       /syncedConfigKeyRef\.current = null;\n\s+await automationsQuery\.refetch\(\);/,
     );
@@ -118,8 +138,6 @@ describe("Factory route tabs", () => {
     expect(source).toContain('<IconLoader2 className="size-4 animate-spin" />');
     expect(source).toContain("onFetchingChange={setAuditFetching}");
     expect(source).toContain("refreshToken={auditRefreshToken}");
-    // The spinner branch must live inside the audit refresh button, not just
-    // anywhere in the file.
     const buttonIdx = source.indexOf(
       'aria-label={t("factoryRoute.auditRefresh")}',
     );

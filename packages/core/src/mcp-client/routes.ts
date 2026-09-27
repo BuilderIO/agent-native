@@ -31,8 +31,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -79,16 +77,15 @@ import {
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
+
 export { formatMcpConnectError } from "./errors.js";
 
-/**
- * The settings table backing remote/built-in MCP servers could not be read.
- *
- * Distinct from `buildMergedConfig()` returning `null`, which means the app is
- * genuinely configured with zero MCP servers. Coercing an unreachable database
- * into an empty settings map made every caller report "no MCP servers
- * configured" while the real answer was "could not read the configuration".
- */
 export class McpConfigUnreadableError extends Error {
   constructor(cause: unknown) {
     super(
@@ -99,7 +96,6 @@ export class McpConfigUnreadableError extends Error {
   }
 }
 
-/** Redact obvious auth header values before sending to the client. */
 function redactHeaders(
   headers?: Record<string, string>,
 ): Record<string, { set: true }> | undefined {
@@ -156,7 +152,6 @@ export interface ClientServer {
   description?: string;
   firstParty?: boolean;
   createdAt: number;
-  /** The key under which this server is registered in the running MCP manager. */
   mergedId: string;
   status: ServerStatus;
 }
@@ -331,11 +326,6 @@ function sortedConfigSignature(config: McpConfig | null): string {
   return JSON.stringify(entries);
 }
 
-/**
- * How long the refresh may skip the settings read on the strength of "no
- * in-process settings write since the last one". Bounds how stale a remote MCP
- * server list added by ANOTHER process can be.
- */
 const MCP_CONFIG_REFRESH_BACKSTOP_MS = 5 * 60 * 1000;
 
 function mcpConfigRefreshIntervalMs(): number {
@@ -351,18 +341,10 @@ export function startMcpConfigRefresh(
 ): (() => void) | null {
   const intervalMs = mcpConfigRefreshIntervalMs();
   if (intervalMs <= 0 || typeof setInterval !== "function") return null;
-  // Billed per warm container on serverless, and the first tick always runs a
-  // full settings scan because `settingsDirty` starts true. Request-driven
-  // reconfigures (`waitUntilReady` on the MCP routes, `refreshGlobalMcpManager`)
-  // already cover config changes there, and a fresh container re-reads config.
   if (shouldDisableInProcessSweeps()) return null;
 
   let currentSignature = sortedConfigSignature(manager.getConfig());
   let refreshing = false;
-  // `buildMergedConfig` reads the entire settings table just to diff a
-  // signature, which on an idle app is a full-table round trip every minute
-  // forever. Only pay it when an in-process settings write says something might
-  // have changed, plus a periodic backstop for writes from another process.
   let settingsDirty = true;
   let lastFullRefresh = 0;
   const markDirty = () => {
@@ -388,8 +370,6 @@ export function startMcpConfigRefresh(
       settingsDirty = false;
       lastFullRefresh = Date.now();
     } catch (err: any) {
-      // Keep this dirty so a transient database or manager failure is retried
-      // on the next interval instead of being hidden by the backstop window.
       settingsDirty = true;
       console.warn(
         `[mcp-client] config refresh failed: ${err?.message ?? err}`,
@@ -414,6 +394,7 @@ async function resolveContextForRequest(event: H3Event): Promise<{
 }> {
   let email: string | null = null;
   try {
+    const { getSession } = await import("../server/auth.js");
     const session = await getSession(event);
     email = session?.email ?? null;
   } catch {
@@ -482,12 +463,10 @@ export function mountMcpServersRoutes(
           return handleRuntimeConfig(event);
         }
 
-        // POST /servers/test — dry-run a URL+headers before persisting
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
           return handleTestUrl(event);
         }
 
-        // Collection root
         if (parts.length === 0) {
           if (method === "GET") return handleList(event, manager);
           if (method === "POST") return handleAdd(event, manager);
@@ -495,7 +474,6 @@ export function mountMcpServersRoutes(
           return { error: "Method not allowed" };
         }
 
-        // /:id  /  /:id/test
         if (parts.length === 1 || parts.length === 2) {
           const id = parts[0];
           if (parts.length === 2 && parts[1] === "test" && method === "POST") {
@@ -1134,10 +1112,6 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  // `server.headers` holds only the cleartext (non-secret) subset; auth headers
-  // (Authorization, API keys) live encrypted in app_secrets and are resolved by
-  // toHttpServerConfigAsync. Testing with cleartext-only headers would fail for
-  // any server that uses encrypted credentials.
   const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {

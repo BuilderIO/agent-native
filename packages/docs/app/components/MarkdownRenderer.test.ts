@@ -14,6 +14,13 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
+  it("keeps legacy empty anchors as invisible fragment targets", () => {
+    const html = renderMarkdownToHtml('<a id="legacy-section"></a>');
+
+    expect(html).toContain('<span id="legacy-section"></span>');
+    expect(html).not.toContain("&lt;a");
+  });
+
   it("drops unsafe markdown link and image URLs", () => {
     const html = renderMarkdownToHtml(
       "[run](javascript:alert(1)) ![bad](javascript:alert(1)) [encoded](javascript&#58;alert(1))",

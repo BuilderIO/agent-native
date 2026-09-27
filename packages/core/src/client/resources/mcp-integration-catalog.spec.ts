@@ -275,8 +275,6 @@ describe("MCP integration catalog", () => {
         integration.verification,
       );
     }
-    // GitHub's authorization server publishes no registration_endpoint, so an
-    // OAuth entry here would render a Connect button that can only ever fail.
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
     ).toMatchObject({
@@ -377,7 +375,6 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForToolName("mcp__chrome-devtools__click")).toBe(
       null,
     );
-    // The tool half of the name must never drive the icon.
     expect(
       findMcpIntegrationForToolName("mcp__zapier__send_slack_message")?.id,
     ).toBe("zapier");
@@ -552,8 +549,6 @@ describe("MCP integration catalog", () => {
       description: "Read and write issues",
       scope: "org",
       returnUrl: "/settings/integrations",
-      trackingFlow: "first_run",
-      trackingIntegrationId: "linear",
     });
     const params = new URL(url, "https://example.com").searchParams;
 
@@ -567,8 +562,6 @@ describe("MCP integration catalog", () => {
     expect(params.get("description")).toBe("Read and write issues");
     expect(params.get("scope")).toBe("org");
     expect(params.get("return")).toBe("/settings/integrations");
-    expect(params.get("tracking_flow")).toBe("first_run");
-    expect(params.get("tracking_integration_id")).toBe("linear");
   });
 
   it("builds the OAuth start URL under a configured app mount", () => {

@@ -13,8 +13,22 @@ describe("frame size presets", () => {
     }
   });
 
-  it("puts Phone first so it is the default-expanded group", () => {
-    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("phone");
+  it("puts Desktop first as the default-visible preset", () => {
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.key).toBe("desktop");
+    expect(
+      FRAME_SIZE_PRESET_CATEGORIES.findIndex(
+        (category) => category.key === "desktop",
+      ),
+    ).toBeLessThan(
+      FRAME_SIZE_PRESET_CATEGORIES.findIndex(
+        (category) => category.key === "phone",
+      ),
+    );
+    expect(FRAME_SIZE_PRESET_CATEGORIES[0]?.presets[0]).toEqual({
+      name: "Desktop",
+      width: 1440,
+      height: 1024,
+    });
   });
 
   it("has no duplicate category keys", () => {
@@ -42,11 +56,6 @@ describe("frame size presets", () => {
     }
   });
 
-  // Paper presets share this canvas's 96dpi-CSS-px unit convention (every
-  // other category — phone/tablet/desktop/social — is already in px), not
-  // Figma's 72dpi point values. A point-valued "Letter"/"A4" preset would
-  // author a canvas ~25% smaller than the real physical page once run
-  // through createSinglePageRasterPdf's px->pt conversion.
   it("sizes Letter and A4 paper presets in 96dpi px, not 72dpi pt", () => {
     const paper = FRAME_SIZE_PRESET_CATEGORIES.find((c) => c.key === "paper");
     const letter = paper?.presets.find((p) => p.name === "Letter");

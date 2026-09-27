@@ -7,7 +7,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
-import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getCanonicalScreenStack,
+  getInitialFrameGeometry,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import {
   nextDuplicatedFilename,
@@ -27,10 +30,68 @@ import {
   getCanvasFrameGeometry,
   getDesignDataRecord,
 } from "@/pages/design-editor/design-data-geometry-utils";
-import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
+import {
+  applyDuplicateStackHistoryChange,
+  type DuplicateStackHistoryChange,
+  type FileCreationHistoryEntry,
+} from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
+
+interface DuplicateBatchState {
+  sourceIds: Set<string>;
+  completedSourceIds: Set<string>;
+  copyIds: Set<string>;
+  pendingFilenames: Set<string>;
+}
+
+const duplicateBatchStatesByPendingMap = new WeakMap<
+  Map<string, FrameGeometry>,
+  Map<string, DuplicateBatchState>
+>();
+
+function duplicateBatchState(
+  pendingGeometries: Map<string, FrameGeometry>,
+  historyBatchId: string | undefined,
+  sourceIds: readonly string[],
+): DuplicateBatchState | undefined {
+  if (!historyBatchId) return undefined;
+  let batches = duplicateBatchStatesByPendingMap.get(pendingGeometries);
+  if (!batches) {
+    batches = new Map();
+    duplicateBatchStatesByPendingMap.set(pendingGeometries, batches);
+  }
+  let state = batches.get(historyBatchId);
+  if (!state) {
+    state = {
+      sourceIds: new Set(),
+      completedSourceIds: new Set(),
+      copyIds: new Set(),
+      pendingFilenames: new Set(),
+    };
+    batches.set(historyBatchId, state);
+  }
+  sourceIds.forEach((sourceId) => state!.sourceIds.add(sourceId));
+  return state;
+}
+
+function settleDuplicateBatchSource(
+  pendingGeometries: Map<string, FrameGeometry>,
+  historyBatchId: string | undefined,
+  state: DuplicateBatchState | undefined,
+  sourceId: string,
+  copyId?: string,
+) {
+  if (!historyBatchId || !state) return;
+  state.completedSourceIds.add(sourceId);
+  if (copyId) state.copyIds.add(copyId);
+  if ([...state.sourceIds].every((id) => state!.completedSourceIds.has(id))) {
+    duplicateBatchStatesByPendingMap
+      .get(pendingGeometries)
+      ?.delete(historyBatchId);
+  }
+}
 
 export interface DuplicateScreenRecoveryEntry {
   sourceScreenId: string;
@@ -54,63 +115,212 @@ function isCompleteFrameGeometry(
   );
 }
 
+function rebaseDispatchedCanvasGeometry(
+  dispatched: CanvasFrameGeometry,
+  geometryAtStart: CanvasFrameGeometry | undefined,
+  latest: CanvasFrameGeometry | undefined,
+): CanvasFrameGeometry {
+  if (!isCompleteFrameGeometry(latest)) {
+    return { ...dispatched, ...latest };
+  }
+  if (!isCompleteFrameGeometry(geometryAtStart)) return latest;
+
+  return {
+    ...latest,
+    x: latest.x === geometryAtStart.x ? (dispatched.x ?? latest.x) : latest.x,
+    y: latest.y === geometryAtStart.y ? (dispatched.y ?? latest.y) : latest.y,
+    width:
+      latest.width === geometryAtStart.width
+        ? (dispatched.width ?? latest.width)
+        : latest.width,
+    height:
+      latest.height === geometryAtStart.height
+        ? (dispatched.height ?? latest.height)
+        : latest.height,
+    rotation:
+      latest.rotation === geometryAtStart.rotation
+        ? (dispatched.rotation ?? latest.rotation)
+        : latest.rotation,
+  };
+}
+
 export function getDuplicateScreenGeometry(
   sourceGeometry: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
 ): FrameGeometry {
-  const rowBottom = sourceGeometry.y + sourceGeometry.height;
-  const rowGeometries = occupiedGeometries.filter(
-    (geometry) =>
-      geometry.y < rowBottom && geometry.y + geometry.height > sourceGeometry.y,
-  );
-  const x = Math.max(
-    sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
-    ...rowGeometries.map(
-      (geometry) => geometry.x + geometry.width + DUPLICATE_SCREEN_GAP,
+  return {
+    ...getFirstFreeDuplicateGeometry(
+      {
+        ...sourceGeometry,
+        x: sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
+        y: sourceGeometry.y,
+      },
+      occupiedGeometries,
     ),
-  );
-  const z = Math.max(
-    sourceGeometry.z ?? 0,
-    ...occupiedGeometries.map((geometry) => geometry.z ?? 0),
-  );
-  return { ...sourceGeometry, x, y: sourceGeometry.y, z: z + 1 };
+    z: (sourceGeometry.z ?? 0) + 1,
+  };
+}
+
+function getFirstFreeDuplicateGeometry(
+  candidate: FrameGeometry,
+  occupiedGeometries: readonly FrameGeometry[],
+): FrameGeometry {
+  let free = { ...candidate };
+  while (true) {
+    const overlap = occupiedGeometries
+      .filter((geometry) => duplicateGeometriesOverlap(free, geometry))
+      .sort((left, right) => left.x - right.x)[0];
+    if (!overlap) return free;
+    free = {
+      ...free,
+      x: overlap.x + overlap.width + DUPLICATE_SCREEN_GAP,
+    };
+  }
 }
 
 function duplicateGeometriesOverlap(
   left: FrameGeometry,
   right: FrameGeometry,
+  gap = DUPLICATE_SCREEN_GAP,
 ): boolean {
   const sameRow =
     left.y < right.y + right.height && right.y < left.y + left.height;
   return (
     sameRow &&
-    left.x < right.x + right.width + DUPLICATE_SCREEN_GAP &&
-    right.x < left.x + left.width + DUPLICATE_SCREEN_GAP
+    left.x < right.x + right.width + gap &&
+    right.x < left.x + left.width + gap
   );
 }
 
 function reserveDuplicateGeometry(
   filename: string,
   candidate: FrameGeometry,
-  pendingGeometries: ReadonlyMap<string, FrameGeometry>,
+  occupiedGeometries: readonly FrameGeometry[],
+  pendingGeometries: ReadonlyMap<string, FrameGeometry>, // i18n-ignore: type syntax is not rendered copy
+  preserveRequestedPosition: boolean,
+  sameBatchFilenames?: ReadonlySet<string>,
 ): FrameGeometry {
-  let reserved = { ...candidate };
-  for (const [pendingFilename, pendingGeometry] of pendingGeometries) {
-    if (
-      pendingFilename !== filename &&
-      duplicateGeometriesOverlap(reserved, pendingGeometry)
-    ) {
-      reserved.x =
-        pendingGeometry.x + pendingGeometry.width + DUPLICATE_SCREEN_GAP;
+  const existingReservation = pendingGeometries.get(filename);
+  const otherPending = [...pendingGeometries.entries()]
+    .filter(
+      ([pendingFilename]) =>
+        pendingFilename !== filename &&
+        !(
+          preserveRequestedPosition && sameBatchFilenames?.has(pendingFilename)
+        ),
+    )
+    .map(([, geometry]) => geometry);
+  const existingReservationIsFree =
+    existingReservation !== undefined &&
+    !occupiedGeometries.some((geometry) =>
+      duplicateGeometriesOverlap(existingReservation, geometry),
+    ) &&
+    !otherPending.some((geometry) =>
+      duplicateGeometriesOverlap(existingReservation, geometry),
+    );
+  const reserved = existingReservationIsFree
+    ? { ...existingReservation }
+    : preserveRequestedPosition &&
+        !otherPending.some((geometry) =>
+          duplicateGeometriesOverlap(candidate, geometry),
+        )
+      ? { ...candidate }
+      : getFirstFreeDuplicateGeometry(candidate, [
+          ...occupiedGeometries,
+          ...otherPending,
+        ]);
+  if (existingReservation) {
+    reserved.z = existingReservation.z;
+  } else if (reserved.x === candidate.x && reserved.y === candidate.y) {
+    const overlappingZ = occupiedGeometries
+      .filter((geometry) => duplicateGeometriesOverlap(candidate, geometry, 0))
+      .map((geometry) => geometry.z ?? 0);
+    if (overlappingZ.length > 0) {
+      reserved.z = Math.max(reserved.z ?? 0, ...overlappingZ) + 1;
     }
   }
-  const pendingZ = [...pendingGeometries.values()].map(
-    (geometry) => geometry.z ?? 0,
-  );
-  if (pendingZ.length > 0) {
+  const pendingZ = otherPending.map((geometry) => geometry.z ?? 0);
+  if (!existingReservation && pendingZ.length > 0) {
     reserved.z = Math.max(reserved.z ?? 0, ...pendingZ) + 1;
   }
   return reserved;
+}
+
+function duplicateStackGeometry(args: {
+  mode?: "alt-click" | "alt-drag";
+  screenId: string;
+  screens: OverviewScreen[];
+  geometryById: CanvasFrameGeometryById;
+  sourceIds: readonly string[];
+}) {
+  const screens = args.screens.some((screen) => screen.id === args.screenId)
+    ? args.screens
+    : [...args.screens, { id: args.screenId } as OverviewScreen];
+  const orderedIds = getCanonicalScreenStack(screens, args.geometryById);
+  const sourceIds = new Set(args.sourceIds);
+  sourceIds.add(args.screenId);
+  const before: Record<string, number | null> = {};
+  const after: Record<string, number> = {};
+  const copyZBySourceId = new Map<string, number>();
+  if (args.mode === "alt-drag") {
+    let topZ = orderedIds.reduce(
+      (highest, id, index) =>
+        Math.max(highest, args.geometryById[id]?.z ?? index),
+      -1,
+    );
+    for (const id of orderedIds) {
+      if (sourceIds.has(id)) copyZBySourceId.set(id, ++topZ);
+    }
+    return { before, after, copyZBySourceId };
+  }
+  let z = 0;
+  for (const id of orderedIds) {
+    const current = args.geometryById[id];
+    const nextZ = z++;
+    if (current && current.z !== nextZ) {
+      before[id] = current.z ?? null;
+      after[id] = nextZ;
+    }
+    if (sourceIds.has(id)) copyZBySourceId.set(id, z++);
+  }
+  return { before, after, copyZBySourceId };
+}
+
+function duplicateStackChangeBetween(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+): DuplicateStackHistoryChange | undefined {
+  const change: DuplicateStackHistoryChange = { before: {}, after: {} };
+  for (const frameId of new Set([
+    ...Object.keys(before),
+    ...Object.keys(after),
+  ])) {
+    const previous = before[frameId];
+    const next = after[frameId];
+    if (!previous || !next || previous.z === next.z) continue;
+    change.before[frameId] = previous.z ?? null;
+    change.after[frameId] = next.z ?? 0;
+  }
+  return Object.keys(change.after).length > 0 ? change : undefined;
+}
+
+function duplicateStackDataOperations(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+): DesignDataOperation[] {
+  const operations: DesignDataOperation[] = [];
+  for (const frameId of new Set([
+    ...Object.keys(before),
+    ...Object.keys(after),
+  ])) {
+    const previousZ = before[frameId]?.z;
+    const nextZ = after[frameId]?.z;
+    if (previousZ === nextZ) continue;
+    const path = ["canvasFrames", frameId, "z"] as [string, ...string[]];
+    if (nextZ === undefined) operations.push({ op: "delete", path });
+    else operations.push({ op: "set", path, value: nextZ });
+  }
+  return operations;
 }
 
 export interface DuplicateScreenArgs {
@@ -123,6 +333,7 @@ export interface DuplicateScreenArgs {
   >["mutateAsync"];
   designDataJsonRef: RefObject<Record<string, unknown>>;
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
+  displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
   focusCreatedScreen: (
     screenId: string,
@@ -168,6 +379,7 @@ export function runDuplicateScreen(
     deleteFileAsync,
     designDataJsonRef,
     duplicateRecoveryRef,
+    displayedCanvasFrameGeometryById,
     files,
     focusCreatedScreen,
     id,
@@ -185,17 +397,46 @@ export function runDuplicateScreen(
   }: DuplicateScreenArgs,
   screenId: string,
   request?: {
+    mode?: "alt-click" | "alt-drag";
+    duplicateStackSourceIds?: string[];
     canvasPosition?: { x: number; y: number };
+    canvasFrameGeometryById?: CanvasFrameGeometryById;
     preserveCamera?: boolean;
     historyBatchId?: string;
-    duplicateStackIndex?: number;
   },
 ) {
   if (!id || !canEditDesign) return Promise.resolve(undefined);
   const source = files.find((file) => file.id === screenId);
   if (!source) return Promise.resolve(undefined);
+  const canvasFrameGeometryById = {
+    ...displayedCanvasFrameGeometryById,
+    ...request?.canvasFrameGeometryById,
+  };
   const pendingFilenames = pendingDuplicateFilenamesRef.current;
   const recoveries = duplicateRecoveryRef.current;
+  const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
+  for (const [pendingFilename] of pendingDuplicateGeometriesRef.current) {
+    const file = files.find(({ filename }) => filename === pendingFilename);
+    if (!file) {
+      if (
+        !pendingFilenames.has(pendingFilename) &&
+        !recoveries.has(pendingFilename) &&
+        !duplicateInFlightRef.current.has(pendingFilename)
+      ) {
+        pendingDuplicateGeometriesRef.current.delete(pendingFilename);
+      }
+      continue;
+    }
+    if (
+      [
+        persistedGeometry[file.id],
+        liveFrameGeometryRef.current[file.id],
+        canvasFrameGeometryById[file.id],
+      ].some(isCompleteFrameGeometry)
+    ) {
+      pendingDuplicateGeometriesRef.current.delete(pendingFilename);
+    }
+  }
   for (const pendingFilename of pendingFilenames) {
     if (
       files.some((file) => file.filename === pendingFilename) &&
@@ -243,44 +484,120 @@ export function runDuplicateScreen(
     width: sourceOverviewScreen?.width ?? 1280,
     height: sourceOverviewScreen?.height ?? 2560,
   });
-  const persistedGeometry = getCanvasFrameGeometry(designDataJsonRef.current);
+  const persistedGeometryAtStart = getCanvasFrameGeometry(
+    designDataJsonRef.current,
+  );
   const sourceGeometry =
-    [liveFrameGeometryRef.current[screenId], persistedGeometry[screenId]].find(
-      isCompleteFrameGeometry,
-    ) ?? fallbackGeometry;
-  const occupiedGeometries = overviewScreens
-    .filter((screen) => screen.id !== screenId)
-    .map(
-      (screen) =>
-        liveFrameGeometryRef.current[screen.id] ?? persistedGeometry[screen.id],
-    )
+    [
+      canvasFrameGeometryById[screenId],
+      liveFrameGeometryRef.current[screenId],
+      persistedGeometryAtStart[screenId],
+    ].find(isCompleteFrameGeometry) ?? fallbackGeometry;
+  const currentFrameGeometry = { ...persistedGeometryAtStart };
+  for (const [frameId, liveGeometry] of Object.entries(
+    liveFrameGeometryRef.current,
+  )) {
+    currentFrameGeometry[frameId] = {
+      ...persistedGeometryAtStart[frameId],
+      ...liveGeometry,
+    };
+  }
+  for (const [frameId, geometry] of Object.entries(currentFrameGeometry)) {
+    const persistedZ = persistedGeometryAtStart[frameId]?.z;
+    if (typeof persistedZ === "number") {
+      currentFrameGeometry[frameId] = { ...geometry, z: persistedZ };
+    }
+  }
+  const geometryAtStartBeforeCanvasSnapshot = { ...currentFrameGeometry };
+  for (const [frameId, canvasGeometry] of Object.entries(
+    canvasFrameGeometryById,
+  )) {
+    if (isCompleteFrameGeometry(canvasGeometry)) {
+      currentFrameGeometry[frameId] = {
+        ...currentFrameGeometry[frameId],
+        ...canvasGeometry,
+      };
+    }
+  }
+  currentFrameGeometry[screenId] = {
+    ...sourceGeometry,
+    z: persistedGeometry[screenId]?.z ?? sourceGeometry.z,
+  };
+  const duplicateStackSourceIds = request?.duplicateStackSourceIds ?? [
+    screenId,
+  ];
+  const duplicateBatch = duplicateBatchState(
+    pendingDuplicateGeometriesRef.current,
+    request?.historyBatchId,
+    duplicateStackSourceIds,
+  );
+  const batchCopyIds = duplicateBatch?.copyIds ?? new Set<string>();
+  const stackScreens = new Map(
+    overviewScreens
+      .filter((screen) => !batchCopyIds.has(screen.id))
+      .map((screen) => [screen.id, screen]),
+  );
+  for (const frameId of Object.keys(currentFrameGeometry)) {
+    if (!batchCopyIds.has(frameId) && !stackScreens.has(frameId)) {
+      stackScreens.set(frameId, { id: frameId } as OverviewScreen);
+    }
+  }
+  const stackGeometry = Object.fromEntries(
+    Object.entries(currentFrameGeometry).filter(
+      ([frameId]) => !batchCopyIds.has(frameId),
+    ),
+  );
+  const duplicateStack = duplicateStackGeometry({
+    mode: request?.mode,
+    screenId,
+    screens: [...stackScreens.values()],
+    geometryById: stackGeometry,
+    sourceIds: duplicateStackSourceIds,
+  });
+  const occupiedGeometries = Object.entries(currentFrameGeometry)
+    .filter(([frameId]) => frameId !== screenId)
+    .map(([, geometry]) => geometry)
     .filter(isCompleteFrameGeometry);
   const adjacentGeometry = getDuplicateScreenGeometry(
     sourceGeometry,
     occupiedGeometries,
   );
+  const explicitDropPosition =
+    request?.mode === "alt-drag" ? request.canvasPosition : undefined;
   const requestedGeometry: FrameGeometry =
     recoveryState?.geometry ??
-    (request?.canvasPosition
+    (explicitDropPosition
       ? {
           ...sourceGeometry,
-          x: request.canvasPosition.x,
-          y: request.canvasPosition.y,
-          z: (adjacentGeometry.z ?? 0) + (request.duplicateStackIndex ?? 0),
+          x: explicitDropPosition.x,
+          y: explicitDropPosition.y,
+          z: adjacentGeometry.z,
         }
       : adjacentGeometry);
-  const createdGeometry = recoveryState?.geometry
-    ? recoveryState.geometry
-    : reserveDuplicateGeometry(
-        filename,
-        requestedGeometry,
-        pendingDuplicateGeometriesRef.current,
-      );
+  const preserveExplicitDropPosition = explicitDropPosition !== undefined;
+  const initiallyReservedGeometry =
+    recoveryState?.geometry ??
+    reserveDuplicateGeometry(
+      filename,
+      requestedGeometry,
+      occupiedGeometries,
+      pendingDuplicateGeometriesRef.current,
+      preserveExplicitDropPosition,
+      duplicateBatch?.pendingFilenames,
+    );
+  const initialStackZ = duplicateStack.copyZBySourceId.get(screenId);
+  let createdGeometry = {
+    ...initiallyReservedGeometry,
+    z:
+      request?.mode === "alt-click"
+        ? (initialStackZ ?? initiallyReservedGeometry.z ?? 0)
+        : Math.max(
+            initialStackZ ?? requestedGeometry.z ?? 0,
+            initiallyReservedGeometry.z ?? 0,
+          ),
+  };
   pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
-  // Carry screen dimensions/height mode for every duplicate so the new frame
-  // uses the same overview scale. Runtime metadata also keeps localhost/fusion
-  // duplicates URL-backed. The carry must be path-addressed or it replaces a
-  // peer's metadata for every other screen.
+  duplicateBatch?.pendingFilenames.add(filename);
   const sourceMetadataById = getDesignDataRecord(
     designDataJsonRef.current,
     "screenMetadata",
@@ -323,10 +640,9 @@ export function runDuplicateScreen(
     recoveryState && "localhostScreen" in recoveryState
       ? recoveryState.localhostScreen
       : currentLocalhostMetadata;
-  // Per-call mutate callbacks, not a promise, would silently strand every
-  // duplicate but the last: a second mutate() detaches the observer from
-  // the first mutation, so only the newest call's onSuccess ever runs.
   let createdFileId: string | undefined;
+  let duplicateBatchCopyId: string | undefined;
+  let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
   const canCleanupCreatedFile = recoveredFileId === undefined;
   const createFile = () =>
     createFileAsync({
@@ -411,15 +727,134 @@ export function runDuplicateScreen(
         );
       }
       if (canCleanupCreatedFile) createdFileId = nextId;
-      // Optimistic geometry keeps frame, selection, and camera agreeing
-      // before the refetch. Write it before the file enters `screens`, or
-      // the geometry-sync effect can render a fallback frame first and
-      // preserve that stale position over the requested drop point.
-      writeFrameGeometrySnapshot({
-        ...getCanvasFrameGeometry(designDataJsonRef.current),
-        [nextId]: createdGeometry,
+      duplicateBatchCopyId = nextId;
+      duplicateBatch?.copyIds.add(nextId);
+      const latestPersistedGeometry = getCanvasFrameGeometry(
+        designDataJsonRef.current,
+      );
+      const latestGeometry: CanvasFrameGeometryById = {
+        ...latestPersistedGeometry,
+      };
+      for (const [frameId, liveGeometry] of Object.entries(
+        liveFrameGeometryRef.current,
+      )) {
+        latestGeometry[frameId] = {
+          ...latestPersistedGeometry[frameId],
+          ...liveGeometry,
+        };
+        const persistedZ = latestPersistedGeometry[frameId]?.z;
+        if (typeof persistedZ === "number") {
+          latestGeometry[frameId] = {
+            ...latestGeometry[frameId],
+            z: persistedZ,
+          };
+        }
+      }
+      for (const [frameId, canvasGeometry] of Object.entries(
+        canvasFrameGeometryById,
+      )) {
+        if (isCompleteFrameGeometry(canvasGeometry)) {
+          latestGeometry[frameId] = rebaseDispatchedCanvasGeometry(
+            canvasGeometry,
+            geometryAtStartBeforeCanvasSnapshot[frameId],
+            latestGeometry[frameId],
+          );
+        }
+      }
+      const latestSourceGeometry =
+        [latestGeometry[screenId], sourceGeometry].find(
+          isCompleteFrameGeometry,
+        ) ?? sourceGeometry;
+      latestGeometry[screenId] = latestSourceGeometry;
+      const completedBatchCopyIds =
+        duplicateBatch?.copyIds ?? new Set<string>();
+      const latestScreens = new Map(
+        overviewScreens
+          .filter((screen) => !completedBatchCopyIds.has(screen.id))
+          .map((screen) => [screen.id, screen]),
+      );
+      for (const frameId of Object.keys(latestGeometry)) {
+        if (
+          !completedBatchCopyIds.has(frameId) &&
+          !latestScreens.has(frameId)
+        ) {
+          latestScreens.set(frameId, { id: frameId } as OverviewScreen);
+        }
+      }
+      const latestStackGeometry = Object.fromEntries(
+        Object.entries(latestGeometry).filter(
+          ([frameId]) => !completedBatchCopyIds.has(frameId),
+        ),
+      );
+      const landingStack = duplicateStackGeometry({
+        mode: request?.mode,
+        screenId,
+        screens: [...latestScreens.values()],
+        geometryById: latestStackGeometry,
+        sourceIds: duplicateStackSourceIds,
       });
+      const latestOccupiedGeometries = Object.entries(latestGeometry)
+        .filter(
+          ([frameId]) =>
+            frameId !== screenId && !completedBatchCopyIds.has(frameId),
+        )
+        .map(([, geometry]) => geometry)
+        .filter(isCompleteFrameGeometry);
+      const latestAdjacentGeometry = getDuplicateScreenGeometry(
+        latestSourceGeometry,
+        latestOccupiedGeometries,
+      );
+      const latestRequestedGeometry: FrameGeometry =
+        recoveryState?.geometry ??
+        (explicitDropPosition
+          ? {
+              ...latestSourceGeometry,
+              x: explicitDropPosition.x,
+              y: explicitDropPosition.y,
+              z: latestAdjacentGeometry.z,
+            }
+          : latestAdjacentGeometry);
+      const reservedGeometry =
+        recoveryState?.geometry ??
+        reserveDuplicateGeometry(
+          filename,
+          latestRequestedGeometry,
+          latestOccupiedGeometries,
+          pendingDuplicateGeometriesRef.current,
+          preserveExplicitDropPosition,
+          duplicateBatch?.pendingFilenames,
+        );
+      const landingStackZ = landingStack.copyZBySourceId.get(screenId);
+      createdGeometry = {
+        ...reservedGeometry,
+        z:
+          request?.mode === "alt-click"
+            ? (landingStackZ ?? reservedGeometry.z ?? 0)
+            : Math.max(
+                landingStackZ ?? latestRequestedGeometry.z ?? 0,
+                reservedGeometry.z ?? 0,
+              ),
+      };
+      pendingDuplicateGeometriesRef.current.set(filename, createdGeometry);
+      const appliedStack = applyDuplicateStackHistoryChange(
+        latestGeometry,
+        landingStack,
+        "redo",
+      );
+      appliedDuplicateStackChange = duplicateStackChangeBetween(
+        latestGeometry,
+        appliedStack.geometryById,
+      );
+      const nextFrameGeometry = {
+        ...appliedStack.geometryById,
+        [nextId]: createdGeometry,
+      };
+      writeFrameGeometrySnapshot(nextFrameGeometry);
       const dataOperations: DesignDataOperation[] = [
+        ...duplicateStackDataOperations(
+          latestGeometry,
+          appliedStack.geometryById,
+        ),
         {
           op: "set",
           path: ["canvasFrames", nextId],
@@ -465,15 +900,25 @@ export function runDuplicateScreen(
         filename,
         content,
         fileType,
+        createdFileId: nextId,
         geometry: createdGeometry,
         preserveCamera: request?.preserveCamera,
         historyBatchId: request?.historyBatchId,
+        ...(appliedDuplicateStackChange
+          ? { duplicateStack: appliedDuplicateStackChange }
+          : {}),
         screenMetadata,
         localhostScreen,
       });
+      settleDuplicateBatchSource(
+        pendingDuplicateGeometriesRef.current,
+        request?.historyBatchId,
+        duplicateBatch,
+        screenId,
+        nextId,
+      );
       recoveries.delete(filename);
       pendingFilenames.delete(filename);
-      pendingDuplicateGeometriesRef.current.delete(filename);
       toast.success(t("designEditor.toasts.screenDuplicated"));
       return nextId;
     })
@@ -489,6 +934,7 @@ export function runDuplicateScreen(
             id: createdFileId,
             allowLockedLayers: true,
           } as any);
+          survivingFileId = undefined;
           recoveries.delete(filename);
           pendingFilenames.delete(filename);
           pendingDuplicateGeometriesRef.current.delete(filename);
@@ -503,7 +949,7 @@ export function runDuplicateScreen(
             designId: id,
             fileId: createdFileId,
           });
-          if (present === true) {
+          if (present !== false) {
             recoveries.set(filename, {
               sourceScreenId: screenId,
               fileId: createdFileId,
@@ -520,11 +966,12 @@ export function runDuplicateScreen(
               sourceScreenId: screenId,
               content,
               fileType,
-              geometry: createdGeometry,
               screenMetadata,
               localhostScreen,
               knownFileIds: [...knownFileIds],
             });
+            pendingFilenames.delete(filename);
+            pendingDuplicateGeometriesRef.current.delete(filename);
           }
         }
       } else if (recoveredFileId) {
@@ -533,27 +980,81 @@ export function runDuplicateScreen(
           designId: id,
           fileId: recoveredFileId,
         });
-        if (present !== true) {
+        if (present === false) {
           survivingFileId = undefined;
           recoveries.set(filename, {
             sourceScreenId: screenId,
-            ...recoveryState,
-            fileId: undefined,
+            content,
+            fileType,
+            screenMetadata,
+            localhostScreen,
+            knownFileIds: [...knownFileIds],
           });
+          pendingFilenames.delete(filename);
+          pendingDuplicateGeometriesRef.current.delete(filename);
         }
       }
-      if (survivingFileId) {
-        const nextGeometry = {
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
+      const duplicateFileId = createdFileId ?? recoveredFileId;
+      if (
+        survivingFileId === undefined &&
+        (duplicateFileId || appliedDuplicateStackChange)
+      ) {
+        const persistedGeometry = getCanvasFrameGeometry(
+          designDataJsonRef.current,
+        );
+        let nextGeometry: CanvasFrameGeometryById = {
+          ...persistedGeometry,
         };
-        delete nextGeometry[survivingFileId];
-        writeFrameGeometrySnapshot(nextGeometry, {
-          replacePendingGeometrySave: true,
-        });
+        for (const [frameId, liveGeometry] of Object.entries(
+          liveFrameGeometryRef.current,
+        )) {
+          nextGeometry[frameId] = {
+            ...persistedGeometry[frameId],
+            ...liveGeometry,
+          };
+          const persistedZ = persistedGeometry[frameId]?.z;
+          if (typeof persistedZ === "number") {
+            nextGeometry[frameId] = { ...nextGeometry[frameId], z: persistedZ };
+          }
+        }
+        if (duplicateFileId) delete nextGeometry[duplicateFileId];
+        if (appliedDuplicateStackChange) {
+          const freshStackEntries = Object.entries(
+            appliedDuplicateStackChange.after,
+          ).filter(
+            ([frameId, afterZ]) =>
+              (nextGeometry[frameId]?.z ?? null) === afterZ,
+          );
+          const rollbackStackChange: DuplicateStackHistoryChange = {
+            before: Object.fromEntries(
+              freshStackEntries.map(([frameId]) => [
+                frameId,
+                appliedDuplicateStackChange!.before[frameId] ?? null,
+              ]),
+            ),
+            after: Object.fromEntries(freshStackEntries),
+          };
+          nextGeometry = applyDuplicateStackHistoryChange(
+            nextGeometry,
+            rollbackStackChange,
+            "undo",
+          ).geometryById;
+        }
+        writeFrameGeometrySnapshot(nextGeometry);
       } else if (!recoveries.has(filename)) {
         pendingFilenames.delete(filename);
         pendingDuplicateGeometriesRef.current.delete(filename);
       }
+      if (duplicateBatchCopyId && duplicateBatchCopyId !== survivingFileId) {
+        duplicateBatch?.copyIds.delete(duplicateBatchCopyId);
+      }
+      settleDuplicateBatchSource(
+        pendingDuplicateGeometriesRef.current,
+        request?.historyBatchId,
+        duplicateBatch,
+        screenId,
+        survivingFileId,
+      );
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
       });

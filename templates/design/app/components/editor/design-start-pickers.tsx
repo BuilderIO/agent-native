@@ -30,6 +30,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { cn } from "@/lib/utils";
 
 export interface PromptTemplateOption {
@@ -49,9 +50,8 @@ export interface PromptDesignSystemOption {
   title: string;
   description?: string | null;
   isDefault?: boolean;
-  /** The system's own palette, so the row can be picked by colour rather than
-   *  by reading a list of near-identical names. */
   colors?: string[];
+  ready: boolean;
 }
 
 export function TemplatePickerControl({
@@ -259,6 +259,7 @@ export function DesignSystemPickerControl({
           <SelectItem
             key={system.id}
             value={system.id}
+            disabled={!system.ready}
             className="py-2 text-xs"
           >
             <span className="flex min-w-0 items-center gap-2.5">
@@ -277,6 +278,11 @@ export function DesignSystemPickerControl({
                 </span>
               ) : null}
               <span className="min-w-0 truncate">{system.title}</span>
+              {!system.ready ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {t("promptDialog.designSystemIndexing")}
+                </span>
+              ) : null}
             </span>
           </SelectItem>
         ))}
@@ -290,11 +296,6 @@ export function DesignSystemPickerControl({
   );
 }
 
-/**
- * Swatches come from the system's own stored tokens. Unparseable data still
- * belongs in the list — it just loses its colour row, which the option renders
- * as absent rather than guessing a palette.
- */
 export function designSystemPickerOptions(
   systems: Array<{
     id: string;
@@ -325,6 +326,7 @@ export function designSystemPickerOptions(
       description: system.description,
       isDefault: system.isDefault,
       colors,
+      ready: isDesignSystemUsableForGeneration(system.data),
     };
   });
 }

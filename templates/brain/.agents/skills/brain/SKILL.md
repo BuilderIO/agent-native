@@ -57,10 +57,24 @@ that boundary.
   quarantine records. Push-only `generic` and `clips` material is retained only
   in the encrypted, short-TTL private quarantine store; expiry becomes a
   suppression receipt.
-- If no approved privacy classifier is configured, deterministic-only mode
-  allows clearly clean, company-relevant material and quarantines uncertainty.
-  Treat the health/setup warning as a requirement to configure the classifier
-  before broad ingestion.
+- After the deterministic screen, the verdict comes from the classifier named
+  by the `privacyClassifier` setting: `jev` (default), `model`, or
+  `deterministic`. Jev scores each category as a probability; anything over the
+  block bar is quarantined and named, and anything in the uncertain middle is
+  quarantined without naming a category. Jev decides the verdict only — it
+  cannot rewrite a document, so safe content always comes from the
+  deterministic line screen or the configured sanitizer.
+- Each step degrades into the next, so a Jev outage falls through to the
+  approved model and then to deterministic screening. When a configured
+  classifier fails, uncertain captures stay quarantined rather than being
+  released.
+- If no classifier is reachable, deterministic-only mode allows clearly clean,
+  company-relevant material and quarantines uncertainty. Treat the health/setup
+  warning as a requirement to configure a classifier before broad ingestion.
+- `BRAIN_SENSITIVITY_POLICY_VERSION` stamps new decisions; it does not
+  retroactively re-screen. Captures decided under an older policy keep their
+  verdict and stay indexed until `resanitize-captures` re-runs them, so treat a
+  classifier or policy change as needing a deliberate backfill.
 
 Administrators may review a disposition but may not declassify HR-blocked
 evidence. A broader statement must be a newly reviewed, non-identifying memory

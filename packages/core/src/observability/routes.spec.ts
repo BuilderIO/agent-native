@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetOrgContext = vi.hoisted(() => vi.fn());
 const mockGetObservabilityOverview = vi.hoisted(() => vi.fn());
 const mockGetTraceSummaries = vi.hoisted(() => vi.fn());
 const mockGetTraceSummary = vi.hoisted(() => vi.fn());
 const mockInsertFeedback = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockGetFeedback = vi.hoisted(() => vi.fn());
+const mockGetFeedbackStats = vi.hoisted(() => vi.fn());
 const mockPromoteTraceEvalFromStore = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -18,6 +21,10 @@ vi.mock("h3", () => ({
     Object.fromEntries(event.url?.searchParams?.entries?.() ?? []),
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
+  },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event.responseHeaders ??= {};
+    event.responseHeaders[name.toLowerCase()] = value;
   },
   createError: ({
     statusCode,
@@ -33,6 +40,14 @@ vi.mock("h3", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  getRequestContext: () => undefined,
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -56,8 +71,8 @@ vi.mock("./store.js", () => ({
   getTraceSpansForRun: vi.fn(),
   getEvalsForRun: vi.fn(),
   insertFeedback: (...args: unknown[]) => mockInsertFeedback(...args),
-  getFeedback: vi.fn(),
-  getFeedbackStats: vi.fn(),
+  getFeedback: (...args: unknown[]) => mockGetFeedback(...args),
+  getFeedbackStats: (...args: unknown[]) => mockGetFeedbackStats(...args),
   getSatisfactionScores: vi.fn(),
   getEvalStats: vi.fn(),
   listExperiments: vi.fn(),
@@ -87,9 +102,16 @@ describe("observability routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ email: "alice@example.com" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "admin" });
     mockGetObservabilityOverview.mockResolvedValue({ runs: 0 });
     mockGetTraceSummaries.mockResolvedValue([]);
-    mockGetTraceSummary.mockResolvedValue(null);
+    mockGetTraceSummary.mockResolvedValue({
+      runId: "run-1",
+      threadId: "thread-1",
+      userId: "alice@example.com",
+      orgId: "org-a",
+      model: "gpt-5.6-terra",
+    });
     mockInsertFeedback.mockResolvedValue(true);
   });
 
@@ -115,6 +137,73 @@ describe("observability routes", () => {
       sinceMs: 123,
       limit: 100,
       userId: "alice@example.com",
+    });
+  });
+
+  it("keeps generic feedback reads user-scoped for non-admins", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "member" });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback?since=123"));
+    await handler(createEvent("/feedback/stats?since=123"));
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      feedbackType: undefined,
+      source: "chat",
+      userId: "alice@example.com",
+      orgId: "org-a",
+    });
+    expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, {
+      userId: "alice@example.com",
+      orgId: "org-a",
+    });
+  });
+
+  it("keeps member feedback scoped to the user when no active org exists", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: null, role: null });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback?since=123"));
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      feedbackType: undefined,
+      source: "chat",
+      userId: "alice@example.com",
+    });
+  });
+
+  it("propagates active-org lookup failures instead of converting them to 403", async () => {
+    const failure = new Error("org context unavailable");
+    mockGetOrgContext.mockRejectedValueOnce(failure);
+    const handler = createObservabilityHandler() as any;
+
+    await expect(handler(createEvent("/feedback"))).rejects.toBe(failure);
+    expect(mockGetFeedback).not.toHaveBeenCalled();
+  });
+
+  it("scopes feedback audit reads to the active org", async () => {
+    const handler = createObservabilityHandler() as any;
+    const feedbackEvent = createEvent("/feedback?since=123");
+    const statsEvent = createEvent("/feedback/stats?since=123");
+    await handler(feedbackEvent);
+    await handler(statsEvent);
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: 123,
+      limit: 100,
+      source: "chat",
+      orgId: "org-a",
+    });
+    expect(mockGetFeedbackStats).toHaveBeenCalledWith(123, { orgId: "org-a" });
+    expect(feedbackEvent.responseHeaders).toEqual({
+      "cache-control": "private, no-store",
+    });
+    expect(statsEvent.responseHeaders).toEqual({
+      "cache-control": "private, no-store",
     });
   });
 
@@ -158,7 +247,6 @@ describe("observability routes", () => {
         feedbackType,
         value: "must not be tracked",
       });
-      mockGetTraceSummary.mockResolvedValue({ model: "gpt-5.6-terra" });
       const handler = createObservabilityHandler() as any;
 
       await expect(handler(createEvent("/feedback", "POST"))).resolves.toEqual({
@@ -167,6 +255,7 @@ describe("observability routes", () => {
 
       expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
         userId: "alice@example.com",
+        orgId: "org-a",
       });
       expect(mockInsertFeedback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -202,6 +291,43 @@ describe("observability routes", () => {
     },
   );
 
+  it("rejects feedback for a run outside the active org before insertion", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-from-org-b",
+      runId: "run-from-org-b",
+      feedbackType: "thumbs_down",
+      value: "wrong answer",
+    });
+    mockGetTraceSummary.mockResolvedValueOnce(null);
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({ error: "Trace not found" });
+
+    expect(event._status).toBe(404);
+    expect(mockGetTraceSummary).toHaveBeenCalledWith("run-from-org-b", {
+      userId: "alice@example.com",
+      orgId: "org-a",
+    });
+    expect(mockInsertFeedback).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("rejects a thread that does not match the owned run", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-from-another-run",
+      runId: "run-1",
+      feedbackType: "thumbs_up",
+    });
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/feedback", "POST");
+
+    await expect(handler(event)).resolves.toEqual({ error: "Trace not found" });
+
+    expect(event._status).toBe(404);
+    expect(mockInsertFeedback).not.toHaveBeenCalled();
+  });
+
   it("reports a category follow-up without counting it as a second sentiment", async () => {
     mockReadBody.mockResolvedValue({
       threadId: "thread-1",
@@ -215,7 +341,6 @@ describe("observability routes", () => {
     await handler(createEvent("/feedback", "POST"));
 
     expect(mockInsertFeedback).toHaveBeenCalledOnce();
-    // The submission is visible...
     expect(mockTrack).toHaveBeenCalledOnce();
     const [name, properties] = mockTrack.mock.calls[0];
     expect(name).toBe("$ai_feedback");
@@ -224,8 +349,25 @@ describe("observability routes", () => {
       run_id: "run-1",
       $ai_trace_id: "run-1",
     });
-    // ...but carries no sentiment: the thumbs-down it follows already counted.
     expect(properties).not.toHaveProperty("sentiment");
+  });
+
+  it("persists chat feedback to the authenticated org without ambient context", async () => {
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-a", role: "member" });
+    mockReadBody.mockResolvedValue({
+      feedbackType: "thumbs_up",
+      runId: "run-1",
+      threadId: "thread-1",
+      orgId: "org-from-untrusted-body",
+    });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback", "POST"));
+
+    expect(mockInsertFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-a", source: "chat" }),
+    );
+    expect(mockGetOrgContext).toHaveBeenCalledOnce();
   });
 
   it("reports free-text feedback, which previously emitted nothing", async () => {
@@ -253,8 +395,6 @@ describe("observability routes", () => {
     const [, properties] = mockTrack.mock.calls[0];
     expect(properties).toMatchObject({ feedback_type: "text" });
     expect(properties).not.toHaveProperty("sentiment");
-    // The first-party event stays content-free; the text itself is persisted
-    // and, when a survey is configured, sent as the survey response.
     expect(JSON.stringify(properties)).not.toContain("wrong doc");
   });
 
@@ -280,7 +420,6 @@ describe("observability routes", () => {
   });
 
   it("passes a feedback type filter through to the SQL-backed list", async () => {
-    const mockGetFeedback = vi.mocked((await import("./store.js")).getFeedback);
     mockGetFeedback.mockResolvedValue([]);
     const handler = createObservabilityHandler() as any;
 
@@ -290,7 +429,8 @@ describe("observability routes", () => {
       sinceMs: expect.any(Number),
       limit: 25,
       feedbackType: "text",
-      userId: "alice@example.com",
+      source: "chat",
+      orgId: "org-a",
     });
   });
 

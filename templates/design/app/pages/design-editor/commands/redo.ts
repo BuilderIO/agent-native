@@ -14,6 +14,7 @@ import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
+  RuntimeStructureDeleteRequest,
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import type {
@@ -53,13 +54,17 @@ import type {
   ContentHistoryChange,
   ContentHistoryEntry,
   ContentHistorySelectionAfterMap,
+  DuplicateStackHistoryChange,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
+  FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
   SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
+  applyDuplicateStackHistoryChange,
+  applyDuplicateStackHistoryChanges,
   MAX_DESIGN_UNDO_STACK,
   applyGeometryHistoryDiff,
   filterFileDeletionHistoryEntry,
@@ -67,6 +72,7 @@ import {
   partitionContentHistoryEntry,
   contentHistoryEntryFromChanges,
   readYjsRedoSelection,
+  remapFileCreationHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
@@ -86,6 +92,7 @@ import {
   mergePendingLiveNonStyleEdits,
   pendingLiveNonStyleEditsFromUndoStack,
   pendingLiveStructureEditsFromUndoEntry,
+  pendingLiveStructureRedoSourceEdit,
   mergePendingVisualStyleEdits,
   pendingVisualStyleEditsFromUndoStack,
   pendingVisualStyleUndoTargets,
@@ -95,6 +102,40 @@ import {
 import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selection-state";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function duplicateStackZOperations(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+): DesignDataOperation[] {
+  const operations: DesignDataOperation[] = [];
+  for (const frameId of new Set([
+    ...Object.keys(before),
+    ...Object.keys(after),
+  ])) {
+    const previousZ = before[frameId]?.z;
+    const nextZ = after[frameId]?.z;
+    if (previousZ === nextZ) continue;
+    const path = ["canvasFrames", frameId, "z"] as [string, ...string[]];
+    if (nextZ === undefined) operations.push({ op: "delete", path });
+    else operations.push({ op: "set", path, value: nextZ });
+  }
+  return operations;
+}
+
+function currentFrameGeometry(
+  designData: Record<string, unknown>,
+  liveGeometry: CanvasFrameGeometryById,
+): CanvasFrameGeometryById {
+  const persisted = getCanvasFrameGeometry(designData);
+  const current = { ...persisted };
+  for (const [frameId, liveFrame] of Object.entries(liveGeometry)) {
+    current[frameId] = { ...persisted[frameId], ...liveFrame };
+    if (typeof persisted[frameId]?.z === "number") {
+      current[frameId] = { ...current[frameId], z: persisted[frameId].z };
+    }
+  }
+  return current;
+}
 
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
@@ -136,9 +177,9 @@ export interface RedoArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  allowPendingLiveEdits?: boolean;
   clipboardPasteRedoStackRef: RefObject<ContentHistoryChange[]>;
   clipboardPasteUndoStackRef: RefObject<ContentHistoryChange[]>;
-  /** See UndoArgs's matching field doc comment (undo.ts). */
   codeLayerOwnerByNodeIdRef: RefObject<Map<string, { node: CodeLayerNode }>>;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentRedoSelectionStackRef: RefObject<
@@ -166,6 +207,7 @@ export interface RedoArgs {
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  onFileHistoryMutationSettled?: () => void;
   clearPendingHistory?: () => void;
   files: DesignFile[];
   filesRef?: RefObject<DesignFile[]>;
@@ -220,6 +262,12 @@ export interface RedoArgs {
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
   pendingVisualStyleUndoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  replayPendingVisualStyleRuntime?: (
+    edits: readonly PendingVisualStyleEdit[],
+  ) => number | undefined;
+  setPendingVisualStyleBaselineResetRequest?: Dispatch<
+    SetStateAction<number | null>
+  >;
   performDeleteFiles: (
     filesToDelete: DesignFile[],
     options?: {
@@ -229,6 +277,7 @@ export interface RedoArgs {
       onMutationSettled?: (
         deletedFiles: DesignFile[],
         failedFiles: DesignFile[],
+        deletedFileSnapshots: FileDeletionHistorySnapshot[],
       ) => void;
     },
   ) => void;
@@ -267,6 +316,18 @@ export interface RedoArgs {
   selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  setPendingLayerNameReplayRequest: Dispatch<
+    SetStateAction<{
+      requestId: number;
+      patches: Array<{
+        screenId: string;
+        selector: string;
+        sourceId?: string | null;
+        name: string;
+        routePath?: string;
+      }>;
+    } | null>
+  >;
   setPendingLayerStateReplayRequest: Dispatch<
     SetStateAction<{
       requestId: number;
@@ -275,6 +336,7 @@ export interface RedoArgs {
         layerId: string;
         state: "hidden" | "locked";
         enabled: boolean;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -290,6 +352,7 @@ export interface RedoArgs {
         sourceId?: string | null;
         value: string;
         html?: string;
+        routePath?: string;
       }>;
     } | null>
   >;
@@ -305,6 +368,11 @@ export interface RedoArgs {
   setRuntimeStructureInsertRequest: Dispatch<
     SetStateAction<
       (RuntimeStructureInsertRequest & { screenId: string }) | null
+    >
+  >;
+  setRuntimeStructureDeleteRequest?: Dispatch<
+    SetStateAction<
+      (RuntimeStructureDeleteRequest & { screenId: string }) | null
     >
   >;
   setRuntimeStructureMoveRequest: Dispatch<
@@ -346,6 +414,7 @@ export function runRedo({
   applyGeometryHistoryContentChanges,
   applyLocalContentUpdate,
   canEditDesign,
+  allowPendingLiveEdits,
   clipboardPasteRedoStackRef,
   clipboardPasteUndoStackRef,
   codeLayerOwnerByNodeIdRef,
@@ -363,6 +432,7 @@ export function runRedo({
   fileDeletionRedoStackRef,
   fileDeletionUndoStackRef,
   fileHistoryMutationPendingRef,
+  onFileHistoryMutationSettled,
   clearPendingHistory,
   files,
   filesRef,
@@ -393,6 +463,7 @@ export function runRedo({
   pendingVisualStyleEditsRef,
   pendingVisualStyleRedoStackRef,
   pendingVisualStyleUndoStackRef,
+  replayPendingVisualStyleRuntime,
   performDeleteFiles,
   publishAuthoritativeClipboardMutation,
   queryClient,
@@ -407,13 +478,16 @@ export function runRedo({
   selectionUndoStackRef,
   setContentRenderRevision,
   setHoveredElement,
+  setPendingLayerNameReplayRequest,
   setPendingLayerStateReplayRequest,
   setPendingLiveNonStyleEdits,
   setPendingTextRevertRequest,
+  setPendingVisualStyleBaselineResetRequest,
   setPendingVisualStyleEdits,
   setPendingVisualStyleRevertRequest,
   setOverviewSelectedScreenIds,
   setRuntimeStructureInsertRequest,
+  setRuntimeStructureDeleteRequest,
   setRuntimeStructureMoveRequest,
   setSelectedElement,
   setSelectedLayerIdsState,
@@ -448,9 +522,7 @@ export function runRedo({
     if (selection) setSelectedElement(resolved.element);
   };
   trace("history", "redo", {});
-  if (!canEditDesign) return;
-  // U10: see the matching guard in handleUndo — don't redo into a document
-  // state an in-progress, uncommitted drag is about to overwrite anyway.
+  if (!canEditDesign && !allowPendingLiveEdits) return;
   if (activeEditorDragRef.current) return;
   if (fileHistoryMutationPendingRef.current) return;
   resetGeometryCommitCoalescing?.();
@@ -459,16 +531,42 @@ export function runRedo({
     pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
   const pendingLiveRedoStack = pendingVisualStyleRedoStackRef.current;
   const pendingLiveRedo = pendingLiveRedoStack[pendingLiveRedoStack.length - 1];
+  const redoHistoryKind = redoOrderRef.current[redoOrderRef.current.length - 1];
+  const pendingRedoKind =
+    redoHistoryKind === "pending-style" || redoHistoryKind === "pending-live"
+      ? redoHistoryKind
+      : undefined;
+  if (!canEditDesign && !pendingLiveRedo && !pendingNonStyleRedo) return;
+  if (
+    (pendingRedoKind === "pending-style" && !pendingLiveRedo) ||
+    (pendingRedoKind === "pending-live" && !pendingNonStyleRedo)
+  ) {
+    return;
+  }
+  const consumePendingRedoOrder = (kind: "pending-style" | "pending-live") => {
+    if (redoOrderRef.current[redoOrderRef.current.length - 1] !== kind) {
+      return;
+    }
+    redoOrderRef.current = redoOrderRef.current.slice(0, -1);
+    historyOrderRef.current = [
+      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+      kind,
+    ];
+  };
   const redoPendingNonStyleFirst = shouldRedoPendingLiveNonStyleBeforeStyle(
-    pendingLiveRedo,
-    pendingNonStyleRedo,
+    pendingRedoKind === "pending-style" || redoHistoryKind === undefined
+      ? pendingLiveRedo
+      : undefined,
+    pendingRedoKind === "pending-live" || redoHistoryKind === undefined
+      ? pendingNonStyleRedo
+      : undefined,
   );
   if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "structure") {
-    const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
-    // A removal has no bridge echo to wait for: re-issuing the delete under
-    // the same requestId is the whole replay, so move the entry back onto
-    // the undo stack here instead of arming pendingStructureRedoReplayRef
-    // for a `visual-structure-change` that will never arrive.
+    const replayEdits =
+      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
+    const redoSourceEdit =
+      pendingLiveStructureRedoSourceEdit(pendingNonStyleRedo);
+    const redoCommand = pendingStructureRedoCommand(redoSourceEdit);
     if (redoCommand.kind === "delete") {
       const redoneEdit = pendingNonStyleRedo.edit;
       if (
@@ -488,6 +586,7 @@ export function runRedo({
         ...pendingLiveNonStyleUndoStackRef.current,
         pendingNonStyleRedo,
       ];
+      consumePendingRedoOrder("pending-live");
       const nextPending = mergePendingLiveNonStyleEdits(
         pendingLiveNonStyleEditsFromUndoStack(
           pendingLiveNonStyleUndoStackRef.current,
@@ -501,18 +600,46 @@ export function runRedo({
     if (pendingStructureRedoReplayRef.current) return;
     pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
     if (redoCommand.kind === "insert") {
+      const insertEdit =
+        replayEdits.find((edit) => edit.insertedHtml) ??
+        pendingNonStyleRedo.edit;
+      const pairedDeleteEdit = replayEdits.find(
+        (edit) =>
+          edit.removed === true &&
+          edit.screenId !== insertEdit.screenId &&
+          edit.transactionId === insertEdit.transactionId,
+      );
+      const transactionId = insertEdit.transactionId;
       runtimeStructureInsertRevisionRef.current += 1;
       setRuntimeStructureInsertRequest({
         requestId: runtimeStructureInsertRevisionRef.current,
-        screenId: pendingNonStyleRedo.edit.screenId,
+        transactionId,
+        screenId: insertEdit.screenId,
+        sourceScreenId: pairedDeleteEdit?.screenId,
         html: redoCommand.html,
         replaceAnchor: redoCommand.replaceAnchor,
+        remintCollidingNodeIds: redoCommand.remintCollidingNodeIds,
         anchor: {
-          selector: pendingNonStyleRedo.edit.anchorSelector,
-          sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+          selector: insertEdit.anchorSelector,
+          sourceId: insertEdit.anchorSourceId ?? undefined,
         },
-        placement: pendingNonStyleRedo.edit.placement,
+        placement: insertEdit.placement,
       });
+      if (
+        pairedDeleteEdit &&
+        transactionId &&
+        setRuntimeStructureDeleteRequest
+      ) {
+        setRuntimeStructureDeleteRequest({
+          requestId: `${transactionId}:source:redo-${runtimeStructureInsertRevisionRef.current}`,
+          transactionId,
+          screenId: pairedDeleteEdit.screenId,
+          selector: pairedDeleteEdit.selector,
+          selectorCandidates: [pairedDeleteEdit.selector],
+          waitForInsertTransaction: true,
+          rollbackScreenId: insertEdit.screenId,
+        });
+      }
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       }
@@ -528,8 +655,6 @@ export function runRedo({
       return;
     }
     runtimeStructureMoveRevisionRef.current += 1;
-    const replayEdits =
-      pendingLiveStructureEditsFromUndoEntry(pendingNonStyleRedo);
     const firstReplayEdit = replayEdits[0] ?? pendingNonStyleRedo.edit;
     setRuntimeStructureMoveRequest({
       requestId: runtimeStructureMoveRevisionRef.current,
@@ -592,6 +717,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingLayerStateReplayRequest({
       requestId: Date.now() + Math.random(),
@@ -601,6 +727,39 @@ export function runRedo({
           layerId: pendingNonStyleRedo.edit.layerId,
           state: pendingNonStyleRedo.edit.state,
           enabled: pendingNonStyleRedo.edit.enabled,
+          routePath: pendingNonStyleRedo.edit.routePath,
+        },
+      ],
+    });
+    setPendingLiveNonStyleEdits(nextPending);
+    syncUndoRedoState();
+    return;
+  }
+  if (redoPendingNonStyleFirst && pendingNonStyleRedo?.kind === "layer-name") {
+    pendingLiveNonStyleRedoStackRef.current = pendingNonStyleRedoStack.slice(
+      0,
+      -1,
+    );
+    pendingLiveNonStyleUndoStackRef.current = [
+      ...pendingLiveNonStyleUndoStackRef.current,
+      pendingNonStyleRedo,
+    ];
+    const nextPending = mergePendingLiveNonStyleEdits(
+      pendingLiveNonStyleEditsFromUndoStack(
+        pendingLiveNonStyleUndoStackRef.current,
+      ),
+    );
+    consumePendingRedoOrder("pending-live");
+    pendingLiveNonStyleEditsRef.current = nextPending;
+    setPendingLayerNameReplayRequest({
+      requestId: Date.now() + Math.random(),
+      patches: [
+        {
+          screenId: pendingNonStyleRedo.edit.screenId,
+          selector: pendingNonStyleRedo.edit.selector,
+          sourceId: pendingNonStyleRedo.edit.sourceId,
+          name: pendingNonStyleRedo.edit.name,
+          routePath: pendingNonStyleRedo.edit.routePath,
         },
       ],
     });
@@ -623,6 +782,7 @@ export function runRedo({
         pendingLiveNonStyleUndoStackRef.current,
       ),
     );
+    consumePendingRedoOrder("pending-live");
     pendingLiveNonStyleEditsRef.current = nextPending;
     setPendingTextRevertRequest({
       requestId: Date.now() + Math.random(),
@@ -633,14 +793,11 @@ export function runRedo({
           sourceId: pendingTextRedo.edit.sourceId,
           value: pendingTextRedo.edit.value,
           html: pendingTextRedo.edit.html,
+          routePath: pendingTextRedo.edit.routePath,
         },
       ],
     });
     setPendingLiveNonStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo. Redo
-    // reapplies pendingTextRedo.edit.value/html via
-    // setPendingTextRevertRequest above, but never resynced
-    // selectedElement, so resync with the same values here.
     if (pendingTextRedo.edit.screenId === activeFile?.id) {
       const {
         sourceId: redoneSourceId,
@@ -670,7 +827,10 @@ export function runRedo({
     syncUndoRedoState();
     return;
   }
-  if (pendingLiveRedo) {
+  if (
+    pendingLiveRedo &&
+    (pendingRedoKind === "pending-style" || redoHistoryKind === undefined)
+  ) {
     const nextRedoStack = pendingLiveRedoStack.slice(0, -1);
     pendingVisualStyleRedoStackRef.current = nextRedoStack;
     pendingVisualStyleUndoStackRef.current = [
@@ -683,29 +843,35 @@ export function runRedo({
       ),
     );
     pendingVisualStyleEditsRef.current = nextPending;
-    setPendingVisualStyleRevertRequest({
-      requestId: Date.now() + Math.random(),
-      patches: pendingVisualStyleUndoTargets(pendingLiveRedo).map(
-        ({ edit }) => ({
+    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
+    const redoneStyleTargets = redoneTargets.filter(
+      ({ edit }) => Object.keys(edit.styles).length > 0,
+    );
+    if (replayPendingVisualStyleRuntime) {
+      const requestId = replayPendingVisualStyleRuntime(
+        redoneStyleTargets.map(({ edit }) => edit),
+      );
+      if (requestId !== undefined) {
+        setPendingVisualStyleBaselineResetRequest?.(requestId);
+      }
+    } else if (redoneStyleTargets.length > 0) {
+      const requestId = Date.now() + Math.random();
+      setPendingVisualStyleRevertRequest({
+        requestId,
+        patches: redoneStyleTargets.map(({ edit }) => ({
           screenId: edit.screenId,
           selector: edit.selector,
           sourceId: edit.sourceId,
-          // Redo builds its patch inline rather than through
-          // buildPendingVisualStyleRevertPatches, so it needs the runtime
-          // pair explicitly or it re-applies into the wrong namespace.
           runtimeSelector: edit.runtimeSelector,
           runtimeSourceId: edit.runtimeSourceId,
+          routePath: edit.routePath,
           styles: edit.styles,
           interactionState: edit.interactionState,
-        }),
-      ),
-    });
+        })),
+      });
+      setPendingVisualStyleBaselineResetRequest?.(requestId);
+    }
     setPendingVisualStyleEdits(nextPending);
-    // Bug fix — same stale-inspector-panel issue as handleUndo's style
-    // branch. Merge the redo's own style values (already applied to the
-    // DOM via setPendingVisualStyleRevertRequest above) into
-    // selectedElement.computedStyles.
-    const redoneTargets = pendingVisualStyleUndoTargets(pendingLiveRedo);
     setSelectedElement((prev) => {
       if (!prev) return prev;
       const redoneTarget = redoneTargets.find(
@@ -727,6 +893,7 @@ export function runRedo({
         },
       };
     });
+    consumePendingRedoOrder("pending-style");
     syncUndoRedoState();
     return;
   }
@@ -802,13 +969,6 @@ export function runRedo({
     if (scope !== "global" && um?.canRedo()) {
       const beforeRedoContent = ydoc?.getText("content").toJSON();
       const redoneItem = um.redo();
-      // Figma parity: redo re-selects whatever the original gesture left
-      // selected (the new group, the pasted copy, the duplicate) — see the
-      // matching note on the geometry branch below and
-      // stampYjsUndoSelectionAfter's doc comment. Overrides the
-      // refresh-from-content heuristic, which can only ever keep or drop
-      // whatever is CURRENTLY selected and has no way to reach forward to a
-      // node that didn't exist until this redo created it.
       const restoredAfterSelection = readYjsRedoSelection(redoneItem);
       if (ydoc && activeFile && beforeRedoContent !== undefined) {
         const ytext = ydoc.getText("content");
@@ -832,10 +992,6 @@ export function runRedo({
           expectedVersionHash: sourceContentHash(beforeRedoContent),
           syncCollab: !(ydoc && isSynced),
         });
-        // Holistic flash pipeline: see the matching comment in handleUndo —
-        // only fall back to a full srcdoc rebuild when the in-place bridge
-        // patch genuinely failed, instead of always reloading the iframe on
-        // top of an already-successful in-place replace.
         if (
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
@@ -845,7 +1001,6 @@ export function runRedo({
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
-        // Clear stale selection if the redo removed the selected element.
         setSelectedElement((prev) => {
           if (restoredAfterSelection)
             return resolveLocalHistorySelection(
@@ -866,7 +1021,6 @@ export function runRedo({
             fileId: activeFile.id,
           });
         });
-        // U18: keep the layers-panel highlight in sync too.
         setSelectedLayerIdsState((prev) =>
           restoredAfterSelection
             ? resolveLocalHistorySelection(
@@ -879,8 +1033,6 @@ export function runRedo({
                 fileId: activeFile.id,
               }),
         );
-        // Restore the local fallback mirror (see U3) that undoContent()
-        // dropped, so it survives a UndoManager teardown right after redo.
         if (
           typeof beforeRedoContent === "string" &&
           beforeRedoContent !== next
@@ -917,8 +1069,6 @@ export function runRedo({
             ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
             "content",
           ];
-          // U20: route a live-snapshot screen's replay through
-          // updateLiveScreenSnapshotContent — see the matching note above.
           if (liveScreenSnapshotsById[entry.fileId]) {
             updateLiveScreenSnapshotContent(entry.fileId, entry.after, {
               recordHistory: false,
@@ -946,7 +1096,6 @@ export function runRedo({
               fileId: entry.fileId,
             });
           });
-          // U18: keep the layers-panel highlight in sync too.
           setSelectedLayerIdsState((prev) =>
             refreshSelectedLayerIdsFromContent(entry.after, prev, {
               kind: "design-file",
@@ -969,13 +1118,6 @@ export function runRedo({
       contentRedoSelectionStackRef.current[
         contentRedoSelectionStackRef.current.length - 1
       ];
-    // Figma parity: redo re-selects whatever the original gesture left
-    // selected (the new group, the pasted copy, the duplicate) when it
-    // stamped one — see ContentHistorySelectionAfterMap's doc comment for
-    // why this is a lookup by the entry's own object identity rather than a
-    // second index-aligned slot, and why it silently falls back to the
-    // pre-gesture `entrySelection` (this stack's pre-existing redo
-    // behavior) once that identity no longer survives a rebuild.
     const entrySelectionAfter =
       contentHistorySelectionAfterRef.current.get(entry) ?? entrySelection;
     const { available: changes, remainder } = partitionContentHistoryEntry(
@@ -1009,9 +1151,6 @@ export function runRedo({
     try {
       for (const change of changes) {
         if (change.before === change.after) continue;
-        // U20: see the matching note in handleUndo — route a live-snapshot
-        // screen's replay through updateLiveScreenSnapshotContent instead
-        // of the regular content path.
         if (liveScreenSnapshotsById[change.fileId]) {
           acceptedContents.set(change.fileId, change.after);
           updateLiveScreenSnapshotContent(change.fileId, change.after, {
@@ -1116,7 +1255,6 @@ export function runRedo({
           fileId: activeChange.fileId,
         });
       });
-      // U18: keep the layers-panel highlight in sync too.
       setSelectedLayerIdsState((prev) =>
         refreshSelectedLayerIdsFromContent(activeChange.after, prev, {
           kind: "design-file",
@@ -1136,9 +1274,6 @@ export function runRedo({
     if (!canUseOverviewHistory) return false;
     const entry = geometryRedoStackRef.current.pop();
     if (!entry) return false;
-    // Freshness guard: when this entry was undone it wrote `entry.before`. If
-    // a peer/agent has since moved any touched frame, replaying `entry.after`
-    // would clobber that change — drop this entry and try the next redo.
     const stale = staleGeometryFrameIds(
       entry,
       liveFrameGeometryRef.current,
@@ -1160,8 +1295,6 @@ export function runRedo({
       ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
       "geometry",
     ];
-    // U11: see the matching undoGeometry note — merge this entry's diff
-    // onto the current live map instead of replacing it wholesale.
     writeFrameGeometrySnapshot(
       applyGeometryHistoryDiff(
         getCanvasFrameGeometry(designDataJsonRef.current),
@@ -1176,9 +1309,6 @@ export function runRedo({
         ),
       },
     );
-    // Figma parity: redo re-selects whatever was selected when this
-    // gesture's change was originally made (i.e. the selection AFTER the
-    // gesture committed, matching what undo just took away).
     if (entry.linkedContentChanges?.length) {
       applyGeometryHistoryContentChanges?.(entry.linkedContentChanges, "redo");
     }
@@ -1193,8 +1323,6 @@ export function runRedo({
     );
     return true;
   };
-  // Figma parity (ground-truth Round 4): redo a plain selection change — see
-  // SelectionHistoryEntry's doc comment and undo.ts's undoSelection.
   const redoSelection = () => {
     if (!canUseOverviewHistory) return false;
     const entry = selectionRedoStackRef.current.pop();
@@ -1210,10 +1338,6 @@ export function runRedo({
     restoreHistorySelection(entry.after);
     return true;
   };
-  // U12: redo a screen create/duplicate by recreating the file with the
-  // same filename/content/fileType and restoring its recorded geometry.
-  // This is async (createFileMutation), unlike every other redo path here, so
-  // keep history pending until both the file and its metadata persist.
   const redoFileCreation = () => {
     if (!canUseOverviewHistory) return false;
     const redoStack = fileCreationRedoStackRef.current;
@@ -1253,11 +1377,15 @@ export function runRedo({
     syncUndoRedoState();
     const attemptedEntries = new Set<FileCreationHistoryEntry>();
     const createdFileIds = new Map<FileCreationHistoryEntry, string>();
+    const resolvedFileIds = new Map<FileCreationHistoryEntry, string>();
+    const recreatedFileIdRemap = new Map<string, string>();
     const retryRecoveryFileIds = new Map<
       FileCreationHistoryEntry,
       string | null | undefined
     >();
     const recreatedFileIds: string[] = [];
+    const appliedDuplicateStackChanges: DuplicateStackHistoryChange[] = [];
+    const reusedRecoveryEntries = new Set<FileCreationHistoryEntry>();
     const handleFailure = async (error: unknown) => {
       let errorMessage =
         error instanceof Error
@@ -1265,9 +1393,12 @@ export function runRedo({
           : t("designEditor.toasts.screenDuplicateError");
       const rollbackFileIds = new Set(
         entries.flatMap((item) =>
-          item.recoveryFileId ? [item.recoveryFileId] : [],
+          item.recoveryFileId && !reusedRecoveryEntries.has(item)
+            ? [item.recoveryFileId]
+            : [],
         ),
       );
+      let rollbackFailed = false;
       for (const [item, createdFileId] of createdFileIds) {
         rollbackFileIds.add(createdFileId);
         try {
@@ -1288,20 +1419,41 @@ export function runRedo({
           });
           retryRecoveryFileIds.set(
             item,
-            present === true ? createdFileId : null,
+            present === true
+              ? createdFileId
+              : present === false
+                ? null
+                : undefined,
           );
-          if (present !== true) rollbackFileIds.delete(createdFileId);
+          if (present === true || present === undefined) {
+            rollbackFailed = true;
+            rollbackFileIds.delete(createdFileId);
+          }
+        }
+      }
+      let rollbackGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (appliedDuplicateStackChanges.length > 0 && !rollbackFailed) {
+        const restored = applyDuplicateStackHistoryChanges(
+          rollbackGeometry,
+          appliedDuplicateStackChanges.slice().reverse(),
+          "undo",
+        );
+        if (restored.staleFrameIds.length === 0) {
+          rollbackGeometry = restored.geometryById;
+        } else {
+          console.debug(
+            "[design] skipping stale duplicate stack rollback; frames changed since capture:",
+            restored.staleFrameIds,
+          );
         }
       }
       for (const rollbackFileId of rollbackFileIds) {
-        const nextGeometry = {
-          ...getCanvasFrameGeometry(designDataJsonRef.current),
-        };
-        delete nextGeometry[rollbackFileId];
-        writeFrameGeometrySnapshot(nextGeometry, {
-          replacePendingGeometrySave: true,
-        });
+        delete rollbackGeometry[rollbackFileId];
       }
+      writeFrameGeometrySnapshot(rollbackGeometry);
       for (const item of attemptedEntries) {
         if (
           !retryRecoveryFileIds.has(item) &&
@@ -1320,13 +1472,14 @@ export function runRedo({
         1,
       );
       const retryEntries = entries.map((item) => {
-        if (!retryRecoveryFileIds.has(item)) return item;
-        const recoveryFileId = retryRecoveryFileIds.get(item);
-        return {
-          ...item,
-          recoveryFileId,
-          recoveryKnownFileIds: [...knownFileIds],
-        };
+        const retryEntry = { ...item };
+        delete retryEntry.duplicateStackUndoSettled;
+        delete retryEntry.duplicateStackUndoApplied;
+        if (retryRecoveryFileIds.has(item)) {
+          retryEntry.recoveryFileId = retryRecoveryFileIds.get(item);
+          retryEntry.recoveryKnownFileIds = [...knownFileIds];
+        }
+        return retryEntry;
       });
       fileCreationRedoStackRef.current = [
         ...fileCreationRedoStackRef.current.slice(
@@ -1339,6 +1492,7 @@ export function runRedo({
         "file-created",
       ];
       fileHistoryMutationPendingRef.current = false;
+      onFileHistoryMutationSettled?.();
       syncUndoRedoState();
       await queryClient.invalidateQueries({
         queryKey: ["action", "get-design"],
@@ -1375,6 +1529,7 @@ export function runRedo({
         if (present === true) {
           rawResult = { id: recoveryFileId };
           reusedRecovery = true;
+          reusedRecoveryEntries.add(item);
         } else if (present === false) {
           retryRecoveryFileIds.set(item, undefined);
           rawResult = await createFile(item);
@@ -1418,6 +1573,10 @@ export function runRedo({
           `Failed to recreate "${item.filename}": create-file returned no id and no persisted file could be reconciled`,
         );
       }
+      resolvedFileIds.set(item, nextId);
+      if (item.createdFileId && item.createdFileId !== nextId) {
+        recreatedFileIdRemap.set(item.createdFileId, nextId);
+      }
       if (!reusedRecovery) createdFileIds.set(item, nextId);
       const geometry = {
         ...getInitialFrameGeometry(overviewScreens.length, {
@@ -1426,7 +1585,56 @@ export function runRedo({
         }),
         ...item.geometry,
       };
+      const oldCreatedFileId = item.createdFileId;
+      const currentGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        delete currentGeometry[oldCreatedFileId];
+      }
+      const stackIds = new Map(recreatedFileIdRemap);
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        stackIds.set(oldCreatedFileId, nextId);
+      }
+      const duplicateStack = remapFileCreationHistoryEntryIds(
+        item,
+        stackIds,
+      ).duplicateStack;
+      const geometryWithCreatedFile = {
+        ...currentGeometry,
+        [nextId]: geometry,
+      };
+      const appliedStack = duplicateStack
+        ? applyDuplicateStackHistoryChange(
+            geometryWithCreatedFile,
+            duplicateStack,
+            "redo",
+          )
+        : { geometryById: geometryWithCreatedFile, staleFrameIds: [] };
+      if (appliedStack.staleFrameIds.length > 0) {
+        console.debug(
+          "[design] skipping stale duplicate stack redo; frames changed since capture:",
+          appliedStack.staleFrameIds,
+        );
+        toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+      }
       const dataOperations: DesignDataOperation[] = [
+        ...(oldCreatedFileId && oldCreatedFileId !== nextId
+          ? [
+              {
+                op: "delete" as const,
+                path: ["canvasFrames", oldCreatedFileId] as [
+                  string,
+                  ...string[],
+                ],
+              },
+            ]
+          : []),
+        ...duplicateStackZOperations(
+          geometryWithCreatedFile,
+          appliedStack.geometryById,
+        ),
         {
           op: "set",
           path: ["canvasFrames", nextId],
@@ -1457,6 +1665,9 @@ export function runRedo({
           dataOperations,
         );
         designDataJsonRef.current = nextData;
+        if (duplicateStack && appliedStack.staleFrameIds.length === 0) {
+          appliedDuplicateStackChanges.push(duplicateStack);
+        }
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -1466,10 +1677,28 @@ export function runRedo({
         );
         await updateDesignAsync({ id, dataOperations } as any);
       }
-      writeFrameGeometrySnapshot({
-        ...getCanvasFrameGeometry(designDataJsonRef.current),
-        [nextId]: geometry,
-      });
+      const settledGeometry = currentFrameGeometry(
+        designDataJsonRef.current,
+        liveFrameGeometryRef.current,
+      );
+      if (oldCreatedFileId && oldCreatedFileId !== nextId) {
+        delete settledGeometry[oldCreatedFileId];
+      }
+      if (!settledGeometry[nextId]) settledGeometry[nextId] = geometry;
+      const settledStack = duplicateStack
+        ? applyDuplicateStackHistoryChange(
+            settledGeometry,
+            duplicateStack,
+            "redo",
+          )
+        : { geometryById: settledGeometry, staleFrameIds: [] };
+      if (settledStack.staleFrameIds.length > 0) {
+        console.debug(
+          "[design] skipping stale duplicate stack snapshot settlement; frames changed during redo:",
+          settledStack.staleFrameIds,
+        );
+      }
+      writeFrameGeometrySnapshot(settledStack.geometryById);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename: item.filename,
@@ -1486,20 +1715,44 @@ export function runRedo({
     void (async () => {
       try {
         for (const item of entries) await recreateFile(item);
+        const originalEntries = entries.slice();
+        const indexByEntry = new Map(
+          originalEntries.map((item, index) => [item, index]),
+        );
+        const remappedEntries = originalEntries.map((item) => {
+          const nextId = resolvedFileIds.get(item);
+          let remapped = remapFileCreationHistoryEntryIds(
+            item,
+            recreatedFileIdRemap,
+          );
+          if (nextId) remapped = { ...remapped, createdFileId: nextId };
+          const {
+            duplicateStackUndoSettled: _settled,
+            duplicateStackUndoApplied: _applied,
+            ...committedEntry
+          } = remapped;
+          delete committedEntry.recoveryFileId;
+          delete committedEntry.recoveryKnownFileIds;
+          return committedEntry;
+        });
+        entries.splice(0, entries.length, ...remappedEntries);
+        const remapStackEntry = (item: FileCreationHistoryEntry) => {
+          const index = indexByEntry.get(item);
+          return index === undefined
+            ? remapFileCreationHistoryEntryIds(item, recreatedFileIdRemap)
+            : remappedEntries[index]!;
+        };
+        fileCreationUndoStackRef.current =
+          fileCreationUndoStackRef.current.map(remapStackEntry);
+        fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+          (item) =>
+            remapFileCreationHistoryEntryIds(item, recreatedFileIdRemap),
+        );
         if (entries.length > 1) {
           setOverviewSelectedScreenIds(recreatedFileIds);
         }
-        fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
-          (item) => {
-            if (!entries.includes(item) || item.recoveryFileId === undefined)
-              return item;
-            const committedEntry = { ...item };
-            delete committedEntry.recoveryFileId;
-            delete committedEntry.recoveryKnownFileIds;
-            return committedEntry;
-          },
-        );
         fileHistoryMutationPendingRef.current = false;
+        onFileHistoryMutationSettled?.();
         syncUndoRedoState();
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
@@ -1526,19 +1779,29 @@ export function runRedo({
     };
     performDeleteFiles(currentEntry.files, {
       preserveHistory: true,
-      onMutationSettled: (deletedFiles, failedFiles) => {
+      onMutationSettled: (deletedFiles, failedFiles, deletedFileSnapshots) => {
         if (deletedFiles.length > 0) {
           const deletedIds = new Set(deletedFiles.map((file) => file.id));
-          fileDeletionUndoStackRef.current = [
-            ...fileDeletionUndoStackRef.current.slice(
-              -(MAX_DESIGN_UNDO_STACK - 1),
-            ),
-            filterFileDeletionHistoryEntry(currentEntry, deletedIds),
-          ];
-          historyOrderRef.current = [
-            ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-            "file-deleted",
-          ];
+          const authoritativeSnapshots = (deletedFileSnapshots ?? []).filter(
+            (file) => deletedIds.has(file.id),
+          );
+          if (authoritativeSnapshots.length === deletedFiles.length) {
+            fileDeletionUndoStackRef.current = [
+              ...fileDeletionUndoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              filterFileDeletionHistoryEntry(
+                { files: authoritativeSnapshots },
+                deletedIds,
+              ),
+            ];
+            historyOrderRef.current = [
+              ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+              "file-deleted",
+            ];
+          } else {
+            toast.error(t("common.genericError"));
+          }
           clearPendingHistory?.();
         }
         if (failedFiles.length > 0) {
@@ -1628,13 +1891,6 @@ export function runRedo({
         break;
       }
       if (didRedo) {
-        // Figma parity (ground-truth Round 4, Part B): redoing a real edit
-        // consumes any selection-only step still sitting above it on the
-        // redo ledger instead of replaying it — undo walked back through
-        // that trailing selection change, but redo does not reconstruct it.
-        // `preferred` can only route to redoSelection() when it is exactly
-        // "selection" (see redoByOrder above), so anything else here means a
-        // real edit was what just redid.
         if (preferred !== "selection") {
           while (
             redoOrderRef.current[redoOrderRef.current.length - 1] ===

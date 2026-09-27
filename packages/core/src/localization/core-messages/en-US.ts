@@ -1,4 +1,23 @@
 const messages = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
+  "composer.contextAttach": "Attach",
+  "composer.menu.search": "Search…",
+  "composer.contextPrevious": "Previous",
+  "composer.contextNext": "Next",
+  "composer.contextLoadFailed": "Could not load context.",
+  "composer.contextLinkRequired": "Enter a link.",
+  "composer.submitFailed": "Could not submit. Try again.",
+  "composer.addContext": "Add context",
+  "composer.contextActionFailed": "Could not add context.",
+  "composer.contextBack": "Back",
+  "composer.searchContext": "Search context…",
+  "composer.noContextResults": "No matching context.",
+  "composer.contextPending": "Context pending",
+  "composer.contextError": "Context failed",
+  "composer.retryContext": "Retry {{name}} context",
+  "composer.contextLimitExceeded":
+    "Context is too large. Remove an item or attach a smaller selection.",
   "activity.reasoning": "Reasoning",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -30,22 +49,33 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "observability.viewDetails": "View details",
+  "observability.hideDetails": "Hide details",
+  "observability.input": "Input",
+  "observability.output": "Output",
+  "observability.error": "Error",
+  "observability.metadata": "Metadata",
+  "observability.notCaptured": "Not captured",
+  "observability.openFullConversation": "Open full conversation",
+  "observability.learnAboutTab": "Learn about this tab",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
   "onboarding.roleQuestion": "What best describes your role?",
-  "onboarding.roleProduct": "Product",
-  "onboarding.roleDesign": "Design",
+  "onboarding.roleHelperText": "This helps us personalize your experience",
+  "onboarding.roleProduct": "Product Manager",
+  "onboarding.roleDesign": "Designer",
   "onboarding.roleDeveloper": "Developer",
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Sales",
   "onboarding.roleOps": "Ops",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Other",
+  "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
-  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderCreateAccount": "Create Builder.io account",
+  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -58,9 +88,10 @@ const messages = {
   "onboarding.builderActivationDescription":
     "We'll automatically create your Builder.io account for you in one click.",
   "onboarding.builderCreateAndActivate": "Create and activate",
-  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
-  "onboarding.builderTerms": "Terms",
-  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentPrefix":
+    "By creating a Builder.io account, you agree to our",
+  "onboarding.builderTerms": "Terms of Service",
+  "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
@@ -74,24 +105,22 @@ const messages = {
   "onboarding.builderReadyCreditsOnly":
     "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
-  "onboarding.capability.llm.keySummary":
-    "Connect an AI provider or local model",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder storage or an S3-compatible bucket",
-  "onboarding.fileStorage.title": "Choose file storage",
+  "onboarding.capability.llm.keySummary": "Connect your own AI model",
+  "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
+  "onboarding.fileStorage.title": "Connect storage to upload files",
+  "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
-    "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-  "onboarding.fileStorage.custom": "Use custom storage keys",
+    "Connect Builder.io (free) or configure your own S3-compatible object storage.",
+  "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
+  "onboarding.fileStorage.custom": "Use custom keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
   "onboarding.capability.voiceInput.label": "Voice input",
-  "onboarding.capability.voiceInput.keySummary":
-    "Browser speech recognition or speech-to-text",
+  "onboarding.capability.voiceInput.keySummary": "Voice input",
   "onboarding.capability.voiceInput.why":
     "Voice input turns spoken requests into text; typing always works without it.",
   "onboarding.capability.embeddings.label": "Embeddings",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini, Cohere, or Voyage key",
+  "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
@@ -130,6 +159,18 @@ const messages = {
   "agentPanel.sharedKeyInEffect": "A shared key is in effect.",
   "agentPanel.useOrganizationKey": "Use organization key",
   "agentPanel.keyStatusUnavailable": "Key status is unavailable.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "Allow pop-ups for this site, then try again.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT subscription",
+  "agentPanel.chatgptSubscriptionDescription":
+    "Experimental Codex access through your ChatGPT subscription.",
+  "agentPanel.chatgptSubscriptionInUse": "In use",
+  "agentPanel.chatgptSubscriptionConnected": "Connected",
+  "agentPanel.chatgptSubscriptionConnecting": "Connecting…",
+  "agentPanel.chatgptSubscriptionReconnect": "Reconnect",
+  "agentPanel.chatgptSubscriptionConnect": "Connect ChatGPT",
+  "agentPanel.chatgptSubscriptionUse": "Use in chat",
+  "agentPanel.chatgptSubscriptionDisconnect": "Disconnect",
   "agentHostNudge.sidebarTitle": "Use {{agent}}'s chat",
   "agentHostNudge.sidebarDescription":
     "You're already chatting with {{agent}}. Ask it to work with this app directly.",
@@ -151,6 +192,7 @@ const messages = {
   "common.loading": "Loading...",
   "common.no": "No",
   "common.retry": "Retry",
+  "common.chunkLoadFailed": "Couldn't load this. Please try again.",
   "common.save": "Save",
   "agents.hostedAgent": "Hosted agent",
   "agents.provider": "Provider",
@@ -267,6 +309,8 @@ const messages = {
   "composer.describeSkill": "Describe the skill you want to create...",
   "composer.documentTooLarge":
     '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+  "composer.requestTooLarge":
+    "This message and its attachments are too large to send. Remove an attachment or shorten the message.",
   "composer.file": "file",
   "composer.imageModel": "Image model",
   "composer.imagePreview": "Image preview",
@@ -471,7 +515,7 @@ const messages = {
   "errorMessages.providerTransientRejection":
     "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
   "errorMessages.startNewChat": "Start new chat",
-  "errorMessages.upgradeAtBuilder": "Upgrade at Builder.io",
+  "errorMessages.addCreditsInBuilder": "Add credits in Builder",
   "feedback.inaccurate": "Inaccurate",
   "feedback.keyboardHint": "{{shortcut}} Enter to send",
   "feedback.notHelpful": "Not helpful",
@@ -535,11 +579,14 @@ const messages = {
   "message.regenerate": "Regenerate response",
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
+  "message.revertQuestion":
+    "Revert to this point? Changes made after this point will be lost.",
   "message.restoreRequestFailed": "Restore request failed.",
   "message.threadNotFound":
     "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
+  "message.revertToBeginning": "Revert to beginning",
   "message.sentAt": "Sent {{time}}",
   "contextMeter.ariaLabel":
     "Context {{percent}}%, {{totalTokens}}{{breakdown}}. Open Context X-Ray.",
@@ -619,7 +666,9 @@ const messages = {
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
   "recovery.credentialRejected":
-    "The current Builder.io or model-provider credential was rejected. Reconnect Builder.io, then retry this message.",
+    "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents aren't connected. Connect Builder.io in Setup to run this hosted code-change operation. Model-provider keys still work for chat and other AI features, but they don't authorize the Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnose and retry",
   "recovery.forkDescription":
     "Fork this conversation into a separate chat thread.",
@@ -677,6 +726,10 @@ const messages = {
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.checkingProvider": "Checking AI connection…",
+  "setup.providerStatusUnavailable": "Couldn't check AI connection.",
+  "agentNativeClips.meetingAsk.placeholder": "Ask anything",
+  "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
   "setup.connected": "Connected",
   "setup.connectedOrganization": "Connected — {{organization}}",
   "setup.connectedTo": "Connected to {{organization}}",
@@ -725,6 +778,8 @@ const messages = {
   "share.organizationDescription": "Anyone in your organization can view",
   "share.owner": "Owner",
   "share.peopleWithAccess": "People with access",
+  "share.people": "People",
+  "share.agents": "Agents",
   "share.private": "Private",
   "share.privateDescription": "Only people with access can view",
   "share.public": "Public",
@@ -808,6 +863,26 @@ const messages = {
   "settings.emailChangeError": "Could not send confirmation.",
   "settings.emailNewLabel": "New email",
   "settings.emailNewPlaceholder": "Enter new email",
+  "usage.builderCredits": "Builder credits",
+  "usage.inviteFriends": "Invite friends",
+  "usage.inviteCredits":
+    "Earn {{amount}} Builder credits when a friend subscribes.",
+  "usage.copyInviteLink": "Copy invite link",
+  "usage.inviteLinkCopied": "Invite link copied",
+  "usage.creditBalance": "Workspace balance",
+  "usage.monthlyPlan": "Monthly plan",
+  "usage.dailyFreeLimit": "Free daily limit",
+  "usage.creditUsedOfLimit": "{{used}} of {{limit}} used",
+  "usage.creditRemaining": "{{amount}} remaining",
+  "usage.creditUsageUnavailable": "Builder credit usage couldn’t be loaded.",
+  "usage.estimatedBuilderCredits": "~{{amount}} estimated credits",
+  "usage.otherUsdSpend": "{{amount}} other USD",
+  "usage.noBuilderCredits": "0 Builder credits",
+  "usage.otherUnclassifiedSpend": "Other or unclassified USD spend",
+  "usage.providerSpendDetail":
+    "Provider or older calls outside Builder billing",
+  "usage.providerSpendToday": "Other or unclassified usage: {{amount}} today",
+  "usage.driverCreditsAndUsd": "Builder credits / USD",
 } as const;
 
 export default messages;

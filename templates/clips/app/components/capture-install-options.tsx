@@ -35,8 +35,6 @@ import {
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
 
-// SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
-// subscribers so mounted CTAs flip to "Open" without a reload.
 function useHasDownloadedDesktopApp(): boolean {
   return useSyncExternalStore(
     subscribeDownloaded,
@@ -53,24 +51,17 @@ type PopoverPlacement = {
 type CaptureInstallButtonProps = Omit<ButtonProps, "asChild"> &
   PopoverPlacement & {
     children: ReactNode;
-    /** Label shown once the desktop app has been downloaded. */
     downloadedChildren?: ReactNode;
     desktopHref?: string;
   };
 
 type CaptureInstallInlineLinkProps = PopoverPlacement & {
   children: ReactNode;
-  /** Label shown once the desktop app has been downloaded. */
   downloadedChildren?: ReactNode;
   className?: string;
   desktopHref?: string;
 };
 
-/**
- * The desktop-app tile shows the icon for the visitor's current OS — Apple on
- * macOS, Windows on Windows — and falls back to a neutral desktop glyph on other
- * platforms or during SSR. The Chrome tile always uses the Chrome brand icon.
- */
 function desktopOsIcon(): typeof IconDeviceDesktop {
   if (typeof navigator === "undefined") return IconDeviceDesktop;
   const ua = navigator.userAgent;
@@ -80,10 +71,16 @@ function desktopOsIcon(): typeof IconDeviceDesktop {
   return IconDeviceDesktop;
 }
 
+const subscribeToDesktopPlatform = () => () => undefined;
+
 export function DesktopPlatformIcon(
   props: ComponentProps<typeof IconDeviceDesktop>,
 ) {
-  const DesktopIcon = desktopOsIcon();
+  const DesktopIcon = useSyncExternalStore(
+    subscribeToDesktopPlatform,
+    desktopOsIcon,
+    () => IconDeviceDesktop,
+  );
   return <DesktopIcon {...props} />;
 }
 
@@ -198,11 +195,6 @@ export function CaptureInstallButton({
   );
 }
 
-/**
- * Compact recorder CTA for the web capture surface. Keep the trigger as plain
- * text so the action reads like a source choice; install destinations belong
- * in the menu rather than in a platform-specific icon treatment.
- */
 export function CaptureInstallMenu({
   children,
   className,
@@ -229,6 +221,7 @@ export function CaptureInstallMenu({
           attemptOpenDesktopApp(desktopHref);
         }}
       >
+        <DesktopPlatformIcon aria-hidden="true" className="size-4" />
         {children}
       </Button>
     );
@@ -243,6 +236,7 @@ export function CaptureInstallMenu({
           variant={variant}
           {...buttonProps}
         >
+          <DesktopPlatformIcon aria-hidden="true" className="size-4" />
           {children}
           <IconChevronDown className="size-3.5" />
         </Button>

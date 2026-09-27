@@ -4,7 +4,8 @@ export default defineAgentNativeConfig({
   deployment: {
     workspace: {
       appsDirectory: ".",
-      authMode: "isolated",
+      authMode: "shared",
+      rootPage: "directory",
     },
   },
 });

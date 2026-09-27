@@ -205,8 +205,6 @@ async function testConnection(source: string): Promise<ConnectionTestResult> {
   return res.json();
 }
 
-// Bounds the GitHub status fetch so a hang can't leave the connect poll's
-// `inFlight` guard stuck and stall the interval forever.
 const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
 
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
@@ -258,7 +256,6 @@ function StepItem({
       }
     };
     reader.readAsText(file);
-    // Reset so the same file can be re-selected
     e.target.value = "";
   };
 
@@ -824,8 +821,6 @@ function ConnectedView({
     mutationFn: () => testConnection(source.id),
     onSuccess: (result) => {
       setTestResult(result);
-      // Refresh envStatus so the per-key "Configured"/"Missing" labels
-      // reflect reality after a test that revealed missing credentials.
       onSaved();
     },
   });
@@ -833,7 +828,6 @@ function ConnectedView({
   const hasInputValues =
     Object.values(inputValues).some((v) => v.trim()) || pendingClears.size > 0;
 
-  // Get credential labels from walkthrough steps
   const keyLabels: Record<string, string> = {};
   for (const step of source.walkthroughSteps) {
     if (step.inputKey) {
@@ -1252,8 +1246,6 @@ function DataSourceCard({
     !showLocalCredentials;
   const workspaceRoleLoading =
     isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
-  // An unreadable status cannot tell this source apart from an unconfigured
-  // one, so the setup walkthrough would be guessing.
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   useEffect(() => {
@@ -2075,9 +2067,6 @@ export default function DataSources() {
   });
   const statusData = rawStatusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(statusData);
-  // A failed fetch, an error payload, or a failed workspace-connection lookup
-  // all read as "everything is unconfigured" once they collapse into the empty
-  // credential list. Keep them a separate state instead.
   const statusUnknown =
     !isStatusLoading &&
     (isStatusError ||

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { normalizeAppBasePath } from "../server/app-base-path.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 export const GENERATED_NETLIFY_HEADERS_MARKER =
@@ -17,6 +19,19 @@ function renderHeaderBlock(pathname: string, headers: HeaderEntries): string {
     pathname,
     ...headers.map(([name, value]) => `  ${name}: ${value}`),
   ].join("\n");
+}
+
+function frameworkRoutePatterns(
+  env: Record<string, string | undefined>,
+): string[] {
+  const prefix = normalizeFrameworkRoutePrefix(
+    env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX?.trim() || undefined,
+    "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+  );
+  const basePath = normalizeAppBasePath(
+    env.VITE_APP_BASE_PATH || env.APP_BASE_PATH,
+  );
+  return basePath ? [`${prefix}/*`, `${basePath}${prefix}/*`] : [`${prefix}/*`];
 }
 
 export function renderNetlifyStaticHeaders(
@@ -44,7 +59,9 @@ export function renderNetlifyStaticHeaders(
       GENERATED_NETLIFY_HEADERS_MARKER,
       renderHeaderBlock("/*", ssrHeaderEntries),
       renderHeaderBlock("/assets/*", immutableAssetHeaders),
-      renderHeaderBlock("/_agent-native/*", internalHeaders),
+      ...frameworkRoutePatterns(env).map((pattern) =>
+        renderHeaderBlock(pattern, internalHeaders),
+      ),
     ].join("\n\n") + "\n"
   );
 }

@@ -5,12 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectLiveSizeHints } from "./frame-selection";
 
-/**
- * A duplicated Screen can carry a not-yet-remapped (or colliding)
- * data-agent-native-node-id while it settles — collectLiveSizeHints must
- * only ever read the ACTIVE file's own iframe, never fall through to the
- * first preview iframe on the canvas that happens to contain a matching id.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha"></div>
 </body>`;
@@ -92,10 +86,6 @@ describe("collectLiveSizeHints", () => {
   });
 
   it("reads the active file's own iframe, ignoring a duplicate screen's colliding node id", () => {
-    // "other.html" stands in for a just-duplicated screen whose ids haven't
-    // been remapped yet — same data-agent-native-node-id, different (wrong)
-    // rendered size. If it were queried before "active.html" (DOM order),
-    // taking the "first match" would silently read the wrong screen.
     mountScreenIframe("other.html", { width: 999, height: 999 });
     mountScreenIframe("active.html", { width: 120, height: 40 });
 
@@ -198,6 +188,64 @@ describe("collectLiveSizeHints", () => {
       height: 14.3984,
       left: 32,
       top: 52,
+    });
+  });
+
+  it("accumulates scrolling static ancestors up to the containing block", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML = `<main><section><div data-agent-native-node-id="alpha"></div></section></main>`;
+    const main = doc.querySelector("main")!;
+    const section = doc.querySelector("section")!;
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    Object.defineProperty(element, "offsetParent", {
+      configurable: true,
+      value: main,
+    });
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(main, { left: 100, top: 200, width: 220, height: 120 });
+    stubRect(element, {
+      left: 130,
+      top: 250,
+      width: 25,
+      height: 14,
+    });
+    Object.defineProperty(section, "scrollLeft", {
+      configurable: true,
+      value: 7,
+    });
+    Object.defineProperty(section, "scrollTop", {
+      configurable: true,
+      value: 9,
+    });
+    Object.defineProperty(main, "scrollLeft", {
+      configurable: true,
+      value: 4,
+    });
+    Object.defineProperty(main, "scrollTop", {
+      configurable: true,
+      value: 5,
+    });
+
+    const projection = buildCodeLayerProjection(FIXTURE);
+    const hints = collectLiveSizeHints(
+      [alphaId()],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    expect(hints[alphaId()]).toEqual({
+      width: 25,
+      height: 14,
+      left: 41,
+      top: 64,
     });
   });
 

@@ -51,6 +51,10 @@ vi.mock("../chat-threads/store.js", () => ({
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: vi.fn(() => []),
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
+  resolveOwnerEngineApiKey: vi.fn(async () => ({
+    apiKey: undefined,
+    apiKeyEnvVar: undefined,
+  })),
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: (tools: unknown[]) => tools,
 }));
@@ -233,12 +237,6 @@ describe("stale automation run-lock recovery across trigger types", () => {
   });
 
   it("does not touch automation history when the stale-lock reset loses its CAS", async () => {
-    // A concurrent manual/event run can claim the same stale snapshot first,
-    // moving the resource to a fresh lastStatus:running before this sweep's
-    // write lands. `resourcePutIfCurrent` then returns null (CAS loss). The
-    // sweep must not call recoverStaleAutomationHistory in that case -- doing
-    // so would mark the automation's newest (just-started) run as errored
-    // instead of the one that was actually stuck.
     const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString();
     const stuckContent = [
       "---",
@@ -262,7 +260,6 @@ describe("stale automation run-lock recovery across trigger types", () => {
         content: stuckContent,
       },
     ]);
-    // Simulate the CAS loss: someone else already moved the resource.
     resourcePutIfCurrentMock.mockResolvedValueOnce(null);
     const listAutomationRunsSpy = vi.spyOn(runHistory, "listAutomationRuns");
 

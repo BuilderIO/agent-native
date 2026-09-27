@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。Cloudflare Pages 通过一个生成的**调度 worker** 进行路由,这是位于 `dist/_worker.js` 的一个小脚本,它读取传入的路径并把请求转发给匹配的应用。Netlify 为每个应用使用一个函数,外加生成的重定向规则。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`。
+在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。**Netlify** 是默认选项:每个应用一个函数,外加生成的重定向规则。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare(默认)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（默认）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -140,7 +129,7 @@ npx @agent-native/core@latest deploy
 
 想接入某个提供商的构建命令,而不是手动部署?在同一条命令后加上 `--build-only`,例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它会直接写出输出,因此不需要 `vercel.json` 来处理工作区路由。
 
-更倾向于每个应用使用独立的域名,而不是共用一个源?工作区中的每个应用仍然可以独立部署。像运行一个独立脚手架一样运行 `cd apps/<name> && npx @agent-native/core@latest build`。
+更倾向于每个应用使用独立的域名,而不是共用一个源?工作区中的每个应用仍然可以独立部署。像运行一个独立脚手架一样运行 `cd apps/<name> && pnpm build`。
 
 </Callout>
 
@@ -217,7 +206,7 @@ npx @agent-native/core@latest deploy
 基础路径对客户端打包产物来说是一个构建期输入,对服务器来说是一个运行期输入。用代理将要路由到的同一个路径构建每个应用:
 
 ```bash maxLines=8
-APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail pnpm build
 node .output/server/index.mjs
 ```
 

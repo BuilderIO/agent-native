@@ -27,11 +27,13 @@ vi.mock("../db/client.js", () => ({
 
 const {
   getSetting,
+  getSettings,
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
   mutateSetting,
 } = await import("./store.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 
 beforeEach(async () => {
   pglite = await createTestPglite();
@@ -49,9 +51,6 @@ afterEach(async () => {
 
 describe("settings store", () => {
   it("issues the poll-path index DDL on init", async () => {
-    // The first store call triggers ensureTable(), which must create the
-    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
-    // full table scans. Capture which SQL strings are executed and assert.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -80,6 +79,30 @@ describe("settings store", () => {
   it("returns null for a missing key", async () => {
     const result = await getSetting("does-not-exist");
     expect(result).toBeNull();
+  });
+
+  it("throws for a corrupted (unparseable) stored value instead of reporting it missing", async () => {
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    await expect(getSetting("corrupt")).rejects.toThrow(SyntaxError);
+  });
+
+  it("throws for a corrupted value already sitting in the request cache", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await pglite
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+        )
+        .run("corrupt-cached", "{not valid json", Date.now());
+
+      await getSettings(["corrupt-cached"]);
+      rawClient.execute.mockClear();
+
+      await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
   });
 
   it("deletes an existing key and returns true", async () => {
@@ -147,6 +170,21 @@ describe("settings store", () => {
       "builder-connect-pending:b",
     ]);
   });
+
+  it("bounds and orders prefix reads when requested", async () => {
+    await putSetting("dashboard:c", { id: "c" });
+    await putSetting("dashboard:a", { id: "a" });
+    await putSetting("dashboard:b", { id: "b" });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
+
+    expect(rows.map((row) => row.key)).toEqual(["dashboard:a", "dashboard:b"]);
+    expect(rawClient.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("ORDER BY key ASC LIMIT ?"),
+      args: ["dashboard:%", 2],
+    });
+  });
 });
 
 it("reads settings through a supplied transaction without another connection", async () => {
@@ -160,4 +198,103 @@ it("reads settings through a supplied transaction without another connection", a
   });
   expect(execute).toHaveBeenCalledOnce();
   expect(rawClient.execute).not.toHaveBeenCalled();
+});
+
+describe("getSettings (batched read)", () => {
+  it("reads N distinct keys in a single query", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("k1", { v: 1 });
+      await putSetting("k2", { v: 2 });
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(["k1", "k2", "k3"]);
+
+      expect(values).toEqual(
+        new Map([
+          ["k1", { v: 1 }],
+          ["k2", { v: 2 }],
+          ["k3", null],
+        ]),
+      );
+      expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("seeds the request cache so a later getSetting costs no query, including for a missing key", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("hit", { v: 1 });
+      rawClient.execute.mockClear();
+
+      await getSettings(["hit", "miss"]);
+      rawClient.execute.mockClear();
+
+      expect(await getSetting("hit")).toEqual({ v: 1 });
+      expect(await getSetting("miss")).toBeNull();
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("serves keys already in the request cache without re-querying", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("cached", { v: 1 });
+      await getSetting("cached");
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(["cached"]);
+
+      expect(values).toEqual(new Map([["cached", { v: 1 }]]));
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("chunks an IN-list larger than the batch size into separate queries", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      const keys = Array.from({ length: 501 }, (_, i) => `chunk-${i}`);
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(keys);
+
+      expect(values.size).toBe(501);
+      expect([...values.values()].every((v) => v === null)).toBe(true);
+      expect(rawClient.execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("returns an empty map for an empty key list without querying", async () => {
+    rawClient.execute.mockClear();
+    expect(await getSettings([])).toEqual(new Map());
+    expect(rawClient.execute).not.toHaveBeenCalled();
+  });
+
+  it("isolates a corrupted key's JSON from the rest of the batch", async () => {
+    await putSetting("good", { v: 1 });
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    const values = await getSettings(["good", "corrupt"]);
+
+    expect(values).toEqual(
+      new Map([
+        ["good", { v: 1 }],
+        ["corrupt", null],
+      ]),
+    );
+  });
+
+  it("bypasses and does not populate the request cache when bypassCache is set", async () => {
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("k", JSON.stringify({ v: 1 }), Date.now());
+
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      rawClient.execute.mockClear();
+
+      await getSettings(["k"], { bypassCache: true });
+      rawClient.execute.mockClear();
+
+      await getSetting("k");
+      expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    });
+  });
 });

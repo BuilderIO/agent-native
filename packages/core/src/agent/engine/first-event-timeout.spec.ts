@@ -28,9 +28,6 @@ describe("createFirstEventAbortController", () => {
     abort.cleanup();
   });
 
-  // The whole point of removing the in-loop no-progress watchdogs: a model
-  // composing a large tool input emits nothing a consumer can see, and that is
-  // healthy. The first event must buy the stream the full total budget.
   it("does not bound silence between events once the stream has spoken", () => {
     const parent = new AbortController();
     const abort = createFirstEventAbortController(parent.signal);
@@ -44,9 +41,6 @@ describe("createFirstEventAbortController", () => {
     abort.cleanup();
   });
 
-  // The bound the runtimes with no outer budget (local dev, self-hosted, where
-  // the soft timeout resolves to 0) depend on: a socket that wedges AFTER the
-  // first frame must not hang the run forever.
   it("aborts a stream that outlives the total deadline, measured from the request start", () => {
     const parent = new AbortController();
     const abort = createFirstEventAbortController(parent.signal);
@@ -72,11 +66,6 @@ describe("createFirstEventAbortController", () => {
     abort.cleanup();
   });
 
-  // A cancelled request is not a failed one. The engines read `didTimeout()` to
-  // decide a failure was the transport's fault and retryable, so a deadline
-  // left armed across a Stop would turn a user cancellation or a run-budget
-  // abort into a resumable provider error. The provider does not necessarily
-  // settle the moment the signal fires, and `cleanup()` only runs once it does.
   it("does not classify a cancelled request as a timeout while the provider settles", () => {
     const parent = new AbortController();
     const abort = createFirstEventAbortController(parent.signal);
@@ -86,7 +75,6 @@ describe("createFirstEventAbortController", () => {
     vi.advanceTimersByTime(5_000);
     parent.abort("user");
 
-    // The provider takes its time unwinding, so `cleanup()` has not run yet.
     vi.advanceTimersByTime(STREAM_TOTAL_TIMEOUT_MS * 2);
 
     expect(abort.didTimeout()).toBe(false);
@@ -106,8 +94,6 @@ describe("createFirstEventAbortController", () => {
     abort.cleanup();
   });
 
-  // A frame already in flight when the Stop lands must not re-arm a deadline
-  // on a request that is over.
   it("does not re-arm a deadline for a frame that lands after cancellation", () => {
     const parent = new AbortController();
     const abort = createFirstEventAbortController(parent.signal);

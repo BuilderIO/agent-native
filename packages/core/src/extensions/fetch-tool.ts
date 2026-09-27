@@ -119,33 +119,19 @@ function applyBrowserDefaults(
 }
 
 export interface FetchToolOptions {
-  /** Resolve ${keys.NAME} references. Injected by the plugin at setup time. */
   resolveKeys?: (text: string) => Promise<{
     resolved: string;
     usedKeys: string[];
     secretValues?: string[];
-    /**
-     * Optional: which scope (user/org/workspace) each used key actually
-     * resolved at. Populated by resolvers like
-     * `resolveKeyReferencesWithRequestScopes` so `validateUrl` can look up
-     * the allowlist at the scope the value came from rather than assuming
-     * user scope. Backwards compatible — callers that omit this (or a
-     * resolver that doesn't report it) are unaffected.
-     */
     resolvedKeys?: ResolvedKeyReference[];
   }>;
-  /** Validate URL against per-key allowlists. */
   validateUrl?: (
     url: string,
     usedKeys: string[],
-    /** Accumulated `resolvedKeys` from every `resolveKeys` call this request made, when the resolver reported them. */
     resolvedKeys?: ResolvedKeyReference[],
   ) => Promise<boolean>;
 }
 
-/**
- * Create the fetch tool entry for the agent tool registry.
- */
 export function createFetchToolEntry(
   opts: FetchToolOptions = {},
 ): Record<string, ActionEntry> {
@@ -273,7 +259,6 @@ export function createFetchToolEntry(
             ? Math.min(requestedMaxChars, 200_000)
             : 32_000;
 
-        // Resolve key references
         let resolvedUrl = rawUrl;
         let resolvedHeaders = rawHeaders;
         let resolvedBody = rawBody;
@@ -311,12 +296,10 @@ export function createFetchToolEntry(
           ? allResolvedKeys
           : undefined;
 
-        // Block SSRF targets regardless of key usage
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
-        // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
             const allowed = await opts.validateUrl(
@@ -332,12 +315,6 @@ export function createFetchToolEntry(
           }
         }
 
-        // Parse headers, then merge in browser-like defaults for any header the
-        // caller didn't already specify. Real-browser headers (User-Agent,
-        // Accept, Sec-Fetch-*) are what gets you past Cloudflare / PerimeterX /
-        // generic UA-sniffing middleware on sites the user pastes in chat;
-        // explicit caller headers always win so API calls keep their auth
-        // headers untouched.
         let headers: Record<string, string>;
         try {
           headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
@@ -346,7 +323,6 @@ export function createFetchToolEntry(
         }
         headers = applyBrowserDefaults(headers);
 
-        // Make the request
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -399,9 +375,6 @@ export function createFetchToolEntry(
             response.headers.get("content-type")?.split(";")[0].trim() ??
             "text/plain";
 
-          // A fetched image is useful as model context, not as text decoded
-          // from arbitrary bytes. Pass bounded bytes through the well-known
-          // result-image field so vision providers never refetch this URL.
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
@@ -449,7 +422,6 @@ export function createFetchToolEntry(
 
           let body: string;
           try {
-            // When saving to file allow larger reads (20MB), otherwise cap at proxy limit.
             const readLimit = saveToFilePath
               ? 20 * 1024 * 1024
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
@@ -481,12 +453,10 @@ export function createFetchToolEntry(
             return `web-request post-processing error: ${err?.message ?? String(err)}`;
           }
 
-          // Audit log
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
 
-          // saveToFile: write full body to workspace and return compact summary.
           if (saveToFilePath) {
             try {
               const {
@@ -532,9 +502,6 @@ export function createFetchToolEntry(
                 responseMode: processedMode,
                 preview:
                   preview.length < displayBody.length ? `${preview}…` : preview,
-                // A durable (non-scratch) file renders a download card the
-                // moment it's created — no separate show-workspace-file call
-                // needed to get a link.
                 ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {

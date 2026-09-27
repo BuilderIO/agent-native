@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 
-import { resolveSourceCredential } from "./source-credentials.js";
+import { resolveSourceCredentialWithProvenance } from "./source-credentials.js";
 
 export const BRAIN_APP_ID = "brain";
 export const BRAIN_PROVIDER_API_IDS = PROVIDER_API_IDS;
@@ -24,19 +24,23 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
   connectionId,
 }) => {
   const resolvedProvider = workspaceProvider ?? provider;
-  const value = await resolveSourceCredential({
+  const credential = await resolveSourceCredentialWithProvenance({
     provider: resolvedProvider,
     key,
     ctx,
     workspaceConnectionId: connectionId,
   });
-  if (!value) return null;
+  if (!credential) return null;
+  const { provenance } = credential;
   return {
     key,
-    value,
-    source: "brain_credentials",
-    provider: resolvedProvider,
-    connectionId: connectionId ?? undefined,
+    value: credential.value,
+    source: provenance.source,
+    provider: provenance.provider,
+    connectionId: provenance.connectionId,
+    connectionLabel: provenance.connectionLabel,
+    scope: provenance.scope,
+    scopeId: provenance.scopeId,
   };
 };
 

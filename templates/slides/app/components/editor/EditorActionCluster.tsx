@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { preloadAddSlidePopover } from "@/lib/deferred-editor-surfaces";
 import { cn } from "@/lib/utils";
 
 const BUTTON_CLASS =
@@ -74,13 +75,6 @@ const SHAPES = [
   },
 ];
 
-/**
- * Selection-independent actions pinned to the head of the contextual
- * toolbar: add-slide, add-text-box, and the shape picker.
- * Rendered both as the `leading` slot of the element-controls row and as a
- * fallback directly in the deck toolbar for when that row is hidden (narrow
- * viewports) or never mounts (no current slide, e.g. an empty deck).
- */
 export function EditorActionCluster({
   textBoxMode,
   onToggleTextBoxMode,
@@ -112,7 +106,12 @@ export function EditorActionCluster({
             variant="ghost"
             size="sm"
             className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={onAddEmptySlide}
+            onPointerEnter={preloadAddSlidePopover}
+            onFocus={preloadAddSlidePopover}
+            onClick={() => {
+              preloadAddSlidePopover();
+              onAddEmptySlide();
+            }}
             disabled={addSlideGenerating}
           >
             <IconPlus className="size-3.5" />

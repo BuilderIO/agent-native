@@ -126,6 +126,12 @@ do not call `edit-document` or `update-document`. Read the current Page with
 `replace` Markdown (omit `replace` to propose deleting the text). `find` must
 match the page's current text exactly once. Content builds the tracked change
 and anchor server-side; the page stays unchanged until a reviewer accepts.
+The action separates disjoint punctuation and word changes into independent
+review edits. Its result gives the first `suggestionId`, all `suggestionIds`,
+and a `proposalId`. To add another
+find/replace call to that proposal, pass its `proposalId`, the same `summary`,
+and a fresh `idempotencyKey`. Retry the same call with its original key.
+An unchanged replacement creates no suggestion and reports an error.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
@@ -162,8 +168,13 @@ Restore the root subtree, or permanently delete it only after it is in Trash:
 
 ```bash
 pnpm action restore-document --id abc123
-pnpm action permanently-delete-document --id abc123
+pnpm action plan-content-trash-purge --mode selection --documentIds '["abc123"]'
+pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>' --scopeToken '<opaque plan token>'
 ```
+
+Permanent deletion requires the exact `planId` and `scopeToken` returned by
+`plan-content-trash-purge`. Inspect the plan's affected and blocked items before
+executing it; if Trash changes after review, create and inspect a new plan.
 
 ## Comments
 

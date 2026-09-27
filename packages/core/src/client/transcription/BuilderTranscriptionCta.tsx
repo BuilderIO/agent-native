@@ -1,17 +1,12 @@
-/**
- * Lightweight inline CTA that nudges users to connect Builder.io for
- * higher-quality transcription. Renders nothing when Builder is already
- * connected.
- *
- * Drop this next to transcript displays in any template.
- */
-
+import { Button } from "@agent-native/toolkit/ui/button";
 import { IconBolt, IconLoader2 } from "@tabler/icons-react";
 
-import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
+import { useT } from "../i18n.js";
+import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 export function BuilderTranscriptionCta() {
+  const t = useT();
   const flow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "builder_transcription_cta",
@@ -22,7 +17,6 @@ export function BuilderTranscriptionCta() {
     : null;
   const statusUnavailable = flow.hasFetchedStatus && !flow.statusResolved;
 
-  // Keep a retry path visible after an unreadable status response.
   if (configured || (configured === null && !statusUnavailable)) return null;
 
   return (
@@ -43,9 +37,20 @@ export function BuilderTranscriptionCta() {
         <span className="text-destructive text-[10px]">{flow.error}</span>
       )}
       {flow.connecting ? (
-        <IconLoader2 size={12} className="shrink-0 animate-spin" />
+        <>
+          <IconLoader2 size={12} className="shrink-0 animate-spin" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 shrink-0 px-2 py-1 text-[10px]"
+            onClick={flow.cancel}
+          >
+            {t("common.cancel")}
+          </Button>
+        </>
       ) : (
-        <BuilderConnectPopover flow={flow}>
+        <DeferredBuilderConnectPopover flow={flow}>
           <button
             type="button"
             disabled={flow.connecting}
@@ -53,7 +58,7 @@ export function BuilderTranscriptionCta() {
           >
             {statusUnavailable || flow.error ? "Retry" : "Connect"}
           </button>
-        </BuilderConnectPopover>
+        </DeferredBuilderConnectPopover>
       )}
     </div>
   );

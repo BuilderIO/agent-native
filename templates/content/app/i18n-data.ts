@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
   aField: "a field",
@@ -442,7 +443,6 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
-  // Row-union multi-source (slices 6a–6c).
   addARowTo: "Add a row to…",
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
@@ -747,6 +747,26 @@ const editorToolbarMessages = {
     "Connect a Notion workspace to link this document.",
   copiedPageLink: "Copied page link",
   copyPageLink: "Copy page link",
+  createShareableCopy: "Create shareable copy",
+  copyLink: "Copy link",
+  copyForPeople: "Copy for people",
+  copyForAgents: "Copy for agents",
+  whoHasAccess: "Who has access",
+  sharePeople: "People",
+  shareAgents: "Agents",
+  copyAgentPrompt: "Copy agent prompt",
+  openInClaude: "Open in Claude",
+  openInClaudeCode: "Open in Claude Code",
+  openInCodex: "Open in Codex",
+  agentCopyAccessNote:
+    "Agents can use Content MCP with your existing permissions",
+  temporaryAgentLink: "Temporary agent link",
+  privateLinkCanView: "Only people with access can view",
+  publicLinkCanView: "Anyone with the link can view",
+  copiedAgentPrompt: "Agent prompt copied",
+  couldNotCopyAgentPrompt: "Could not copy agent prompt",
+  agentPrompt:
+    'Read this Content document: {{documentUrl}}\n\nUse an available Content MCP connection for {{mcpUrl}} to call get-document with id "{{documentId}}". A publicly readable page can also be read directly.\n\nIf authenticated access is needed and Content MCP is unavailable or signed out, ask me to connect it and authenticate. Connection setup: {{connectUrl}}. Official guide: {{docsUrl}}\n\nAfter I confirm the connection is ready, retry the read using my account\'s existing permissions. If the authenticated read is denied, tell me that result.',
   couldNotCopyLink: "Could not copy link",
   clipboardAccessUnavailable:
     "Clipboard access is not available in this browser.",
@@ -864,6 +884,10 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Collection",
   databaseDescription: "Inline collection in this page",
+  collectionInline: "Collection — inline",
+  collectionInlineDescription: "Add a collection inside this page",
+  collectionFullPage: "Collection — full page",
+  collectionFullPageDescription: "Create a child collection and link it here",
   cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
@@ -989,6 +1013,16 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  close: "Close",
+  setup: {
+    checkingProvider: "Checking AI connection…",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -1046,6 +1080,9 @@ const enUS = {
     requestedPageUnavailable:
       "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
+    workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
+    workspaceWelcomeUnavailableDescription:
+      "You can browse this space, but you do not have permission to create its welcome page.",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -1081,6 +1118,18 @@ const enUS = {
     labCreativeContext: "Creative Context",
     labCreativeContextDescription:
       "Connect and reuse governed reference context in Content.",
+    labSlashAdvancedCode: "Advanced code blocks",
+    labSlashAdvancedCodeDescription:
+      "Add structured code and code-tabs blocks to the slash menu.",
+    labSlashLayouts: "Layout blocks",
+    labSlashLayoutsDescription:
+      "Add custom HTML and tabs blocks to the slash menu.",
+    labSlashVisuals: "Visual blocks",
+    labSlashVisualsDescription:
+      "Add diagram, Mermaid, and wireframe blocks to the slash menu.",
+    labSlashDeveloperDocs: "Developer documentation blocks",
+    labSlashDeveloperDocsDescription:
+      "Add API and developer-documentation blocks to the slash menu.",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -1214,8 +1263,9 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
+    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
-    databaseCreated: "Inline collection created",
+    databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
@@ -1225,6 +1275,13 @@ const enUS = {
     dropMedia: "Drop media",
     editLink: "Edit link",
     emojiAddIcon: "Add icon",
+    iconPickerIcons: "Icons",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recent",
+    iconPickerColors: "Colors",
+    iconPickerDefault: "Default",
+    iconPickerUpload: "Upload",
+    iconPickerUploading: "Uploading…",
     emojiAddPageIcon: "Add page icon",
     emojiCategoryActivities: "Activities",
     emojiCategoryFood: "Food",
@@ -1362,6 +1419,14 @@ const enUS = {
     aiFailed: "AI request failed",
     retry: "Retry",
     sourceComment: "Source comment",
+    proposalEditCount_zero: "{{count}} edits",
+    proposalEditCount_one: "{{count}} edit",
+    proposalEditCount_two: "{{count}} edits",
+    proposalEditCount_few: "{{count}} edits",
+    proposalEditCount_many: "{{count}} edits",
+    proposalEditCount_other: "{{count}} edits",
+    acceptRemaining: "Accept remaining",
+    rejectRemaining: "Reject remaining",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -1413,8 +1478,17 @@ const enUS = {
   database: databaseMessages,
   localFiles: localFilesMessages,
   sidebar: {
+    contentSpace: "Content space",
     cannotReorderPages: "Cannot reorder pages",
     pinned: "Pinned",
+    recent: "Recent",
+    customizeSidebar: "Customize sidebar",
+    noRecentVisits: "No recent visits",
+    noPinnedItems: "No pinned items",
+    showMore: "Show more",
+    showLess: "Show less",
+    seeAll: "See all…",
+    seeAllFiles: "See all files",
     loadingPinned: "Loading pinned items…",
     dragToReorder: "Drag to reorder {{label}}",
     moveUp: "Move up",
@@ -1437,6 +1511,34 @@ const enUS = {
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
     collapse: "Collapse sidebar",
+    collapseItem: "Collapse {{title}}",
+    removeFromRecent: "Remove from Recent",
+    copyLink: "Copy link",
+    openInNewTab: "Open in new tab",
+    rename: "Rename",
+    duplicate: "Duplicate",
+    moveTo: "Move to",
+    moveToTrash: "Move to Trash",
+    lastEditedBy: "Last edited by {{name}}",
+    lastEdited: "Last edited",
+    pageName: "Page name",
+    movePageTo: "Move “{{title}}” to",
+    topLevel: "Top level",
+    noMatchingPages: "No matching pages",
+    failedRenamePage: "Couldn't rename page",
+    failedDuplicatePage: "Couldn't duplicate page",
+    duplicatedFromLastSave:
+      "Copied the last saved version; recent unsaved edits weren't included.",
+    chooseSpace: "Choose a workspace",
+    moveToSpaceTitle: "Move to {{space}}?",
+    moveToSpaceWarningShared:
+      "Everyone in {{space}} will be able to see “{{title}}” and its sub-pages. Its current sharing and public link are removed, and you become the owner.",
+    moveToSpaceWarningPrivate:
+      "“{{title}}” and its sub-pages will be private to you in {{space}}. Its current sharing and public link are removed, and you become the owner.",
+    back: "Back",
+    movePage: "Move",
+    movedToSpace: "Moved “{{title}}” to {{space}}",
+    failedRemoveFromRecent: "Couldn't remove from Recent",
     resize: "Resize sidebar",
     completeStepsAboveFirst: "Complete steps above first",
     connectWorkspace: "Connect workspace",
@@ -1446,7 +1548,9 @@ const enUS = {
     copy: "Copy",
     disconnectWorkspace: "Disconnect workspace",
     expand: "Expand sidebar",
+    expandItem: "Expand {{title}}",
     database: "Collection",
+    collection: "Collection",
     databasePermanentlyDeleted: "Collection permanently deleted",
     databaseRestored: "Collection restored",
     pagePermanentlyDeleted: "Page permanently deleted",
@@ -1553,6 +1657,7 @@ const enUS = {
     untitled: "Untitled",
     workspaces: "Workspaces",
   },
+  trash: trashMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1572,6 +1677,16 @@ export type PartialMessages = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    close: overrides.close ?? enUS.close,
+    setup: { ...enUS.setup, ...overrides.setup },
+    onboarding: {
+      ...enUS.onboarding,
+      ...overrides.onboarding,
+      fileStorage: {
+        ...enUS.onboarding.fileStorage,
+        ...overrides.onboarding?.fileStorage,
+      },
+    },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -1604,6 +1719,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    trash: enUS.trash,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -1689,8 +1805,6 @@ export interface ContentLocaleBundle {
   history: Partial<Messages["editor"]>;
 }
 
-// es-ES raw literals are the fallback layer mergeMessagesForLocale applies
-// under every non-English locale, so they stay in the eager module.
 const esESRawLiteralOverrides: PartialMessages = {
   root: {
     metaTitle:
@@ -1845,6 +1959,13 @@ const esESRawLiteralOverrides: PartialMessages = {
     dropMedia: "Suelta medios",
     editLink: "Editar enlace",
     emojiAddIcon: "Agregar icono",
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     emojiAddPageIcon: "Agregar icono de página",
     emojiCategoryActivities: "Actividades",
     emojiCategoryFood: "Comida",
@@ -2111,12 +2232,10 @@ function mergeMessagesForLocale(
       },
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
+    trash: trashMessagesByLocale[locale],
   };
 }
 
-// Only en-US is bundled eagerly. Locale modules call buildMessagesForLocale on
-// load and register their merged messages here, so synchronous readers fall
-// back to en-US until a locale chunk has loaded.
 export const messagesByLocale: Partial<Record<LocaleCode, Messages>> & {
   "en-US": Messages;
 } = {
@@ -2139,8 +2258,15 @@ export function buildMessagesForLocale(
   for (const [group, groupOverrides] of Object.entries(
     bundle.exactEnglish,
   ) as Array<[string, Record<string, unknown> | undefined]>) {
-    const target = (messages as Record<string, Record<string, unknown>>)[group];
-    if (target && groupOverrides && typeof groupOverrides === "object") {
+    const targetValue = (messages as unknown as Record<string, unknown>)[group];
+    if (
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue) &&
+      groupOverrides &&
+      typeof groupOverrides === "object"
+    ) {
+      const target = targetValue as Record<string, unknown>;
       for (const [key, value] of Object.entries(groupOverrides)) {
         const nestedTarget = target[key];
         if (

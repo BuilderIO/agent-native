@@ -55,6 +55,7 @@ export interface VisualStructureChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  canEditLiveScreen?: boolean;
   getFreshActiveContent: () => string;
   recordPendingLiveStructureEdit: (
     screenId: string,
@@ -68,6 +69,7 @@ export interface VisualStructureChangeArgs {
       anchorElementInfo?: ElementInfo;
       requestId?: string;
       transactionId?: string;
+      routePath?: string;
       dropMode?: "flow-insert" | "absolute-container";
       forceFlowPositionOverride?: boolean;
       sourceRect?: { x: number; y: number; width: number; height: number };
@@ -108,6 +110,7 @@ export function runVisualStructureChange(
     activeFile,
     applyLocalContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     getFreshActiveContent,
     recordPendingLiveStructureEdit,
     setSelectedElement,
@@ -125,6 +128,7 @@ export function runVisualStructureChange(
     anchorElementInfo?: ElementInfo;
     requestId?: string;
     transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -145,8 +149,6 @@ export function runVisualStructureChange(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     replaced?: true;
     replacementSelector?: string;
@@ -162,7 +164,7 @@ export function runVisualStructureChange(
     dropMode: details?.dropMode,
     source: activeCanvasSourceType,
   });
-  if (!canEditDesign) return false;
+  if (!canEditDesign && !canEditLiveScreen) return false;
   if (!activeFile) return false;
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveStructureEdit(
@@ -187,10 +189,24 @@ export function runVisualStructureChange(
         sourceId: details?.sourceId ?? elementInfo.sourceId,
       }
     : null;
-  const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-    : resolveBridgeNode(selector, details?.sourceId);
-  const anchorNode = resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  const targetNode = details?.sourceId
+    ? resolveCodeLayerNodeFromBridge(projection, undefined, details.sourceId)
+    : targetInfo
+      ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+      : resolveBridgeNode(selector, details?.sourceId);
+  const anchorNode = details?.anchorSourceId
+    ? resolveCodeLayerNodeFromBridge(
+        projection,
+        undefined,
+        details.anchorSourceId,
+      )
+    : resolveBridgeNode(anchorSelector, details?.anchorSourceId);
+  if (
+    (details?.sourceId && !targetNode) ||
+    (details?.anchorSourceId && !anchorNode)
+  ) {
+    return false;
+  }
   const moveIntent = {
     kind: "moveNode" as const,
     target: targetNode
@@ -262,17 +278,6 @@ export function runVisualStructureChange(
           (node) => node.id === patch.result.after?.nodeId,
         )?.dataAttributes["data-agent-native-node-id"]
       : undefined);
-  // Absolute-container inside drops persist sourceRect − anchorRect.
-  // Sibling un-nests use the bridge's rebased inline left/top instead —
-  // the anchor is the old parent, not the new containing block. On the
-  // BOARD surface, top-level elements carry the content-offset translate
-  // (+65536 — see embeddedContentOffsetStyle in DesignCanvas.tsx) while
-  // nested ones do not, and rect-space delta math doesn't model that
-  // translate. Strip that fingerprint before persisting (a no-op for
-  // screens and for sane offsets), and when it fired, ALSO refresh the
-  // preview: the bridge's optimistic in-iframe placement was off by the
-  // same 65536, so the iframe must be re-rendered from the corrected
-  // content instead of being trusted.
   const rawAbsoluteContainerOffset = rawAbsoluteContainerOffsetFromDrop({
     dropMode: details?.dropMode,
     placement,
@@ -412,12 +417,11 @@ export function runVisualStructureChange(
     );
     return true;
   }
-  const publication = applyLocalContentUpdate(
-    nextContent,
-    absoluteOffsetWasPoisoned
+  const publication = applyLocalContentUpdate(nextContent, {
+    ...(absoluteOffsetWasPoisoned
       ? { forcePreviewFullDocument: true }
-      : { skipPreview: true },
-  );
+      : { skipPreview: true }),
+  });
   if (publication.status !== "accepted") return false;
   const acceptedProjection = projectAcceptedSource(publication, source);
   const movedNode = mapAcceptedSelectionNode(

@@ -15,6 +15,7 @@ import {
 } from "./app-base-path.js";
 import { getSession } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -39,10 +40,11 @@ function isHttpsRequest(event: H3Event): boolean {
 }
 
 function capabilityCookiePath(appBasePath?: string): string {
-  return `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`;
+  return publicFrameworkPath(
+    `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
+  );
 }
 
-/** Verify the server-minted browser capability for an authenticated owner. */
 export function hasUiActionCapability(
   event: H3Event,
   ownerEmail?: string,
@@ -88,7 +90,6 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   return { ok: true };
 }
 
-/** Mount the authenticated endpoint that seeds the HttpOnly UI capability. */
 export function mountUiActionCapabilityRoute(
   nitroApp: any,
   routePrefix = "/_agent-native",

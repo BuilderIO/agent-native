@@ -7,8 +7,6 @@ function project(html: string) {
 }
 
 describe("layer names never leak source code", () => {
-  // A `>` inside a quoted attribute is ordinary Alpine. Naive tag-stripping
-  // ends the tag there and spills the attribute into the parent's text.
   it("does not spill an arrow function into the parent's name", () => {
     const html = `<body><ul class="feed"><template x-for="a in items.filter(x => x.unread)" :key="a.id"><li>Row</li></template></ul></body>`;
     const list = project(html).find((node) => node.classes.includes("feed"));
@@ -32,11 +30,58 @@ describe("layer names never leak source code", () => {
 
     expect(heading?.textSnippet).toBe("Hello there friend");
   });
+
+  it.each([
+    [
+      `<section><h2> Hello&nbsp;<b>big</b>&amp;<i> small </i></h2><p>tail &#x26;lt; end</p></section>`,
+      [
+        ["section", "Hello big & small tail < end"],
+        ["h2", "Hello big & small"],
+        ["b", "big"],
+        ["i", "small"],
+        ["p", "tail < end"],
+      ],
+    ],
+    [
+      `<div><span title="a > b" x-show="n > 0">kept</span> after</div>`,
+      [
+        ["div", "kept after"],
+        ["span", "kept"],
+      ],
+    ],
+    [
+      `<ul><li>one<li>two</ul>`,
+      [
+        ["ul", "one two"],
+        ["li", "one"],
+        ["li", "two"],
+      ],
+    ],
+    [
+      `<section><span>a <'</span>b'> c</section>`,
+      [
+        ["section", "a c"],
+        ["span", "a"],
+      ],
+    ],
+  ])("reads nested text for %s", (html, expected) => {
+    expect(project(html).map((node) => [node.tag, node.textSnippet])).toEqual(
+      expected,
+    );
+  });
+
+  it("truncates text gathered across children", () => {
+    const long = "word ".repeat(40).trim();
+    const [article, first] = project(
+      `<article><p>${long}</p><p>more</p></article>`,
+    );
+
+    expect(article?.textSnippet).toBe(`${long.slice(0, 157)}...`);
+    expect(first?.textSnippet).toBe(`${long.slice(0, 157)}...`);
+  });
 });
 
 describe("boxless void metadata is not a layer", () => {
-  // Both bridges already strip these from the runtime snapshot, so a row for
-  // one is a layer the panel offers and the canvas can never show.
   it("skips source and track inside picture and video", () => {
     const html = `<body>
       <picture class="shot"><source srcset="a.webp" type="image/webp" /><img src="a.png" alt="a" /></picture>
@@ -46,7 +91,6 @@ describe("boxless void metadata is not a layer", () => {
 
     expect(nodes.some((node) => node.tag === "source")).toBe(false);
     expect(nodes.some((node) => node.tag === "track")).toBe(false);
-    // The elements that DO have a box stay.
     expect(nodes.some((node) => node.tag === "picture")).toBe(true);
     expect(nodes.some((node) => node.tag === "img")).toBe(true);
     expect(nodes.some((node) => node.tag === "video")).toBe(true);
@@ -54,8 +98,6 @@ describe("boxless void metadata is not a layer", () => {
 });
 
 describe("a position that source does not have is never resolved to a different element", () => {
-  // A repeat plus one static sibling: clone row 2 yields `li:nth-of-type(2)`,
-  // which source lacks. Stripping the position leaves the STATIC row.
   const REPEAT_PLUS_STATIC = `<body><ul data-agent-native-node-id="an-list">
   <template x-for="t in todos" :key="t.text"><li class="row">x</li></template>
   <li class="row" data-agent-native-node-id="an-static">+ Add a task</li>

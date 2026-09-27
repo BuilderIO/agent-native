@@ -1,15 +1,3 @@
-/**
- * Invite an email address to the active organization.
- *
- * Creates an `org_invitations` row with status `pending`. Clips role mapping:
- * `admin` → `admin`, everything else → `member`. Returns the invitation id
- * (which is the accept token). Sends an email via the framework email helper
- * when a provider is configured.
- *
- * Usage:
- *   pnpm action invite-member --email=alice@example.com --role=admin
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
@@ -36,9 +24,6 @@ function getAppName(): string {
   return process.env.APP_NAME || "Clips";
 }
 
-// Accept the current admin/member surface plus legacy Clips roles for
-// backwards-compatible CLI/agent calls. Legacy non-admin roles collapse to
-// `member`.
 const ClipsRoleEnum = z.enum([
   "viewer",
   "creator-lite",
@@ -118,8 +103,6 @@ export default defineAction({
     const role = mapRole(args.role);
     const inviteeEmail = args.email.trim().toLowerCase();
 
-    // Rotate any existing pending invite for this email so the latest one is
-    // the only live token.
     const [existing] = await db
       .select({ id: orgInvitations.id })
       .from(orgInvitations)

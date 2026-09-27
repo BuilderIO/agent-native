@@ -11,7 +11,6 @@ vi.mock("./use-action.js", () => actionMocks);
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import { useChatModels } from "./use-chat-models.js";
 
-/** Serve the three requests refreshEngines makes: engines, env keys, builder. */
 function stubCatalog(options: {
   engines: unknown[];
   configuredKeys?: string[];
@@ -69,6 +68,13 @@ function ChatModelsProbe({
         {models.availableModels
           .map((group) => `${group.engine}:${group.configured}`)
           .join(",")}
+      </span>
+      <span data-testid={`${id}-ollama-models`}>
+        {(
+          models.availableModels.find(
+            (group) => group.engine === "ai-sdk:ollama",
+          )?.models ?? []
+        ).join(",")}
       </span>
     </div>
   );
@@ -140,11 +146,6 @@ describe("useChatModels", () => {
     expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
-  // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
-  // from the picker unless Builder is connected. Keeping it as the selection
-  // submitted a model no engine could serve, which the server then quietly
-  // replaced with its own default — the picker said one thing, every turn ran
-  // another.
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [
@@ -173,8 +174,6 @@ describe("useChatModels", () => {
   });
 
   it("clears the selection when the catalog can route nothing", async () => {
-    // Zero groups: an empty selection hides the picker and submits no model, so
-    // the server's own resolved default is used instead of an unroutable id.
     stubCatalog({ engines: [] });
 
     await act(async () => {
@@ -188,6 +187,51 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-selected-model"]')
         ?.textContent,
     ).toBe("");
+  });
+
+  it("replaces the static Ollama suggestion list with the server's installed models", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral"],
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "ai-sdk:ollama", model: "llama3.1" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) return Response.json([]);
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        if (url.includes("ollama-models")) {
+          return Response.json({
+            ok: true,
+            models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+          });
+        }
+        return new Response("{}");
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-live-models" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("qwen3.8-code-131k:latest,mistral:latest");
   });
 
   it("keeps the last model readiness when status refresh is unavailable", async () => {

@@ -580,6 +580,19 @@ const messages = {
     evaluatedThroughAsk: "透過 Ask CRM 評估。",
   },
   recordActions: {
+    reviewDuplicates: "檢查重複記錄",
+    duplicateReviewTitle: "可能重複的記錄",
+    duplicateReviewDescription:
+      "檢查此記錄與可存取的候選記錄。執行 Jev 會將記錄名稱、類型及最多五筆候選記錄的比對訊號傳送給 TypeSafe。機率僅供參考，合併仍須另行審核。",
+    duplicateReviewRun: "檢查重複記錄",
+    duplicateReviewLoading: "檢查中…",
+    duplicateReviewFailed: "無法完成重複記錄檢查。",
+    duplicateReviewUnavailable:
+      "Jev 無法完成複核，規則篩出的候選記錄仍會顯示。",
+    duplicateReviewEmpty: "未找到可能重複的記錄。",
+    duplicateRuleConfidence: "規則比對度：{{percent}}%",
+    duplicateJevProbability: "Jev 同一實體機率：{{percent}}%",
+    duplicateMatchedOn: "比對依據：{{values}}",
     evidenceAttached: "已附加通話證據。",
     evidenceAttachFailed: "無法附加證據。",
     addEvidence: "新增證據",

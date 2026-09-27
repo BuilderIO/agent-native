@@ -21,10 +21,11 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
-  hasCurrentSlideSelection,
   buildSlidesAgentContext,
+  getSlidesAgentScopeLabel,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -51,13 +52,9 @@ interface EditorSidebarOverride {
   collapsed: boolean;
 }
 
-/** Routes whose pages render their own toolbar — Layout still renders chrome
- * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname === "/chat" || pathname.startsWith("/chat/")) return true;
   if (pathname.startsWith("/deck/")) return true;
-  // /extensions (list) and /extensions/<id> (viewer) both render their own headers
-  // from @agent-native/core/client/extensions.
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
@@ -67,6 +64,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
@@ -136,12 +134,15 @@ export function Layout({ children }: LayoutProps) {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
-    const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
     const agentContext = buildSlidesAgentContext(slidesSelection, deckId);
+    const scopeLabel = getSlidesAgentScopeLabel(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
+      label:
+        scopeLabel.key === "agent.slideNumber"
+          ? t(scopeLabel.key, { number: scopeLabel.number })
+          : t(scopeLabel.key),
       contextKey: "slides-current-context",
       ...agentContext,
     };
@@ -152,9 +153,14 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
+      beforeStart: () => flushDeckSave(deckId),
       list: {
         action: "list-deck-versions",
-        args: { deckId, limit: 100 },
+        args: (threadId) => ({
+          deckId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -171,9 +177,10 @@ export function Layout({ children }: LayoutProps) {
           deckId,
           versionId: version.id,
         }),
+        beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope]);
+  }, [deckScope, flushDeckSave]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -245,10 +252,6 @@ export function Layout({ children }: LayoutProps) {
           >
             <Sidebar
               collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-              // In the mobile drawer the sidebar is forced expanded, so the
-              // desktop collapse toggle would be a silent no-op (worse: it'd
-              // mutate the desktop preference). Hide it while the drawer is
-              // open.
               onToggleCollapsed={
                 sidebarOpen ? undefined : toggleSidebarCollapsed
               }
@@ -302,6 +305,7 @@ export function Layout({ children }: LayoutProps) {
             t("agent.suggestionBrand"),
             t("agent.suggestionHero"),
           ]}
+          dynamicSuggestions={false}
           scope={deckScope}
           chatHistory={deckChatHistory}
           browserTabId={TAB_ID}

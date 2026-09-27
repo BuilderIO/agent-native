@@ -1335,8 +1335,6 @@ export function ReviewCanvasPins({
             });
             successfulThreadIds.push(migration.threadId);
           } catch {
-            // Keep the local anchor for stable rendering, but allow a later
-            // review refresh to retry persistence after a transient failure.
             migratedBoardAnchorIdsRef.current.delete(migration.threadId);
           }
         }
@@ -1349,7 +1347,6 @@ export function ReviewCanvasPins({
               return next;
             });
           } catch (error) {
-            // Keep the local anchor until a later refresh can reconcile it.
             console.warn(
               "[ReviewCanvasPins] board-anchor refresh failed",
               error,
@@ -2114,6 +2111,14 @@ export function ReviewCanvasPins({
   );
 
   if (hidden || !canvas) return null;
+  if (
+    !active &&
+    !draftPin &&
+    !deleteCandidate &&
+    !threads.some((thread) => thread.root.anchor)
+  ) {
+    return null;
+  }
   const rect = canvas.getBoundingClientRect();
   const viewport = {
     width: window.innerWidth,

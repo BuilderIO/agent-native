@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const readPrivateBlob = vi.hoisted(() => vi.fn());
 const deletePrivateBlob = vi.hoisted(() => vi.fn());
 const putPrivateBlob = vi.hoisted(() => vi.fn());
+const captureError = vi.hoisted(() => vi.fn());
 const captureMocks = vi.hoisted(() => ({
   revisions: [] as Array<Record<string, unknown>>,
   design: {
@@ -28,6 +29,7 @@ const captureMocks = vi.hoisted(() => ({
     resolvedCssVars: {},
   },
   forceInsertConflict: false,
+  persistConcurrentInsertOnConflict: false,
   assertAccess: vi.fn(),
   buildDesignSnapshot: vi.fn(),
   nanoid: vi.fn(),
@@ -49,6 +51,10 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: vi.fn(),
   loadAwarenessRowsStrict: vi.fn(),
   seedFromText: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  captureError,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -116,10 +122,11 @@ vi.mock("../db/index.js", () => {
           query.conflicted = captureMocks.forceInsertConflict;
           if (
             table === schema.designVersions &&
-            (captureMocks.forceInsertConflict ||
-              !captureMocks.revisions.some(
-                (revision) => revision.id === query.value.id,
-              ))
+            (!captureMocks.forceInsertConflict ||
+              captureMocks.persistConcurrentInsertOnConflict) &&
+            !captureMocks.revisions.some(
+              (revision) => revision.id === query.value.id,
+            )
           ) {
             captureMocks.revisions.push(query.value);
           }
@@ -137,17 +144,22 @@ vi.mock("../db/index.js", () => {
 });
 
 import {
+  __clearEditorCheckpointSkipsForTests,
+  createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
   listDesignVersions,
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
   snapshotDesignBeforeAgentEdit,
   snapshotDesignBeforeAgentEditInVersionLock,
+  withDesignVersionLock,
 } from "./design-versions.js";
 
 beforeEach(() => {
+  __clearEditorCheckpointSkipsForTests();
   captureMocks.revisions = [];
   captureMocks.forceInsertConflict = false;
+  captureMocks.persistConcurrentInsertOnConflict = false;
   captureMocks.assertAccess.mockReset();
   captureMocks.assertAccess.mockImplementation(async () => ({
     resource: { ...captureMocks.design },
@@ -176,6 +188,7 @@ beforeEach(() => {
   };
   putPrivateBlob.mockReset();
   deletePrivateBlob.mockReset();
+  captureError.mockReset();
 });
 
 describe("parseDesignVersionSnapshot", () => {
@@ -330,6 +343,65 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions).toHaveLength(2);
   });
 
+  it("captures the start of a chat once per thread", async () => {
+    const run = { threadId: 'thread "%_\\path', runId: "run-1" };
+
+    const first = await createDesignChatBeginningSnapshot("design-1", run);
+    const retry = await createDesignChatBeginningSnapshot("design-1", run);
+
+    expect(first).not.toBeNull();
+    expect(retry).toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.chatContext as string),
+    ).toMatchObject({ ...run, phase: "start" });
+
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [
+        expect.objectContaining({
+          id: expect.any(String),
+          chatContext: { ...run, phase: "start" },
+        }),
+      ],
+    });
+
+    captureMocks.revisions[0]!.chatContext = `{"threadId":${JSON.stringify(run.threadId)},"phase":"start",broken}`;
+    await expect(
+      listDesignVersions("design-1", 10, run.threadId),
+    ).resolves.toMatchObject({
+      versions: [],
+      invalidCount: 1,
+    });
+  });
+
+  it("uses the database primary key to deduplicate concurrent thread baselines", async () => {
+    captureMocks.forceInsertConflict = true;
+    captureMocks.persistConcurrentInsertOnConflict = true;
+
+    const result = await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-race",
+      runId: "run-race",
+    });
+    const retry = await createDesignChatBeginningSnapshot("design-1", {
+      threadId: "thread-race",
+      runId: "different-run",
+    });
+
+    expect(result).not.toBeNull();
+    expect(retry).toBeNull();
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(captureMocks.revisions[0]).toMatchObject({
+      id: expect.stringMatching(/^design-version-/),
+      chatContext: JSON.stringify({
+        threadId: "thread-race",
+        runId: "run-race",
+        phase: "start",
+      }),
+    });
+  });
+
   it("records a tweak-only edit as a new checkpoint", async () => {
     const first = await createDesignVersionSnapshot("design-1", {
       label: "Chat autosave",
@@ -388,7 +460,10 @@ describe("createDesignVersionSnapshot", () => {
       actionName: "edit-design",
     };
 
-    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", context);
+    const checkpoint = (await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      context,
+    )) as { id: string; createdAt: string; label: string } | null;
     const retry = await snapshotDesignBeforeAgentEdit("design-1", context);
 
     expect(checkpoint?.id).not.toBe(captureMocks.revisions[0]?.id);
@@ -409,10 +484,10 @@ describe("createDesignVersionSnapshot", () => {
         },
       ],
     };
-    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+    const checkpoint = (await snapshotDesignBeforeAgentEdit("design-1", {
       caller: "frontend",
       actionName: "update-file",
-    });
+    })) as { id: string; createdAt: string; label: string } | null;
 
     expect(checkpoint).toBeTruthy();
     expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledWith(
@@ -425,6 +500,7 @@ describe("createDesignVersionSnapshot", () => {
       JSON.parse(captureMocks.revisions[0]!.chatContext as string),
     ).toEqual({
       surface: "editor",
+      caller: "frontend",
       actionName: "update-file",
     });
 
@@ -434,13 +510,17 @@ describe("createDesignVersionSnapshot", () => {
           id: checkpoint?.id,
           source: "editor",
           editable: true,
-          chatContext: { surface: "editor", actionName: "update-file" },
+          chatContext: {
+            surface: "editor",
+            caller: "frontend",
+            actionName: "update-file",
+          },
         },
       ],
     });
   });
 
-  it("uses the caller transaction for hosted-style checkpoint reads and writes", async () => {
+  it("uses the caller transaction for hosted-style checkpoint reads and writes, unthrottled (required mode)", async () => {
     let selectCall = 0;
     const transactionDb = {
       select: () => {
@@ -491,6 +571,54 @@ describe("createDesignVersionSnapshot", () => {
     );
     expect(selectCall).toBe(3);
     expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("required-mode checkpoint is never throttled by a just-created editor checkpoint, and a null-blob failure propagates instead of skipping", async () => {
+    const first = (await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    })) as { id: string; createdAt: string; label: string } | null;
+    expect(captureMocks.revisions).toHaveLength(1);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>changed before delete</main>",
+        },
+      ],
+    };
+
+    const second = await withDesignVersionLock("design-1", () =>
+      snapshotDesignBeforeAgentEditInVersionLock("design-1", {
+        caller: "frontend",
+        actionName: "delete-file",
+      }),
+    );
+
+    expect(captureMocks.revisions).toHaveLength(2);
+    expect((second as { id: string } | null)?.id).not.toBe(first?.id);
+
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "z".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    await expect(
+      withDesignVersionLock("design-1", () =>
+        snapshotDesignBeforeAgentEditInVersionLock("design-1", {
+          caller: "frontend",
+          actionName: "delete-file",
+        }),
+      ),
+    ).rejects.toThrow("Private blob storage is required");
   });
 
   it("coalesces concurrent browser checkpoints through the shared version lock", async () => {
@@ -552,5 +680,349 @@ describe("createDesignVersionSnapshot", () => {
     });
 
     expect(deletePrivateBlob).toHaveBeenCalledWith(blob);
+  });
+
+  it("reports a skipped checkpoint instead of throwing for an opt-in caller when an editor-surface checkpoint's blob upload fails", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    const result = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
+
+    expect(result).toEqual({
+      skipped: true,
+      reason: "blob-storage-unavailable",
+    });
+    expect(captureError).toHaveBeenCalledTimes(1);
+    expect(captureError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        extra: expect.objectContaining({ designId: "design-1" }),
+      }),
+    );
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("throws instead of failing open for a non-opt-in frontend caller when an editor-surface checkpoint's blob upload fails", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    await expect(
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "add-breakpoint",
+      }),
+    ).rejects.toThrow("Private blob storage is required");
+
+    expect(captureError).toHaveBeenCalledTimes(1);
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("still throws when a 'tool' (agent) checkpoint's blob upload fails — it is that turn's rollback point", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    await expect(
+      snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "tool",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        actionName: "edit-design",
+      }),
+    ).rejects.toThrow("Private blob storage is required");
+  });
+
+  it("throttles a second editor-surface checkpoint within the window, even if content changed", async () => {
+    const first = (await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    })) as { id: string; createdAt: string; label: string } | null;
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+    expect(captureMocks.revisions).toHaveLength(1);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>changed inside the throttle window</main>",
+        },
+      ],
+    };
+
+    const second = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(second).toEqual({
+      id: first!.id,
+      createdAt: first!.createdAt,
+      label: first!.label,
+    });
+  });
+
+  it("captures a new editor checkpoint once the throttle window has elapsed", async () => {
+    vi.useFakeTimers();
+    try {
+      await snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      });
+      expect(captureMocks.revisions).toHaveLength(1);
+
+      captureMocks.liveSnapshot = {
+        ...captureMocks.liveSnapshot,
+        files: [
+          {
+            ...captureMocks.liveSnapshot.files[0],
+            content: "<main>changed after the throttle window</main>",
+          },
+        ],
+      };
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+      await snapshotDesignBeforeAgentEdit("design-1", {
+        caller: "frontend",
+        actionName: "update-file",
+      });
+
+      expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
+      expect(captureMocks.revisions).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throttles a repeat capture attempt after a failed editor checkpoint instead of re-running buildDesignSnapshot", async () => {
+    putPrivateBlob.mockResolvedValue(null);
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    const first = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
+    const second = await snapshotDesignBeforeAgentEdit(
+      "design-1",
+      { caller: "frontend", actionName: "update-file" },
+      { allowCheckpointFailureSkip: true },
+    );
+
+    expect(first).toEqual({
+      skipped: true,
+      reason: "blob-storage-unavailable",
+    });
+    expect(second).toEqual(first);
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(1);
+    expect(captureError).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not throttle a webmcp (agent-driven) editor checkpoint against a recent frontend one", async () => {
+    await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+    expect(captureMocks.revisions).toHaveLength(1);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content:
+            "<main>webmcp edit inside the frontend throttle window</main>",
+        },
+      ],
+    };
+
+    const webmcpCheckpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "webmcp",
+      actionName: "update-file",
+    });
+
+    expect(webmcpCheckpoint).not.toBeNull();
+    expect(webmcpCheckpoint).not.toMatchObject({ skipped: true });
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
+    expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("does not throttle a frontend save against a recent webmcp checkpoint", async () => {
+    await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "webmcp",
+      actionName: "update-file",
+    });
+    expect(captureMocks.revisions).toHaveLength(1);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content:
+            "<main>frontend edit inside the webmcp throttle window</main>",
+        },
+      ],
+    };
+
+    const frontendCheckpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+
+    expect(frontendCheckpoint).not.toBeNull();
+    expect(frontendCheckpoint).not.toMatchObject({ skipped: true });
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
+    expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("does not throttle a frontend save against a legacy editor checkpoint recorded before caller tracking existed", async () => {
+    await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+    expect(captureMocks.revisions).toHaveLength(1);
+
+    const legacyContext = JSON.parse(
+      captureMocks.revisions[0]!.chatContext as string,
+    );
+    delete legacyContext.caller;
+    captureMocks.revisions[0]!.chatContext = JSON.stringify(legacyContext);
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "<main>frontend edit after a legacy checkpoint</main>",
+        },
+      ],
+    };
+
+    const checkpoint = await snapshotDesignBeforeAgentEdit("design-1", {
+      caller: "frontend",
+      actionName: "update-file",
+    });
+
+    expect(checkpoint).not.toMatchObject({ skipped: true });
+    expect(captureMocks.buildDesignSnapshot).toHaveBeenCalledTimes(2);
+    expect(captureMocks.revisions).toHaveLength(2);
+  });
+
+  it("dedupes a large checkpoint by its stored state hash without reading the blob", async () => {
+    const blob = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    putPrivateBlob.mockResolvedValue(blob);
+    readPrivateBlob.mockReset();
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+
+    const first = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+    const same = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(same).toEqual(first);
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(readPrivateBlob).not.toHaveBeenCalled();
+
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "y".repeat(300 * 1024),
+        },
+      ],
+    };
+    const changed = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(changed.id).not.toBe(first.id);
+    expect(captureMocks.revisions).toHaveLength(2);
+    expect(readPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("still dedupes against a checkpoint written before state hashes", async () => {
+    const legacySnapshot = {
+      schemaVersion: 1,
+      snapshotKind: "design-history",
+      designId: "design-1",
+      designData: JSON.stringify({ breakpointSet: { breakpoints: [] } }),
+      designTitle: "Landing page",
+      designDescription: null,
+      projectType: "prototype",
+      designSystemId: "system-1",
+      files: captureMocks.liveSnapshot.files,
+      tweaks: [],
+      appliedTweaks: {},
+      resolvedCssVars: {},
+    };
+    captureMocks.revisions.push({
+      id: "legacy-version",
+      designId: "design-1",
+      label: "Chat autosave",
+      snapshot: JSON.stringify(legacySnapshot),
+      chatContext: null,
+      createdAt: "2026-07-08T00:00:00.000Z",
+    });
+
+    const same = await createDesignVersionSnapshot("design-1", {
+      label: "Chat autosave",
+    });
+
+    expect(same.id).toBe("legacy-version");
+    expect(captureMocks.revisions).toHaveLength(1);
   });
 });

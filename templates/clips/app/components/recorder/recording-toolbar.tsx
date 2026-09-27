@@ -24,27 +24,19 @@ import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 export interface RecordingToolbarProps {
-  /** Whether the elapsed-time ticker should run — true only while actively
-   * recording (not during upload/compress, which freeze the last value). */
   active: boolean;
-  /** Reads the current elapsed time from the recorder engine on each tick. */
+  saving?: boolean;
   getElapsedMs: () => number;
-  /** Reads the microphone track already owned by the recorder engine. */
   getMicrophoneTrack: () => MediaStreamTrack | null;
-  /** The recording was started with microphone capture enabled. */
   microphoneEnabled: boolean;
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
-  /** Used by the upload/compress state, where delete still opens the route's
-   * existing confirmation dialog even though the playhead is not live. */
   onCancel: () => void;
   onConfirmAction: (intent: RecordingPlayheadIntent) => void;
   onConfirmChange: (change: RecordingPlayheadConfirmChange) => void;
 }
 
-// The shared playhead's resting width is the initial drag bound. The measured
-// layout below expands that bound before the playhead reveals controls.
 const TOOLBAR_HORIZONTAL_SIZE: RecordingPlayheadSize = {
   width: 150,
   height: 56,
@@ -53,9 +45,6 @@ const TOOLBAR_VERTICAL_SIZE: RecordingPlayheadSize = {
   width: 42,
   height: 118,
 };
-// Drop the toolbar just below the centered "Recording your screen…" status
-// text (which sits at the viewport's vertical center) so the controls don't
-// overlap it.
 const TOOLBAR_TOP_OFFSET = 48;
 const MICROPHONE_TRACK_RETRY_MS = 250;
 
@@ -267,6 +256,7 @@ function useLiveMicrophoneMeter({
 
 export function RecordingToolbar({
   active,
+  saving = false,
   getElapsedMs,
   getMicrophoneTrack,
   microphoneEnabled,
@@ -285,8 +275,6 @@ export function RecordingToolbar({
     getMicrophoneTrack,
     microphoneEnabled,
   });
-  // Own the elapsed-time poll here instead of in the route component, so the
-  // 4x/sec tick only re-renders this toolbar rather than the whole record page.
   const [elapsedMs, setElapsedMs] = useState(0);
   const getElapsedMsRef = useRef(getElapsedMs);
   getElapsedMsRef.current = getElapsedMs;
@@ -492,6 +480,7 @@ export function RecordingToolbar({
         paused={isPaused}
         orientation={pos.orientation}
         enabled={active}
+        saving={saving}
         pendingAction={pendingAction}
         meter={
           microphoneMeter.warning !== null ? (
@@ -533,7 +522,7 @@ export function RecordingToolbar({
         onDeleteRequest={onCancel}
         onConfirmChange={onConfirmChange}
         onLayoutChange={handlePlayheadLayoutChange}
-        className={active ? undefined : "opacity-80"}
+        className={active || saving ? undefined : "opacity-80"}
       />
     </div>
   );

@@ -36,7 +36,6 @@ export type IdentityColumn = {
     | "unsupported-oauth";
 };
 
-/** Mutable identity references only. Historical actor/creator fields are intentionally retained. */
 export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "user", column: "email" },
   { table: "invitation", column: "email" },
@@ -59,6 +58,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_feedback", column: "user_id", mode: "email-user-id" },
   {
     table: "agent_satisfaction_scores",
+    column: "user_id",
+    mode: "email-user-id",
+  },
+  {
+    table: "agent_instruction_updates",
     column: "user_id",
     mode: "email-user-id",
   },
@@ -141,6 +145,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "resources", column: "owner", mode: "owner" },
   { table: "agent_review_comments", column: "author_email" },
   { table: "agent_review_comments", column: "owner_email" },
+  { table: "agent_review_notification_deliveries", column: "recipient_email" },
   { table: "agent_review_statuses", column: "updated_by" },
   { table: "agent_review_statuses", column: "owner_email" },
   { table: "agent_review_comment_reactions", column: "actor_email" },
@@ -166,7 +171,6 @@ const OPTIONAL_TABLES = new Set(
   IDENTITY_REKEY_COLUMNS.map(({ table }) => table),
 );
 
-/** Columns that are deliberately stable IDs or immutable provenance, not email identities. */
 export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "agent_audit_log.actor_email",
   "agent_audit_log.owner_email",
@@ -174,6 +178,7 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
   "agent_review_comments.created_by",
+  "agent_human_review_summaries.created_by",
   "organizations.created_by",
   "member.user_id",
   "account.user_id",
@@ -302,7 +307,6 @@ function predicate(
 export interface IdentityRekeyResult {
   counts: Record<string, number>;
   sessionCount: number;
-  /** OAuth rows that were revoked because their payload could not be safely rewritten. */
   oauthRevokedCount: number;
 }
 
@@ -335,7 +339,6 @@ export async function listPendingIdentityRekeys(
   }));
 }
 
-/** The ledger is intentionally separate from the Better Auth update transaction. */
 export async function ensureIdentityRekeyLedger(
   db: IdentityRekeyDb,
 ): Promise<void> {
@@ -449,7 +452,6 @@ export async function failIdentityRekey(
   );
 }
 
-/** Durable wrapper used by Better Auth hooks and the CLI. */
 export async function executeIdentityRekey(
   db: IdentityRekeyDb,
   oldEmail: string,
@@ -473,7 +475,6 @@ export async function executeIdentityRekey(
   }
 }
 
-/** Retry rows left pending after Better Auth committed the account email. */
 export async function resumePendingIdentityRekeys(
   db: IdentityRekeyDb,
   email: string,

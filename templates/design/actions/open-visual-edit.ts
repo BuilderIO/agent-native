@@ -73,8 +73,6 @@ const capabilitySchema = z.object({
 });
 
 const VIEWPORT_PRESETS = {
-  // `desktop` deliberately matches add-localhost-screens' 1280x900 fallback so
-  // asking for it never resizes frames placed by an earlier default call.
   desktop: { label: "Desktop", width: 1280, height: 900 },
   laptop: { label: "Laptop", width: 1440, height: 900 },
   tablet: { label: "Tablet", width: 834, height: 1112 },
@@ -112,12 +110,6 @@ function resolveViewports(
   );
 }
 
-/**
- * Expand one screen request per (route x viewport) and lay them out as a grid:
- * one row per route, one column per viewport. Explicit x/y/width/height are
- * what make add-localhost-screens treat each pair as its own frame instead of
- * refreshing a single shared one, so they are always set here.
- */
 function expandRoutesAcrossViewports(args: {
   routes: Array<z.infer<typeof screenRouteSchema>>;
   viewports: ResolvedViewport[];
@@ -194,12 +186,6 @@ const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
   "capability:visual-edit-bootstrap:";
 
-/**
- * Stable owner partition for local visual-edit calls when no account session
- * exists. This value is never installed as a browser session; it only lets the
- * trusted local host compose the existing owner-scoped actions before minting
- * a narrow embed capability.
- */
 export function localVisualEditWorkspacePrincipal(
   workspacePath = process.cwd(),
 ): string {
@@ -432,8 +418,6 @@ function routeManifestFromScreens(args: {
 export default defineAction({
   description:
     "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
-  // The public /visual-edit page calls this through the frontend transport.
-  // Its run() guard still limits anonymous callers to loopback + public mode.
   requiresAuth: false,
   capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
@@ -601,9 +585,6 @@ export default defineAction({
             generatedAt: new Date().toISOString(),
           };
       const connection = await connectLocalhostAction.run({
-        // Let connect-localhost be the single source of truth for stable
-        // per-user/per-org id derivation. Duplicating it here can create a second
-        // tokenless row after the CLI self-registers the bridge token.
         id: args.connectionId,
         name: args.name,
         devServerUrl,
@@ -729,19 +710,11 @@ export default defineAction({
         placedFrames: screens.placedFrames,
         overview: true,
         urlPath,
-        // Safe for model-visible action text and retained links. The MCP App
-        // receives the one-time launcher separately through hidden metadata.
         openUrl: deepLink,
-        // Minted/stored by connect-localhost; the skill starts the bridge with
-        // `design connect --bridge-token <this>` so bridge and row agree.
         bridgeToken: connection.bridgeToken,
         previewToken: connection.previewToken,
       };
       if (embedStartUrl) {
-        // The browser page needs the one-time launcher to replace its landing
-        // route. Keep it non-enumerable for CLI/MCP callers so generic object
-        // serialization cannot copy the bearer into model-visible output; the
-        // frontend transport is the trusted same-origin handoff that needs it.
         Object.defineProperty(result, "embedStartUrl", {
           value: embedStartUrl,
           enumerable: ctx?.caller === "frontend",
@@ -788,8 +761,6 @@ export default defineAction({
     };
     if (!designId) return null;
     return {
-      // The single-use embed ticket stays in MCP result metadata. Keep the
-      // model-visible link credential-free.
       url: localVisualEditDeepLink(designId),
       label: "Open overview",
       view: "editor",

@@ -182,10 +182,6 @@ function hasWrapperBridge(): boolean {
 function isTrustedParentMessage(event: MessageEvent): boolean {
   if (!isInChildFrame()) return false;
   if (event.source !== window.parent) return false;
-  // Defense in depth: once the parent's real origin is known (captured from the
-  // browser-stamped event.origin during the frameOrigin handshake, so it can't
-  // be spoofed), also require inbound messages to come from that origin. When
-  // it isn't known yet (null) or is opaque ("null"), fall back to source-only.
   const expectedOrigin = getFrameOrigin();
   if (expectedOrigin && expectedOrigin !== "null") {
     return event.origin === expectedOrigin;
@@ -502,10 +498,6 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       await waitForHostLifecycleTurn();
       return true;
     })().catch(() => {
-      // Reset so the next call retries the handshake. Otherwise one timed-out
-      // ui/initialize (e.g. host briefly unresponsive) leaves a permanently
-      // resolved `Promise<false>` cached here, and every later bridge call
-      // fails until full page reload.
       directMcpAppInit = null;
       return false as boolean;
     });
@@ -710,7 +702,6 @@ export function requestMcpAppDisplayMode(
 
 ensureListener();
 
-/** Internal test helper. Do not use in app code. */
 export function _resetMcpAppHostForTests(): void {
   for (const request of pending.values()) clearTimeout(request.timeout);
   for (const request of jsonRpcPending.values()) clearTimeout(request.timeout);

@@ -215,9 +215,6 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
   });
 
-  // The whole point of the module: a monitor that cannot read the ledger has
-  // NOT found the app healthy. Collapsing these is how an outage gets an
-  // all-clear.
   it("reports a failed check as its own outcome, never as healthy", async () => {
     turnQueryThrows = true;
     const out = await checkChatHealthAndAlert(NOW);
@@ -226,8 +223,6 @@ describe("checkChatHealthAndAlert", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  // An unreadable cooldown stamp is not an absent one. Treating it as absent
-  // pages on every sweep for as long as settings stay unreadable.
   it("does not page when the cooldown stamp cannot be read", async () => {
     turns(20, 15);
     settingsReadThrows = true;

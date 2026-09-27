@@ -29,9 +29,12 @@ describe("database row action system-removal wiring", () => {
   }
 
   it("keeps the table scroll surface keyboard reachable", () => {
-    const source = readFileSync(rowActionSources[0], "utf8");
+    const source = readFileSync(
+      new URL("./ContentTable.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(source).toContain('data-database-scroll-surface="table"');
-    expect(source).toContain("tabIndex={0}");
+    expect(source).toContain('"data-database-scroll-surface": "table"');
+    expect(source).toContain("tabIndex: 0");
   });
 });

@@ -13,6 +13,7 @@ export default defineAction({
   description:
     "Opt the current user into or out of one registered lab. Unset preferences use the app-defined default; labs may expose new or unstable features.",
   schema,
+  http: { method: "POST" },
   run: async (args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

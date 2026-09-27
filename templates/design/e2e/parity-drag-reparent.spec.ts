@@ -1,20 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, canvasZoom, designFrame, gotoEditor } from "./helpers";
-
-/**
- * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
- * element into a container to nest it, drag it back out to the screen root,
- * cross the screen<->board boundary, Space suppresses reparenting, and one
- * undo restores both parent and position after any reparent.
- *
- * Fixture: screen "index.html" has header/main/footer landmark containers
- * with root gaps between them (so a drop point can hit document.body
- * directly, not any container) plus a movable Widget inside main and a
- * FooterItem already inside footer. Screen "page-two.html" is a second,
- * mostly-empty screen for cross-screen drops.
- */
+import {
+  appPath,
+  canvasZoom,
+  designFrame,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
@@ -50,7 +43,6 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-// The source class rules are deliberately absent from the destination.
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -175,13 +167,39 @@ async function selectionContext(page: Page) {
   return response.json();
 }
 
-/**
- * Immediate-parent node id of `nodeId` inside `html`, using a real tag-depth
- * walk (not a non-greedy regex, which stops at the wrong closing tag as soon
- * as a candidate container has a same-named-tag child of its own — e.g. a
- * `<div>` child closing before the container's real close). Only looks at
- * the small set of tags this fixture actually uses.
- */
+function layerRow(page: Page, name: string) {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) })
+    .first()
+    .locator('xpath=ancestor::*[@role="treeitem"][1]');
+}
+
+async function layerParentName(
+  page: Page,
+  name: string,
+): Promise<string | null> {
+  return layerRow(page, name).evaluate((row) => {
+    const item = row.closest<HTMLElement>('[role="treeitem"]');
+    const tree = item?.closest<HTMLElement>('[role="tree"]');
+    if (!item || !tree) return null;
+    const level = Number(item.getAttribute("aria-level"));
+    const items = Array.from(
+      tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const index = items.indexOf(item);
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (Number(items[i]?.getAttribute("aria-level")) < level) {
+        return (
+          items[i]?.querySelector<HTMLElement>("span[title]")?.title ?? null
+        );
+      }
+    }
+    return null;
+  });
+}
+
 function parentOf(html: string, nodeId: string): string | null {
   const tagRe =
     /<(header|main|footer|section|div)\b([^>]*)>|<\/(header|main|footer|section|div)>/gi;
@@ -303,8 +321,6 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(400);
 
-    // Highlight assertion BEFORE mouseup: the insertion guide should be
-    // visible and roughly cover the footer container.
     const guide = designFrame(page, screenId).locator(
       "[data-agent-native-insertion-guide]",
     );
@@ -328,6 +344,32 @@ test.describe("drag reparent parity", () => {
           timeout: 10_000,
           message: `dragging Widget onto Footer must nest it into the footer (Steve: "could not drop into a footer")`,
         },
+      )
+      .toBe("footer");
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("main");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
+      )
+      .toBe("footer");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        'footer [data-agent-native-node-id="widget"]',
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(async () =>
+        parentOf(await fileContent(page, id, "index.html"), "widget"),
       )
       .toBe("footer");
   });
@@ -358,7 +400,17 @@ test.describe("drag reparent parity", () => {
       { steps: 24 },
     );
     await page.waitForTimeout(400);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const guideBox = await guide.boundingBox().catch(() => null);
+    const trace = await dumpTrace(page);
     await page.mouse.up();
+
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a visible root insertion guide while hovering before drop; got guideBox=${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
 
     await expect
       .poll(
@@ -415,6 +467,41 @@ test.describe("drag reparent parity", () => {
       paintsAfterDropTarget: true,
       remainsBelowLaterSibling: true,
     });
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBe("footer");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBeNull();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      designFrame(page, screenId).locator(
+        '[data-agent-native-node-id="footer-item"]',
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return html.includes('data-agent-native-node-id="footer-item"')
+          ? parentOf(html, "footer-item")
+          : "missing";
+      })
+      .toBeNull();
   });
 
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
@@ -541,7 +628,6 @@ test.describe("drag reparent parity", () => {
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
-    // Draw a rectangle on the empty board first (Rectangle tool).
     const boardPoint = await emptyBoardPoint(page);
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
@@ -820,10 +906,6 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(400);
     await page.mouse.up();
 
-    // Precondition is the same screen-to-board drag exercised (and asserted)
-    // by "dragging an element from inside a screen onto the empty board..."
-    // above; not skipped here — if that drag is broken this fails for the
-    // real reason instead of silently passing an untested undo.
     await expect
       .poll(
         async () => {
@@ -869,16 +951,10 @@ test.describe("drag reparent parity", () => {
   }) => {
     const id = await newTwoScreenDesign(page);
     await gotoEditor(page, id);
-    // Both screens must be on-screen at once for a real cross-screen drag —
-    // the second screen is placed well below the first by default. Zoom-fit
-    // needs canvas focus, not e.g. a panel that swallows the keystroke.
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
     const screenTwoId = await fileIdFor(page, id, "page-two.html");
 
-    // Shift+1 (zoom-to-fit) is a CSS transition with no completion event —
-    // poll the target's own box until two consecutive reads agree, so the
-    // drag below computes coordinates against the settled layout.
     let lastTargetBox: { x: number; y: number } | null = null;
     await expect
       .poll(
@@ -980,6 +1056,103 @@ test.describe("drag reparent parity", () => {
       .toBe(true);
   });
 
+  test("returning a held cross-screen drag to its source keeps the source intact", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+    await expandAllLayers(page);
+    await page.keyboard.press("Shift+1");
+    const screenOneId = await fileIdFor(page, id, "index.html");
+    const screenTwoId = await fileIdFor(page, id, "page-two.html");
+
+    let lastTargetBox: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          const box = await boxFor(page, screenTwoId, "page2-target");
+          const stable =
+            lastTargetBox !== null &&
+            Math.abs(box.x - lastTargetBox.x) < 1 &&
+            Math.abs(box.y - lastTargetBox.y) < 1;
+          lastTargetBox = box;
+          return stable;
+        },
+        { timeout: 5_000, message: "zoom-to-fit never settled" },
+      )
+      .toBe(true);
+
+    const widget = await boxFor(page, screenOneId, "widget");
+    const target = await boxFor(page, screenTwoId, "page2-target");
+    const sourceBefore = await fileContent(page, id, "index.html");
+    const destinationBefore = await fileContent(page, id, "page-two.html");
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      widget.x + widget.width / 2 + 20,
+      widget.y + widget.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 30 },
+    );
+    await expect
+      .poll(() => page.locator("[data-cross-screen-drop-guide]").isVisible(), {
+        timeout: 5_000,
+        message: "cross-screen target guide must appear while held",
+      })
+      .toBe(true);
+
+    await page.mouse.move(
+      widget.x + widget.width / 2,
+      widget.y + widget.height / 2,
+      { steps: 30 },
+    );
+    await page.waitForTimeout(300);
+    expect(pageErrors).toEqual([]);
+    await expect.poll(() => layerParentName(page, "Widget")).toBe("Main");
+    expect(await fileContent(page, id, "index.html")).toBe(sourceBefore);
+    expect(await fileContent(page, id, "page-two.html")).toBe(
+      destinationBefore,
+    );
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const source = await fileContent(page, id, "index.html");
+        const destination = await fileContent(page, id, "page-two.html");
+        return (
+          source.includes('data-agent-native-node-id="widget"') &&
+          !destination.includes('data-agent-native-node-id="widget"')
+        );
+      })
+      .toBe(true);
+    expect(pageErrors).toEqual([]);
+  });
+
   test("a cross-screen drag carries a class-authored appearance the destination screen doesn't have", async ({
     page,
   }) => {
@@ -1008,8 +1181,6 @@ test.describe("drag reparent parity", () => {
     const sourceNode = designFrame(page, screenOneId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
-    // Read the class-authored appearance directly off the live source node
-    // rather than hardcoding the browser's keyword/hex-to-rgb() conversion.
     const [colorBefore, backgroundBefore] = await sourceNode.evaluate((el) => {
       const cs = getComputedStyle(el);
       return [cs.color, cs.backgroundColor];
@@ -1046,8 +1217,6 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
-    // Source and destination files save independently, so poll both to confirm
-    // the move has settled in each.
     let screenTwoHtml = "";
     let screenOneHtmlAfter = "";
     await expect
@@ -1074,7 +1243,6 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
-    // The destination has no `.card` rule; carried styles must render inline.
     const destNode = designFrame(page, screenTwoId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
@@ -1087,15 +1255,10 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // Read computed width inside the iframe; overview zoom affects canvas
-    // coordinates, not this layout value.
     expect(
       styleOf(screenTwoHtml, "style-card"),
       "Style Card must persist width:320px as inline style after landing in screen two",
     ).toMatch(/width\s*:\s*320px/);
-    // computed style inside the frame, not an on-screen boundingBox() — the
-    // overview canvas can render screen two below 1:1 zoom, which would
-    // shrink a raw pixel bounding box without the carried width being wrong.
     expect(await destNode.evaluate((el) => getComputedStyle(el).width)).toBe(
       "320px",
     );

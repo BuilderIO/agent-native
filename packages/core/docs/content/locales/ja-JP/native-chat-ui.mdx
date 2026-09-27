@@ -254,6 +254,48 @@ renderer が描画に失敗したように見えます。チャートなど高�
 ピクセル（または `rem`）を基準として与えてください。トランスクリプトの列は確定した
 幅を持つため、幅は割合でも問題ありません。
 
+### アクション UI を表示するタイミングを選ぶ {#conditional-native-ui}
+
+アクションが複数の操作を扱っていても、カードが必要なのは一部の結果だけの場合があります。`chatUI` に `when(args, result)` を追加して、対象の呼び出しを選べます。サーバーはアクションの成功後にこの述語を実行します。`false` の場合、結果は通常の折りたたみ可能なツール履歴に残ります。この述語は保存もブラウザーへの送信もされません。
+
+Mail の `manage-draft` はこの仕組みを使い、作成結果にはカードを表示し、更新と削除は通常のツール呼び出しとして残します。
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+複数の書き込み操作があるアクションでは、引数と成功結果の両方を確認します。Mail の Gmail フィルターアクションは、要約フィールドがある作成または置換結果にだけルールカードを選びます。
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## BYO エージェント ランタイム {#byo-agent-runtimes}
 
 `AgentChatRuntime` は、チャット シェルの持ち込みエージェント コントラクトです。

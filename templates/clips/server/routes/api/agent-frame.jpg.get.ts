@@ -1,9 +1,3 @@
-/**
- * GET /api/agent-frame.jpg?id=<recordingId>&atMs=<timestampMs>[&password=<pw>|&t=<token>]
- *
- * Extract a JPEG frame from a public clip for external agents.
- */
-
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -18,6 +12,10 @@ import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
@@ -214,6 +212,18 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+
+  if (
+    isHeldForRedaction(
+      recording.editsJson,
+      accessResult.access.viewerIsOwner ? "owner" : null,
+    )
+  ) {
+    setResponseStatus(event, 409);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
+  }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const requestedMs = parseTimestampMs(

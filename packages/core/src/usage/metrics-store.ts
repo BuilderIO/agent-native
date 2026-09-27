@@ -4,7 +4,9 @@ import { ForbiddenError } from "../sharing/access.js";
 import { isSelfScopedUsageRead, usageOrgScope } from "./org-scope.js";
 import {
   builderCreditsFromCostCents,
+  ensureUsageTable,
   usageBillingForEngine,
+  MIXED_USAGE_BILLING,
   type UsageBillingMode,
 } from "./store.js";
 
@@ -21,6 +23,9 @@ export interface UsageMetricBucket {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  builderCredits?: number;
+  estimatedBuilderCredits?: number;
+  otherCostCents?: number;
   activeUsers: number;
   lastActiveAt: number | null;
 }
@@ -30,6 +35,10 @@ export interface UsageDailyMetric {
   costCents: number;
   calls: number;
   tokens: number;
+  builderCredits?: number;
+  estimatedBuilderCredits?: number;
+  otherCostCents?: number;
+  otherCalls?: number;
 }
 
 export interface UsageRecentMetric {
@@ -44,6 +53,10 @@ export interface UsageRecentMetric {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costCents: number;
+  builderCredits?: number;
+  estimatedBuilderCredits?: number;
+  otherCostCents?: number;
+  engineName?: string | null;
   prompt: string | null;
   promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
   threadId: string | null;
@@ -81,10 +94,17 @@ export interface AppUsageMetrics {
     cacheReadTokens: number;
     cacheWriteTokens: number;
     activeUsers: number;
+    builderCredits?: number;
+    estimatedBuilderCredits?: number;
+    otherCostCents?: number;
+    otherCalls?: number;
   };
   currentDay: {
     costCents: number;
     credits: number;
+    estimatedBuilderCredits?: number;
+    otherCostCents?: number;
+    otherCalls?: number;
     calls: number;
     tokens: number;
   };
@@ -112,7 +132,6 @@ interface QueryScope {
 
 interface ThreadPromptRow {
   id?: unknown;
-  preview?: unknown;
   thread_data?: unknown;
 }
 
@@ -205,6 +224,16 @@ async function getOrgRole(
   return typeof role === "string" ? role : null;
 }
 
+export async function canViewWorkspaceUsage(
+  input: Pick<UsageMetricsAccessInput, "ownerEmail" | "orgId">,
+): Promise<boolean> {
+  const role = await getOrgRole(
+    input.orgId?.trim() || null,
+    normalizeEmail(input.ownerEmail),
+  );
+  return role === "owner" || role === "admin";
+}
+
 async function resolveScope(
   input: UsageMetricsAccessInput,
   scope: UsageMetricsScope,
@@ -287,7 +316,10 @@ function buildUsageCost(row: Record<string, unknown>): number {
   return numberField(row, "cost_x100") / 100;
 }
 
-function bucketFromRow(row: Record<string, unknown>): UsageMetricBucket {
+function bucketFromRow(
+  row: Record<string, unknown>,
+  builderCreditsEnabled: boolean,
+): UsageMetricBucket {
   const key = stringField(row, "k");
   return {
     key,
@@ -298,6 +330,15 @@ function bucketFromRow(row: Record<string, unknown>): UsageMetricBucket {
     outputTokens: numberField(row, "output_tokens"),
     cacheReadTokens: numberField(row, "cache_read_tokens"),
     cacheWriteTokens: numberField(row, "cache_write_tokens"),
+    ...(builderCreditsEnabled
+      ? {
+          builderCredits: numberField(row, "builder_credits"),
+          estimatedBuilderCredits: builderCreditsFromCostCents(
+            numberField(row, "estimated_builder_cost_x100") / 100,
+          ),
+          otherCostCents: numberField(row, "other_cost_x100") / 100,
+        }
+      : {}),
     activeUsers: numberField(row, "active_users"),
     lastActiveAt:
       row.last_active_at == null ? null : numberField(row, "last_active_at"),
@@ -310,10 +351,14 @@ async function usageBuckets(
   appScope: QueryScope,
   sinceMs: number,
   limit: number,
+  builderCreditsEnabled: boolean,
 ): Promise<UsageMetricBucket[]> {
   const result = await getDbExec().execute({
     sql: `SELECT ${columnExpression} AS k,
         COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+        COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
+        COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
+        COALESCE(SUM(CASE WHEN engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100,
         COUNT(*) AS calls,
         COALESCE(SUM(input_tokens), 0) AS input_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
@@ -324,11 +369,13 @@ async function usageBuckets(
       FROM token_usage
       WHERE ${appScope.where} AND ${scope.where} AND created_at >= ?
       GROUP BY ${columnExpression}
-      ORDER BY cost_x100 DESC
+      ORDER BY ${builderCreditsEnabled ? "builder_credits DESC, estimated_builder_cost_x100 DESC, other_cost_x100 DESC" : "cost_x100 DESC"}
       LIMIT ?`,
     args: [...appScope.args, ...scope.args, sinceMs, limit],
   });
-  return (result.rows as Array<Record<string, unknown>>).map(bucketFromRow);
+  return (result.rows as Array<Record<string, unknown>>).map((row) =>
+    bucketFromRow(row, builderCreditsEnabled),
+  );
 }
 
 function parseJson(value: unknown): Record<string, unknown> | null {
@@ -360,42 +407,154 @@ function promptText(value: unknown): string {
     .trim();
 }
 
-function firstUserPrompt(threadData: unknown): string | null {
+function messageRecord(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== "object") return null;
+  const record = entry as Record<string, unknown>;
+  return record.message && typeof record.message === "object"
+    ? (record.message as Record<string, unknown>)
+    : record;
+}
+
+function messageTurnId(message: Record<string, unknown>): string | null {
+  const metadata =
+    message.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const turnId = custom?.turnId ?? metadata?.turnId;
+  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+}
+
+function messageTimestamp(message: Record<string, unknown>): number | null {
+  const value = message.createdAt;
+  const timestamp =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Date.parse(value)
+        : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+type ThreadPrompt = { prompt: string; messageId: string | null };
+
+type ThreadPromptIndex = {
+  promptsByTurn: Map<string, ThreadPrompt>;
+  timestampedPrompts: Array<{
+    timestamp: number;
+    index: number;
+    prompt: ThreadPrompt | null;
+  }>;
+  soleUntimestampedPrompt: ThreadPrompt | null;
+};
+
+function indexThreadPrompts(threadData: unknown): ThreadPromptIndex | null {
   const parsed = parseJson(threadData);
   const messages = parsed?.messages;
   if (!Array.isArray(messages)) return null;
-  for (const entry of messages) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
-    const message =
-      record.message && typeof record.message === "object"
-        ? (record.message as Record<string, unknown>)
-        : record;
-    const role = typeof message.role === "string" ? message.role : "";
-    if (role !== "user" && role !== "human") continue;
-    const text = promptText(message.content);
-    if (text)
-      return text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text;
+
+  const promptsByTurn = new Map<string, ThreadPrompt>();
+  const timestampedPrompts: ThreadPromptIndex["timestampedPrompts"] = [];
+  let latestUserPrompt: ThreadPrompt | null = null;
+  let userMessageCount = 0;
+  let soleUserTimestamp: number | null = null;
+  let soleUntimestampedPrompt: ThreadPrompt | null = null;
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messageRecord(messages[i]);
+    if (!message) continue;
+    if (message.role === "user" || message.role === "human") {
+      userMessageCount += 1;
+      const text = promptText(message.content);
+      latestUserPrompt = text
+        ? {
+            prompt:
+              text.length > 360 ? `${text.slice(0, 359).trimEnd()}…` : text,
+            messageId: typeof message.id === "string" ? message.id : null,
+          }
+        : null;
+      const timestamp = messageTimestamp(message);
+      if (timestamp !== null) {
+        timestampedPrompts.push({
+          timestamp,
+          index: i,
+          prompt: latestUserPrompt,
+        });
+      }
+      if (userMessageCount === 1) {
+        soleUserTimestamp = timestamp;
+        soleUntimestampedPrompt = latestUserPrompt;
+      } else {
+        soleUserTimestamp = null;
+        soleUntimestampedPrompt = null;
+      }
+      continue;
+    }
+    if (message.role === "assistant") {
+      const turnId = messageTurnId(message);
+      if (turnId && latestUserPrompt) {
+        promptsByTurn.set(turnId, latestUserPrompt);
+      }
+    }
   }
-  return null;
+  timestampedPrompts.sort(
+    (a, b) => a.timestamp - b.timestamp || a.index - b.index,
+  );
+  return {
+    promptsByTurn,
+    timestampedPrompts,
+    soleUntimestampedPrompt:
+      userMessageCount === 1 && soleUserTimestamp === null
+        ? soleUntimestampedPrompt
+        : null,
+  };
+}
+
+function promptForTurn(
+  index: ThreadPromptIndex,
+  taskId: string | null,
+  usageCreatedAt: number,
+): ThreadPrompt | null {
+  if (taskId) {
+    const prompt = index.promptsByTurn.get(taskId);
+    if (prompt) return prompt;
+  }
+
+  let low = 0;
+  let high = index.timestampedPrompts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (index.timestampedPrompts[middle]!.timestamp <= usageCreatedAt) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low > 0
+    ? (index.timestampedPrompts[low - 1]?.prompt ?? null)
+    : index.soleUntimestampedPrompt;
 }
 
 async function hydrateRecentPrompts(
   rows: Array<Record<string, unknown>>,
+  builderCreditsEnabled: boolean,
 ): Promise<UsageRecentMetric[]> {
+  const recentLimit = 12;
   const threadIds = [
     ...new Set(
       rows
         .map((row) => nullableStringField(row, "thread_id"))
         .filter((value): value is string => Boolean(value)),
     ),
-  ];
+  ].slice(0, recentLimit);
   const threads = new Map<string, ThreadPromptRow>();
   let threadQueryUnavailable = false;
   if (threadIds.length > 0) {
     try {
       const result = await getDbExec().execute({
-        sql: `SELECT id, preview, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
+        sql: `SELECT id, thread_data FROM chat_threads WHERE id IN (${threadIds.map(() => "?").join(", ")})`,
         args: threadIds,
       });
       for (const row of result.rows as ThreadPromptRow[]) {
@@ -407,13 +566,39 @@ async function hydrateRecentPrompts(
     }
   }
 
-  return rows.map((row) => {
+  const recent: UsageRecentMetric[] = [];
+  const seenTurns = new Set<string>();
+  const promptIndexes = new Map<string, ThreadPromptIndex | null>();
+  for (const row of rows) {
     const threadId = nullableStringField(row, "thread_id");
+    const taskId = nullableStringField(row, "task_id");
+    const taskTurnKey =
+      threadId && taskId ? JSON.stringify([threadId, taskId]) : null;
+    if (taskTurnKey && seenTurns.has(taskTurnKey)) continue;
+
     const thread = threadId ? threads.get(threadId) : undefined;
-    const prompt = thread ? firstUserPrompt(thread.thread_data) : null;
-    const preview =
-      typeof thread?.preview === "string" ? thread.preview.trim() : "";
-    return {
+    let prompt: ThreadPrompt | null = null;
+    if (threadId && thread) {
+      if (!promptIndexes.has(threadId)) {
+        promptIndexes.set(threadId, indexThreadPrompts(thread.thread_data));
+      }
+      const promptIndex = promptIndexes.get(threadId);
+      if (promptIndex) {
+        prompt = promptForTurn(
+          promptIndex,
+          taskId,
+          numberField(row, "created_at"),
+        );
+      }
+    }
+    const turnKey =
+      taskTurnKey ??
+      (threadId && prompt?.messageId
+        ? JSON.stringify([threadId, prompt.messageId])
+        : null);
+    if (turnKey && seenTurns.has(turnKey)) continue;
+    if (turnKey) seenTurns.add(turnKey);
+    recent.push({
       id: numberField(row, "id"),
       createdAt: numberField(row, "created_at"),
       ownerEmail: stringField(row, "owner_email"),
@@ -425,17 +610,35 @@ async function hydrateRecentPrompts(
       cacheReadTokens: numberField(row, "cache_read_tokens"),
       cacheWriteTokens: numberField(row, "cache_write_tokens"),
       costCents: numberField(row, "cost_cents_x100") / 100,
-      prompt: prompt ?? (preview ? preview.slice(0, 359).trimEnd() : null),
+      ...(builderCreditsEnabled
+        ? {
+            ...(row.builder_credits_used != null
+              ? { builderCredits: numberField(row, "builder_credits_used") }
+              : row.engine_name === "builder"
+                ? {
+                    estimatedBuilderCredits: builderCreditsFromCostCents(
+                      numberField(row, "cost_cents_x100") / 100,
+                    ),
+                  }
+                : {}),
+            otherCostCents:
+              row.engine_name === "builder" || row.builder_credits_used != null
+                ? 0
+                : numberField(row, "cost_cents_x100") / 100,
+            engineName: nullableStringField(row, "engine_name"),
+          }
+        : {}),
+      prompt: prompt?.prompt ?? null,
       promptSource: prompt
         ? "thread"
-        : preview
-          ? "thread-preview"
-          : threadQueryUnavailable && threadId
-            ? "unavailable"
-            : "not-captured",
+        : threadQueryUnavailable && threadId
+          ? "unavailable"
+          : "not-captured",
       threadId,
-    } satisfies UsageRecentMetric;
-  });
+    });
+    if (recent.length === recentLimit) break;
+  }
+  return recent;
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
@@ -460,10 +663,13 @@ export async function listAppUsageMetrics(
     sinceDays?: number;
     scope?: UsageMetricsScope;
     userEmail?: string | null;
+    builderCreditsEnabled?: boolean;
   },
   accessInput: UsageMetricsAccessInput,
 ): Promise<AppUsageMetrics> {
+  await ensureUsageTable();
   const scope = input.scope === "workspace" ? "workspace" : "me";
+  const builderCreditsEnabled = input.builderCreditsEnabled === true;
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const now = Date.now();
   const sinceMs = now - sinceDays * DAY_MS;
@@ -479,6 +685,11 @@ export async function listAppUsageMetrics(
       getDbExec().execute({
         sql: `SELECT
             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+            COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
+            COALESCE(SUM(CASE WHEN engine_name = 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS estimated_builder_cost_x100,
+            COALESCE(SUM(CASE WHEN engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL THEN cost_cents_x100 ELSE 0 END), 0) AS other_cost_x100,
+            COUNT(*) FILTER (WHERE engine_name = 'builder' OR builder_credits_used IS NOT NULL) AS builder_calls,
+            COUNT(*) FILTER (WHERE engine_name IS DISTINCT FROM 'builder' AND builder_credits_used IS NULL) AS other_calls,
             COUNT(*) AS calls,
             COALESCE(SUM(input_tokens), 0) AS input_tokens,
             COALESCE(SUM(output_tokens), 0) AS output_tokens,
@@ -495,6 +706,7 @@ export async function listAppUsageMetrics(
         appScope,
         sinceMs,
         6,
+        builderCreditsEnabled,
       ),
       usageBuckets(
         "COALESCE(NULLIF(model, ''), 'unknown')",
@@ -502,22 +714,25 @@ export async function listAppUsageMetrics(
         appScope,
         sinceMs,
         4,
+        builderCreditsEnabled,
       ),
       getDbExec().execute({
         sql: `SELECT created_at, cost_cents_x100, input_tokens, output_tokens,
-            cache_read_tokens, cache_write_tokens FROM token_usage
+            cache_read_tokens, cache_write_tokens, builder_credits_used, engine_name FROM token_usage
           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
           ORDER BY created_at ASC`,
         args: baseArgs,
       }),
+      // ponytail: cap legacy prompt hydration at 240 rows; raise only if real
+      // histories routinely crowd distinct prompts out of the 12-turn list.
       getDbExec().execute({
         sql: `SELECT id, created_at, owner_email, app, label, model,
             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-            cost_cents_x100, thread_id
+            cost_cents_x100, builder_credits_used, engine_name, thread_id, task_id
           FROM token_usage
           WHERE ${appScope.where} AND ${resolved.ownerScope.where} AND created_at >= ?
-          ORDER BY created_at DESC
-          LIMIT 12`,
+          ORDER BY created_at DESC, id DESC
+          LIMIT 240`,
         args: baseArgs,
       }),
     ]);
@@ -525,14 +740,38 @@ export async function listAppUsageMetrics(
   const totals = (totalsResult.rows[0] ?? {}) as Record<string, unknown>;
   const dayMap = new Map<
     string,
-    { costX100: number; calls: number; tokens: number }
+    {
+      costX100: number;
+      calls: number;
+      tokens: number;
+      builderCredits: number;
+      estimatedBuilderCostX100: number;
+      otherCostX100: number;
+      otherCalls: number;
+    }
   >();
   for (const row of dailyResult.rows as Array<Record<string, unknown>>) {
     const date = new Date(numberField(row, "created_at"))
       .toISOString()
       .slice(0, 10);
-    const current = dayMap.get(date) ?? { costX100: 0, calls: 0, tokens: 0 };
+    const current = dayMap.get(date) ?? {
+      costX100: 0,
+      calls: 0,
+      tokens: 0,
+      builderCredits: 0,
+      estimatedBuilderCostX100: 0,
+      otherCostX100: 0,
+      otherCalls: 0,
+    };
     current.costX100 += numberField(row, "cost_cents_x100");
+    if (row.builder_credits_used != null) {
+      current.builderCredits += numberField(row, "builder_credits_used");
+    } else if (row.engine_name === "builder") {
+      current.estimatedBuilderCostX100 += numberField(row, "cost_cents_x100");
+    } else {
+      current.otherCostX100 += numberField(row, "cost_cents_x100");
+      current.otherCalls += 1;
+    }
     current.calls += 1;
     current.tokens +=
       numberField(row, "input_tokens") +
@@ -547,6 +786,16 @@ export async function listAppUsageMetrics(
       costCents: value.costX100 / 100,
       calls: value.calls,
       tokens: value.tokens,
+      ...(builderCreditsEnabled
+        ? {
+            builderCredits: value.builderCredits,
+            estimatedBuilderCredits: builderCreditsFromCostCents(
+              value.estimatedBuilderCostX100 / 100,
+            ),
+            otherCostCents: value.otherCostX100 / 100,
+            otherCalls: value.otherCalls,
+          }
+        : {}),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const today = new Date(now).toISOString().slice(0, 10);
@@ -555,10 +804,29 @@ export async function listAppUsageMetrics(
     costCents: 0,
     calls: 0,
     tokens: 0,
+    ...(builderCreditsEnabled
+      ? {
+          builderCredits: 0,
+          estimatedBuilderCredits: 0,
+          otherCostCents: 0,
+          otherCalls: 0,
+        }
+      : {}),
   };
-  const billing = usageBillingForEngine(await detectUsageEngineName());
+  const builderCalls = numberField(totals, "builder_calls");
+  const otherCalls = numberField(totals, "other_calls");
+  const billing = builderCreditsEnabled
+    ? builderCalls && otherCalls
+      ? MIXED_USAGE_BILLING
+      : builderCalls
+        ? usageBillingForEngine("builder")
+        : otherCalls
+          ? usageBillingForEngine(null)
+          : usageBillingForEngine(await detectUsageEngineName())
+    : usageBillingForEngine(await detectUsageEngineName());
   const recent = await hydrateRecentPrompts(
     recentResult.rows as Array<Record<string, unknown>>,
+    builderCreditsEnabled,
   );
 
   return {
@@ -582,10 +850,29 @@ export async function listAppUsageMetrics(
       cacheReadTokens: numberField(totals, "cache_read_tokens"),
       cacheWriteTokens: numberField(totals, "cache_write_tokens"),
       activeUsers: numberField(totals, "active_users"),
+      ...(builderCreditsEnabled
+        ? {
+            builderCredits: numberField(totals, "builder_credits"),
+            estimatedBuilderCredits: builderCreditsFromCostCents(
+              numberField(totals, "estimated_builder_cost_x100") / 100,
+            ),
+            otherCostCents: numberField(totals, "other_cost_x100") / 100,
+            otherCalls,
+          }
+        : {}),
     },
     currentDay: {
       costCents: currentDay.costCents,
-      credits: builderCreditsFromCostCents(currentDay.costCents),
+      credits:
+        currentDay.builderCredits ??
+        builderCreditsFromCostCents(currentDay.costCents),
+      ...(builderCreditsEnabled
+        ? {
+            estimatedBuilderCredits: currentDay.estimatedBuilderCredits ?? 0,
+            otherCostCents: currentDay.otherCostCents ?? 0,
+            otherCalls: currentDay.otherCalls ?? 0,
+          }
+        : {}),
       calls: currentDay.calls,
       tokens: currentDay.tokens,
     },

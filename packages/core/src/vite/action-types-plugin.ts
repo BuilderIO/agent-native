@@ -1,33 +1,10 @@
 import fs from "fs";
-/**
- * Vite plugin that generates end-to-end type-safe action types AND a runtime
- * registry of static imports so bundlers (Nitro on Netlify/Vercel/AWS-Lambda,
- * Rolldown, etc.) include every action file in the server bundle.
- *
- * Watches the `actions/` directory and emits:
- *   - `.generated/action-types.d.ts` — type-only module that augments the
- *     `ActionRegistry` interface in `@agent-native/core/client`, giving
- *     `useActionQuery`/`useActionMutation` full inference.
- *   - `.generated/actions-registry.ts` — runtime registry keyed by action
- *     name, with static `import` statements for every action. Templates
- *     import this file from their `server/plugins/agent-chat.ts` so Nitro
- *     bundles the actions into the server function; without it the runtime
- *     `fs.readdirSync` inside `autoDiscoverActions` finds nothing in a
- *     bundled serverless function and every action route 404s.
- */
 import path from "path";
 
 import type { Plugin, ViteDevServer } from "vite";
 
-/**
- * Action-file creation/removal changes the generated registry module itself.
- * Coalesce editor unlink+add pairs into one registry refresh so the Nitro
- * plugin re-imports the registry and the chat tool set sees the same actions
- * as the HTTP/frontend surfaces.
- */
 const ACTION_REGISTRY_REFRESH_DELAY_MS = 300;
 
-/** Files to skip during discovery (matches action-discovery.ts). */
 const SKIP_FILES = new Set([
   "helpers",
   "run",
@@ -36,15 +13,6 @@ const SKIP_FILES = new Set([
   "registry",
 ]);
 
-/**
- * Framework-level sharing actions that must ALWAYS be in the generated
- * registry, even when the template's `actions/` directory doesn't contain
- * them. Each entry maps the action name to the bare-specifier import path so
- * bundlers see a static import and pull the module into the server bundle.
- *
- * Order matters: templates can override by defining a same-named file in
- * their own `actions/` directory — the merge below is skip-existing.
- */
 const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "get-feature-flags",
@@ -59,12 +27,26 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
   },
   {
+    name: "get-launchdarkly-flags",
+    specifier: "@agent-native/core/launchdarkly/actions/get-launchdarkly-flags",
+  },
+  {
     name: "get-labs",
     specifier: "@agent-native/core/labs/actions/get-labs",
   },
   {
     name: "set-lab",
     specifier: "@agent-native/core/labs/actions/set-lab",
+  },
+  {
+    name: "get-chatgpt-subscription-status",
+    specifier:
+      "@agent-native/core/agent/actions/get-chatgpt-subscription-status",
+  },
+  {
+    name: "disconnect-chatgpt-subscription",
+    specifier:
+      "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
   },
   {
     name: "get-hosted-harness-config",
@@ -164,6 +146,14 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/usage/actions/get-usage-metrics",
   },
   {
+    name: "get-builder-credit-usage",
+    specifier: "@agent-native/core/usage/actions/get-builder-credit-usage",
+  },
+  {
+    name: "get-builder-referral-info",
+    specifier: "@agent-native/core/usage/actions/get-builder-referral-info",
+  },
+  {
     name: "create-resource-version",
     specifier: "@agent-native/core/history/actions/create-resource-version",
   },
@@ -182,6 +172,41 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "list-resource-history",
     specifier: "@agent-native/core/history/actions/list-resource-history",
+  },
+  {
+    name: "list-observability-reviews",
+    specifier:
+      "@agent-native/core/observability/actions/list-observability-reviews",
+  },
+  {
+    name: "get-observability-review-app",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-app",
+  },
+  {
+    name: "get-observability-review-detail",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-detail",
+  },
+  {
+    name: "get-observability-review-summary-source",
+    specifier:
+      "@agent-native/core/observability/actions/get-observability-review-summary-source",
+  },
+  {
+    name: "save-observability-review-summary",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-summary",
+  },
+  {
+    name: "save-observability-review-feedback",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-review-feedback",
+  },
+  {
+    name: "save-observability-instruction-update",
+    specifier:
+      "@agent-native/core/observability/actions/save-observability-instruction-update",
   },
   {
     name: "list-review-comments",
@@ -249,6 +274,21 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/review/suggestions/actions/create-resource-suggestion",
   },
   {
+    name: "create-resource-suggestion-proposal",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal",
+  },
+  {
+    name: "get-resource-suggestion-proposal-by-creation-key",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key",
+  },
+  {
+    name: "decide-resource-suggestion-proposal",
+    specifier:
+      "@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal",
+  },
+  {
     name: "update-resource-suggestion",
     specifier:
       "@agent-native/core/review/suggestions/actions/update-resource-suggestion",
@@ -289,11 +329,6 @@ function scanActionFiles(actionsDir: string): string[] {
     const name = f.replace(/\.(ts|js)$/, "");
     if (name.startsWith("_")) return false;
     if (SKIP_FILES.has(name)) return false;
-    // Only include files that actually call defineAction or explicitly
-    // re-export a package action. CLI scripts or example templates that live
-    // in actions/ but don't export an action would otherwise drag their own
-    // (often app/, browser-only, or fs-only) imports into the serverless
-    // bundle and fail to resolve.
     try {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
       const reexportsDefaultAction =
@@ -330,12 +365,6 @@ function writeIfChanged(outFile: string, content: string): void {
   }
 }
 
-/**
- * Refresh the server environment that owns the generated registry without
- * reloading the browser. Nitro keeps a separate module runner from Vite's
- * client graph, so invalidating only the legacy graph leaves the chat plugin
- * holding the previous action snapshot.
- */
 function refreshActionRegistryInDevServer(
   server: ViteDevServer,
   projectRoot: string,
@@ -425,10 +454,6 @@ function findWorkspaceCoreActionsDir(projectRoot: string): string | null {
   return null;
 }
 
-/**
- * Scan the actions directory and emit the types + runtime registry files.
- * Only writes files whose content has changed, to avoid triggering rebuilds.
- */
 function generateActionArtifacts(
   actionsDir: string,
   projectRoot: string,
@@ -442,8 +467,6 @@ function generateActionArtifacts(
     ? scanActionFiles(workspaceActionsDir)
     : [];
 
-  // Pre-compute template action names — used for skip-existing logic in both
-  // the type declarations and the runtime registry below.
   const templateActionNames = new Set<string>(
     actionFiles.map((f) => f.replace(/\.(ts|js)$/, "")),
   );
@@ -469,13 +492,10 @@ function generateActionArtifacts(
     }
   }
 
-  // --- types file ---------------------------------------------------------
   const typeEntries = actionSources.map(({ name, relPath }) => {
     return `    "${name}": ActionEntry<typeof import("${relPath}")>;`;
   });
 
-  // Also declare types for framework-level sharing actions so callers don't
-  // need `as any` casts (same skip-existing logic as the runtime registry).
   for (const entry of CORE_SHARING_ACTIONS) {
     if (registeredActionNames.has(entry.name)) continue;
     typeEntries.push(
@@ -516,10 +536,6 @@ export {};
 
   writeIfChanged(path.join(outDir, "action-types.d.ts"), typesContent);
 
-  // --- runtime registry ---------------------------------------------------
-  // Static imports of each action's default export so bundlers see every
-  // action and include it in the server bundle. Normalization matches
-  // `loadActionsIntoRegistry` in server/action-discovery.ts.
   const imports: string[] = [];
   const entries: string[] = [];
   const runtimeActionNames = new Set<string>();
@@ -529,10 +545,6 @@ export {};
     entries.push(`  ${JSON.stringify(name)}: ${ident},`);
     runtimeActionNames.add(name);
   }
-  // Framework-level sharing actions — only added when the template hasn't
-  // provided a same-named file (skip-existing merge). Static imports ensure
-  // bundlers pull these modules into the server bundle so
-  // `/_agent-native/actions/share-resource` (etc.) always resolve.
   for (const entry of CORE_SHARING_ACTIONS) {
     if (runtimeActionNames.has(entry.name)) continue;
     const ident = toIdent(entry.name);
@@ -554,12 +566,8 @@ ${entries.join("\n")}
 export default modules;
 `;
 
-  // Always write the registry — even when the template has no actions/ files
-  // we still emit imports for the framework-level sharing actions so they get
-  // mounted on every template that consumes the registry.
   writeIfChanged(path.join(outDir, "actions-registry.ts"), registryContent);
 
-  // Ensure .generated/ is in .gitignore
   const gitignorePath = path.join(projectRoot, ".gitignore");
   if (fs.existsSync(gitignorePath)) {
     const gitignore = fs.readFileSync(gitignorePath, "utf-8");
@@ -569,16 +577,6 @@ export default modules;
   }
 }
 
-/**
- * Vite plugin that watches `actions/` and generates type-safe action types.
- *
- * Add to your Vite config (auto-included by `defineConfig` from `@agent-native/core`):
- *
- * ```ts
- * import { actionTypesPlugin } from "@agent-native/core/vite/action-types-plugin";
- * plugins: [actionTypesPlugin()]
- * ```
- */
 export function actionTypesPlugin(): Plugin {
   let projectRoot = "";
   let actionsDir = "";
@@ -595,10 +593,8 @@ export function actionTypesPlugin(): Plugin {
       generateActionArtifacts(actionsDir, projectRoot);
     },
     configureServer(server) {
-      // Generate on startup
       generateActionArtifacts(actionsDir, projectRoot);
 
-      // Watch for changes in actions/
       const watcher = server.watcher;
       let refreshTimer: ReturnType<typeof setTimeout> | null = null;
       let closed = false;
@@ -623,8 +619,6 @@ export function actionTypesPlugin(): Plugin {
             );
           }
 
-          // Vite 7+ exposes separate server environments. Older compatible
-          // hosts may not expose the Nitro graph, so retain a safe fallback.
           void server.restart().catch((error: unknown) => {
             server.config.logger.error(
               `[agent-native] Failed to restart after an action registry change: ${
@@ -662,10 +656,6 @@ export function actionTypesPlugin(): Plugin {
   };
 }
 
-/**
- * Public helper to regenerate the types + registry from a non-Vite context
- * (e.g. the Nitro deploy build, where Vite plugins don't run).
- */
 export function generateActionRegistryForProject(projectRoot: string): void {
   const actionsDir = path.resolve(projectRoot, "actions");
   generateActionArtifacts(actionsDir, projectRoot);

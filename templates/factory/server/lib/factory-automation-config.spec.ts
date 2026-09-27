@@ -260,6 +260,25 @@ Stale body.
     }
   });
 
+  it("recomposing refreshes guardrails/alignment but intentionally preserves an old (revision-1) user prompt verbatim", () => {
+    const config = defaultAutomationConfig("slack", "slack-feedback");
+    const retiredUserPrompt = `# Factory Slack feedback triage
+
+For each item, call dispatch-factory-item with clearBug true or false,
+productUxImplications false unless it is a pure product or design decision
+with no single correct fix, a short reason, and reaction robot_face 🤖.`;
+    const body = composeFactoryAutomationBody({
+      userPrompt: retiredUserPrompt,
+      automationName: "factory-slack-feedback",
+      factoryId: "product-an-feedback",
+      config,
+    });
+    expect(body).toContain(
+      "Builder is only tagged when clearBug is true, risk is low, and confidence is high",
+    );
+    expect(body).toContain(retiredUserPrompt);
+  });
+
   it("does not require body repair for prompt-only automations missing alignmentRevision", () => {
     const content = `---
 template: slack-feedback

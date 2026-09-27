@@ -92,6 +92,7 @@ vi.mock("../server/lib/ical-fetcher.js", () => ({
   fetchICalEvents: fetchICalEventsMock,
 }));
 
+import { createGoogleAccountEventId } from "../shared/google-calendar-sources";
 import action from "./delete-events";
 
 const OWNER = "owner@example.com";
@@ -160,6 +161,27 @@ describe("delete-events", () => {
     expect(deleteEventMock).not.toHaveBeenCalled();
   });
 
+  it("rejects an explicit account that conflicts with an opaque event id", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "alpha@example.com" }, { email: "zulu@example.com" }],
+    });
+    const id = createGoogleAccountEventId({
+      accountEmail: "alpha@example.com",
+      googleEventId: "same-provider-id",
+    });
+
+    await expect(
+      run({
+        ids: [id],
+        accountEmail: "zulu@example.com",
+        dryRun: true,
+        scope: "single",
+      }),
+    ).rejects.toThrow("does not match");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
   it("skips read-only shared events discovered by a filtered bulk delete", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
@@ -222,10 +244,7 @@ describe("delete-events", () => {
   it("deletes weekend events using the calendar timezone, not UTC", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
-        // Sunday 17:00 America/Los_Angeles — Monday in UTC. Filtering the raw
-        // ISO string would miss the event the user actually pointed at.
         googleEvent({ id: "sunday-pt", start: "2026-04-13T00:00:00.000Z" }),
-        // Saturday 00:00 UTC — still Friday afternoon in America/Los_Angeles.
         googleEvent({ id: "friday-pt", start: "2026-04-11T00:00:00.000Z" }),
         googleEvent({ id: "saturday-pt", start: "2026-04-11T18:00:00.000Z" }),
         googleEvent({ id: "tuesday-pt", start: "2026-04-14T18:00:00.000Z" }),
@@ -699,7 +718,6 @@ describe("delete-events", () => {
   it("treats the end bound as exclusive for timed and all-day starts", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
-        // Local midnight of the exclusive end date, timed and all-day.
         googleEvent({ id: "timed-at-end", start: "2026-04-18T07:00:00.000Z" }),
         googleEvent({
           id: "allday-at-end",
@@ -840,8 +858,6 @@ describe("delete-events", () => {
 
     const result = await run({
       from: "2026-04-06",
-      // Midday on the same Saturday: local midnight precedes it, so the all-day
-      // event is inside the range even though the date strings are equal.
       to: "2026-04-11T12:00:00-07:00",
       daysOfWeek: "saturday",
       scope: "single",
@@ -916,6 +932,10 @@ describe("delete-events", () => {
     ]);
     expect(result.deleted).toBe(2);
     expect(result.failed).toBe(0);
+    expect(result.events.map((event) => event.id)).toEqual([
+      "google-a",
+      "google-b",
+    ]);
   });
 
   it("leaves an event that started before the range even if it ends inside it", async () => {
@@ -996,7 +1016,6 @@ describe("delete-events", () => {
     ).rejects.toThrow(/cannot honor scope "thisAndFollowing"/i);
     expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
 
-    // "all" resolves the series master, so it is honored and still allowed.
     const result = await run({
       ids: ["google-a"],
       removeOnly: true,
@@ -1118,10 +1137,8 @@ describe("delete-events", () => {
     const gate = action.needsApproval;
     if (typeof gate !== "function") throw new Error("expected a predicate");
 
-    // Absent dryRun is a real delete, so the gate has to fail closed.
     expect(await gate({} as never)).toBe(true);
     expect(await gate({ dryRun: true } as never)).toBe(false);
-    // The predicate sees raw tool input, before cliBoolean coerces it.
     expect(await gate({ dryRun: "true" } as never)).toBe(false);
     expect(await gate({ dryRun: "false" } as never)).toBe(true);
   });
