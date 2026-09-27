@@ -534,7 +534,10 @@ test.describe("URL-backed live auto-layout probe", () => {
       .toBeGreaterThan(previousSettingsFocusReportCount);
     await expect.poll(latestSettingsFocusSafety).toBe(true);
     await expectCanvasFocus();
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.down(primaryModifier);
+    await expectCanvasFocus(1_000);
+    await page.keyboard.press("z");
+    await page.keyboard.up(primaryModifier);
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v1", "v2", "v3"]);
