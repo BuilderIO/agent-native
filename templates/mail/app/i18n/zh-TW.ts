@@ -56,7 +56,7 @@ const messages = {
       aiSetupImportantPrompt:
         "需要回覆或有截止日期的郵件，包括 GitHub 上的人類留言。略過機器人留言。",
       aiSetupArchiveSpamPrompt:
-        "自動封存：包含機器人留言或自動狀態更新的 GitHub 通知。\n垃圾郵件：我未要求的明顯促銷或不需要的郵件。",
+        "略過收件匣：包含機器人留言或自動狀態更新的 GitHub 通知。\n垃圾郵件：我未要求的明顯促銷或不需要的郵件。",
       aiSetupCustomTag: "自訂",
       aiSetupDone: "完成",
       aiSetupRunAgain: "重新執行設定",
@@ -557,8 +557,14 @@ const messages = {
       spamMode: "垃圾郵件",
       tagMode: "標籤",
       aiTagsTitle: "AI 標籤",
+      ruleHelpLabel: "說明{{mode}}規則",
+      aiTagRuleHelp: "以自然語言撰寫指示。符合條件的郵件會加上此標籤。",
+      importantRuleHelp: "以自然語言撰寫指示。符合條件的郵件會標記為重要。",
+      skipInboxRuleHelp:
+        "以自然語言撰寫指示。符合條件的郵件會封存並略過收件匣。",
+      spamRuleHelp:
+        "以自然語言撰寫指示。Jev 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
       filteredMode: "已篩選",
-      autoArchiveMode: "自動封存",
       manageSettings: "管理",
       askJev: "詢問 Jev",
       askJevPrompt:
@@ -609,7 +615,7 @@ const messages = {
       promptRulesCleared: "已移除分類規則。",
       tagTabsHelp: "每個標籤都會成為收件匣標籤頁",
       addTag: "新增標籤",
-      triageTitle: "分類",
+      triageTitle: "AI 分類",
       connectJev: "連接 Jev",
       connectJevToRunTriage: "連接 Jev 以執行分類",
       freeBuilderOrApiKey: "透過 Builder.io 免費使用，或新增 API 金鑰。",
@@ -789,7 +795,7 @@ const messages = {
     deleteSnippet: "刪除片段",
     deleteSnippetDescription: "刪除片段「{{name}}」？此操作無法復原。",
     automations: "自動化",
-    aiFilter: "分類",
+    aiFilter: "AI 分類",
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",

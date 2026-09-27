@@ -264,6 +264,16 @@ export default {
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
     eventRules: "Règles d’invitation",
+    eventRulesConnectJev:
+      "Connectez Jev pour appliquer les règles d’invitation",
+    eventRulesFreeBuilderOrApiKey:
+      "Gratuit avec Builder.io, ou ajoutez une clé API.",
+    eventRulesConnectBuilder: "Connecter Builder.io",
+    eventRulesAddJevApiKey: "Ajouter une clé API",
+    eventRulesTabRules: "Règles",
+    eventRulesHelpLabel: "À propos des consignes d’invitation",
+    eventRulesHelp:
+      "Écrivez des consignes pour indiquer à Jev quelles invitations accepter, refuser ou masquer.",
     eventRuleAccept: "Accepter automatiquement",
     eventRuleDecline: "Refuser automatiquement",
     eventRuleHide: "Masquer automatiquement",
@@ -274,6 +284,7 @@ export default {
     eventRulePlaceholderHide:
       "Exemple : masquer les plages de concentration et les rappels",
     eventRulesSave: "Enregistrer les règles",
+    eventRulesClearSaved: "Effacer les règles enregistrées",
     eventRulesRecentActivity: "Activité récente",
     eventRulesNoActivity: "Aucune activité pour le moment",
     eventRuleActivityAccepted: "Accepté",

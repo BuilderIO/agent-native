@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "जिन संदेशों का जवाब देना है या समय-सीमा है, उनमें GitHub पर लोगों की टिप्पणियाँ भी शामिल हैं। बॉट टिप्पणियाँ छोड़ें।",
       aiSetupArchiveSpamPrompt:
-        "अपने-आप संग्रह करें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
+        "इनबॉक्स छोड़ें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
       aiSetupCustomTag: "कस्टम",
       aiSetupDone: "हो गया",
       aiSetupRunAgain: "सेटअप फिर चलाएँ",
@@ -575,8 +575,16 @@ const messages = {
       spamMode: "स्पैम",
       tagMode: "टैग",
       aiTagsTitle: "AI टैग",
+      ruleHelpLabel: "{{mode}} नियम समझाएँ",
+      aiTagRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर यह टैग जोड़ता है।",
+      importantRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
+      skipInboxRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
+      spamRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
       filteredMode: "फ़िल्टर किए गए",
-      autoArchiveMode: "अपने आप संग्रहित करें",
       manageSettings: "प्रबंधित करें",
       askJev: "Jev से पूछें",
       askJevPrompt:
@@ -628,7 +636,7 @@ const messages = {
       promptRulesCleared: "ट्रायेज नियम हटाए गए।",
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
-      triageTitle: "ट्रायेज",
+      triageTitle: "AI ट्रायेज",
       connectJev: "Jev कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
@@ -817,7 +825,7 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
-    aiFilter: "ट्रायेज",
+    aiFilter: "AI ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",

@@ -77,7 +77,6 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
-  "onboarding.useOwnApiKeys": "내 API 키 사용",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
@@ -110,10 +109,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
   "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
+  "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
     "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
   "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
-  "onboarding.fileStorage.custom": "자체 객체 스토리지 키 추가",
+  "onboarding.fileStorage.custom": "사용자 지정 키 사용",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
