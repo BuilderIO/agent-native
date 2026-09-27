@@ -1447,7 +1447,7 @@ export function Layout({
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
     "list_apps",
     {},
-    { enabled: isChatRoute },
+    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
   const chatFirstWorkspaceApps = useMemo(
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
