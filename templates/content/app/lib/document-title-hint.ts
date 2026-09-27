@@ -4,13 +4,6 @@ import {
   type ContentLastLocationState,
 } from "@shared/content-landing";
 
-/**
- * A document title the landing flow already knows before the document body
- * loads. Sources, freshest first: the in-memory landing handoff (same page
- * load) and `content-last-location-v1` (persists across reloads). Consumers
- * only render a hint whose documentId matches the page being opened; anything
- * else keeps the existing skeleton so a wrong title is never guessed.
- */
 export type LandingTitleHint = {
   documentId: string;
   title: string;
@@ -58,12 +51,6 @@ function usableTitle(title: string | null | undefined): string | null {
   return typeof title === "string" && title.trim() ? title : null;
 }
 
-/**
- * Pick the optimistic title for one document. The landing stash wins because
- * it was confirmed by this page load's resolver; the persisted last location
- * follows; a seeded query-cache snapshot is last because its title may predate
- * the dedicated get-document response that must admit the editor anyway.
- */
 export function resolveOptimisticDocumentTitle(args: {
   documentId: string | null;
   stashed: LandingTitleHint | null;
@@ -84,12 +71,6 @@ export function resolveOptimisticDocumentTitle(args: {
   return usable(args.cachedTitle ?? null);
 }
 
-/**
- * The landing skeleton paints before any documentId is known, so it shows the
- * last location's title on its own. When the resolver restores a different
- * page (deleted page falls back to the welcome page), that hint disappears
- * with the navigation, bounded by the resolve round trip.
- */
 export function landingOptimisticTitle(
   stashed: LandingTitleHint | null,
   lastLocation: LandingTitleHint | null | undefined,

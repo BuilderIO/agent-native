@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
-
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockGetRequestRunContext = vi.fn(() => ({
@@ -44,14 +42,10 @@ let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
-// db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-// resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
-// directly, so its clause is distinguished by the accessFilter sentinel that
-// leads its `and(...)` conditions rather than by a subsequent chained call.
 const titleWhereFn = vi.fn(async () => titleQueryRows);
 const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
   const clauses = (condition as { and?: unknown[] } | undefined)?.and;
@@ -73,13 +67,11 @@ const fromFn = vi.fn((table: unknown) => ({
 }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-// db.insert().values(...)
 const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
   insertedRow = row;
 });
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
-// db.update().set(...).where(...)
 const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
@@ -169,6 +161,56 @@ beforeEach(() => {
   mockTrack.mockClear();
   mockGetUserEmail.mockReturnValue("owner@example.com");
   mockGetOrgId.mockReturnValue(null);
+});
+
+describe("create-deck — save boundary", () => {
+  it("refuses slides that carry rendered editor markup", async () => {
+    await expect(
+      action.run({
+        title: "T",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">Hi</p></div>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("lets a replacement keep a stored slide's markers but not add new ones", async () => {
+    const legacy =
+      '<div class="fmd-slide"><p data-builder-id="b-1">Legacy</p></div>';
+    existingDeckRow = {
+      id: "deck-existing",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "slide-1", content: legacy }],
+      }),
+    };
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [{ id: "slide-1", content: legacy.replace("Legacy", "Kept") }],
+      }),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [
+          {
+            id: "slide-1",
+            content: `${legacy}<p contenteditable="true">x</p>`,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
 });
 
 describe("create-deck — aspectRatio", () => {
@@ -648,7 +690,7 @@ describe("create-deck — generation lifecycle tracking", () => {
   );
 
   it("joins generation start and completion with one opaque attempt id", async () => {
-    await action.run({
+    const result = await action.run({
       title: "T",
       slides: [{ id: "s1", content: "<div>Slide</div>" }],
     });
@@ -665,6 +707,10 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(started?.properties.generation_attempt_id).toEqual(
       expect.any(String),
     );
+    expect(JSON.parse(insertedRow!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(result.id).toBe(completed?.properties.output_id);
     expect(started?.properties).not.toHaveProperty("title");
     expect(started?.properties).not.toHaveProperty("prompt");
     expect(completed?.properties).toMatchObject({
@@ -672,6 +718,37 @@ describe("create-deck — generation lifecycle tracking", () => {
       slide_count: 1,
       duration_ms: expect.any(Number),
     });
+  });
+
+  it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+      deckId: "deck-1",
+    });
+
+    const started = trackedEvents().find(
+      (event) => event.name === "generation_started",
+    );
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(started?.properties.generation_attempt_id).not.toBe(
+      "previous-attempt",
+    );
   });
 
   it.each(["new deck", "replacement deck"] as const)(

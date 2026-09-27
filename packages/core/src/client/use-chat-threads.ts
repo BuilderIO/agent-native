@@ -7,11 +7,8 @@ export interface ChatThreadScope {
   type: string;
   id: string;
   label?: string;
-  /** Composer context key used by ambient resource context adapters. */
   contextKey?: string;
-  /** Bounded, transient context for the current resource view. */
   context?: string;
-  /** Changes when the current resource target changes, including selection. */
   contextVersion?: string;
 }
 
@@ -75,25 +72,11 @@ interface ForkSnapshotWithScope extends ChatThreadSnapshot {
 }
 
 export interface UseChatThreadsOptions {
-  /** Create an optimistic empty thread on mount when no active thread exists. */
   autoCreate?: boolean;
-  /** Restore the active thread from localStorage. Defaults to true. */
   restoreActiveThread?: boolean;
-  /** Browser tab id used to isolate the active chat pointer from other tabs. */
   browserTabId?: string;
-  /**
-   * Route-owned active thread. `undefined` preserves the legacy localStorage
-   * source of truth; a string opens that thread; `null` means the URL is in
-   * create/new-chat mode.
-   */
   routeThreadId?: string | null;
-  /** Include connected and other-app chats in list/search results. */
   includeExternal?: boolean;
-  /**
-   * Restrict history to the supplied scope. App-owned chat rails use this to
-   * keep one app's conversations out of another app's history; ordinary
-   * resource scopes intentionally continue to show general chats.
-   */
   isolateHistoryByScope?: boolean;
 }
 
@@ -160,11 +143,6 @@ async function fetchThreadListPage(
   );
 }
 
-/**
- * Look up one thread the list page did not carry. Distinguishes the three states
- * the caller must not collapse: the thread (found), `null` (the server denies it
- * exists), and `undefined` (unreachable — nothing was learned).
- */
 async function fetchThreadById(
   apiUrl: string,
   id: string,
@@ -327,10 +305,6 @@ export function useChatThreads(
     : null;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
-  // Each (storageKey, scope) pair gets its own active-thread localStorage key
-  // for chats that belong to a resource. General chats keep using the unscoped
-  // key even while the user is looking at a resource, so clicking into a deck,
-  // design, form, etc. doesn't make a global conversation vanish.
   const activeThreadKey = useMemo(() => {
     return activeThreadStorageKey(storageKey, scope, browserTabId);
   }, [browserTabId, storageKey, scope?.type, scope?.id]);
@@ -338,12 +312,6 @@ export function useChatThreads(
     () => activeThreadStorageKey(storageKey, scope),
     [storageKey, scope?.type, scope?.id],
   );
-  // Companion key recording when the saved active thread was last live in
-  // this client. A revived orphan tab (id in localStorage but not on the
-  // server and not created this session) must keep its real last-seen time
-  // so the 12h stale-tab cleanup can age it out — stamping it `Date.now()`
-  // on every mount (the old behaviour) reset the clock forever, so
-  // abandoned empty tabs never got pruned.
   const activeThreadSeenKey = useMemo(
     () => activeThreadSeenStorageKey(activeThreadKey),
     [activeThreadKey],
@@ -383,9 +351,6 @@ export function useChatThreads(
           id = null;
         }
       }
-      // Route-owned create mode still needs a local target immediately. The
-      // URL owns which server thread is open, but an empty new chat is not a
-      // server row yet and must not wait for the thread-list request to paint.
       if (!id && autoCreate) {
         id = createLocalThreadId();
         isNew = true;
@@ -405,10 +370,6 @@ export function useChatThreads(
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
-  // IDs we generated client-side this session — consumers use this to know
-  // whether to skip the per-thread restore skeleton, and we use it to
-  // protect the optimistic-only thread from being yanked out of local
-  // state when the server's threads list (which never sees it) loads.
   const newlyCreatedRef = useRef<Set<string>>(
     initialActiveThreadRef.current.isNew && initialActiveThreadRef.current.id
       ? new Set([initialActiveThreadRef.current.id])
@@ -458,10 +419,6 @@ export function useChatThreads(
     };
   }, []);
 
-  // Latest scope as a ref so `createThread` (a useCallback that we don't
-  // want to depend on scope identity) reads the current value at call
-  // time. The scope a new chat inherits is the one in effect when the +
-  // button is clicked, not when the hook first mounted.
   const scopeRef = useRef<ChatThreadScope | null | undefined>(scope);
   scopeRef.current = scope;
 
@@ -480,24 +437,8 @@ export function useChatThreads(
     [],
   );
 
-  // Add a client-generated thread to the local list optimistically.
-  //
-  // Critically, this does NOT `POST /threads` to the server — that path was
-  // creating an empty row in `chat_threads` (message_count=0, no
-  // agent_runs) on every page mount and every "+" click. The server
-  // already creates the row idempotently the moment the user actually
-  // sends their first message (`persistSubmittedUserMessage` →
-  // `createThread`), so the client doesn't need to pre-create it. This
-  // makes the threads table reflect real conversations only.
   const addOptimisticThread = useCallback(
-    (
-      id: string,
-      threadScope: ChatThreadScope | null,
-      // When reviving a tab the user left open in a prior session, pass the
-      // persisted last-seen time so the 12h stale-tab cleanup can still age
-      // it out. Omit for genuinely new tabs (defaults to now).
-      seedAt?: number,
-    ) => {
+    (id: string, threadScope: ChatThreadScope | null, seedAt?: number) => {
       const stamp =
         typeof seedAt === "number" && Number.isFinite(seedAt)
           ? seedAt
@@ -519,10 +460,6 @@ export function useChatThreads(
     [],
   );
 
-  // Seed the active thread synchronously so the chat shell can paint
-  // immediately. This may restore the saved id or create a local-only fresh id,
-  // depending on options. Creating a local id is safe: no row is POSTed here,
-  // so empty page loads do not create ghost `chat_threads` rows.
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     initialActiveThreadRef.current.id,
   );
@@ -582,13 +519,6 @@ export function useChatThreads(
       const currentId = activeThreadIdRef.current;
       if (currentId) {
         const currentThreadScope = readKnownThreadScope(currentId);
-        // Thread metadata not yet loaded from the server — we can't tell
-        // whether the visible chat is general (stays) or scoped-elsewhere
-        // (swaps). Defer until `threads` resolves and this effect re-runs;
-        // we intentionally do NOT update `persistedKeyRef` so the next
-        // render gets another shot. Without this guard, navigating into a
-        // resource before `GET /threads` resolves silently dropped the
-        // active general chat the user was just in.
         if (currentThreadScope === undefined) {
           return;
         }
@@ -714,16 +644,6 @@ export function useChatThreads(
           : loaded;
         setThreads((prev) => {
           const loadedIds = new Set(visibleLoaded.map((t) => t.id));
-          // Preserve any optimistic threads we've created this session that
-          // haven't shown up in the server list yet — the server only learns
-          // about a thread when the user actually sends a message and the
-          // agent run's `persistSubmittedUserMessage` writes the row.
-          //
-          // Archived threads are excluded here too: the server list omits
-          // archived threads by default, so a thread we archived this same
-          // session would otherwise look identical to a not-yet-synced
-          // optimistic thread (created this session, missing from `loaded`)
-          // and get preserved forever instead of disappearing once archived.
           const optimisticOnly = prev.filter(
             (t) =>
               newlyCreatedRef.current.has(t.id) &&
@@ -736,11 +656,6 @@ export function useChatThreads(
                   isolateHistory,
                 )),
           );
-          // Reconcile each server thread against our local copy. If the local
-          // copy has a newer updatedAt or higher messageCount, keep those
-          // fields — the server probably hasn't observed the user's latest
-          // send yet, and naively replacing makes the recent-chats list
-          // visibly jump back to older timestamps right after a send.
           const merged = visibleLoaded.map((server) => {
             const local = prev.find((t) => t.id === server.id);
             if (!local) return server;
@@ -763,12 +678,6 @@ export function useChatThreads(
               if (local.preview) next.preview = local.preview;
               if (local.title) next.title = local.title;
             }
-            // Preserve optimistic scope: when the server creates the row
-            // on first message it does so without scope, and the next PUT
-            // (saveThreadData) writes the local scope back. In the brief
-            // window between those, the server list returns scope: null
-            // while the user is clearly working inside a deck — keep the
-            // local value so the tab bar doesn't blink unscoped.
             if (local.scope && !server.scope) {
               next.scope = local.scope;
             }
@@ -835,22 +744,6 @@ export function useChatThreads(
     }
   }, [fetchThreads, hasMoreThreads, isLoadingMoreThreads]);
 
-  // Initial load: load threads from server, then reconcile against the
-  // saved active thread.
-  //
-  // - savedId in loadedThreads → keep it (user's last conversation).
-  // - savedId in newlyCreatedRef (we just created it this session) → keep
-  //   it; the server hasn't seen it yet because there's no POST anymore,
-  //   the row gets written when the user sends a message.
-  // - savedId is set but not on the current page → look it up directly. A
-  //   found thread stays active. An unavailable lookup keeps the saved id for
-  //   list-only readers and explicit routes, while a normal home surface drops
-  //   a dead local pointer instead of opening with a restore error.
-  // - No savedId → synthesize a fresh local id (no POST; server creates the
-  //   row on first message). The server may contain chats from another
-  //   branch, preview, or project that shares the same user/database, so
-  //   auto-opening the latest server thread here leaks unrelated context into
-  //   a fresh surface. Existing threads remain available in History.
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
@@ -859,10 +752,6 @@ export function useChatThreads(
       const loadedThreads = await fetchThreads();
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
-        // Keep the saved id intact for retry/history, but tell the owning
-        // surface to replace the visible tab. A failed list request cannot
-        // prove that the saved thread is gone; it only proves that this mount
-        // cannot safely restore it.
         if (
           restoredId &&
           autoCreate &&
@@ -875,8 +764,6 @@ export function useChatThreads(
         return;
       }
       setRestoredThreadIdOnListFailure(null);
-      // Exempts route-owned threads (the URL names what the user asked for) and
-      // ids this client generated, which have never reached the server.
       const lookupRestored = Boolean(
         restoredId &&
         !routeControlsActiveThread &&
@@ -886,8 +773,6 @@ export function useChatThreads(
       const restoredOnPage = restoredId
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
-      // One page, so absence from it is not absence from the server — this is what
-      // separates an older real thread from an unavailable saved id below.
       const restoredThread =
         lookupRestored && !restoredOnPage
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
@@ -902,8 +787,6 @@ export function useChatThreads(
         newlyCreatedRef.current.delete(restoredThread.id);
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
-        // Lookup unreachable. Reclassifying now would stamp this thread with the
-        // current scope on a guess; leave it untouched for the next mount.
         setIsLoading(false);
         return;
       }
@@ -917,10 +800,6 @@ export function useChatThreads(
           isolateHistory,
         ),
       );
-      // A missing saved id is stale local UI state on a normal home surface,
-      // not a reason to show an error above a fresh composer. Preserve it for
-      // explicit routes and list-only readers, where the caller still owns
-      // recovery for a deliberately selected thread.
       const restoredNeedsReplacement =
         restoredBelongsElsewhere ||
         (restoredIsUnavailable && autoCreate && !routeControlsActiveThread);
@@ -942,9 +821,6 @@ export function useChatThreads(
       ) {
         addOptimisticThread(savedId, scopeRef.current ?? null);
       } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
-        // A deep link may point to a thread that is not in the current list
-        // response. Keep it route-owned so AssistantChat can restore it via
-        // /threads/:id instead of reclassifying it as a new empty tab.
         setActiveThreadId(savedId);
       } else if (
         savedId &&
@@ -952,15 +828,7 @@ export function useChatThreads(
         !loadedHasSavedId &&
         !restoredIsUnavailable
       ) {
-        // The tab the user left open isn't a server thread and we didn't
-        // create it this session (newlyCreatedRef was wiped by the
-        // reload). Treat it as the empty tab it is — keep its id and
-        // surface it as an optimistic thread so the tab bar restores it
-        // verbatim instead of yanking in the most-recent old chat.
         newlyCreatedRef.current.add(savedId);
-        // Seed from the persisted last-seen time (not now) so a tab the
-        // user abandoned >12h ago is correctly recognized as stale and
-        // pruned by the downstream cleanup instead of living forever.
         let seenAt =
           initialActiveThreadRef.current?.id === savedId
             ? initialActiveThreadRef.current.seenAt
@@ -978,8 +846,6 @@ export function useChatThreads(
         // activeThreadId already === savedId from the localStorage
         // initializer; nothing else to set.
       } else if (!savedId && autoCreate) {
-        // Brand new surface — synthesize a local id so the composer has a
-        // target. No POST: the server creates the row on first send.
         const id = createLocalThreadId();
         newlyCreatedRef.current.add(id);
         markClientDraftThread(id);
@@ -1001,10 +867,6 @@ export function useChatThreads(
 
   const createThread = useCallback(
     (preferredId?: string): Promise<string | null> => {
-      // Generate ID client-side for instant UI response. No POST — the
-      // server creates the row when the user actually sends a message,
-      // which prevents accumulation of empty thread rows when the user
-      // clicks "+" but never chats.
       const id = preferredId || createLocalThreadId();
       newlyCreatedRef.current.add(id);
       markClientDraftThread(id);
@@ -1052,10 +914,6 @@ export function useChatThreads(
     routeThreadId,
   ]);
 
-  // Drop a thread's scope so it becomes a general (cross-resource) chat.
-  // This is the "Detach from <deck>" escape hatch in the UI. The PUT
-  // also bumps the thread's updatedAt so it surfaces in the All Chats
-  // list right away.
   const detachThread = useCallback(
     async (threadId: string): Promise<void> => {
       try {
@@ -1071,8 +929,6 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
-          // Server rejected the detach (403/404/500) — resync from the
-          // server instead of applying a scope change that didn't happen.
           await fetchThreads();
           return;
         }
@@ -1350,10 +1206,6 @@ export function useChatThreads(
       optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => prev.filter((t) => t.id !== id));
       if (id === activeThreadIdRef.current) {
-        // Switch to the next available thread, or create a new one if the
-        // list is now empty. Computed outside the setThreads updater so the
-        // updater stays pure (StrictMode double-invokes updaters, which would
-        // otherwise create duplicate optimistic threads on the empty branch).
         const remaining = threadsRef.current.filter((t) => t.id !== id);
         if (remaining.length > 0) {
           setActiveThreadId(remaining[0].id);
@@ -1405,9 +1257,6 @@ export function useChatThreads(
             },
           );
         let response = await putThread();
-        // A passive realtime-voice transcript can be the first content in a
-        // client-created thread, so no agent run has created its SQL row yet.
-        // Materialize that row idempotently and retry the same full save.
         if (response.status === 404) {
           const created = await fetch(
             withChatThreadScope(`${apiUrl}/threads`, historyScope),
@@ -1441,10 +1290,6 @@ export function useChatThreads(
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
         emitThreadsUpdated();
-        // Update local thread list metadata. If the thread isn't in our
-        // local list yet (an optimistic-only thread that the server just
-        // created via persistSubmittedUserMessage), add it so HistoryPopover
-        // can show it once it has messages.
         setThreads((prev) => {
           const exists = prev.some((t) => t.id === id);
           if (exists) {
@@ -1505,7 +1350,6 @@ export function useChatThreads(
         const title = data.title;
         if (!title) return null;
         if (userRenamedThreadIdsRef.current.has(threadId)) return null;
-        // Update the title in local state
         setThreads((prev) =>
           prev.map((t) => (t.id === threadId ? { ...t, title } : t)),
         );
@@ -1592,8 +1436,6 @@ export function useChatThreads(
         );
         let thread: ChatThreadSummary | null = null;
         if (!res.ok) {
-          // Surface failures so a click on the Fork button isn't a silent
-          // no-op when the source thread can't be found or auth has lapsed.
           console.error(
             `[chat] fork failed for ${sourceId}: ${res.status} ${res.statusText}`,
           );
@@ -1604,8 +1446,6 @@ export function useChatThreads(
         } else {
           thread = await res.json();
         }
-        // thread is non-null: the null branch returned early above (line 935)
-        // and the else branch always assigns it.
         const t = thread!;
         setThreads((prev) => [
           {

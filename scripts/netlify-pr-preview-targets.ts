@@ -17,8 +17,6 @@ type PackageJson = {
 
 type WorkspacePackage = { dir: string; pkg: PackageJson };
 
-// Keep previews aligned with the first-party apps rendered by the docs /apps
-// page. Internal and hidden templates must not get public PR preview URLs.
 const docsAppSites = new Set([
   "analytics",
   "assets",
@@ -64,16 +62,11 @@ function withDocsSite(sites: string[], repoRoot: string): string[] {
   return [...sites, docsSite];
 }
 
-// Only these two workflows (and whatever they call) build/deploy previews;
-// other workflow files under .github/ don't affect the preview matrix.
 const sharedWorkflowFiles = new Set([
   ".github/workflows/deploy-netlify-pr-previews.yml",
   ".github/workflows/deploy-netlify-prebuilt.yml",
 ]);
 
-// The scripts the two workflows above actually `node`/`import` (grepped from
-// them directly) plus this file. A change to any other script doesn't touch
-// the preview build/deploy path.
 const sharedScriptFiles = new Set([
   "scripts/netlify-pr-preview-targets.ts",
   "scripts/cleanup-netlify-pr-previews.ts",
@@ -89,9 +82,6 @@ const sharedScriptFiles = new Set([
   "scripts/check-production-cache-contract.mjs",
 ]);
 
-// A change under one of these package dirs only affects sites whose
-// package.json transitively depends on that package (see
-// `sitesDependingOnPackageDir`), not every site.
 const sharedPackageDirs = [
   "packages/core/",
   "packages/creative-context/",
@@ -116,15 +106,9 @@ function packageDirsUnder(parentDir: string, repoRoot: string): string[] {
     .filter((dir) => existsSync(path.join(repoRoot, dir, "package.json")));
 }
 
-// Ports the same dependency-graph algorithm
-// cancel-stale-netlify-main-deploys.yml uses, as pure functions reading
-// package.json directly (no shelling out to pnpm).
 export function workspacePackages(
   repoRoot: string,
 ): Map<string, WorkspacePackage> {
-  // A partial checkout (e.g. a sparse-checkout missing both manifest roots)
-  // must not silently compute a fan-out of zero packages/sites — that reads
-  // as "no site depends on this change" instead of "the checkout can't tell".
   if (
     !existsSync(path.join(repoRoot, "packages")) &&
     !existsSync(path.join(repoRoot, "templates")) &&
@@ -187,9 +171,6 @@ function templateDirForSite(site: string): string {
   return site === "starter" ? "chat" : site;
 }
 
-// Which app sites (and whether the docs site) transitively depend on the
-// package that lives in `packageDir` (a `sharedPackageDirs` entry, no
-// trailing slash).
 function sitesDependingOnPackageDir(
   packages: Map<string, WorkspacePackage>,
   sites: readonly string[],
@@ -261,12 +242,8 @@ export function previewSitesForChangedPaths(
       file.startsWith("e2e/") ||
       file.startsWith("scripts/")
     ) {
-      // Not part of the preview build/deploy path (see sharedWorkflowFiles /
-      // sharedScriptFiles above) — previews don't run e2e at all.
       continue;
     }
-    // These are normal workspace packages for local cloning/customization,
-    // not public sites with beta/production inventory entries.
     if (file.startsWith("community-templates/")) continue;
     const sharedPackageDir = sharedPackageDirs.find((prefix) =>
       file.startsWith(prefix),

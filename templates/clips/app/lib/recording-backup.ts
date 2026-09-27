@@ -1,16 +1,3 @@
-/**
- * Local IndexedDB mirror of the raw chunks a web recording captures, so a
- * failed or stalled upload can be retried from the library without
- * re-recording. This is the browser-tab equivalent of the desktop app's
- * "pending recording upload" backup — same idea (mirror every raw
- * `MediaRecorder` blob as it's produced, keep it until the upload succeeds),
- * scoped to a plain browser tab instead of a Tauri webview.
- *
- * Retry can only work in the browser/profile that made the recording:
- * IndexedDB is per-origin, per-browser-profile storage. Callers must treat a
- * missing backup as "not retryable here", not as an error.
- */
-
 const DB_NAME = "clips-web-recording-backups";
 const DB_VERSION = 1;
 const META_STORE = "recordings";
@@ -164,7 +151,6 @@ export async function putRecordingBackupChunk(
   }
 }
 
-/** IndexedDB entries in recording order, with indexes retained for validation. */
 export async function getRecordingBackupChunks(
   recordingId: string,
 ): Promise<RecordingBackupChunk[]> {
@@ -226,7 +212,6 @@ export function isCompleteRecordingBackup(
   return bytes === meta.bytes;
 }
 
-/** Whether this browser holds a locally-recoverable backup for `recordingId`. */
 export async function hasRecordingBackup(
   recordingId: string,
 ): Promise<boolean> {

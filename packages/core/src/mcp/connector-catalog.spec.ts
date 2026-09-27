@@ -1,22 +1,5 @@
-/**
- * Connector-catalog tier tests.
- *
- * Verifies that when a template declares a `connectorCatalog`, the MCP server:
- *
- *   1. Only advertises the declared tools (+ builtin cross-app tools) in tools/list.
- *   2. Rejects tools/call for any tool NOT in the catalog.
- *   3. Serves the full surface when the caller opted up with catalog_scope: "full"
- *      (both A2A JWT and OAuth token paths).
- *   4. Applies the connector catalog without requiring an env flag.
- *   5. ask-agent is excluded from the connector tier.
- */
-
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Mocks (same pattern as server.spec.ts)
-// ---------------------------------------------------------------------------
 
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
@@ -118,10 +101,6 @@ vi.mock("./oauth-store.js", () => ({
 const { handleMcpRequest } = await import("./server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const A2A_SECRET = "connector-catalog-a2a-secret";
 const OAUTH_SECRET = "connector-catalog-oauth-secret";
 
@@ -204,14 +183,8 @@ async function call(
   return JSON.parse(text);
 }
 
-// ---------------------------------------------------------------------------
-// Test configuration
-// ---------------------------------------------------------------------------
-
-/** Catalog declared by the template — covers the "included" tools only. */
 const CONNECTOR_CATALOG = ["create-plan", "get-plan", "navigate"];
 
-/** Full action surface (includes excluded tools). */
 const fullActions: Record<string, unknown> = {
   "create-plan": {
     tool: { description: "Create a plan" },
@@ -258,7 +231,6 @@ const fullActions: Record<string, unknown> = {
     },
     run: async () => ({ ok: true }),
   },
-  // Tools that should be excluded from the connector tier:
   "db-exec": {
     tool: { description: "Execute SQL" },
     run: async () => ({ ok: true }),
@@ -284,7 +256,6 @@ const connectorConfig = {
   connectorCatalog: CONNECTOR_CATALOG,
 };
 
-// h3 mock (same as server.spec.ts)
 vi.mock("h3", () => ({
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
@@ -330,10 +301,6 @@ vi.mock("../mcp/oauth-route.js", () => ({
   buildMcpOAuthChallenge: () => 'Bearer realm="plan"',
 }));
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("connector-catalog tier", () => {
   beforeEach(() => {
     process.env.A2A_SECRET = A2A_SECRET;
@@ -366,21 +333,17 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name);
 
-      // Catalog tools are present
       expect(names).toContain("create-plan");
       expect(names).toContain("get-plan");
       expect(names).toContain("navigate");
 
-      // Builtin cross-app tools are always included
       expect(names).toContain("list_apps");
       expect(names).toContain("open_app");
 
-      // Excluded tools are absent
       expect(names).not.toContain("db-exec");
       expect(names).not.toContain("seed-kitchen-sink");
       expect(names).not.toContain("manage-extensions");
 
-      // ask-agent is excluded from connector tier
       expect(names).not.toContain("ask-agent");
     });
 
@@ -392,11 +355,6 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name).sort();
 
-      // The exact set: catalog tools + the 5 core builtin cross-app tools.
-      // create_workspace_app and list_templates are NOT in COMPACT_MCP_APP_CATALOG_BUILTINS
-      // so they are excluded unless explicitly listed in the connectorCatalog
-      // or marked as authenticated reads through the auto policy. Only the 5
-      // core cross-app builtins are always included.
       const expected = [
         ...CONNECTOR_CATALOG,
         "list_apps",
@@ -410,11 +368,6 @@ describe("connector-catalog tier", () => {
     });
 
     it("serves the connector catalog with NO env flag set (AGENT_NATIVE_CONNECTOR_CATALOG deleted)", async () => {
-      // Regression guard: the connector-catalog tier is now driven purely by a
-      // declared `connectorCatalog` — it must NOT depend on the legacy
-      // `AGENT_NATIVE_CONNECTOR_CATALOG=1` env flag (which build-server.ts no
-      // longer reads). The suite's beforeEach sets it to "1"; delete it here so
-      // this test proves the tier still activates without it.
       delete process.env.AGENT_NATIVE_CONNECTOR_CATALOG;
 
       const token = await signA2AToken("alice@example.com");
@@ -424,8 +377,6 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name);
 
-      // Advertised tools equal the declared connector allow-list + the core
-      // builtin cross-app tools — and nothing else.
       expect([...names].sort()).toEqual(
         [
           ...CONNECTOR_CATALOG,
@@ -437,12 +388,10 @@ describe("connector-catalog tier", () => {
         ].sort(),
       );
 
-      // Every declared catalog tool is present.
       for (const tool of CONNECTOR_CATALOG) {
         expect(names).toContain(tool);
       }
 
-      // Excluded / non-catalog tools are NOT advertised even without the flag.
       expect(names).not.toContain("db-exec");
       expect(names).not.toContain("seed-kitchen-sink");
       expect(names).not.toContain("manage-extensions");
@@ -452,8 +401,6 @@ describe("connector-catalog tier", () => {
 
   describe("keyToolNames — filtered to the served surface", () => {
     it("names only tools this tier actually serves, dropping the rest", async () => {
-      // "db-exec" is a real action (see fullActions) but the connector tier
-      // excludes it; "get-plan" is in CONNECTOR_CATALOG and is served.
       const token = await signA2AToken("alice@example.com");
       const mcpConfig = {
         ...connectorConfig,
@@ -592,8 +539,6 @@ describe("connector-catalog tier", () => {
   });
 
   describe("action-declared `mcpTool`", () => {
-    /** Two actions the config catalog says nothing about: one opts itself in,
-     *  one opts itself out of the external surface entirely. */
     const declaringActions = {
       ...(fullActions as Record<string, any>),
       "share-plan-externally": {
@@ -641,8 +586,6 @@ describe("connector-catalog tier", () => {
       );
       const names: string[] = out.result.tools.map((t: any) => t.name);
       expect(names).toContain("share-plan-externally");
-      // The tier is real, not a fallback to "everything": the actions the
-      // config catalog used to carry are gone with it.
       expect(names).not.toContain("create-plan");
       expect(names).not.toContain("db-exec");
     });
@@ -815,8 +758,6 @@ describe("connector-catalog tier", () => {
     });
 
     it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
-      // The veto has to bite on the tier where `actions` IS the callable
-      // surface, or "hidden" would only mean "not listed".
       const token = await signA2AToken("alice@example.com", {
         catalog_scope: "full",
       });
@@ -854,9 +795,7 @@ describe("connector-catalog tier", () => {
       });
       const names: string[] = out.result.tools.map((t: any) => t.name);
 
-      // All catalog tools are present
       expect(names).toContain("create-plan");
-      // Excluded tools are also present (full catalog)
       expect(names).toContain("db-exec");
       expect(names).toContain("seed-kitchen-sink");
     });
@@ -874,7 +813,6 @@ describe("connector-catalog tier", () => {
       const out = await call(rpc, {
         headers: { authorization: `Bearer ${token}` },
       });
-      // Should succeed (not an "Unknown tool" error)
       expect(out.result?.content?.[0]?.text ?? "").not.toMatch(/Unknown tool/);
     });
   });
@@ -1106,12 +1044,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(names).not.toContain("public-write");
   });
 
-  // Hard-exclusion regression guard: even if a footgun action (generic
-  // SQL, template seed data, extension management, browser-session
-  // control, Context X-Ray) is ever mis-annotated with the full
-  // authenticated-read flag set — as db-query/db-schema briefly were —
-  // the AUTO derivation must still never advertise or call it. Explicit
-  // connectorCatalog entries remain a deliberate, unaffected app choice.
   describe("AUTO authenticated-read hard exclusions", () => {
     const excludedButFullyAnnotatedActions: Record<string, unknown> = {
       "db-query": {
@@ -1219,9 +1151,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
   });
 
   describe('app catalog tier (`mcp: { catalog: "app" }`)', () => {
-    /** Same app, plus the `tool-search` action the plugin attaches to every
-     *  registry — the flat surface must drop it rather than list a discovery
-     *  tool alongside the tools it would discover. */
     const appCatalogConfig = {
       ...connectorConfig,
       catalogMode: "app" as const,
@@ -1255,14 +1184,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
 
       expect(out.error).toBeUndefined();
       const names = out.result.tools.map((t: any) => t.name).sort();
-      // Exactly the app registry: every action, and nothing the MCP layer
-      // adds on its own — no builtins, no tool-search, no ask-agent.
       expect(names).toEqual(Object.keys(fullActions).sort());
     });
 
     it("ignores the declared connectorCatalog and makes excluded tools callable", async () => {
-      // `connectorConfig` declares a 3-name catalog; `catalogMode: "app"` must
-      // win. db-exec is the tool the connector tier deliberately withholds.
       const token = await signA2AToken("alice@example.com");
       const out = await call(
         {
@@ -1282,8 +1207,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     });
 
     it("still honors externalAgents.denyActions", async () => {
-      // denyActions is an explicit removal by the app, not catalog tiering,
-      // so parity with the in-app agent must not resurrect a denied name.
       const denyConfig = {
         ...appCatalogConfig,
         externalAgents: { denyActions: ["db-exec"] },
@@ -1346,9 +1269,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         },
       },
       readOnly: true,
-      // Deliberately answers with a name that is NOT in the connector catalog.
-      // If the MCP layer serves this entry unscoped, the caller is handed a
-      // name that `tools/call` then rejects.
       run: async () => ({ results: [{ name: "db-exec" }] }),
     };
     const withToolSearch = {
@@ -1376,8 +1296,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       expect(out.error).toBeUndefined();
       expect(out.result.isError).toBeFalsy();
       const text = JSON.stringify(out.result.content);
-      // The template entry's own `run` would have returned db-exec. The scoped
-      // replacement searches the advertised set, which excludes it.
       expect(text).not.toContain("db-exec");
       expect(text).toContain("create-plan");
     });
@@ -1404,8 +1322,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
           },
         ],
       ] as const) {
-        // The second config reaches the flat surface through the explicit
-        // full-catalog opt-in rather than catalogMode.
         if (id === 52) process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
 
         const listed = await call(
@@ -1435,12 +1351,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
 });
 
 describe("external-agent exposure — endsTurn without mcpTool", () => {
-  // Covers the gap between the pure resolver (action.spec.ts:
-  // "resolves external exposure from mcpTool, falling back to agentTool") and
-  // the served MCP surface: an in-app question form (`endsTurn: true`) must
-  // stay off tools/list and tools/call even when a template explicitly lists
-  // it in `connectorCatalog` — the resolver decision is enforced upstream of
-  // catalog membership, not merely advisory.
   beforeEach(() => {
     process.env.A2A_SECRET = A2A_SECRET;
     delete process.env.ACCESS_TOKEN;

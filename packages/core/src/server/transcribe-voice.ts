@@ -53,42 +53,14 @@ const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI audio upload hard limit.
-// Hard cap for the dictation-cleanup text path (`sanitizeTranscriptText`
-// below). This endpoint has no `task` field — it's always the Hold-Fn
-// dictation cleanup pass — but a long session (many minutes across
-// multiple pause-triggered final segments) can still exceed a tight cap.
-// 150k gives real headroom for a long dictation session while still
-// bounding worst-case request size; truncation (when it does happen) keeps
-// both ends of the text instead of silently dropping the tail.
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 150_000;
-// Public Builder transcription model id. The Builder gateway maps this to
-// Gemini 3.1 Flash-Lite.
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
 
-// Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
-// Gemini accepts inline audio; we just give it the bytes and a "transcribe
-// this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
-// per Google's release notes, and noticeably snappier than the Whisper
-// round-trip even on a fast connection.
-// Keep the direct Google AI path on a stable public model id; Builder's
-// managed provider above handles the newer Gemini 3.1 Flash-Lite preview.
 const GEMINI_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-/**
- * Derive an AbortSignal that fires when the client disconnects mid-request
- * (e.g. the desktop client's own 8s ceiling firing before a provider call's
- * longer timeout). Without this, an abandoned client connection leaves the
- * server-side provider fetch running for its full timeout, burning provider
- * quota/cost on a response nobody will read. `req.on("close", ...)` fires on
- * abnormal/early disconnect in Node's http server; a stray fire after normal
- * completion is a harmless no-op since the response has already been sent.
- * Returns undefined if the underlying Node request isn't available (e.g. a
- * non-Node adapter), so callers fall back to their existing timeout-only
- * signal.
- */
 function clientDisconnectSignal(event: H3Event): AbortSignal | undefined {
   const req = event.node?.req as
     | (NodeJS.EventEmitter & { on?: (...args: any[]) => void })
@@ -99,8 +71,6 @@ function clientDisconnectSignal(event: H3Event): AbortSignal | undefined {
   return controller.signal;
 }
 
-/** Combine a provider call's own timeout signal with the request's optional
- * client-disconnect signal so either one aborts the upstream fetch. */
 function withClientAbort(
   timeoutSignal: AbortSignal,
   clientAbortSignal?: AbortSignal,
@@ -121,10 +91,6 @@ export function createTranscribeVoiceHandler() {
       return { error: "Cross-origin request rejected" };
     }
 
-    // One client-disconnect signal per request, threaded into every
-    // provider-fetch AbortController below via AbortSignal.any so a client
-    // giving up early aborts the same upstream fetch instead of leaving it
-    // running for its full timeout.
     const clientAbort = clientDisconnectSignal(event);
 
     const parts = await readMultipartFormData(event).catch(() => null);
@@ -167,11 +133,6 @@ export function createTranscribeVoiceHandler() {
     const applyVoiceContext = (value: string) =>
       applyVoiceContextReplacements(value, voiceContext).trim();
 
-    // Resolve provider preference. Per-request "provider" form field takes
-    // precedence (the desktop client sends it on every dictation press),
-    // falling back to the user's stored `voice-transcription-prefs` app
-    // state for the agent sidebar composer / web clients that don't send
-    // it explicitly.
     const session = await getSession(event).catch(() => null);
     if (!session?.email && process.env.NODE_ENV === "production") {
       setResponseStatus(event, 401);
@@ -195,14 +156,6 @@ export function createTranscribeVoiceHandler() {
     ) => withRequestContext(() => transcribeWithBuilder(opts));
     const sessionId = session?.email ?? "local";
     let providerPref: string | undefined;
-    // CRITICAL: presence of the "provider" form field is the explicit
-    // signal that the client is making a per-request choice. Even if
-    // the value is "auto" (→ undefined providerPref → fallback chain),
-    // we must NOT fall back to app-state's stored preference — the
-    // client just told us what it wants. Without this gate, a stale
-    // `voice-transcription-prefs.provider = "browser"` in app-state
-    // (from earlier testing) would override the client's "auto" and
-    // 400 with "Voice provider is set to browser".
     const providerPart = parts?.find((p) => p.name === "provider");
     let providerExplicit = false;
     if (providerPart?.data) {
@@ -236,10 +189,6 @@ export function createTranscribeVoiceHandler() {
       }
     }
 
-    // Respect explicit "browser" preference — user chose Web Speech API and
-    // does not want audio uploaded to any external provider. The client
-    // shouldn't hit this endpoint when "browser" is selected; this is a
-    // defense-in-depth refusal.
     if (providerPref === "browser" && !transcriptText) {
       setResponseStatus(event, 400);
       return {
@@ -248,8 +197,6 @@ export function createTranscribeVoiceHandler() {
       };
     }
 
-    // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
-    // path below can use it without duplicating logic.
     async function resolveApiKey(key: string): Promise<string | undefined> {
       return (await withRequestContext(() => resolveSecret(key))) ?? undefined;
     }
@@ -281,13 +228,6 @@ export function createTranscribeVoiceHandler() {
     );
 
     let builderError: string | null = null;
-
-    // ── Strict per-provider preferences ─────────────────────────────────
-    // When the user explicitly picks a single provider (gemini / builder /
-    // groq), we only try that provider and surface its error rather than
-    // silently falling through. "auto" / undefined keeps the existing
-    // fallback chain below. "openai" is handled by the chain (it skips
-    // earlier providers and lands on the Whisper path).
 
     if (providerPref === "gemini") {
       const geminiKey = await resolveApiKey("GEMINI_API_KEY");
@@ -387,11 +327,6 @@ export function createTranscribeVoiceHandler() {
       });
     }
 
-    // ── Auto / undefined / openai fallback chain ────────────────────────
-
-    // ── Builder Gemini Flash-Lite path ─────────────────────────────────
-    // First-priority in auto mode when Builder is connected. This lets users
-    // try Gemini 3.1 Flash-Lite without bringing their own Google key.
     if (providerPref !== "openai" && (await hasBuilderCredential())) {
       try {
         const result = await transcribeWithBuilderForRequest({
@@ -404,8 +339,6 @@ export function createTranscribeVoiceHandler() {
         return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
         const message = (err as Error)?.message ?? String(err);
-        // Surface 402 (credits exhausted) as a 402 so the client can show
-        // a specific upgrade prompt.
         if (message.includes("credits exhausted")) {
           setResponseStatus(event, 402);
           return { error: gatewayLaneUnavailableMessage(message) };
@@ -414,9 +347,6 @@ export function createTranscribeVoiceHandler() {
       }
     }
 
-    // ── Gemini Flash Lite BYOK path ────────────────────────────────────
-    // If Builder is unavailable, try a user-provided Gemini key before
-    // Whisper-compatible providers.
     if (providerPref !== "openai") {
       const geminiKey = await resolveApiKey("GEMINI_API_KEY");
       if (geminiKey) {
@@ -445,12 +375,6 @@ export function createTranscribeVoiceHandler() {
         }
       }
     }
-
-    // If Builder is unavailable, fall through to BYOK providers rather than
-    // hard-failing. This mirrors Clips' batch transcription path.
-
-    // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
-    // (resolveApiKey is hoisted above so the Gemini path can use it too.)
 
     let provider: {
       name: "groq" | "openai";
@@ -506,13 +430,6 @@ export function createTranscribeVoiceHandler() {
   });
 }
 
-/**
- * Posts the audio to an OpenAI-style transcription endpoint (Groq or OpenAI)
- * and returns `{ text }` / `{ error }` shaped like the
- * other branches in `createTranscribeVoiceHandler`. Hoisted so the
- * strict-Groq preference path and the auto fallback chain share one
- * implementation.
- */
 async function callWhisperCompat({
   event,
   provider,
@@ -946,10 +863,6 @@ function sanitizeTranscriptText(value: string): string | undefined {
   const trimmed = value.replace(/\0/g, "").trim();
   if (!trimmed) return undefined;
   if (trimmed.length <= MAX_TRANSCRIPT_CHARS) return trimmed;
-  // Truncate the middle rather than the tail — losing the end of a long
-  // dictation silently (previous behavior) is worse than losing the middle,
-  // since users notice a cut-off ending immediately but rarely proofread
-  // the entire cleaned output against the original.
   console.warn(
     `[transcribe-voice] transcript truncated: ${trimmed.length} chars exceeds ${MAX_TRANSCRIPT_CHARS} cap`,
   );
@@ -1007,17 +920,6 @@ function buildGeminiTranscriptionPrompt({
   return `${base} Output only the transcript text — no preamble, no quotes, no formatting.${custom}`;
 }
 
-/**
- * Transcribe audio via Gemini Flash Lite.
- *
- * Gemini accepts the audio inline as base64 alongside a text prompt; we
- * ask for just the transcript with no preamble. 30s timeout — Gemini is
- * fast and we'd rather fall through to Whisper than wait longer.
- *
- * Gemini's documented audio formats are WAV / MP3 / AIFF / AAC / OGG /
- * FLAC — webm/opus is not officially supported but in practice it
- * accepts webm too. If Gemini rejects it the caller falls through.
- */
 async function transcribeWithGemini({
   audioBytes,
   mimeType,
@@ -1059,8 +961,6 @@ async function transcribeWithGemini({
             ],
           },
         ],
-        // Keep generation tight — we want the transcript verbatim, no
-        // creative reinterpretation.
         generationConfig: { temperature: 0 },
       }),
       signal: withClientAbort(controller.signal, clientAbortSignal),
@@ -1085,8 +985,6 @@ async function transcribeWithGemini({
 }
 
 function normalizeAudioMimeForGemini(mime: string): string {
-  // Strip codec parameters — Gemini doesn't need them and some variants
-  // (e.g. "audio/webm;codecs=opus") are rejected as unknown.
   const lower = mime.toLowerCase().split(";")[0].trim();
   if (!lower) return "audio/webm";
   return lower;
@@ -1096,7 +994,6 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined") {
     return Buffer.from(bytes).toString("base64");
   }
-  // Fallback for non-Node runtimes — chunk to avoid stack overflow.
   let binary = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {

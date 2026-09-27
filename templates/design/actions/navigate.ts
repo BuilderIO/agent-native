@@ -1,33 +1,3 @@
-/**
- * Navigate the UI to a view.
- *
- * Writes a navigate command to application state which the UI reads and auto-deletes.
- *
- * Usage:
- *   pnpm action navigate --view=list
- *   pnpm action navigate --view=editor --designId=abc123
- *   pnpm action navigate --view=editor --designId=abc123 --editorView=overview
- *   pnpm action navigate --view=editor --designId=abc123 --filename=checkout.html
- *   pnpm action navigate --view=design-systems
- *   pnpm action navigate --view=templates
- *   pnpm action navigate --view=design-systems --designSystemId=abc123
- *   pnpm action navigate --view=settings
- *   pnpm action navigate --path=/some/route
- *
- * Options:
- *   --view       View name (list, editor, design-systems, present, settings)
- *   --designId   Design ID (for editor/present views)
- *   --editorView Editor mode for designs: single or overview
- *   --inspectorTab Inspector tab for designs: design, comments, or tweaks (extensions opens Tools for compatibility)
- *   --leftPanel  Left editor panel: file, agent, assets, import, tools, tokens, or code
- *   --fileId     Screen/file id to focus in the design editor
- *   --filename   Screen filename to focus in the design editor
- *   --tool       Design editor tool to activate
- *   --designSystemId Design system ID (for design-systems view)
- *   --templateId Saved or built-in template ID (for templates view)
- *   --path       URL path to navigate to
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";

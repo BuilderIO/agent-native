@@ -134,10 +134,6 @@ function DbSyncSetup() {
   return null;
 }
 
-/**
- * Reads ?thread=<id> from the URL on mount and opens that thread in the
- * full-page chat route.
- */
 function useThreadDeepLink() {
   const navigate = useNavigate();
   const handled = useRef(false);
@@ -181,12 +177,6 @@ function ThemeToggleItem() {
       {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
-}
-
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
 }
 
 function PrivateAppContent() {
@@ -269,13 +259,10 @@ function PrivateAppShell() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingHome}
         toaster={
           <Toaster
             richColors
@@ -285,9 +272,9 @@ export default function Root() {
             mobileOffset={{ bottom: 44, left: 16 }}
           />
         }
-        i18n={{ catalog: i18nCatalog, persistPreference: !isMarketingHome }}
+        i18n={{ catalog: i18nCatalog }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

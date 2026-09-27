@@ -12,6 +12,7 @@ vi.mock("./builder-browser.js", () => ({
 }));
 
 import {
+  getBuilderReferralInfo,
   getBuilderCreditUsage,
   getFusionDeploys,
   pushFusionBranch,
@@ -132,6 +133,68 @@ describe("Fusion Builder authorization", () => {
     expect(init?.headers).toMatchObject({
       Authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
     });
+  });
+
+  it("reads the Builder referral link and totals with the AI invoke scope", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          eligible: true,
+          inviteUrl: `https://builder.io/signup?fus_ref=${"a".repeat(32)}`,
+          creditsPerReferral: 200,
+          completedReferrals: 2,
+          pendingReferrals: 1,
+          creditsEarned: 400,
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getBuilderReferralInfo()).resolves.toMatchObject({
+      eligible: true,
+      creditsPerReferral: 200,
+      completedReferrals: 2,
+      pendingReferrals: 1,
+      creditsEarned: 400,
+    });
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:ai:invoke",
+    });
+    const [input, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(new URL(String(input)).pathname).toBe(
+      "/agent-native/credits/v1/referrals",
+    );
+    expect(init?.headers).toMatchObject({
+      Authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+    });
+  });
+
+  it("rejects invite URLs outside the canonical Builder signup route", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          eligible: true,
+          inviteUrl: `https://example.test/signup?fus_ref=${"a".repeat(32)}`,
+          creditsPerReferral: 200,
+          completedReferrals: 0,
+          pendingReferrals: 0,
+          creditsEarned: 0,
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getBuilderReferralInfo()).rejects.toThrow();
   });
 
   it("rejects an invalid credit balance instead of rendering a fake zero", async () => {

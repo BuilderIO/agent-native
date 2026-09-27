@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// fetchLibrary() runs the recordings query, the meetings subquery, and the
-// folders query off the same mock db, so from() tells them apart by a column
-// only that table has. Hoisted so the vi.mock factories below (which vitest
-// lifts above the imports) can read them.
 const TABLES = vi.hoisted(() => ({
   recordings: {
     id: "recordings.id",
@@ -30,19 +26,12 @@ const mockRecordingsWhere = vi.hoisted(() =>
 );
 const mockMeetingsWhere = vi.hoisted(() =>
   vi.fn((condition: unknown) => ({
-    // A drizzle query-builder chain, deliberately never awaited: notInArray()
-    // compiles it to `NOT IN (SELECT ...)`. `resolvedDb` marks which db
-    // instance it was built off.
     kind: "meetings-subquery",
     condition,
     resolvedDb: true,
   })),
 );
 
-/**
- * The real drizzle instance the lazy proxy resolves to. Chains replayed
- * through the proxy land here, and so does anything built off `await db`.
- */
 const makeRealDb = vi.hoisted(() => () => ({
   select: (_projection?: unknown) => ({
     from: (table: any) => {
@@ -55,14 +44,6 @@ const makeRealDb = vi.hoisted(() => () => ({
   }),
 }));
 
-/**
- * Mirrors createLazyProxy() in packages/core/src/db/create-get-db.ts: on a
- * cold-start request getDb() hands back a proxy that records the chain and
- * replays it once the driver finishes loading. Awaiting it with no chain
- * yields the real instance. Reading `getSQL`/`shouldOmitSQLParens` — which is
- * what drizzle does synchronously to duck-type an SQL entity — throws, because
- * an unresolved chain cannot answer that probe correctly.
- */
 const makeLazyProxy = vi.hoisted(
   () =>
     function makeLazyProxy(
@@ -108,9 +89,6 @@ const makeLazyProxy = vi.hoisted(
 
 const mockNotInArray = vi.hoisted(() =>
   vi.fn((column: unknown, values: unknown) => {
-    // drizzle-orm's isSQLWrapper() reads `.getSQL` off the value synchronously,
-    // without awaiting (drizzle-orm/sql/sql.js). Reproduce that probe so an
-    // unresolved chain fails here exactly as it does in production.
     const probed =
       values !== null && values !== undefined
         ? typeof (values as any).getSQL
@@ -154,8 +132,6 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  // Always the cold-start proxy — the state every first request after a
-  // serverless cold boot sees.
   getDb: () => makeLazyProxy(makeRealDb()),
   schema: {
     meetings: TABLES.meetings,
@@ -196,19 +172,11 @@ describe("view-screen library view on a cold start", () => {
   });
 
   it("builds the meeting-exclusion subquery off a resolved db, not the lazy proxy", async () => {
-    // Regression: fetchLibrary() used to build the meetings subquery straight
-    // off the `db` returned by getDb() and hand that still-unresolved chain to
-    // notInArray(). On a cold-start request getDb() returns the lazy proxy, and
-    // drizzle probes the embedded value with `.getSQL()` synchronously — which
-    // the proxy cannot answer. Awaiting `db` first resolves it to the real
-    // instance, so the chain handed to notInArray() is always a real one.
     await expect(action.run({})).resolves.toBeTypeOf("string");
 
     expect(mockNotInArray).toHaveBeenCalledTimes(1);
     const [column, values] = mockNotInArray.mock.calls[0]!;
     expect(column).toBe("recordings.id");
-    // "undefined" means the drizzle duck-type probe read the property without
-    // throwing; a lazy proxy throws on that read instead.
     expect((mockNotInArray.mock.results[0]!.value as any).probed).toBe(
       "undefined",
     );
@@ -216,16 +184,11 @@ describe("view-screen library view on a cold start", () => {
   });
 
   it("excludes meeting recordings database-side rather than materializing ids", async () => {
-    // The other direction: an earlier revision awaited the meeting rows into a
-    // plain string[] and bound every id as a query parameter. That grows with
-    // the whole meetings table and can hit PostgreSQL parameter limits, so the
-    // value must stay a query-builder chain.
     await action.run({});
 
     const [, values] = mockNotInArray.mock.calls[0]!;
     expect(Array.isArray(values)).toBe(false);
     expect((values as any).kind).toBe("meetings-subquery");
-    // NULL recordingIds are filtered in SQL, so NOT IN can't collapse to empty.
     expect((values as any).condition).toEqual({
       kind: "is-not-null",
       column: TABLES.meetings.recordingId,

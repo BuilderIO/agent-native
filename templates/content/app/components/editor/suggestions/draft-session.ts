@@ -6,6 +6,7 @@ import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting"
 
 import {
   draftSuggestionAnchors,
+  markdownSuggestionOperation,
   markdownSuggestionOperationsForEditorRevision,
 } from "./markdown-operation";
 
@@ -13,7 +14,6 @@ export function canonicalSuggestionRevision(
   document: { revision?: string; updatedAt: string },
   suggestion?: Pick<ResourceSuggestion, "baseRevision">,
 ): string {
-  // Keep an unchanged legacy proposal on its timestamp basis when reopening it.
   if (suggestion?.baseRevision === document.updatedAt)
     return document.updatedAt;
   return document.revision ?? document.updatedAt;
@@ -196,17 +196,11 @@ export function suggestionDraftOperations(
     replacements: session.replacementIntents ?? [],
   });
   if (!session.existingSuggestion || operations.length < 2) return operations;
-  // An amendment retains the saved proposal's single-operation identity.
-  return markdownSuggestionOperationsForEditorRevision({
-    before: session.baseContent,
-    after: draftContent,
-    replacements: [
-      {
-        from: operations[0]!.anchor.from,
-        to: operations[operations.length - 1]!.anchor.to,
-      },
-    ],
-  });
+  const amendment = markdownSuggestionOperation(
+    session.baseContent,
+    draftContent,
+  );
+  return amendment ? [amendment] : [];
 }
 
 export function recordSuggestionReplacementIntent(

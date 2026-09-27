@@ -1,13 +1,3 @@
-/**
- * Uptime monitor sweep. Mirrors server/jobs/analytics-alerts.ts: selects
- * monitors that are due (their interval elapsed since the last check), claims
- * each one atomically so parallel sweeps can't double-run it, probes it,
- * records the result, opens/resolves incidents + notifies, and prunes old
- * results so the history table stays bounded.
- *
- * Exported so a deployment-specific scheduled function (cron / Netlify
- * scheduled function) can drive it without relying on a long-lived process.
- */
 import {
   claimMonitorRun,
   evaluateAndNotifyMonitor,
@@ -41,11 +31,6 @@ export interface UptimeSweepResult {
   remaining: number;
 }
 
-/**
- * Run one uptime sweep. When `ownerEmail`/`orgId` are provided the sweep is
- * scoped to that user (used by the on-demand run-monitors action); otherwise
- * it runs across every owner (the background cron).
- */
 export async function runDueMonitorsOnce(
   options: {
     ownerEmail?: string;
@@ -76,8 +61,6 @@ export async function runDueMonitorsOnce(
         orgId: options.orgId,
       });
     } catch (err) {
-      // Schema not migrated yet or a transient DB error — don't let one bad
-      // sweep crash every interval firing. Log once per process.
       if (!listFailureLogged) {
         console.error(
           "[uptime-monitors] Failed to list due monitors; skipping this sweep:",
@@ -115,7 +98,6 @@ export async function runDueMonitorsOnce(
       }
     }
 
-    // Retention prune — best-effort, never fail the sweep over it.
     await pruneOldCheckResults().catch((err) =>
       console.error("[uptime-monitors] result prune failed:", err),
     );

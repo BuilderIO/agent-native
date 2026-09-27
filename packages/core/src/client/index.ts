@@ -75,6 +75,10 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
+  useLaunchDarklyFlag,
+  useLaunchDarklyFlags,
+} from "./launchdarkly/index.js";
+export {
   LabsSettings,
   useLab,
   useLabState,
@@ -130,6 +134,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackAnonymousEvent,
   trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,
@@ -149,7 +154,6 @@ export {
   getSessionReplayUrl,
   captureError,
   captureClientException,
-  // First-party, Sentry-style error capture (auto + manual API).
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
   addErrorBreadcrumb,
   captureException,

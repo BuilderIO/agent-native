@@ -26,7 +26,6 @@ export interface NavigationState {
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
   const location = useLocation();
-  // Capture extensions in a ref so the stable callbacks always read latest.
   const extensionsRef = useRef(extensions);
   extensionsRef.current = extensions;
 
@@ -114,10 +113,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // Iteratively strip basename. A path that arrives doubly-prefixed
-  // (e.g. "/dispatch/dispatch/overview", possibly from a stale link or a
-  // prior bug) would otherwise get partially stripped here and then
-  // re-prefixed by react-router's basename, restoring the bad URL.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (!result.startsWith(`${basePath}/`)) break;

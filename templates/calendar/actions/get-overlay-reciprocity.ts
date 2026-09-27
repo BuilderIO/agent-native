@@ -20,9 +20,6 @@ export default defineAction({
     const callerEmail = getRequestUserEmail();
     if (!callerEmail) throw new Error("no authenticated user");
 
-    // Always the caller's own overlay list — there is no booking link here, so
-    // no other owner identity is in play, and `getOverlayReciprocity` drops
-    // anything absent from that list.
     const requested = Array.from(
       new Set(
         args.emails

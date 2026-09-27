@@ -1,7 +1,7 @@
 import {
-  getAllSettings,
   getUserSetting,
   listOrgSettings,
+  listSettingsByPrefix,
 } from "@agent-native/core/settings";
 
 import { dashboardCatalogEntries } from "./dashboard-catalog";
@@ -19,6 +19,9 @@ import {
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;
 const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
+// ponytail: scan the 200 most recently updated summaries; a search-backed index is the upgrade path if larger workspaces need older references.
+const MAX_CATALOG_DASHBOARD_SUMMARIES = 200;
+const MAX_CATALOG_DICTIONARY_ENTRIES = 200;
 const RETIRED_CATALOG_STATES = new Set([
   "deprecated",
   "obsolete",
@@ -97,7 +100,6 @@ export type AnalyticsQueryCatalogCandidate =
       panelTitle: string;
       panelDescription?: string;
       source?: string;
-      /** Absent for extension/embed panels, which are matched on title and description. */
       query?: string | Record<string, unknown>;
       timeScope?: string;
       dashboardCertification?: DashboardCertification;
@@ -118,10 +120,28 @@ export type AnalyticsQueryCatalogCandidate =
       columnsUsed?: string;
       queryTemplate?: string;
       knownGotchas?: string;
+      commonQuestions?: string;
+      cuts?: string;
+      joinPattern?: string;
+      updateFrequency?: string;
+      dataLag?: string;
+      dependencies?: string;
+      validDateRange?: string;
+      owner?: string;
       approved?: boolean;
       aiGenerated?: boolean;
       sourceUrl?: string;
     };
+
+export type AnalyticsQueryCatalogSearchResult = {
+  candidates: AnalyticsQueryCatalogCandidate[];
+  searchedDashboardCount: number;
+  dashboardSearchTruncated: boolean;
+  dashboardSearchStatus: "available" | "unavailable";
+  searchedDictionaryEntryCount: number;
+  dictionarySearchTruncated: boolean;
+  dictionarySearchStatus: "available" | "partial" | "unavailable";
+};
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -197,8 +217,6 @@ function shortlistDashboardSummaries(
     .map(({ dashboard }) => dashboard);
 }
 
-// Analytics vocabulary the corpus spells out but users abbreviate (or vice versa).
-// Expansions match at reduced weight so they break ties without outranking a literal hit.
 const SYNONYM_EXPANSIONS: Record<string, string[]> = {
   account: ["company", "customer", "org"],
   active: ["engaged"],
@@ -224,10 +242,6 @@ const SYNONYM_EXPANSIONS: Record<string, string[]> = {
   wau: ["weekly", "active", "user"],
 };
 
-// Metric-shaped words that appear in a large share of titles and so discriminate
-// almost nothing on their own. Scored down rather than dropped: "error rate" must
-// still beat "rate", but four unrelated "... Rate" entries must not tie above the
-// panel that actually matches "error".
 const LOW_INFORMATION_TERMS = new Set([
   "average",
   "percent",
@@ -239,8 +253,6 @@ const LOW_INFORMATION_TERMS = new Set([
   "volume",
 ]);
 
-// Cheap plural folding. The corpus writes "Template"/"Deal" while users type
-// "templates"/"deals"; exact substring matching missed every one of those.
 function stem(token: string): string {
   if (token.length > 4 && token.endsWith("ies"))
     return `${token.slice(0, -3)}y`;
@@ -251,8 +263,6 @@ function stem(token: string): string {
   return token;
 }
 
-// Splits camelCase and snake_case so warehouse identifiers are searchable:
-// `dim_hs_deals` -> dim, hs, deal.
 function tokenize(value: string): string[] {
   return value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -285,7 +295,6 @@ function expandedTerms(primary: string[]): string[] {
   return [...expanded];
 }
 
-// SQL bodies run to 12k chars; scoring only needs the leading identifiers.
 const MAX_SCORED_FIELD_CHARS = 4_000;
 
 function matchScore(
@@ -347,11 +356,7 @@ function dashboardPanelCandidates(args: {
 
   return panels.flatMap((panel) => {
     if (isRetiredCatalogReference(panel)) return [];
-    // 38k of the ~39k indexed panels are clones of the demo Node Exporter dashboard.
-    // They drown real saved work and are never the answer to a real data question.
     if (!wantsDemo && text(panel.source) === "demo") return [];
-    // Panels without SQL (extensions, embeds) used to be dropped outright, which hid
-    // 61% of real dashboards from search even when their titles matched exactly.
     const query = compactQuery(panel.sql);
     const panelConfig =
       panel.config &&
@@ -368,8 +373,6 @@ function dashboardPanelCandidates(args: {
       { value: args.dashboardDescription, weight: 6 },
       { value: panel.source, weight: 5 },
       {
-        // Weighted 2 against a title's 24, this 12x discount hid every panel whose
-        // match lived only in its SQL — the majority of them.
         value: query
           ? typeof query === "string"
             ? query
@@ -378,18 +381,11 @@ function dashboardPanelCandidates(args: {
         weight: 8,
       },
     ]);
-    // Prefer the general panel over a narrower variant ("Signups" over "Clip Share
-    // Signups 30d"), but cap it: the original uncapped -12/token buried long,
-    // well-named panels under short vague ones.
     const requestedTerms = new Set(searchTerms(args.search));
     const unmatchedTitleTerms = searchTerms(panelTitle).filter(
       (term) => !requestedTerms.has(term),
     ).length;
     const titleSpecificityPenalty = Math.min(unmatchedTitleTerms, 4) * 4;
-    // A panel with no SQL costs the agent another call to become useful, so it must
-    // not outrank an equally-relevant runnable one. Waived when the title is clearly
-    // on-topic: real questions carry clause words no title contains, so requiring
-    // full coverage here never fires and buries exact-topic panels.
     const titleMatchedTerms = matchScore(args.search, [
       { value: panelTitle, weight: 1 },
     ]).matchedTerms;
@@ -452,7 +448,7 @@ function dictionaryCandidates(
   entries: DictionaryEntry[],
   search: string,
 ): AnalyticsQueryCatalogCandidate[] {
-  return entries.flatMap((entry) => {
+  const candidates = entries.flatMap((entry) => {
     if (isRetiredCatalogReference(entry)) return [];
     const { score, matchedTerms } = matchScore(search, [
       { value: entry.metric, weight: 28 },
@@ -493,6 +489,24 @@ function dictionaryCandidates(
         ...(text(entry.knownGotchas)
           ? { knownGotchas: text(entry.knownGotchas) }
           : {}),
+        ...(text(entry.commonQuestions)
+          ? { commonQuestions: text(entry.commonQuestions) }
+          : {}),
+        ...(text(entry.cuts) ? { cuts: text(entry.cuts) } : {}),
+        ...(text(entry.joinPattern)
+          ? { joinPattern: text(entry.joinPattern) }
+          : {}),
+        ...(text(entry.updateFrequency)
+          ? { updateFrequency: text(entry.updateFrequency) }
+          : {}),
+        ...(text(entry.dataLag) ? { dataLag: text(entry.dataLag) } : {}),
+        ...(text(entry.dependencies)
+          ? { dependencies: text(entry.dependencies) }
+          : {}),
+        ...(text(entry.validDateRange)
+          ? { validDateRange: text(entry.validDateRange) }
+          : {}),
+        ...(text(entry.owner) ? { owner: text(entry.owner) } : {}),
         ...(typeof entry.approved === "boolean"
           ? { approved: entry.approved }
           : {}),
@@ -503,6 +517,19 @@ function dictionaryCandidates(
       },
     ];
   });
+  const strongestHumanOrApprovedScore = candidates.reduce(
+    (strongest, candidate) =>
+      candidate.approved === true || candidate.aiGenerated !== true
+        ? Math.max(strongest, candidate.score)
+        : strongest,
+    0,
+  );
+  return candidates.filter(
+    (candidate) =>
+      candidate.aiGenerated !== true ||
+      candidate.approved === true ||
+      candidate.score > strongestHumanOrApprovedScore,
+  );
 }
 
 function candidateIsRunnable(
@@ -525,7 +552,9 @@ function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
     .toLowerCase()}`;
 }
 
-function candidateTrustTier(candidate: AnalyticsQueryCatalogCandidate): number {
+export function candidateTrustTier(
+  candidate: AnalyticsQueryCatalogCandidate,
+): number {
   if (candidate.kind !== "dashboard-panel") return 0;
   if (candidate.dashboardCertified) return 2;
   return candidate.favorite ? 1 : 0;
@@ -568,7 +597,6 @@ export function rankAnalyticsQueryCatalog(args: {
     const bTrustTier = candidateTrustTier(b);
     if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
     if (b.score !== a.score) return b.score - a.score;
-    // Prefer something the agent can run over something it must look up again.
     const aRunnable = candidateIsRunnable(a);
     const bRunnable = candidateIsRunnable(b);
     if (aRunnable !== bRunnable) return aRunnable ? -1 : 1;
@@ -576,7 +604,6 @@ export function rankAnalyticsQueryCatalog(args: {
     return JSON.stringify(a).localeCompare(JSON.stringify(b));
   });
 
-  // Cloned dashboards produce near-identical panels that otherwise eat every slot.
   const seen = new Set<string>();
   const deduped: AnalyticsQueryCatalogCandidate[] = [];
   for (const candidate of ranked) {
@@ -591,7 +618,12 @@ export function rankAnalyticsQueryCatalog(args: {
 async function listDictionaryEntries(args: {
   email: string;
   orgId: string | null;
-}): Promise<DictionaryEntry[]> {
+}): Promise<{
+  entries: DictionaryEntry[];
+  searchedEntryCount: number;
+  truncated: boolean;
+  status: "available" | "partial" | "unavailable";
+}> {
   const entries: DictionaryEntry[] = [];
   const seen = new Set<string>();
   const collect = (raw: unknown) => {
@@ -603,20 +635,76 @@ async function listDictionaryEntries(args: {
     entries.push(entry);
   };
 
-  if (args.orgId) {
-    const orgEntries = await listOrgSettings(
-      args.orgId,
-      DATA_DICTIONARY_KEY_PREFIX,
-    );
-    for (const value of Object.values(orgEntries)) collect(value);
-  }
-
   const userPrefix = `u:${args.email}:${DATA_DICTIONARY_KEY_PREFIX}`;
-  const all = await getAllSettings();
-  for (const [key, value] of Object.entries(all)) {
-    if (key.startsWith(userPrefix)) collect(value);
+  const [orgResult, userResult] = await Promise.allSettled([
+    args.orgId
+      ? listOrgSettings(args.orgId, DATA_DICTIONARY_KEY_PREFIX, {
+          limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
+        })
+      : Promise.resolve(null),
+    listSettingsByPrefix(userPrefix, {
+      limit: MAX_CATALOG_DICTIONARY_ENTRIES + 1,
+    }),
+  ]);
+  if (orgResult.status === "fulfilled" && orgResult.value) {
+    const orgEntries = Object.entries(orgResult.value);
+    for (const [, value] of orgEntries.slice(
+      0,
+      MAX_CATALOG_DICTIONARY_ENTRIES,
+    )) {
+      collect(value);
+    }
+  } else if (orgResult.status === "rejected") {
+    console.warn(
+      "[analytics-query-catalog] Organization dictionary lookup failed:",
+      orgResult.reason,
+    );
   }
-  return entries;
+  if (userResult.status === "fulfilled") {
+    for (const { value } of userResult.value.slice(
+      0,
+      MAX_CATALOG_DICTIONARY_ENTRIES,
+    )) {
+      collect(value);
+    }
+  } else {
+    console.warn(
+      "[analytics-query-catalog] User dictionary lookup failed:",
+      userResult.reason,
+    );
+  }
+  const orgCount =
+    orgResult.status === "fulfilled"
+      ? Object.keys(orgResult.value ?? {}).length
+      : 0;
+  const userCount =
+    userResult.status === "fulfilled" ? userResult.value.length : 0;
+  const scopedResults = [
+    ...(args.orgId ? [orgResult.status === "fulfilled"] : []),
+    userResult.status === "fulfilled",
+  ];
+  const availableScopes = scopedResults.filter(Boolean).length;
+  const scopeCount = args.orgId ? 2 : 1;
+  return {
+    entries,
+    searchedEntryCount: entries.length,
+    truncated:
+      orgCount > MAX_CATALOG_DICTIONARY_ENTRIES ||
+      userCount > MAX_CATALOG_DICTIONARY_ENTRIES,
+    status:
+      availableScopes === scopeCount
+        ? "available"
+        : availableScopes > 0
+          ? "partial"
+          : "unavailable",
+  };
+}
+
+function warnCatalogReadFailure(source: string, error: unknown): void {
+  console.warn(
+    `[analytics-query-catalog] ${source} lookup failed; continuing with available references:`,
+    error,
+  );
 }
 
 function savedDashboardInput(
@@ -640,8 +728,10 @@ export async function searchAnalyticsQueryCatalog(args: {
   email: string;
   orgId: string | null;
   limit: number;
-}): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedSummariesResult, dictionaryEntriesResult, favoriteIdsResult] =
+  signal?: AbortSignal;
+}): Promise<AnalyticsQueryCatalogSearchResult> {
+  args.signal?.throwIfAborted();
+  const [summariesResult, dictionaryResult, favoritesResult] =
     await Promise.allSettled([
       listDashboardSummaries(
         { email: args.email, orgId: args.orgId },
@@ -650,38 +740,83 @@ export async function searchAnalyticsQueryCatalog(args: {
           archived: "active",
           hidden: "visible",
           includeCatalogMetadata: true,
+          limit: MAX_CATALOG_DASHBOARD_SUMMARIES + 1,
         },
       ),
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),
       listFavoriteDashboardIds(args.email),
     ]);
-  const favoriteIds =
-    favoriteIdsResult.status === "fulfilled"
-      ? favoriteIdsResult.value
-      : new Set<string>();
+  args.signal?.throwIfAborted();
   const savedSummaries =
-    savedSummariesResult.status === "fulfilled"
-      ? savedSummariesResult.value
-      : [];
+    summariesResult.status === "fulfilled" ? summariesResult.value : [];
+  const searchedSummaries = savedSummaries.slice(
+    0,
+    MAX_CATALOG_DASHBOARD_SUMMARIES,
+  );
+  const dashboardSearchTruncated =
+    savedSummaries.length > MAX_CATALOG_DASHBOARD_SUMMARIES;
+  if (dashboardSearchTruncated) {
+    console.warn("[analytics] Dashboard reference search truncated.", {
+      searchedDashboardCount: searchedSummaries.length,
+      dashboardSearchTruncated,
+    });
+  }
   const dictionaryEntries =
-    dictionaryEntriesResult.status === "fulfilled"
-      ? dictionaryEntriesResult.value
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.entries
       : [];
+  const searchedDictionaryEntryCount =
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.searchedEntryCount
+      : 0;
+  const dictionarySearchTruncated =
+    dictionaryResult.status === "fulfilled" && dictionaryResult.value.truncated;
+  let dashboardSearchStatus: "available" | "unavailable" =
+    summariesResult.status === "fulfilled" ? "available" : "unavailable";
+  const dictionarySearchStatus =
+    dictionaryResult.status === "fulfilled"
+      ? dictionaryResult.value.status
+      : "unavailable";
+  if (dictionarySearchTruncated) {
+    console.warn("[analytics] Data dictionary search truncated.", {
+      searchedDictionaryEntryCount,
+      dictionarySearchTruncated,
+    });
+  }
+  const favoriteIds =
+    favoritesResult.status === "fulfilled"
+      ? favoritesResult.value
+      : new Set<string>();
+  if (summariesResult.status === "rejected") {
+    warnCatalogReadFailure("Dashboard summary", summariesResult.reason);
+  }
+  if (dictionaryResult.status === "rejected") {
+    warnCatalogReadFailure("Data dictionary", dictionaryResult.reason);
+  }
+  if (favoritesResult.status === "rejected") {
+    warnCatalogReadFailure("Favorite dashboard", favoritesResult.reason);
+  }
   const savedSummaryIds = new Set(
     savedSummaries.map((dashboard) => dashboard.id),
   );
 
   const shortlistedSummaries = shortlistDashboardSummaries(
     args.search,
-    savedSummaries,
+    searchedSummaries,
     args.limit,
     favoriteIds,
   );
   const shortlistedIds = shortlistedSummaries.map((dashboard) => dashboard.id);
+  args.signal?.throwIfAborted();
   const savedDashboardsResult = await loadDashboardCatalogDashboards(
     { email: args.email, orgId: args.orgId },
     shortlistedIds,
-  );
+  ).catch((error: unknown) => {
+    warnCatalogReadFailure("Dashboard detail", error);
+    dashboardSearchStatus = "unavailable";
+    return [];
+  });
+  args.signal?.throwIfAborted();
   const savedDashboards = new Map(
     savedDashboardsResult.map((dashboard) => [dashboard.id, dashboard]),
   );
@@ -707,22 +842,30 @@ export async function searchAnalyticsQueryCatalog(args: {
       }
     });
 
-  return rankAnalyticsQueryCatalog({
-    search: args.search,
-    dashboards: [
-      ...shortlistedSummaries.flatMap((summary) => {
-        const dashboard = savedDashboards.get(summary.id);
-        if (!dashboard) return [];
-        return [
-          savedDashboardInput(
-            { ...summary, favorite: favoriteIds.has(summary.id) },
-            dashboard,
-          ),
-        ];
-      }),
-      ...templateDashboards,
-    ],
-    dictionaryEntries,
-    limit: args.limit,
-  });
+  return {
+    candidates: rankAnalyticsQueryCatalog({
+      search: args.search,
+      dashboards: [
+        ...shortlistedSummaries.flatMap((summary) => {
+          const dashboard = savedDashboards.get(summary.id);
+          if (!dashboard) return [];
+          return [
+            savedDashboardInput(
+              { ...summary, favorite: favoriteIds.has(summary.id) },
+              dashboard,
+            ),
+          ];
+        }),
+        ...(dashboardSearchTruncated ? [] : templateDashboards),
+      ],
+      dictionaryEntries,
+      limit: args.limit,
+    }),
+    searchedDashboardCount: searchedSummaries.length,
+    dashboardSearchTruncated,
+    dashboardSearchStatus,
+    searchedDictionaryEntryCount,
+    dictionarySearchTruncated,
+    dictionarySearchStatus,
+  };
 }

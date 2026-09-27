@@ -355,12 +355,6 @@ function appendProtectedCssSignatures(
   });
 }
 
-// A rejection the model cannot act on costs the whole turn here, not one
-// retry: "restyle every slide" fans out one update-slide call per slide, so
-// every call is already in flight when the first rejection comes back, and the
-// framework's across-arguments breaker ends the run before a corrected call is
-// ever made. The legacy fields carry everything needed to write the accepted
-// call, so echo that call back instead of only naming the rule.
 const SUGGESTION_ECHO_LIMIT = 200;
 
 function resendAsEdits(edit: unknown): string {
@@ -405,10 +399,6 @@ export function styleOnlyEditsSuggestion(args: {
     args.find.length > 0 &&
     args.find.length <= SUGGESTION_ECHO_LIMIT
   ) {
-    // occurrence:1, not expectedMatches:1 — the edits path rejects an ambiguous
-    // literal outright, so expectedMatches would turn a legacy call that would
-    // have replaced the first match into a second rejection whenever the
-    // declaration appears more than once on the slide.
     return resendAsEdits({ find: args.find, replace, occurrence: 1 });
   }
   return styleOnlyGenericSuggestion();

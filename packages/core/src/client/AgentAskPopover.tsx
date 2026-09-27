@@ -1,8 +1,8 @@
-import { PromptBar } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { type ReactNode, useCallback } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
+import { PromptBar } from "./composer/index.js";
 import { useT } from "./i18n.js";
 
 export interface AgentAskPopoverProps {
@@ -16,7 +16,6 @@ export interface AgentAskPopoverProps {
   draftScope?: string;
 }
 
-/** A low-emphasis entry point for asking the agent without losing the current surface. */
 export function AgentAskPopover({
   prompt,
   title,

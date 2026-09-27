@@ -225,8 +225,6 @@ export function brainFinalResponseGuard(
 ): AgentLoopFinalResponseGuardResult | null {
   if (context.executionMode === "plan") return null;
 
-  // A tool result is not a user-facing answer. The run must not complete on a
-  // cited ask-brain card when the model emitted no final text.
   const hasFinalText = context.text.trim().length > 0;
 
   const requestText =

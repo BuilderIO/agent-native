@@ -230,7 +230,6 @@ export async function addCommentWithGuard(
       transaction: getDbExec(),
     });
     if (args.threadId && args.parentId) {
-      // Resolution takes the same root lock before its thread-wide update.
       const [root] = await tx
         .select()
         .from(schema.documentComments)

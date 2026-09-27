@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL-Adresse",
+  "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+  "composer.contextAttach": "Anhängen",
+  "composer.menu.search": "Suchen…",
+  "composer.contextPrevious": "Zurück",
+  "composer.contextNext": "Weiter",
+  "composer.contextLoadFailed": "Kontext konnte nicht geladen werden.",
+  "composer.contextLinkRequired": "Gib einen Link ein.",
+  "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.addContext": "Kontext hinzufügen",
+  "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
+  "composer.contextBack": "Zurück",
+  "composer.searchContext": "Kontext suchen…",
+  "composer.noContextResults": "Kein passender Kontext.",
+  "composer.contextPending": "Kontext wird geladen",
+  "composer.contextError": "Kontext fehlgeschlagen",
+  "composer.retryContext": "Kontext {{name}} erneut laden",
+  "composer.contextLimitExceeded":
+    "Der Kontext ist zu groß. Entferne ein Element oder füge eine kleinere Auswahl hinzu.",
   "activity.reasoning": "Überlegung",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -61,6 +80,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.useOwnApiKeys": "Meine eigenen API-Schlüssel verwenden",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
   "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
@@ -97,10 +117,11 @@ const messages: AgentChatTranslation = {
     "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
-  "onboarding.fileStorage.title": "Wähle den Dateispeicher",
+  "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
   "onboarding.fileStorage.description":
-    "Wähle den verwalteten Builder-Speicher oder eigene Speicherschlüssel für deinen S3-kompatiblen Bucket.",
-  "onboarding.fileStorage.custom": "Eigene Speicherschlüssel verwenden",
+    "Verbinde Builder.io (kostenlos) oder konfiguriere deinen eigenen S3-kompatiblen Objektspeicher.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io erneut verbinden",
+  "onboarding.fileStorage.custom": "Eigene Objektspeicherschlüssel hinzufügen",
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",
@@ -314,11 +335,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Antwort neu generieren",
   "message.restoreFailed": "Wiederherstellung fehlgeschlagen ({{status}}).",
   "message.restoreQuestion": "Bis hierher wiederherstellen?",
+  "message.revertQuestion":
+    "Zu diesem Punkt zurückkehren? Änderungen danach gehen verloren.",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
   "message.threadNotFound":
     "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
   "message.revertHere": "Bis hierher zurücksetzen",
+  "message.revertToBeginning": "Zum Anfang zurückkehren",
   "message.sentAt": "Gesendet {{time}}",
   "plan.act": "Ausführen",
   "plan.implement": "Umsetzen",
@@ -340,7 +364,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.credentialRejected":
-    "Die aktuellen Zugangsdaten für Builder.io oder den Modellanbieter wurden abgelehnt. Verbinde Builder.io erneut und versuche diese Nachricht noch einmal.",
+    "Der Modellanbieter hat die gespeicherten Zugangsdaten abgelehnt. Aktualisiere deine Builder.io-Verbindung oder den Anbieterschlüssel und versuche diese Nachricht erneut.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents sind nicht verbunden. Verbinde Builder.io in den Einstellungen, um diese gehostete Codeänderung auszuführen. Modellanbieter-Schlüssel funktionieren weiterhin für Chats und andere KI-Funktionen, autorisieren aber nicht den Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnostizieren und erneut versuchen",
   "recovery.forkDescription":
     "Diese Unterhaltung in einen separaten Chat abzweigen.",
@@ -400,6 +426,12 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
+  "setup.checkingProvider": "KI-Verbindung wird geprüft…",
+  "setup.providerStatusUnavailable":
+    "KI-Verbindung konnte nicht geprüft werden.",
+  "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Stelle eine Frage zu diesem Meeting",
   "setup.connected": "Verbunden",
   "setup.connectedOrganization": "Verbunden – {{organization}}",
   "setup.connectedTo": "Mit {{organization}} verbunden",
@@ -878,6 +910,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
   "usage.builderCredits": "Builder-Credits",
+  "usage.inviteFriends": "Freunde einladen",
+  "usage.inviteCredits":
+    "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",
+  "usage.copyInviteLink": "Einladungslink kopieren",
+  "usage.inviteLinkCopied": "Einladungslink kopiert",
   "usage.creditBalance": "Workspace-Guthaben",
   "usage.monthlyPlan": "Monatsplan",
   "usage.dailyFreeLimit": "Tägliches Gratislimit",

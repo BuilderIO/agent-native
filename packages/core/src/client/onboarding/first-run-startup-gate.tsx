@@ -104,9 +104,6 @@ export function FirstRunOnboardingStartupGate({
 
   const ownsSurface = decision === "eligible";
   const hideApp = decision !== "ineligible";
-  // Keep the app at one React tree position while the async eligibility check
-  // settles. Switching between a wrapper and a bare child remounts stateful
-  // app chrome; a consumed one-shot URL preference then cannot be restored.
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}

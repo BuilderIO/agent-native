@@ -94,9 +94,6 @@ export function runUngroupSelection({
   }
   const initialContent = getFreshActiveContent();
   const source = { kind: "design-file" as const, fileId: activeFile.id };
-  // Filter to active-file nodes only (mirrors handleGroupSelection fix).
-  // A stale id from another file must not be passed to unwrap or it will
-  // fail with "conflict" even though the actual selection is valid.
   const fileIds = new Set(files.map((f) => f.id));
   const activeNodeIdSet = buildActiveFileNodeIdSet(
     buildCodeLayerProjection(initialContent, { source }),
@@ -120,9 +117,6 @@ export function runUngroupSelection({
   let lastFailureMessage: string | null = null;
   const releasedChildAttrIds = new Set<string>();
   for (const targetId of targetIds) {
-    // Resolve the container's current child data-attribute ids from a
-    // fresh projection of the running content so ids stay accurate across
-    // multiple sequential unwraps in this same loop.
     const runningProjection = buildCodeLayerProjection(content, { source });
     const containerNode = runningProjection.nodes.find(
       (n) =>

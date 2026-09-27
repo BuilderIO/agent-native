@@ -1,17 +1,10 @@
-/**
- * get-fusion-deploy-status — read-only poll of a fusion app's last deploy.
- *
- * No DB writes: reads the persisted lastDeployId/deployedUrl off the fusion
- * app linkage and asks Builder for the current deploy status.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getFusionDeploys } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 function asString(value: unknown): string | undefined {

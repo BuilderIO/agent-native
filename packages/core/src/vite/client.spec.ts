@@ -39,6 +39,7 @@ const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
 const mockHashDatabaseKey = vi.hoisted(() =>
   vi.fn((url: string) => `hash:${url}`),
 );
+const mockResolveEmbedSessionTokenForHost = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/dev-action-bridge.js", () => ({
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
@@ -46,6 +47,16 @@ vi.mock("../server/dev-action-bridge.js", () => ({
   writeDevActionDiscoveryFile: (...args: unknown[]) =>
     mockWriteDevActionDiscoveryFile(...args),
 }));
+
+vi.mock("../server/embed-session.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/embed-session.js")>();
+  return {
+    ...actual,
+    resolveEmbedSessionTokenForHost: (...args: unknown[]) =>
+      mockResolveEmbedSessionTokenForHost(...args),
+  };
+});
 
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
@@ -196,7 +207,6 @@ describe("Nitro dev startup recovery", () => {
         },
       } as never);
 
-      // The interval observes readiness while no browser request is present.
       time = 150;
       vi.advanceTimersByTime(100);
 
@@ -394,8 +404,6 @@ describe("dev action bridge origin", () => {
       config: { logger: { warn: vi.fn() } },
     };
     const { configuredServer, listening } = listeningHandlerFor(server);
-    // Vite prepends its own listening handler, which resolves the URLs before
-    // plugin listeners run. Read the value at callback time, not registration.
     configuredServer.resolvedUrls = {
       local: ["http://localhost:8082/"],
       network: [],
@@ -589,7 +597,6 @@ describe("dev server startup banner", () => {
           address: { address: "::1", port: 47132 },
         },
         (server) => {
-          // Vite rewrites config.server.port to the bound port at listen.
           (
             server as { config: { server: { port: number } } }
           ).config.server.port = 47132;
@@ -604,6 +611,10 @@ describe("dev server startup banner", () => {
 
 describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
+
+  beforeEach(() => {
+    mockResolveEmbedSessionTokenForHost.mockReset();
+  });
 
   afterEach(() => {
     if (previousSecret === undefined) {
@@ -702,9 +713,6 @@ describe("dev server mounted path helpers", () => {
     };
     plugin.configureServer(server as any);
 
-    // Real Chromium tags its native speculation-rules auto-fetch with this
-    // exact destination, never absent — the forwarder must still normalize
-    // it, or Nitro's dev classifier treats it as a static asset and 404s.
     const request: any = {
       url: "/_agent-native/speculation-rules.json",
       headers: {
@@ -750,6 +758,7 @@ describe("dev server mounted path helpers", () => {
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -773,6 +782,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
+      audienceHost: "beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
@@ -780,7 +790,7 @@ describe("dev server mounted path helpers", () => {
       url:
         `/assets/@id/__x00__virtual:react-router/browser-manifest` +
         `?__an_embed_token=${token}&__an_mcp_chat_bridge=1`,
-      headers: {},
+      headers: { host: "beta.calendar.agent-native.com" },
     };
     const res = {
       headersSent: false,
@@ -796,6 +806,10 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
+    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+      token,
+      "beta.calendar.agent-native.com",
+    );
     expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
     );
@@ -883,6 +897,7 @@ describe("dev server mounted path helpers", () => {
 
   it("keeps Vite module queries for mounted static files", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -901,6 +916,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
+      audienceHost: "beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const res = {
@@ -917,7 +933,7 @@ describe("dev server mounted path helpers", () => {
       {
         method: "GET",
         url: `/assets/app/global.css?url&__an_embed_token=${token}`,
-        headers: {},
+        headers: { host: "beta.calendar.agent-native.com" },
       },
       res,
       next,
@@ -930,6 +946,123 @@ describe("dev server mounted path helpers", () => {
       "content-type",
       "text/javascript",
     );
+  });
+
+  it("does not serve a mounted module when its token audience does not match the host", async () => {
+    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      audienceHost: "beta.calendar.agent-native.com",
+      ttlSeconds: 60,
+    });
+    const req = {
+      method: "GET",
+      url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
+      headers: { host: "other.example.com" },
+    };
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+
+    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+      token,
+      "other.example.com",
+    );
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
+  });
+
+  it("does not serve a mounted module for a revoked embed identity", async () => {
+    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      audienceHost: "beta.calendar.agent-native.com",
+      ttlSeconds: 60,
+    });
+    const req = {
+      method: "GET",
+      url: "/assets/@id/__x00__virtual:react-router/browser-manifest",
+      headers: {
+        host: "beta.calendar.agent-native.com",
+        cookie: `an_embed_session=${encodeURIComponent(token)}`,
+      },
+    };
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+
+    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+      token,
+      "beta.calendar.agent-native.com",
+    );
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
+  });
+
+  it("passes embed validation failures to Vite's error handling", async () => {
+    const failure = new Error("revocation lookup failed");
+    mockResolveEmbedSessionTokenForHost.mockRejectedValue(failure);
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      audienceHost: "beta.calendar.agent-native.com",
+      ttlSeconds: 60,
+    });
+    const req = {
+      method: "GET",
+      url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
+      headers: { host: "beta.calendar.agent-native.com" },
+    };
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+
+    middleware!(req, res, next);
+    await vi.waitFor(() => expect(next).toHaveBeenCalledWith(failure));
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
   });
 
   it("serves absolute React Router browser manifests to external MCP embeds", async () => {
@@ -995,7 +1128,43 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
-  it("does not serve base-prefixed Vite modules without embed auth", () => {
+  it("leaves the browser manifest relative for same-origin requests behind a Host-rewriting proxy", () => {
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      pluginContainer: { load: vi.fn() },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middleware!(
+      {
+        method: "GET",
+        url: "/@id/__x00__virtual:react-router/browser-manifest",
+        headers: {
+          origin: "https://abc123-development.builderio.xyz",
+          host: "localhost:8080",
+          "sec-fetch-site": "same-origin",
+        },
+      },
+      res,
+      next,
+    );
+
+    expect(server.pluginContainer.load).not.toHaveBeenCalled();
+    expect(res.end).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("does not serve base-prefixed Vite modules without embed auth", async () => {
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1019,18 +1188,12 @@ describe("dev server mounted path helpers", () => {
       { setHeader: vi.fn() },
       next,
     );
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
 
     expect(server.transformRequest).not.toHaveBeenCalled();
-    expect(next).toHaveBeenCalledOnce();
   });
 
   it("strips the mounted base off API paths for media Sec-Fetch-Dest requests", () => {
-    // <img>/<video>/<audio> fetches send Sec-Fetch-Dest: image/video/audio/
-    // track, not "empty" or "document". Nitro's dev router matches routes
-    // against req.url with the mount prefix already gone (its own baseURL is
-    // unset in dev), so unless we strip here too, these requests fall through
-    // to Vite/connect's generic 404 instead of the real API handler — this is
-    // the Assets thumbnail "Preview unavailable" bug.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1093,10 +1256,6 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("never strips non-API mounted paths regardless of Sec-Fetch-Dest", () => {
-    // Guards the original Clips regression: only /api/** paths are ever
-    // rewritten (see stripMountedDevApiPath's isApiDevPath gate), so widening
-    // which Sec-Fetch-Dest values trigger stripping can never make Vite's own
-    // base middleware see an unprefixed non-API path.
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1600,7 +1759,6 @@ describe("agent-native app config", () => {
       );
       expect(staged.nitro.replace[key]).toBe(JSON.stringify("connect"));
       expect(staged.define[key]).toBe(JSON.stringify("connect"));
-      // The separate deploy build process reads the same resolved value.
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.firstRunOnboarding).toBe(
         "connect",
       );
@@ -1634,9 +1792,6 @@ describe("agent-native app config", () => {
     try {
       process.chdir(tmpDir);
 
-      // Only set via agent-native.config.ts, like chat/mail/analytics/calendar —
-      // this is the exact shape that a runtime disk read cannot see once
-      // deployed, since the config file is never shipped into the function.
       const configured = await configFor(
         { agentNativeConfig: { version: 1, harness: true } },
         "production",
@@ -1645,9 +1800,6 @@ describe("agent-native app config", () => {
       expect(configured.define[key]).toBe(JSON.stringify("true"));
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("true");
 
-      // Unconfigured apps embed a positive "null", never the un-embedded
-      // sentinel "" — that sentinel is reserved for builds run with an older
-      // core that never recorded a value at all.
       const unconfigured = await configFor({}, "production");
       expect(unconfigured.nitro.replace[key]).toBe(JSON.stringify("null"));
       expect(readAgentNativeBuildConfigMarker(tmpDir)?.harness).toBe("null");
@@ -2155,8 +2307,6 @@ describe("agentNative Vite plugin preset", () => {
       "agent-native-external-store-esm-shim",
       "agent-native:no-dep-prebundle-sourcemaps",
     ]);
-    // Vite hardcodes `sourcemap: "hidden"` in the optimizer's bundle.write();
-    // only a late outputOptions hook can turn it back off.
     expect(depPlugins.at(-1).outputOptions({ dir: "/deps" })).toEqual({
       dir: "/deps",
       sourcemap: false,
@@ -2167,9 +2317,6 @@ describe("agentNative Vite plugin preset", () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
-    // Vite 8 hands plugins a config where `rollupOptions` is a getter alias of
-    // `rolldownOptions`. Spreading it back out alongside our own
-    // `rolldownOptions` makes Vite warn that this plugin set both.
     const aliasSection = (rolldownOptions: unknown) => {
       const section: any = { rolldownOptions };
       Object.defineProperty(section, "rollupOptions", {
@@ -2313,10 +2460,6 @@ describe("app changelog raw imports", () => {
       const entries = parseChangelog(markdown);
 
       expect(watched).toContain(path.join(tmpDir, "CHANGELOG.md"));
-      // Watch the individual folder files, never the directory itself: Vite's
-      // import-analysis would try to resolve a watched directory as a module
-      // and fail ("Failed to resolve import .../changelog"), breaking
-      // hydration. New/removed files are still caught by the root dev watcher.
       expect(watched).toContain(
         path.join(pendingDir, "2026-07-01-new-thing.md"),
       );
@@ -2722,11 +2865,6 @@ describe("Vite connection reset noise", () => {
 });
 
 describe("Nitro dev full-reload debounce", () => {
-  // These fakes mirror the shape nitro's own `hotUpdate` hook actually uses
-  // (see nitro/dist/vite.mjs): `this.environment.moduleGraph.invalidateModule`
-  // for every changed module, followed by `this.environment.hot.send({ type:
-  // "full-reload" })`. We only need enough of that shape to exercise the
-  // wrapper, not a real Vite dev server.
   function fakeNitroMainPlugin(
     handler: (
       this: { environment: any },
@@ -2824,7 +2962,6 @@ describe("Nitro dev full-reload debounce", () => {
       expect(invalidateModule).toHaveBeenCalledTimes(2);
       expect(invalidateModule).toHaveBeenCalledWith("a.ts");
       expect(invalidateModule).toHaveBeenCalledWith("b.ts");
-      // The reload itself is still debounced.
       expect(send).not.toHaveBeenCalled();
       vi.advanceTimersByTime(300);
       expect(send).toHaveBeenCalledTimes(1);
@@ -2854,7 +2991,6 @@ describe("Nitro dev full-reload debounce", () => {
         { modules: [] },
       );
 
-      // 300ms after the "ssr" call, but only 150ms after "worker"'s call.
       vi.advanceTimersByTime(150);
       expect(sendSsr).toHaveBeenCalledTimes(1);
       expect(sendWorker).not.toHaveBeenCalled();
@@ -2899,10 +3035,6 @@ describe("React Router virtual-module invalidation mirror", () => {
   const SERVER_BUILD_ID = "\0virtual:react-router/server-build";
   const BROWSER_MANIFEST_ID = "\0virtual:react-router/browser-manifest";
 
-  // These fakes mirror the shapes both sides of the bug actually use:
-  // react-router's framework plugin calls `server.moduleGraph.invalidateModule`
-  // (Vite's back-compat graph, which proxies only client + ssr), while requests
-  // are served from Nitro's own environment.
   function fakeEnvironment(
     name: string,
     { ids = [] as string[], consumer = "server" } = {},
@@ -2930,8 +3062,6 @@ describe("React Router virtual-module invalidation mirror", () => {
   function fakeServer(environments: ReturnType<typeof fakeEnvironment>[]) {
     return {
       environments: Object.fromEntries(environments.map((e) => [e.name, e])),
-      // Vite's deprecated back-compat graph. Only its `invalidateModule` matters
-      // here — react-router calls it, and it never reaches `nitro`.
       moduleGraph: { invalidateModule: vi.fn(() => "original-result") },
     } as any;
   }

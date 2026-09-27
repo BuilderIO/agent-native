@@ -193,13 +193,6 @@ function getMenu(): HTMLElement {
 
 const ZERO_RECT = makeRect({ left: 0, top: 0, width: 0, height: 0 });
 
-/**
- * Reported 2026-09-03: the block menu sometimes opened in the top-left corner
- * of the window instead of beside the block. `getBoundingClientRect()` answers
- * an all-zero rect (not null) for a hidden, detached, or unlaid-out element, so
- * the old `handle ?? block` null-check never fired and the zero rect clamped the
- * menu to the viewport padding.
- */
 describe("DragHandle menu position", () => {
   const blockRect = makeRect({ left: 24, top: 200, width: 640, height: 400 });
 
@@ -278,8 +271,6 @@ describe("DragHandle menu position", () => {
 
       clickHandle(handle);
 
-      // No usable anchor exists, so the menu must not open at a bogus
-      // position — a corner menu is worse than no menu.
       expect(document.querySelector(".an-rich-md-drag-menu")).toBeNull();
     } finally {
       editor.destroy();
@@ -628,11 +619,6 @@ describe("DragHandle menu", () => {
   });
 
   it("shows the outer container grip when hovering the shared left gutter", () => {
-    // A flush-left nested region (like the first column of a `columns` block)
-    // shares its container's left-margin gutter. Hovering that gutter — where the
-    // grip lives — must select the CONTAINER so it can be dragged to reorder,
-    // even though the nested editor is the smaller area. (Regression: nested
-    // column editors used to win everywhere, leaving the columns block ungrabbable.)
     const outer = mountEditor(
       "<p>Outer container</p>",
       {},
@@ -645,8 +631,6 @@ describe("DragHandle menu", () => {
         makeRect({ left: 24, top: 0, width: 640, height: 280 }),
       );
     }
-    // Inner region mounted flush-left (block left === container left), mirroring a
-    // column that starts at the container's left edge.
     const inner = mountEditor(
       "<p>Inner block</p>",
       {},
@@ -656,23 +640,14 @@ describe("DragHandle menu", () => {
     );
 
     try {
-      // Over the inner body, the innermost (smallest) editor still wins.
       hoverAt(60, 172);
       expect(inner.handle.style.display).toBe("flex");
       expect(outer.handle.style.display).toBe("none");
 
-      // In the shared left-margin gutter AT THE NESTED BLOCK'S ROW, the inner
-      // block owns the grip band — so a block inside a flush-left column stays
-      // grabbable there to drag OUT of / BETWEEN columns. Its grip glyph renders
-      // in this exact gutter, so flipping to the container here would make the
-      // block's own grip unclickable (the whole point of column drag handles).
       hoverAt(10, 172);
       expect(inner.handle.style.display).toBe("flex");
       expect(outer.handle.style.display).toBe("none");
 
-      // In the gutter ABOVE the nested region (a row the container alone
-      // occupies), the container still wins, so the columns block itself remains
-      // grabbable — it just yields the rows where a nested block's grip lives.
       hoverAt(10, 40);
       expect(outer.handle.style.display).toBe("flex");
       expect(inner.handle.style.display).toBe("none");
@@ -741,14 +716,6 @@ describe("DragHandle menu", () => {
   });
 
   it("keeps a non-left-aligned block's grip alive while the cursor approaches it", () => {
-    // A right column / tab body renders its grip in a gap, NOT the page-left
-    // gutter. Moving the cursor from that block's body toward its grip crosses
-    // into the neighbour's wide forgiving zone (and even its content), so the
-    // plain picker flips hover to the neighbour and the grip vanishes before the
-    // cursor reaches it. The keepalive must hold the grip across that approach.
-    // Here the right grip glyph sits at x:320–344 — LEFT of the 28px gutter band
-    // and inside the left region's content [24,336], so without keepalive the
-    // left region wins at x=330 and the right grip disappears.
     const left = mountEditor(
       "<p>Left region</p>",
       {},
@@ -771,20 +738,15 @@ describe("DragHandle menu", () => {
       right.editor.view.nodeDOM(0) as HTMLElement,
       makeRect({ left: 360, top: 160, width: 300, height: 24 }),
     );
-    // The right block's grip glyph, rendered in the inter-region gap.
     setRect(
       right.handle,
       makeRect({ left: 320, top: 162, width: 24, height: 24 }),
     );
 
     try {
-      // Over the right block's body → its grip shows.
       hoverAt(500, 172);
       expect(right.handle.style.display).toBe("flex");
 
-      // Cursor moved left onto the right block's grip glyph (x=330). This is
-      // inside the LEFT region's content, so the plain picker would hand hover to
-      // the left region — the keepalive must keep the RIGHT grip visible.
       hoverAt(330, 172);
       expect(right.handle.style.display).toBe("flex");
       expect(left.handle.style.display).toBe("none");

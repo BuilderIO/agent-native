@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "عنوان URL",
+  "composer.contextInvalidUrl": "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
+  "composer.contextAttach": "إرفاق",
+  "composer.menu.search": "بحث…",
+  "composer.contextPrevious": "السابق",
+  "composer.contextNext": "التالي",
+  "composer.contextLoadFailed": "تعذّر تحميل السياق.",
+  "composer.contextLinkRequired": "أدخل رابطًا.",
+  "composer.submitFailed": "تعذّر الإرسال. حاول مجددًا.",
+  "composer.addContext": "إضافة سياق",
+  "composer.contextActionFailed": "تعذّرت إضافة السياق.",
+  "composer.contextBack": "رجوع",
+  "composer.searchContext": "البحث في السياق…",
+  "composer.noContextResults": "لا يوجد سياق مطابق.",
+  "composer.contextPending": "السياق قيد الانتظار",
+  "composer.contextError": "فشل السياق",
+  "composer.retryContext": "إعادة محاولة سياق {{name}}",
+  "composer.contextLimitExceeded":
+    "السياق كبير جدًا. أزل عنصرًا أو أرفق تحديدًا أصغر.",
   "activity.reasoning": "الاستدلال",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -56,6 +75,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.useOwnApiKeys": "استخدام مفاتيح API الخاصة بي",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
   "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
@@ -91,6 +111,7 @@ const messages: AgentChatTranslation = {
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
+  "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
   "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
@@ -566,11 +587,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "إعادة إنشاء الرد",
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
+  "message.revertQuestion":
+    "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
+  "message.revertToBeginning": "الرجوع إلى البداية",
   "message.sentAt": "أُرسلت في {{time}}",
   "contextMeter.ariaLabel":
     "السياق {{percent}}%، {{totalTokens}}{{breakdown}}. افتح تحليل السياق.",
@@ -650,7 +674,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
   "recovery.credentialRejected":
-    "تم رفض بيانات اعتماد Builder.io أو مزوّد النموذج الحالية. أعد الاتصال بـ Builder.io، ثم أعد محاولة إرسال هذه الرسالة.",
+    "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
+  "codeRequired.builderAgentNotConnected":
+    "خدمة Builder Cloud Agents غير متصلة. اتصل بـ Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
   "recovery.diagnoseRetry": "تشخيص المشكلة وإعادة المحاولة",
   "recovery.forkDescription": "تفريع هذه المحادثة إلى سلسلة محادثة منفصلة.",
   "recovery.forkFailed": "تعذّر تفريع هذه المحادثة. جرّب بدء محادثة جديدة.",
@@ -709,6 +735,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.checkingProvider": "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+  "setup.providerStatusUnavailable": "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+  "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
+  "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
   "setup.connected": "متصل",
   "setup.connectedOrganization": "متصل — {{organization}}",
   "setup.connectedTo": "متصل بـ {{organization}}",
@@ -854,6 +884,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "usage.inviteFriends": "ادعُ الأصدقاء",
+  "usage.inviteCredits":
+    "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
+  "usage.copyInviteLink": "نسخ رابط الدعوة",
+  "usage.inviteLinkCopied": "تم نسخ رابط الدعوة",
   "usage.creditBalance": "رصيد مساحة العمل",
   "usage.monthlyPlan": "الخطة الشهرية",
   "usage.dailyFreeLimit": "الحد اليومي المجاني",

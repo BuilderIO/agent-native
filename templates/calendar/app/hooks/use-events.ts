@@ -96,10 +96,6 @@ type UpdateEventResult = Partial<CalendarEvent> & {
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
-// Peers past the first 10 overlay emails are fetched under this separate key
-// (see useEvents) so they never get an optimistic patch meant for the
-// caller's own writable calendars; a mutation must still invalidate them
-// alongside the primary key or their busy-time data goes stale indefinitely.
 export const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
 
@@ -263,13 +259,6 @@ export function updateListEventQueries(
     params: Record<string, string> | undefined,
   ) => CalendarEvent[] | undefined,
 ) {
-  // The "list-events" query key prefix is shared with useOverlayCalendarStatus,
-  // which requests `format: "inventory"` and caches an `OverlayStatusResult`
-  // object instead of a `CalendarEvent[]`. Skip those by their params — not by
-  // checking whether the current data is an array — because an inventory
-  // query can sit in the cache with `data === undefined` (still loading, or
-  // reset) and would otherwise get seeded with a `CalendarEvent[]` the first
-  // time this runs.
   const queries = queryClient.getQueriesData<CalendarEvent[]>({
     queryKey: LIST_EVENTS_QUERY_KEY,
   });
@@ -284,22 +273,6 @@ export function updateListEventQueries(
   }
 }
 
-/**
- * Decide whether to show the full-page events skeleton.
- *
- * The skeleton should appear only when there is nothing meaningful to show for
- * the *current date range* — the very first load, or navigating to a range we
- * have not fetched yet. When only the *set* of calendars or person overlays
- * changes (adding/removing a feed or person), the events query key changes and
- * `keepPreviousData` keeps the user's existing events on screen as placeholder
- * data; flashing a skeleton over them — wiping the calendar for several seconds
- * — is the bug we are avoiding. In that case we keep the events visible and let
- * the refreshed set merge in.
- *
- * `settledRangeKey` is the date range we last had real (non-placeholder) data
- * for; comparing it to the current `rangeKey` tells a genuine range change
- * apart from a same-range refetch triggered by a calendar toggle.
- */
 export function shouldShowEventsSkeleton({
   isLoading,
   isPlaceholderData,
@@ -315,10 +288,6 @@ export function shouldShowEventsSkeleton({
   return isPlaceholderData && settledRangeKey !== rangeKey;
 }
 
-// list-events caps overlayEmails at 10 (see its zod schema). This is the
-// batch size the primary query uses; any peers past it are fetched as
-// separate queries below and merged in, instead of being silently truncated
-// server-side.
 export const EVENTS_OVERLAY_BATCH_SIZE = 10;
 
 export function useEvents(
@@ -360,14 +329,8 @@ export function useEvents(
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
-  // Kept outside the ["action", "list-events"] key so create/update/delete
-  // mutations — which only ever touch the caller's own writable calendars —
-  // don't optimistically patch someone else's read-only overlay busy time.
   const extraOverlayQueries = useQueries({
     queries: extraOverlayBatches.map((batch) => {
-      // sources: ["overlays"] — without it list-events defaults to reading
-      // every source, so each extra batch would re-fetch and duplicate the
-      // caller's own Google/booking/ICS events on top of the primary query.
       const batchParams = {
         ...buildEventsParams(from, to, batch),
         sources: ["overlays"],
@@ -417,9 +380,6 @@ export function useEvents(
   return {
     ...live,
     data: mergedData,
-    // A batch beyond the first 10 peers loading for the first time (adding an
-    // 11th, 21st, ... overlay person) must not blank the calendar the primary
-    // query already resolved — only the background indicator reflects it.
     isLoading: live.isLoading,
     isFetching:
       live.isFetching || extraOverlayQueries.some((q) => q.isFetching),
@@ -444,23 +404,10 @@ type OverlayStatusResult = {
   >;
 };
 
-/**
- * Per-person read status for the "Other Calendars" sidebar list. Uses the
- * same list-events action in its inventory format (which already tracks
- * per-overlay-email status) with `sources: ["overlays"]` and a single-day
- * range so it stays cheap - it never reads the caller's own Google events,
- * ICS feeds, or bookings.
- */
-// list-events rejects more than 10 overlayEmails per call (see its zod
-// schema), so a workspace with more overlay people than that must be split
-// into multiple inventory requests rather than one call that 400s outright.
 const OVERLAY_STATUS_BATCH_SIZE = 10;
 
 export function useOverlayCalendarStatus(overlayEmails: string[]) {
   const today = new Date().toISOString().slice(0, 10);
-  // Exclusive upper bound: resolveCalendarEventRange only fills in a default
-  // end date when `to` is omitted, so passing the same day for both bounds
-  // hit its "from must be before to" guard on every call.
   const to = addDaysToDateKey(today, 1);
   const batches = useMemo(() => {
     const chunks: string[][] = [];
@@ -504,12 +451,6 @@ export function useOverlayCalendarStatus(overlayEmails: string[]) {
   return statusByEmail;
 }
 
-/**
- * Warm the events query cache for a given range without triggering a render.
- * Use to pre-fetch adjacent weeks so j/k navigation is instant — the same
- * stale/gc settings as `useEvents` apply, so the prefetched data is picked up
- * by the real query when the user actually navigates.
- */
 export function prefetchEvents(
   queryClient: ReturnType<typeof useQueryClient>,
   from: string,
@@ -644,9 +585,6 @@ export function useUpdateEvent() {
                 )
               : undefined;
             if (!target) return old;
-            // A working-location change can alter the visual grouping of several
-            // days. Keep the editor mounted until Google confirms the write so a
-            // rejected request does not appear to save and then snap back.
             if (
               shouldDeferOptimisticEventUpdate(target, hasWorkingLocationUpdate)
             )

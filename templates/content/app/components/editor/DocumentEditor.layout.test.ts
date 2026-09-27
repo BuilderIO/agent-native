@@ -333,9 +333,6 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    // One effect, keyed on the selection. Keying it on the whole pending
-    // comment resets the target to invalid for a frame on every keystroke,
-    // which flashes the "select text" alert inside the open composer.
     expect(
       source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
     ).toHaveLength(1);
@@ -787,8 +784,8 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("contentBase: reconcileBase");
-    expect(source).toContain("if (!result.contentPersisted)");
+    expect(source).toContain("const contentBase = reconcileBase");
+    expect(source).toContain("return result.contentPersisted;");
   });
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
@@ -1723,8 +1720,6 @@ describe("document editor layout", () => {
       },
     ).replace(/\r\n/g, "\n");
 
-    // Every SQL-backed reader keeps the scoped collaboration subscription for
-    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -1758,8 +1753,6 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Viewers can read comments; only comment-capable roles get composer
-    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
       "!isLocalFileDocument ? documentId : null",
     );
@@ -1941,9 +1934,8 @@ describe("document editor layout", () => {
     expect(teardown).toContain("const baseUpdatedAt");
     expect(teardown).toContain("const loadedContentWasEmpty");
     expect(teardown).toContain("const loadedUpdatedAt");
-    expect(teardown).toContain("lastSavedContentRef.current.content");
-    expect(teardown).toContain("documentRevisionRef.current !==");
-    expect(teardown).toContain("lastSavedContentRef.current.revision");
+    expect(teardown).toContain("pending.contentBase.content");
+    expect(teardown).toContain("pending.contentBase.revision");
     expect(teardown).not.toContain("const optimisticAt");
     expect(teardown).not.toContain("lastSavedContentRef.current =");
     expect(teardown).not.toContain(

@@ -1,7 +1,3 @@
-/**
- * WriteCell — renders a write tool call as a new-file view with added-line styling.
- */
-
 import {
   IconChevronDown,
   IconFilePlus,

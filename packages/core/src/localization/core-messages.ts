@@ -24,6 +24,7 @@ export type AgentChatTranslation = Record<string, string> & {
 };
 
 const legacyAgentChatAliases = [
+  ["onboarding.fileStorage", "onboarding.fileStorage"],
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
   ["agentPanel.builderModelCredits", "composer.builderModelCredits"],
   ["agentPanel.builderOrOwnKeys", "setup.builderOrOwnKeys"],
@@ -222,7 +223,6 @@ const englishCoreMessages = {
   },
 };
 
-// Non-English chat and settings catalogs load with the app locale.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
   if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
     return englishCoreMessages;

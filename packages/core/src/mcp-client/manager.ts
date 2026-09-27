@@ -1,13 +1,3 @@
-/**
- * McpClientManager — connects to configured MCP servers (stdio or remote
- * Streamable HTTP), enumerates their tools, and exposes a flat tool registry
- * prefixed with `mcp__<server-id>__` so the agent's tool-use loop can call them.
- *
- * Stdio servers are a strict no-op in non-Node runtimes (Cloudflare Workers,
- * browsers). HTTP servers work in any runtime with `fetch`; `reconfigure()`
- * lets callers add or remove servers at runtime without restarting the process.
- */
-
 import { MCP_APP_EXTENSION_ID, MCP_APP_MIME_TYPE } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
@@ -19,25 +9,15 @@ import {
 export const MCP_TOOL_PREFIX = "mcp__";
 
 export interface McpTool {
-  /** Server id the tool belongs to */
   source: string;
-  /** Prefixed tool name (e.g. "mcp__claude-in-chrome__navigate") */
   name: string;
-  /** Original name as reported by the MCP server */
   originalName: string;
-  /** Human-readable description */
   description: string;
-  /** JSON-Schema input spec forwarded verbatim from the server */
   inputSchema: Record<string, unknown>;
-  /** Optional title as reported by the MCP server */
   title?: string;
-  /** JSON-Schema output spec forwarded verbatim from the server */
   outputSchema?: Record<string, unknown>;
-  /** MCP tool annotations forwarded verbatim from the server */
   annotations?: Record<string, unknown>;
-  /** MCP metadata forwarded verbatim from the server */
   _meta?: Record<string, unknown>;
-  /** Full raw tool object for extensions that depend on fields core does not know yet. */
   raw: Record<string, unknown>;
 }
 
@@ -72,10 +52,6 @@ export function buildMcpToolName(serverId: string, toolName: string): string {
   return buildPrefixedName(serverId, toolName);
 }
 
-/**
- * Parse a prefixed tool name back into its server id and original tool name.
- * Returns `null` if the name doesn't match the MCP prefix convention.
- */
 export function parseMcpToolName(
   prefixedName: string,
 ): { serverId: string; toolName: string } | null {
@@ -90,15 +66,7 @@ export function parseMcpToolName(
 }
 
 export interface McpClientManagerOptions {
-  /** Emit debug logs on startup */
   debug?: boolean;
-  /**
-   * Per-server budget for the connect and tools/list handshake. The default
-   * suits an interactive surface that must not stall on a dead server; raise it
-   * only for a caller whose target is expected to be cold-starting, and stay
-   * under the platform request wall. An explicit
-   * `AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS` still overrides this.
-   */
   connectTimeoutMs?: number;
 }
 
@@ -202,8 +170,6 @@ export class McpClientManager {
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
-  /** Serialises reconfigure()/start() — two concurrent callers would
-   * otherwise race on `this.config` and on connect/disconnect ordering. */
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
@@ -212,37 +178,27 @@ export class McpClientManager {
     this.connectTimeoutMs = options.connectTimeoutMs;
   }
 
-  /** True when the manager has any configured servers. */
   get enabled(): boolean {
     return !!this.config && Object.keys(this.config.servers).length > 0;
   }
 
-  /** Return the current config (read-only snapshot for callers that need to
-   *  merge new servers into the existing set before calling reconfigure). */
   getConfig(): McpConfig | null {
     return this.config;
   }
 
-  /** List of configured server ids (whether or not they're connected). */
   get configuredServers(): string[] {
     if (!this.config) return [];
     return Object.keys(this.config.servers);
   }
 
-  /** List of server ids that successfully connected and enumerated tools. */
   get connectedServers(): string[] {
     return Array.from(this.servers.values())
       .filter((s) => s.client && !s.error)
       .map((s) => s.id);
   }
 
-  /**
-   * Load MCP SDK modules lazily so non-Node bundles don't pull them in.
-   * Stdio transport is only loaded when a stdio server is actually configured.
-   */
   private async loadSdk(needStdio: boolean): Promise<SdkModules | null> {
     if (this.sdk) {
-      // If we previously loaded without stdio and now need it, top up.
       if (needStdio && !this.sdk.StdioClientTransport && isNode()) {
         try {
           const stdioMod = await import("@modelcontextprotocol/client/stdio");
@@ -282,11 +238,6 @@ export class McpClientManager {
     }
   }
 
-  /**
-   * Subscribe to tool-set changes (e.g. after `reconfigure()` adds/removes
-   * servers). The listener is called *after* connect/disconnect completes.
-   * Returns an unsubscribe function.
-   */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -340,10 +291,6 @@ export class McpClientManager {
     this.emitChange();
   }
 
-  /**
-   * Create a new ServerEntry and attempt to connect. Logs and records errors
-   * on the entry rather than throwing — callers iterate many servers.
-   */
   private async addServer(
     id: string,
     cfg: McpServerConfig,
@@ -471,20 +418,8 @@ export class McpClientManager {
     const restoreClientClose = guardClose(client, recordConnectionError);
     const restoreTransportClose = guardClose(transport, recordConnectionError);
     client.onerror = recordConnectionError;
-    // Attach a transport-level error handler before connect() so the SDK's
-    // internal fire-and-forget paths (initial SSE stream open, scheduled
-    // reconnects, message-handler-triggered reconnects — see processStream()
-    // in @modelcontextprotocol/client) cannot leak as
-    // unhandled promise rejections. On AWS Lambda the long-lived socket
-    // gets reaped ~60s after the function returns; without this handler the
-    // resulting `socket hang up` surfaces as an unhandledRejection and
-    // pollutes Sentry. Client.connect() chains its own onerror on top of
-    // ours (see protocol.js: const _onerror = transport.onerror; ...).
     transport.onerror = recordConnectionError;
 
-    // If connect or listTools throws, we still need to release the child
-    // process (stdio) or pending HTTP session — otherwise repeated failures
-    // leak transports. Assign to the entry only after the handshake succeeds.
     try {
       const timeoutMs = mcpConnectTimeoutMs(this.connectTimeoutMs);
       await withConnectTimeout(
@@ -651,18 +586,6 @@ export class McpClientManager {
     }
   }
 
-  /**
-   * Replace the configured server set. Servers that appear in the new config
-   * under a different shape are reconnected; unchanged entries stay live;
-   * removed entries are disconnected. Safe to call while `start()` is in
-   * flight or after it has completed.
-   *
-   * Serialised against `start()` and any other `reconfigure()` call via the
-   * internal queue — two concurrent mutations would otherwise interleave on
-   * `this.config` and on connect/disconnect ordering.
-   *
-   * Returns a summary describing what happened for logging / UI feedback.
-   */
   async reconfigure(newConfig: McpConfig | null): Promise<{
     added: string[];
     removed: string[];
@@ -695,7 +618,6 @@ export class McpClientManager {
     const unchanged: string[] = [];
     const reconnected: string[] = [];
 
-    // Remove entries that vanished or changed shape.
     for (const id of Object.keys(prevServers)) {
       if (!(id in nextServers)) {
         removed.push(id);
@@ -734,8 +656,6 @@ export class McpClientManager {
       }
     }
 
-    // If the manager was never started (e.g. empty initial config) but now has
-    // servers, mark it started so subsequent start() calls don't duplicate work.
     if (!this.started && Object.keys(nextServers).length > 0) {
       this.started = true;
     }
@@ -744,7 +664,6 @@ export class McpClientManager {
     return { added, removed, unchanged, reconnected };
   }
 
-  /** Flattened tool list across all connected servers. */
   getTools(): McpTool[] {
     if (!this.enabled) return [];
     const out: McpTool[] = [];
@@ -770,10 +689,6 @@ export class McpClientManager {
     return !!entry?.client && !entry.error;
   }
 
-  /**
-   * Invoke an MCP tool by prefixed name. Routes to the owning server based on
-   * the `mcp__<serverId>__` prefix.
-   */
   async callTool(prefixedName: string, args: unknown): Promise<unknown> {
     const parsed = parseMcpToolName(prefixedName);
     if (!parsed) {
@@ -790,8 +705,6 @@ export class McpClientManager {
       );
     }
     return this.withExpiredSessionRetry(entry, (current) => {
-      // Look up the tool so we fail loud for unknown names instead of
-      // forwarding garbage through to the server.
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
         throw new Error(
@@ -849,7 +762,6 @@ export class McpClientManager {
     return this.readResource(parsed.serverId, uri);
   }
 
-  /** Cleanly close all MCP clients and child processes. */
   async stop(): Promise<void> {
     const task = this.reconfigureQueue.then(async () => {
       const entries = Array.from(this.servers.values());
@@ -863,7 +775,6 @@ export class McpClientManager {
     await task;
   }
 
-  /** Diagnostic snapshot used by `/_agent-native/mcp/status`. */
   getStatus(): {
     configuredServers: string[];
     connectedServers: string[];

@@ -6,7 +6,7 @@ import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { getDb, schema } from "../server/db/index.js";
 import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
 import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 

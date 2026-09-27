@@ -28,7 +28,6 @@ interface HealthSample {
   database?: { urlHash?: string };
 }
 
-/** Samples per lane. Enough to see a flap, few enough to stay in budget. */
 const SAMPLE_COUNT = 4;
 
 const sites = selectedSites();
@@ -44,40 +43,26 @@ for (const site of sites) {
 
   test.describe(`${site.id} (${site.host})`, () => {
     test.beforeAll(async () => {
-      // Serverless hosts idle out. A cold start belongs in setup, not in the
-      // timing of the first assertion.
       await warm(origin);
     });
 
     test("serves a working landing page", async ({ page }) => {
-      // One navigation, several independent facts. Split across three tests
-      // this cost three page loads per host, and in CI a page load against a
-      // beta host is the dominant cost of the whole sweep. `expect.soft` keeps
-      // each fact reported separately even though they now share a visit.
       const { errors, thirdParty } = collectAppPageErrors(page, origin);
       const failedRequests: string[] = [];
       page.on("requestfailed", (request) => {
         const failure = request.failure()?.errorText ?? "unknown";
-        // Analytics/telemetry beacons blocked in CI are not app failures.
         if (/aborted/i.test(failure)) return;
         if (!request.url().startsWith(origin)) return;
         failedRequests.push(`${request.url()} (${failure})`);
       });
 
-      // "The connection isn't private" was a real report; Playwright surfaces a
-      // certificate problem as a navigation failure only while
-      // `ignoreHTTPSErrors` stays off, so it is deliberately never set.
       const response = await page.goto(`${origin}/`, {
         waitUntil: "domcontentloaded",
       });
       expect(response, `${origin}/ produced no response`).toBeTruthy();
       expect.soft(response!.status(), `${origin}/ status`).toBeLessThan(400);
 
-      // Waits for real content instead of sleeping: a fixed pause is dead time
-      // on every host, and 16 hosts of dead time is minutes of the sweep.
       await renderedText(page, `${site.host} landing page`);
-      // Keep the page listeners alive through late hydration and lazy-loaded
-      // resources. A rendered body is not the same as a settled application.
       await page.waitForTimeout(5_000);
 
       if (thirdParty.length > 0) {
@@ -101,9 +86,6 @@ for (const site of sites) {
     });
 
     test("offers a sign-in that works", async ({ page }) => {
-      // Repeated with a cache buster: a sign-in 404 that "fixes itself on
-      // refresh" was reported, which a single request cannot see. These are
-      // plain HTTP, so they cost almost nothing.
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         const outcome = await mustRespond(
           `${origin}/sign-in?cb=${Date.now()}-${attempt}`,
@@ -115,8 +97,6 @@ for (const site of sites) {
         ).toBe(200);
       }
 
-      // One page load answers both questions below. Read separately they cost
-      // two visits per host, which is the sweep's dominant expense in CI.
       const affordances = await readSignInAffordances(page, origin);
 
       const environmentBadge = page.locator("#environment-badge");
@@ -135,18 +115,11 @@ for (const site of sites) {
       expect(productionHref).not.toBeNull();
       expect(new URL(productionHref!).hostname).toBe(productionHostFor(site));
 
-      // A 200 that renders no way to sign in is the same outage to a user.
       expect(
         affordances.anySignIn,
         `${site.host} served /sign-in with no Google button, no password form, and no sign-in copy — nobody can get in. Page text: ${affordances.bodyText.slice(0, 200)}`,
       ).toBe(true);
 
-      // redirect_uri_mismatch was the single most-reported beta failure.
-      //
-      // Scoped to apps that actually show a Google button: the shared login
-      // document ships Google markup for every app and hides it when the
-      // provider is not configured, so asserting unconditionally would fail
-      // apps that legitimately offer only password or Supabase sign-in.
       if (!affordances.google) {
         test.info().annotations.push({
           type: "no-google",
@@ -176,8 +149,6 @@ for (const site of sites) {
         `${site.host} built a Google auth URL with no client_id`,
       ).toBeTruthy();
 
-      // Loading Google's own page is the only check that catches a console
-      // registration that has drifted from the deployed host.
       await page.goto(payload.url!, {
         waitUntil: "domcontentloaded",
         timeout: 60_000,
@@ -190,11 +161,6 @@ for (const site of sites) {
     });
 
     test("reaches its database", async () => {
-      // Set above the true worst case, not above the typical one. Eight
-      // samples (four beta, four production) at up to two 15s attempts plus
-      // backoff is ~256s against an unreachable host; a timeout below that
-      // would replace the verdict this test exists to produce with a generic
-      // Playwright timeout in exactly the situation it matters.
       test.setTimeout(420_000);
 
       const sample = async (host: string): Promise<HealthSample> =>
@@ -217,8 +183,6 @@ for (const site of sites) {
         }
       }
 
-      // `ok` is deliberately not the signal: this endpoint returns ok:true
-      // alongside db:false, so a host with no database reads as healthy.
       const healthy = samples.filter(isHealthy).length;
       const detail = JSON.stringify(
         samples.map((entry) => ({
@@ -237,15 +201,8 @@ for (const site of sites) {
         });
       }
 
-      // A strict majority. At exactly half, one in two sign-ins or first loads
-      // fails — that is the intermittent outage this gate exists to catch, not
-      // a wobble to annotate and wave through.
       if (healthy * 2 > SAMPLE_COUNT) return;
 
-      // Under the threshold. Before blocking a promotion, check whether the
-      // same database is failing for production too — several beta hosts share
-      // one with their production twin, and promoting this build changes
-      // nothing about a database both lanes already sit on.
       const production = productionHostFor(site);
       const prodSamples: HealthSample[] = [];
       for (let attempt = 1; attempt <= SAMPLE_COUNT; attempt += 1) {
@@ -256,11 +213,6 @@ for (const site of sites) {
       }
       const prodHealthy = prodSamples.filter(isHealthy).length;
 
-      // The waiver requires both halves: the two lanes must actually be on the
-      // same database, and production must be degraded at least as badly.
-      // Without the first, an isolated beta database could be waived by an
-      // unrelated production wobble; without the second, a total beta outage
-      // could be waived by a single bad production sample.
       const sameDatabase =
         samples[0]?.database?.urlHash != null &&
         samples[0].database.urlHash === prodSamples[0]?.database?.urlHash;
@@ -306,9 +258,6 @@ for (const site of sites) {
     });
 
     test("requires authentication on its A2A endpoint", async () => {
-      // 401 means the endpoint is configured and closed. 503 means no
-      // A2A_SECRET is set, so the app cannot receive delegated work at all —
-      // a silent loss of every cross-app journey into this host.
       const a2aProbe = (host: string) =>
         probe(`https://${host}/_agent-native/a2a`, {
           method: "POST",
@@ -331,20 +280,11 @@ for (const site of sites) {
       if (result.kind !== "responded") return;
       if (result.status === 401) return;
 
-      // Not 401. Before failing the promotion gate, check whether production
-      // is in the same state: this suite answers "would promoting make things
-      // worse", and a condition production already has is not a reason to hold
-      // the release. It is still reported, as an annotation and in the
-      // advisory lane.
       const production = productionHostFor(site);
       const prodResult = await a2aProbe(production);
       const prodStatus =
         prodResult.kind === "responded" ? prodResult.status : undefined;
 
-      // Status alone is not the same failure: a 503 for "no A2A_SECRET
-      // configured" and a 503 from an overloaded host read identically. The
-      // JSON-RPC error code and message are what say *why*, so the waiver
-      // compares those.
       const failureShape = (body: string): string => {
         try {
           const parsed = JSON.parse(body) as {
@@ -403,10 +343,7 @@ for (const site of sites) {
         `${site.host} bounced an anonymous visitor off its own origin to ${gate.url}`,
       ).toBe(origin);
 
-      // The reported loop: land on sign-in, then get thrown around again.
       const settled = page.url();
-      // Short on purpose: a redirect loop fires immediately, so a longer pause
-      // is pure dead time repeated on every host.
       await page.waitForTimeout(2_500);
       expect(
         page.url(),

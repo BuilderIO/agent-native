@@ -279,6 +279,8 @@ export default {
     untitledAnalysis: "未命名分析",
   },
   settings: {
+    agentObservability: "代理可觀測性",
+    reviewPreviewUnavailable: "無法預覽",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",

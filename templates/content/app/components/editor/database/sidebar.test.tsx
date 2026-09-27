@@ -405,7 +405,6 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain('href="/page/page"');
     expect(markup).toContain("Project");
     expect(markup).toContain('aria-current="page"');
-    // The active row is filled, not only bolder, so it outranks hover.
     expect(markup).toContain("bg-sidebar-accent font-medium");
     expect(markup).not.toContain("font-semibold");
   });
@@ -1045,8 +1044,6 @@ describe("DatabaseSidebarView", () => {
     const menuItems = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
-    // A viewer gets the personal and read-only items only: no rename,
-    // duplicate, move, or trash without edit/manage access.
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
       "Pin to sidebar",
       "Copy link",

@@ -10,11 +10,6 @@ import {
 
 const CRM_APP_ID = "crm";
 
-/**
- * HubSpot addresses records by its fully-qualified object type id, not by the
- * object name the CRM API takes. Custom objects already arrive shaped `2-1234`
- * and pass straight through.
- */
 const HUBSPOT_OBJECT_TYPE_IDS: Record<string, string> = {
   contact: "0-1",
   contacts: "0-1",
@@ -33,11 +28,6 @@ export type ProviderRecordLinkUnavailableReason =
   | "missing-instance-url"
   | "workspace-connection-unavailable";
 
-/**
- * A link is either present or typed-absent with the reason. There is no
- * empty-string or best-guess URL: a wrong deep link reads to the user as a
- * working handoff and sends them to somebody else's record.
- */
 export type ProviderRecordLink =
   | { available: true; url: string }
   | { available: false; reason: ProviderRecordLinkUnavailableReason };
@@ -78,17 +68,11 @@ function salesforceOrigin(configured: string): string | null {
   return url.origin;
 }
 
-/**
- * Builds the upstream record URL a person can open to complete a change by
- * hand. Pure so both providers stay covered by one test.
- */
 export function buildProviderRecordUrl(input: {
   provider: ConnectedCrmProvider;
   objectType: string;
   remoteId: string;
-  /** HubSpot portal id (`crm_connections.account_id`). */
   portalId?: string | null;
-  /** Salesforce My Domain origin from the workspace connection config. */
   instanceUrl?: string | null;
 }): ProviderRecordLink {
   const remoteId = input.remoteId.trim();
@@ -127,11 +111,6 @@ export function buildProviderRecordUrl(input: {
   };
 }
 
-/**
- * Everything a connection contributes to its records' links, resolved once.
- * HubSpot's portal id is already mirrored on the CRM connection row; only
- * Salesforce needs the workspace connection, which owns the My Domain origin.
- */
 type ConnectionLinkContext =
   | { portalId: string | null; instanceUrl?: undefined }
   | { instanceUrl: string | null; portalId?: undefined }
@@ -194,11 +173,6 @@ export async function resolveProviderRecordLink(input: {
   return linkFromContext(await connectionLinkContext(input), input);
 }
 
-/**
- * Bulk variant for list surfaces. Records with a native (or otherwise
- * unconnected) provider are simply absent from the map — they have no upstream
- * record to open.
- */
 export async function resolveProviderRecordLinks(
   recordIds: string[],
 ): Promise<Map<string, ProviderRecordLink>> {
@@ -243,7 +217,6 @@ export async function resolveProviderRecordLinks(
   const connectionById = new Map(
     connections.map((connection) => [connection.id, connection]),
   );
-  // One workspace lookup per connection, not per record.
   const contextByConnectionId = new Map<string, ConnectionLinkContext>();
   for (const record of connectedRecords) {
     const connection = connectionById.get(record.connectionId);

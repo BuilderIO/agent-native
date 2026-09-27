@@ -64,10 +64,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-// NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
-// components from `@/components/visual-editor`. The legacy iframe-only
-// DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
-// exist for now and can be reconciled in a follow-up. Don't import both.
 import {
   DrawOverlay as SharedDrawOverlay,
   ReviewCanvasPins,
@@ -304,17 +300,6 @@ function parseKScaleStyleChangeBatch(
   return changes;
 }
 
-/**
- * Allowlist check for Fusion (Builder-hosted) frame origins.
- *
- * Fusion frames are served cross-origin from the Builder-hosted app, so the
- * strict `origin === parentOrigin` bridge check can never match. Before relaxing
- * trust to window-identity only, we must confirm the message origin is actually
- * a Builder host — the exact origin of the `fusionUrl` we were asked to render,
- * or any `*.builder.io` host (plus the bare `builder.io`), over https. This
- * prevents the relaxed-trust path from accepting messages from an arbitrary
- * cross-origin frame that merely shares our iframe's window reference.
- */
 function isAllowedFusionOrigin(
   origin: string,
   fusionUrl: string | undefined,
@@ -329,8 +314,6 @@ function isAllowedFusionOrigin(
   } catch {
     return false;
   }
-  // Only allow secure (https) Builder origins. Loopback is a development-only
-  // exception: without it every bridge message from a local proxy is dropped.
   if (protocol !== "https:") {
     const loopbackDev =
       isLoopbackPreviewAllowed() &&
@@ -338,7 +321,6 @@ function isAllowedFusionOrigin(
     if (!loopbackDev) return false;
     return true;
   }
-  // Exact match against the configured fusion URL's origin.
   if (fusionUrl) {
     try {
       if (new URL(fusionUrl).origin === origin) return true;
@@ -346,19 +328,9 @@ function isAllowedFusionOrigin(
       // Malformed fusionUrl — fall through to the host-family allowlist.
     }
   }
-  // Builder host family: builder.io and any subdomain of it.
   return host === "builder.io" || host.endsWith(".builder.io");
 }
 
-/**
- * Motion-preview bridge. Injected alongside the other bridge scripts so the
- * MotionDock's scrubbing preview works in ALL editor modes without writing
- * anything to the DB, Yjs state, or source files.
- *
- * Source: app/components/design/bridge/motion-preview.bridge.ts
- * Compiled: .generated/bridge/motion-preview.generated.ts (run bridge/codegen.ts to update)
- */
-/** Focus here is the user's text-entry intent, not incidental chrome focus. */
 const EDITABLE_FOCUS_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-agent-native-text-editing]';
 
@@ -368,25 +340,6 @@ ${motionPreviewBridgeScript}
 </script>
 `;
 
-/**
- * Shader scripts. ALWAYS injected alongside the other bridge scripts:
- *
- * 1. The code-backed GLSL shader RUNTIME (window.__anShaders) — renders
- *    persisted `<script type="application/x-agent-native-shader">` blocks
- *    onto annotated elements via WebGL, and powers live GLSL previews.
- *    Persisted screens embed their own copy for standalone export; the
- *    runtime is idempotent so double-injection is safe. Source of truth:
- *    app/components/design/bridge/shader-runtime.bridge.ts (also embedded
- *    into saved HTML by shared/shader-fills.ts ensureShaderRuntime()).
- *
- * 2. The shader-fill preview BRIDGE — postMessage protocol handler. Legacy
- *    messages apply a CSS gradient approximation of a shader fill to the
- *    selected element; `glsl-shader-*` messages delegate to the runtime for
- *    live WebGL previews, knob scrubbing, and rescans. Nothing persists.
- *
- * Source: app/components/design/bridge/shader-fill-preview.bridge.ts
- * Compiled: .generated/bridge/*.generated.ts (run bridge/codegen.ts to update)
- */
 const SHADER_FILL_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-shader-runtime data-runtime-version="1">
 ${shaderRuntimeBridgeScript}
@@ -396,64 +349,30 @@ ${shaderFillPreviewBridgeScript}
 </script>
 `;
 
-/**
- * Tweak bridge. ALWAYS injected so the parent's postMessage (`tweak-values`)
- * can update CSS custom properties on the iframe's :root regardless of which
- * editor mode is active.
- *
- * Source: app/components/design/bridge/tweak.bridge.ts
- * Compiled: .generated/bridge/tweak.generated.ts (run bridge/codegen.ts to update)
- */
 const TWEAK_BRIDGE_SCRIPT = `
 <script data-agent-native-tweak-bridge>
 ${tweakBridgeScript}
 </script>
 `;
 
-/**
- * Pinch-zoom bridge: forwards trackpad pinch / Cmd-Ctrl+scroll wheel events
- * from inside the iframe to the parent window.
- *
- * Source: app/components/design/bridge/zoom.bridge.ts
- * Compiled: .generated/bridge/zoom.generated.ts (run bridge/codegen.ts to update)
- */
 const ZOOM_BRIDGE_SCRIPT = `
 <script data-agent-native-zoom-bridge>
 ${zoomBridgeScript}
 </script>
 `;
 
-/**
- * Embedded overview bridge. Forwards wheel events from embedded screen iframes
- * to the parent canvas handler so pan/zoom works over design content.
- *
- * Source: app/components/design/bridge/embedded-wheel.bridge.ts
- * Compiled: .generated/bridge/embedded-wheel.generated.ts (run bridge/codegen.ts to update)
- */
 const EMBEDDED_WHEEL_BRIDGE_SCRIPT = `
 <script data-agent-native-embedded-wheel-bridge>
 ${embeddedWheelBridgeScript}
 </script>
 `;
 
-/**
- * Navigation bridge. ALWAYS injected. Intercepts link clicks and relative form
- * submits inside prototype iframes so they route to the parent instead of
- * navigating the iframe to the Design app itself.
- *
- * Source: app/components/design/bridge/nav.bridge.ts
- * Compiled: .generated/bridge/nav.generated.ts (run bridge/codegen.ts to update)
- */
 const NAV_BRIDGE_SCRIPT = `
 <script data-agent-native-nav-bridge>
 ${navBridgeScript}
 </script>
 `;
 
-// URL-backed frames keep running their app in Interact mode, so the editor
-// chrome is intentionally absent there. Report client-side router changes
-// through the same trusted frame channel so returning to Edit reopens the
-// route the user was actually viewing instead of the screen's seed URL.
 const LIVE_ROUTE_BRIDGE_SCRIPT = `
 <script data-agent-native-live-route-bridge>
 (function () {
@@ -524,40 +443,16 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
 `;
 }
 
-/**
- * Editor chrome bridge: blocks native iframe app interaction outside Interact
- * mode and replaces it with element hover/selection overlays. Double-click text
- * editing is enabled only while the editor is specifically in Edit mode.
- */
 const EDITOR_CHROME_BRIDGE_SCRIPT = `
 <script type="module" data-agent-native-editor-chrome-bridge>
 ${editorChromeBridgeScript}
 </script>
 `;
 
-/**
- * Master switch for the Figma-parity live-reflow drag (hysteresis-stabilized
- * targeting + size guard in Phase 0; transform lift/follow, live sibling
- * reflow, and exact absolute commit in Phase 1). Flip to `true` to try the new
- * drag feel; flip back to `false` for the previous behavior without a revert.
- * Baked into the injected bridge as `__LIVE_REFLOW_ENABLED__`.
- */
 const LIVE_REFLOW_ENABLED = true;
 
-/**
- * Rollout gate: when on, a pointerdown inside the current selection's box keeps
- * the selected element as the drag target even when an overlapping
- * non-descendant sibling wins the hit test. Baked into the bridge as
- * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
- * behavior.
- */
 const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
 
-/**
- * A style replay into the live iframe. `runtimeSelector`/`runtimeSourceId` are
- * the only pair that resolves in a localhost document — see
- * `runtimeStyleTarget` for the two-namespace problem they exist for.
- */
 type StyleReplayPatch = {
   selector: string;
   sourceId?: string | null;
@@ -608,25 +503,13 @@ interface DesignCanvasProps {
    * model uses window-identity trust instead of same-origin trust.
    */
   sourceType?: "inline" | "localhost" | "fusion";
-  /** Local design-connect bridge URL used to fetch editable snapshots for URL-backed localhost screens. */
   bridgeUrl?: string;
-  /** Authoritative URL for a live screen when its persisted source is changing. */
   previewUrlOverride?: string;
-  /** Stable local/Fusion connection scope for desktop session isolation. */
   connectionId?: string;
-  /** Only the active focused/overview screen may own the desktop native backend. */
   nativePreviewActive?: boolean;
-  /** Only the focused shared screen polls for new owner snapshots. */
   sharedSnapshotPollActive?: boolean;
-  /**
-   * HTML snapshot for a URL-backed localhost screen. When present, DesignCanvas
-   * renders this as editable srcdoc while the persisted design file can remain
-   * the original URL.
-   */
   externalSnapshotHtml?: string;
-  /** Render the shared snapshot without ever navigating to a viewer's localhost. */
   snapshotOnly?: boolean;
-  /** Prevent an Interact frame from taking input while shared edits are pending. */
   blockPreviewInteraction?: boolean;
   onExternalContentSnapshot?: (snapshot: {
     url: string;
@@ -643,9 +526,7 @@ interface DesignCanvasProps {
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
-  /** Called once when this document has a usable runtime bridge. */
   onBridgeReady?: () => void;
-  /** Publishes a refreshed localhost preview credential to the host editor. */
   onPreviewTokenChange?: (
     screenId: string | undefined,
     previewToken: string,
@@ -658,9 +539,7 @@ interface DesignCanvasProps {
     screenId: string | undefined,
     capability: string,
   ) => void;
-  /** Keeps route-scoped pending edits aligned with the live document. */
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
-  /** Called once when the live document finishes its browser load. */
   onBootStart?: () => void;
   onBootReady?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
@@ -670,30 +549,12 @@ interface DesignCanvasProps {
     nodeCount: number;
     documentId?: string;
   }) => void;
-  /**
-   * Explicit Builder-hosted app URL for fusion source rendering.
-   *
-   * When `sourceType === "fusion"` and this prop is provided, the iframe uses
-   * this URL as `src` regardless of what `content` contains.  This lets the
-   * caller hold the original inline HTML in `content` (for collab/history
-   * purposes) while pointing the canvas at the migrated Builder-hosted app.
-   *
-   * When absent and `sourceType === "fusion"`, the component falls back to
-   * the existing external-URL detection on `content` (i.e. if `content` is
-   * itself a URL it is used as-is, which is the pattern when the branch URL
-   * has been written into the design file content).
-   *
-   * For `"inline"` and `"localhost"` sources this prop is ignored.
-   */
   fusionUrl?: string;
   /** Read-only localhost bridge credential. Filesystem write tokens never enter
    * this browser component. */
   previewToken?: string;
-  /** Design-bound credential for live-edit bridge operations only. */
   liveEditCapability?: string;
-  /** Design-bound credential for registering the ephemeral editor chrome. */
   liveEditRegistrationCapability?: string;
-  /** The public visual-edit surface may refresh its connection credentials. */
   publicVisualEdit?: boolean;
   zoom: number;
   onZoomChange?: (zoom: number) => void;
@@ -708,25 +569,14 @@ interface DesignCanvasProps {
     contentOffsetY?: number;
   };
   boardSurface?: boolean;
-  /** Override the overview default so an explicitly Hug-sized Screen can
-   * report natural body height instead of inheriting its current frame. */
   fitRootBodyToFrame?: boolean;
-  /**
-   * Optional live document replacement channel. When paired with
-   * `runtimeReplacementKey`, this lets callers update iframe DOM through the
-   * editor bridge without changing `srcDoc` and reloading the iframe.
-   */
   runtimeReplacementContent?: string;
-  /** Exact authored bytes before board/frame/runtime display wrappers. */
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
   styleRevertRequest?: {
     requestId: number;
     patches: Array<StyleReplayPatch>;
   } | null;
-  /** Steady-state live style previews replayed after this iframe document
-   * announces readiness. Entries are screen-scoped so a sibling canvas can
-   * never receive another screen's pending edit. */
   pendingStylePreviewPatches?: Array<StyleReplayPatch & { screenId: string }>;
   styleBaselineResetRequest?: number | null;
   textRevertRequest?: {
@@ -743,19 +593,13 @@ interface DesignCanvasProps {
     requestId: number;
     acks: Array<{ requestId: string; applied: boolean; routePath?: string }>;
   } | null;
-  /** One-shot host request to optimistically move a runtime-only layer. */
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
-  /** One-shot host request to insert new markup into the running DOM. */
   runtimeStructureInsertRequest?: RuntimeStructureInsertRequest | null;
-  /** One-shot host request to delete a runtime layer in this screen. */
   runtimeStructureDeleteRequest?: RuntimeStructureDeleteRequest | null;
-  /** One-shot cleanup for a destination whose paired source delete failed. */
   runtimeStructureRollbackRequest?: RuntimeStructureRollbackRequest | null;
-  /** Transaction whose destination this canvas currently owns. */
   runtimeStructureTargetTransactionId?: string | null;
   runtimeLayerRenameRequest?: RuntimeLayerRenameRequest | null;
   runtimeLayerSnapshotRequest?: number | null;
-  /** The bridge could not honor a runtimeStructureInsertRequest. */
   onRuntimeStructureInsertRejected?: (
     reason: string,
     transactionId?: string,
@@ -782,6 +626,7 @@ interface DesignCanvasProps {
     transactionId?: string;
     routePath?: string;
     reason: string;
+    sourcePresent?: boolean;
   }) => void;
   onRuntimeStructureRollbackResult?: (details: {
     requestId: string;
@@ -797,8 +642,6 @@ interface DesignCanvasProps {
     name: string;
     previousName?: string;
   }) => void;
-  /** Mounts a separate hidden runtime only after a guarded source hash
-   * changes. The editable iframe remains untouched and fully undoable. */
   runtimeVerificationRequest?: RuntimeVerificationRequest | null;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
@@ -806,11 +649,8 @@ interface DesignCanvasProps {
   editorChromeScaleY?: number;
   editMode: boolean;
   interactMode: boolean;
-  /** Centers the focused responsive preview without resetting its camera. */
   centerInteractPreview?: boolean;
   readOnly?: boolean;
-  /** This screen's layout grid step in content px. 1 (or absent) means no grid,
-   *  which leaves the whole-pixel floor every gesture already lands on. */
   layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
@@ -885,10 +725,7 @@ interface DesignCanvasProps {
         };
       }>;
       anchorElementInfo?: ElementInfo;
-      /** Set when the subject is markup this change introduced, not an
-       * element the running app already had. */
       insertedHtml?: string;
-      /** The inserted subject replaced the anchor as one undoable gesture. */
       replaced?: true;
       replacementSelector?: string;
       replacementSourceId?: string;
@@ -919,37 +756,16 @@ interface DesignCanvasProps {
     },
   ) => boolean | "pending" | void;
   tweakValues: Record<string, string>;
-  /** Whether draw-to-prompt mode is active (overlays the iframe). */
   drawMode?: boolean;
-  /** Called when the user exits draw mode (X / Escape / after Send). */
   onExitDrawMode?: () => void;
-  /**
-   * Bumped by the parent exactly when the user deliberately discards the
-   * current annotation batch (the same moment `onExitDrawMode` fires from
-   * the overlay's own X button or a confirmed Send). SharedDrawOverlay only
-   * clears its strokes/text annotations when this changes — NOT merely
-   * because `drawMode` toggled off for some other reason (switching tools,
-   * views, or side panels) — so unsent annotation work survives an
-   * unrelated exit instead of being silently discarded.
-   */
   drawOverlayResetSignal?: number;
-  /** Keeps the active focused overlay bitmap alive across mode/view hides. */
   retainDrawOverlayWhenHidden?: boolean;
-  /** Reports focused annotation delivery state so global Escape stays inert too. */
   onAnnotationSendingChange?: (sending: boolean) => void;
-  /** Whether comment-pin drop mode is active. */
   pinMode?: boolean;
-  /**
-   * When true, suppresses rendering of comment pins on this canvas (e.g. the
-   * Figma-style Shift+C "hide comments" toggle in single-screen mode). Hiding
-   * comments while pin mode is active also exits pin mode so an invisible
-   * click target cannot keep intercepting canvas interactions.
-   */
   commentPinsHidden?: boolean;
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
   selectedSelectorGroups?: string[][];
-  /** Visual treatment for selection mirrors in responsive peer previews. */
   passiveSelectionStyle?: "default" | "soft";
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
@@ -957,156 +773,46 @@ interface DesignCanvasProps {
   hiddenSelectors?: string[];
   clearSelectionRequest?: number;
   registerRuntimeBridge?: boolean;
-  /** Called when the user exits pin mode. */
   onExitPinMode?: () => void;
-  /** Stable id of the open design (used for pin scoping + agent prompt). */
   designId?: string;
-  /** Whether the current signed-in viewer may create review comments. */
   reviewCanPost?: boolean;
-  /** Whether the current viewer may resolve review threads. */
   reviewCanResolve?: boolean;
-  /** Override the review target; null scopes comments to the board surface. */
   reviewTargetId?: string | null;
-  /** Current finite board window used to resolve stable board-world anchors. */
   reviewBoardGeometry?: ReviewBoardGeometry | null;
-  /** Re-centers the overview camera on a stable board-world review anchor. */
   onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
-  /** Current viewer email used for author-only comment editing. */
   reviewCurrentUserEmail?: string | null;
-  /** A panel-driven request to focus an anchored review comment. */
   reviewFocusRequest?: ReviewFocusRequest | null;
-  /** Dispatch a newly created agent-targeted comment to the local agent chat. */
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
-  /** Dispatch one existing review thread to the local agent chat. */
   onSendThreadToAgent?: (thread: ReviewThread) => void;
-  /** Thread currently being routed to the agent. */
   reviewSendingThreadId?: string | null;
-  /** Human-readable label for the design (used in agent prompt). */
   designTitle?: string;
-  /** Stable id for comment pins, usually scoped to the active screen. */
   commentContextId?: string;
-  /** Stable id of the screen containing this canvas when rendered in overview. */
   screenId?: string;
-  /**
-   * Host-side iframe identity when several responsive previews render the
-   * same screen. The bridge still reports `screenId`; only DOM targeting uses
-   * this distinct value.
-   */
   previewFrameId?: string;
-  /** Human-readable label for comment-pin prompts. */
   commentContextLabel?: string;
-  /** Opens an ephemeral, pre-anchored regenerate composer for this screen. */
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
-  /** Marks the one base canvas used for pending rewrite previews. */
   nodeRewriteCanvasTarget?: boolean;
-  /**
-   * Called when a link inside the prototype points to another screen (a
-   * relative href or `data-screen`). Lets the editor switch the active screen
-   * instead of letting the iframe navigate to the app. External links are
-   * opened in a new tab by the iframe itself and never reach this callback.
-   */
   onPrototypeNavigate?: (screen: string, href: string) => void;
-  /**
-   * Motion tracks to load into the iframe's motion-preview bridge.  Sent via
-   * `motion-load-tracks` whenever this prop changes.  When cleared
-   * (`undefined` or `[]`) a `motion-preview-clear` message is sent to remove
-   * any applied preview overrides.
-   *
-   * The MotionDock sends scrub ticks as `{ type: 'motion-preview', t,
-   * durationMs }` directly from its `canvasIframeRef`.  DesignCanvas only
-   * needs the tracks so the bridge can interpolate values at each tick.
-   */
   motionTracks?: MotionTrackWire[];
-  /**
-   * Timeline-level default easing applied to any keyframe that omits its own
-   * `ease`. Threaded to the motion-preview bridge alongside the tracks so the
-   * scrub/playback preview matches the persisted CSS (the compiler uses the
-   * same `defaultEase` fallback when emitting `animation-timing-function`).
-   * When omitted the bridge falls back to "ease".
-   */
   motionDefaultEase?: string;
-  /**
-   * Timeline duration in ms, threaded to the motion-preview bridge with the
-   * tracks so per-track `delayMs`/`durationMs` offsets can be mapped before
-   * the first scrub tick arrives (ticks also carry it). Optional — without
-   * it, offset tracks preview correctly from the first `motion-preview`
-   * message onward.
-   */
   motionDurationMs?: number;
-  /**
-   * Explicit iframe width in pixels.  When provided it overrides the width
-   * derived from `deviceFrame`, enabling per-breakpoint preview (e.g. Mobile
-   * 390 / Tablet 768 / Desktop 1280 side-by-side frames in the overview).
-   * The height still comes from `deviceFrame`; `deviceFrame="none"` keeps
-   * 100% height.
-   */
   previewWidthPx?: number;
   previewHeightPx?: number;
-  /**
-   * Shader-fill CSS preview to apply to a selected element inside the iframe.
-   *
-   * When set, the canvas sends a `shader-fill-preview` bridge message that
-   * applies the CSS `background` value on the target element **without
-   * persisting anything**.  When cleared (`null` / `undefined`) a
-   * `shader-fill-preview-clear` message is sent to restore the original
-   * background.
-   *
-   * Preview-only — never writes to DB, Yjs, or source.  Part of the §6.7
-   * shader-fill PREVIEW path; the apply path remains gated until runtime
-   * rendering + source-write + diff proof are all in place.
-   */
   shaderFillPreview?: {
-    /** CSS selector for the target element (preferred over nodeId). */
     selector?: string;
-    /** data-agent-native-node-id value for the target element. */
     nodeId?: string;
-    /** The CSS `background` value returned by preview-shader-fill. */
     css: string;
   } | null;
-  /**
-   * On-canvas gradient-edit handles (Figma parity) for a gradient fill on an
-   * element INSIDE this screen's iframe content (as opposed to a board/draft
-   * primitive or the screen-frame's own background, which MultiScreenCanvas
-   * already draws chrome for directly — see DesignEditor's gradientEditTarget
-   * derivation). When set, posts `{ type: "gradient-edit-target", nodeId,
-   * cssValue }` into the iframe so the editor-chrome bridge renders drag
-   * handles on that element; `null`/`undefined` posts `{ type:
-   * "gradient-edit-clear" }`. `nodeId` must be a `data-agent-native-node-id`
-   * value. See editor-chrome.bridge.ts's gradientEditTarget doc comment for
-   * the full contract this implements.
-   */
   gradientEditTarget?: {
     nodeId: string;
     cssValue: string;
   } | null;
-  /**
-   * Called with the bridge's `gradient-edit-change` postMessages while a
-   * gradient-edit drag on an in-screen element (gradientEditTarget above) is
-   * live — `phase: "preview"` on every drag tick, `"commit"` once on
-   * pointerup, mirroring GradientEditOverlayTarget's onChange contract in
-   * MultiScreenCanvas.tsx so the parent can route both through the same
-   * style-apply path `visual-style-change` uses.
-   */
   onGradientEditChange?: (
     nodeId: string,
     cssValue: string,
     phase: "preview" | "commit",
   ) => void;
-  /**
-   * Interaction-state forced preview (Figma/Webflow parity, phase 2 — see
-   * `shared/interaction-states.ts`'s "Forced-preview mechanism" doc comment).
-   * When set, posts `{ type: "state-preview", ... }` into the iframe so the
-   * editor-chrome bridge sets `data-an-state-preview="<state>"` on the exact
-   * selected element. Inline HTML uses the persisted twin CSS rule written by
-   * `duplicateStatePreviewRules`; localhost screens can additionally pass
-   * `previewStyles`, which the bridge holds in a temporary CSSOM rule until
-   * the guarded source handoff is applied or discarded.
-   * `null`/`undefined` posts `{ type: "state-preview", nodeId: null, state:
-   * null }`, clearing whichever element is currently force-previewing.
-   * Mirrors `gradientEditTarget`'s postMessage-sync-effect pattern exactly —
-   * see that prop's doc comment above.
-   */
   statePreviewTarget?: {
     nodeId: string;
     state: string;
@@ -1114,50 +820,18 @@ interface DesignCanvasProps {
     selectorCandidates?: string[];
     previewStyles?: Record<string, string> | null;
   } | null;
-  /**
-   * Called when the user clicks the component-instance source tag (the
-   * "ComponentName →" pill that floats above a selected component root).
-   * The parent should invoke `open-component-source` with these params.
-   */
   onComponentSourceJump?: (params: {
     nodeId: string;
     componentName: string;
   }) => void;
-  /**
-   * Figma-style click-to-place primitive creation while focused on a single
-   * screen. When set to a non-null tool, DesignCanvas mounts a transparent
-   * capture overlay above the iframe so pointer gestures draw a new
-   * primitive instead of reaching the iframe's own content/editor-chrome
-   * bridge. `null`/`undefined` fully restores prior (pre-creation-tool)
-   * behavior — the overlay never mounts.
-   */
   activeCreationTool?: CreationTool | null;
   selectedPenPathNodeId?: string | null;
-  /**
-   * Fired once per completed click or drag gesture while `activeCreationTool`
-   * is set. Geometry is in SCREEN-CONTENT coordinates — the screen's own
-   * pixel coordinate system, matching what `getDraftGeometryFromPoints` and
-   * `draftPrimitiveToInsert` already use in MultiScreenCanvas — NOT viewport
-   * pixels. The parent (DesignEditor) is responsible for turning this into a
-   * persisted primitive (see `appendCanvasPrimitiveToHtml` /
-   * `draftPrimitiveToInsert` on the overview side).
-   */
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
-  /**
-   * OS file drag-and-drop (Figma parity): fired when the user drops native
-   * OS files (e.g. images dragged from Finder/Explorer) onto this single-
-   * screen canvas. `target.screenContentPoint` is the drop point converted to
-   * SCREEN-CONTENT coordinates via `getScreenContentPointFromClient` — the
-   * same space `onCreatePrimitive` geometry and `draftPrimitiveToInsert` use
-   * — NOT viewport pixels. `target.screenId` echoes this canvas's own
-   * `screenId` prop (when set) so a caller wiring both MultiScreenCanvas and
-   * DesignCanvas can use one shared handler keyed on screen id. This
-   * component only resolves WHERE the drop landed — it does NOT read file
-   * contents, upload, or insert anything; that remains the caller's job
-   * (DesignEditor's paste-image pipeline), matching `onCreatePrimitive`'s own
-   * division of responsibility.
-   */
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
   onDropFiles?: (
     files: File[],
     target: {
@@ -1165,30 +839,7 @@ interface DesignCanvasProps {
       screenId?: string;
     },
   ) => void;
-  /**
-   * Contract for DesignEditor: when true, the Figma-style "hand" tool is
-   * armed, so a plain left-button drag anywhere on this canvas (over the
-   * scroll-container background OR over the iframe/creation-overlay area)
-   * pans instead of selecting/drawing. Mirrors MultiScreenCanvas's own
-   * `tool === "hand"` → `beginPan` gating (see `e.button === 0 && tool ===
-   * "hand"` in MultiScreenCanvas). Middle-mouse-button drag always pans
-   * regardless of this prop, matching MultiScreenCanvas's unconditional
-   * `e.button === 1` branch. Defaults to `false` (no behavior change when
-   * omitted) — DesignEditor should pass `activeTool === "hand"` (or its
-   * equivalent tool-state) once wired.
-   */
   handToolActive?: boolean;
-  /**
-   * Contract for DesignEditor: when true, the spacebar is currently held
-   * down, which — Figma-style — temporarily activates the same pan-on-drag
-   * behavior as `handToolActive` without changing the active tool. This
-   * component does not listen for the spacebar itself (keydown/keyup would
-   * need to be captured at a level that already reaches this component
-   * reliably, e.g. a window-level listener in DesignEditor gated on not
-   * being in a text-editing context); DesignEditor should track pressed
-   * state there and pass it through here. Defaults to `false` (no behavior
-   * change when omitted).
-   */
   spacePanActive?: boolean;
 }
 
@@ -1314,38 +965,11 @@ function classifyLiveEditHealthProbe(
     : "reregister";
 }
 
-// Grace period after the live-edit bridge is (re)registered and the real
-// iframe document is mounted before a missing "agent-native:editor-chrome-ready"
-// handshake is treated as a suspected bridge restart rather than an in-flight
-// page load. Generous relative to typical localhost load times so a slow but
-// healthy dev server is never misdiagnosed as restarted.
 const LIVE_EDIT_READY_TIMEOUT_MS = 4000;
-// Caps the silent auto-reregister loop below so a pathological bridge that
-// keeps minting a new bridgeInstanceId on every probe (or that never manages
-// to actually register) can't retry forever without ever surfacing an error.
 const MAX_LIVE_EDIT_RESTART_ATTEMPTS = 3;
-// When a /health probe confirms the SAME bridgeInstanceId as last registered
-// (bridge process healthy, page just slow to post ready), each re-arm of the
-// watchdog waits longer than the last — 4s, 8s, 16s — capped here so the
-// backoff doesn't grow unbounded on a very long-running compile.
 const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
-// Total cumulative time to keep silently re-arming on a same-instance-id
-// "still healthy" response before finally surfacing a non-destructive error
-// affordance. Generous relative to even a slow cold dev-server compile so a
-// genuinely-loading page is never misdiagnosed as failed; a legitimately
-// long compile that finishes after this point still clears the error the
-// moment the ready handshake arrives (see the message-handler branch below).
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
 
-// Successful bridge registrations belong to the localhost bridge process,
-// not to one React DesignCanvas instance. Canvas -> responsive Interact
-// replaces the overview canvas component with a focused canvas component; a
-// component-local registration flag made that transition mount an empty
-// srcdoc first and then replace it with the live URL after an identical POST.
-// Keep a deliberately short handoff cache so the focused instance can mount
-// the already-registered live document exactly once. A stale entry during
-// HMR is harmless: the ready watchdog probes the bridge instance and silently
-// re-registers, while the ready-gated fallback below prevents blank content.
 const LIVE_EDIT_REGISTRATION_HANDOFF_TTL_MS = 30_000;
 const liveEditRegistrationHandoff = new Map<string, number>();
 
@@ -1381,12 +1005,6 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
-/**
- * JSON for embedding inside an inline `<script>`. A bare `JSON.stringify` keeps
- * `</script>` verbatim, and the HTML parser closes the surrounding script the
- * moment it sees that sequence — truncating the bridge for any design whose
- * head legitimately contains one (JSON-LD, a templating snippet).
- */
 function inlineScriptJson(value: string): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
@@ -1443,14 +1061,10 @@ function buildEditorChromeBridgeScript(args: {
   );
 }
 
-/** The `<head>` the bridge's own srcdoc will render, so its first in-place
- *  patch diffs against what is actually in the document. */
 function sourceHeadInnerHtml(html: string): string {
   return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
 }
 
-// Stable defaults: a fresh `[]` per render re-runs every effect that replays
-// selection state into the iframe.
 const NO_SELECTORS = Object.freeze([]) as unknown as string[];
 const NO_SELECTOR_GROUPS = Object.freeze([]) as unknown as string[][];
 
@@ -1508,16 +1122,6 @@ function runtimeDocumentNeedsReload(
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
 
-/**
- * Safely reads an embedded screen iframe's own internal document scroll
- * position, in the iframe's own unscaled content pixels — the same units
- * `getScreenContentPointFromClient`'s `scrollOffset` param folds in. Inline
- * (srcdoc) screens are same-origin, so the happy path below is the common
- * case, but externally-hosted localhost/fusion previews can be cross-origin,
- * and `contentWindow.scrollX`/`scrollY` THROWS (it is not merely
- * `undefined`) when accessed cross-origin. Always degrade to `{0, 0}` rather
- * than letting that throw escape into a render or event handler.
- */
 function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
   left: number;
   top: number;
@@ -1531,8 +1135,6 @@ function readIframeScrollOffset(iframe: HTMLIFrameElement | null | undefined): {
   }
 }
 
-// Inspector selects and pickers portal outside the right panel; while a text
-// range is being styled they are still part of that inspector gesture.
 const INSPECTOR_POPUP_SELECTOR =
   '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]';
 
@@ -1541,6 +1143,7 @@ type VisualEditSharedSnapshot = {
   fileId: string;
   html: string | null;
   updatedAt: string | null;
+  captureRevision: string;
   publishedRevision: string;
 };
 
@@ -1555,13 +1158,14 @@ function SharedSnapshotPoller({
   fileId: string;
   knownPublishedRevision: string | null;
   active: boolean;
-  onSnapshot: (snapshot: VisualEditSharedSnapshot) => void;
+  onSnapshot: (snapshot: VisualEditSharedSnapshot | null) => void;
 }) {
   const { data, refetch } = useActionQuery<{
     designId: string;
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string | null;
     publishedRevision: string | null;
     unchanged: boolean;
   }>(
@@ -1573,6 +1177,7 @@ function SharedSnapshotPoller({
     },
   );
   const wasActiveRef = useRef(active);
+  const latestCaptureRevisionRef = useRef({ designId, fileId, revision: 0n });
 
   useEffect(() => {
     if (active && !wasActiveRef.current) void refetch();
@@ -1580,20 +1185,31 @@ function SharedSnapshotPoller({
   }, [active, refetch]);
 
   useEffect(() => {
-    if (
-      data?.publishedRevision &&
-      !data.unchanged &&
-      data.designId === designId &&
-      data.fileId === fileId
-    ) {
-      onSnapshot({
-        designId,
-        fileId,
-        html: data.html,
-        updatedAt: data.updatedAt,
-        publishedRevision: data.publishedRevision,
-      });
+    if (!data || data.designId !== designId || data.fileId !== fileId) {
+      return;
     }
+    if (
+      latestCaptureRevisionRef.current.designId !== designId ||
+      latestCaptureRevisionRef.current.fileId !== fileId
+    ) {
+      latestCaptureRevisionRef.current = { designId, fileId, revision: 0n };
+    }
+    const captureRevision = BigInt(data.captureRevision ?? "0");
+    if (captureRevision < latestCaptureRevisionRef.current.revision) return;
+    latestCaptureRevisionRef.current.revision = captureRevision;
+    if (!data.publishedRevision) {
+      onSnapshot(null);
+      return;
+    }
+    if (data.unchanged) return;
+    onSnapshot({
+      designId,
+      fileId,
+      html: data.html,
+      updatedAt: data.updatedAt,
+      captureRevision: data.captureRevision ?? "0",
+      publishedRevision: data.publishedRevision,
+    });
   }, [data, designId, fileId, onSnapshot]);
 
   return null;
@@ -1763,6 +1379,10 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const focusScrollSurfaceRef = useRef<
+    | ((fromIframeLoad?: boolean, iframeReportedFocusSafe?: boolean) => void)
+    | null
+  >(null);
   const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomSizeLayerRef = useRef<HTMLDivElement>(null);
@@ -1864,29 +1484,9 @@ export function DesignCanvas({
   );
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
-  // The key also includes updatedAt, so a save acknowledgement can change it
-  // while the rendered bytes are identical. Track the bytes separately to
-  // avoid a redundant forced document replacement that would terminate an
-  // in-progress text edit/caret after every save echo.
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
-  // Bridge-ready handshake (see EDITOR_CHROME_BRIDGE_SCRIPT's
-  // agent-native:editor-chrome-ready post on install). One-shot commands —
-  // begin-text-edit, set-editor-chrome-scale, style-change, delete-element,
-  // replace-document-content — are fire-and-forget postMessages with no retry:
-  // if the iframe document is still loading (fresh srcdoc, screen switch, or a
-  // mid-flight reload) the bridge script hasn't attached its message listener
-  // yet and the command is silently dropped. replayIframeEditorState only
-  // re-sends steady-state selection/hover/tweak/motion values, never these
-  // one-shot commands, so a dropped one-shot never recovers on its own.
-  // Queue them here until ready fires (or the iframe finishes loading, as a
-  // fallback for older/interact-mode documents that never inject the chrome
-  // bridge and thus never post ready) and flush in order.
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
-  // A trusted message can arrive from the lightweight hit-test/runtime bridge
-  // before the full editor-chrome listener has attached. Keep every one-shot
-  // editor mutation behind the explicit editor-chrome handshake; otherwise an
-  // empty board can consume a command before its listener exists.
   const editorChromeReadyRef = useRef(false);
   const bootReadyRef = useRef(false);
   const [readyIframeDocumentIdentity, setReadyIframeDocumentIdentity] =
@@ -1905,9 +1505,10 @@ export function DesignCanvas({
     awaitingTransaction: boolean;
   } | null>(null);
   const lastRuntimeStructureDeleteRequestIdRef = useRef<string | null>(null);
-  const lastRuntimeStructureDeleteCancelRequestIdRef = useRef<string | null>(
-    null,
-  );
+  const lastRuntimeStructureDeleteCancelRequestRef = useRef<{
+    requestId: string;
+    retryCount: number;
+  } | null>(null);
   const lastRuntimeStructureTargetReloadTransactionIdRef = useRef<
     string | null
   >(null);
@@ -1923,9 +1524,6 @@ export function DesignCanvas({
     if (!win) return;
     const queued = pendingOneShotMessagesRef.current;
     if (queued.length === 0) return;
-    // Keep the queue as one ordered transaction. Partitioning only the
-    // runtime-insert messages lets a later style/delete/rename command pass
-    // the still-unready chrome and overtake the insert it depends on.
     if (!editorChromeReadyRef.current) return;
     pendingOneShotMessagesRef.current = [];
     queued.forEach((message) => win.postMessage(message, "*"));
@@ -1937,9 +1535,6 @@ export function DesignCanvas({
     const probe = () => {
       const win = iframeRef.current?.contentWindow;
       const drained = pendingOneShotMessagesRef.current.length === 0;
-      // The schedule covers a frame still finishing navigation without leaving
-      // a timer running against a frame that has no bridge at all (interact-mode
-      // documents never inject one, and must keep queueing as before).
       if (!win || drained || attempts >= BRIDGE_READINESS_PROBE_ATTEMPTS) {
         window.clearInterval(bridgeReadinessProbeTimerRef.current);
         bridgeReadinessProbeTimerRef.current = undefined;
@@ -1971,9 +1566,6 @@ export function DesignCanvas({
     },
     [],
   );
-  /** Removes a not-yet-flushed begin-text-edit for `nodeId` from the one-shot
-   *  ready queue. Identity-scoped so a cancelled creation cannot take a live
-   *  one's command with it. */
   const dropQueuedBeginTextEdit = useCallback((nodeId: string) => {
     pendingOneShotMessagesRef.current =
       pendingOneShotMessagesRef.current.filter((message) => {
@@ -1987,32 +1579,8 @@ export function DesignCanvas({
     (message: unknown) => {
       const iframe = iframeRef.current;
       const win = iframe?.contentWindow;
-      // A one-shot prop can arrive in the same render that first creates the
-      // iframe. Keep it queued even when the ref/contentWindow is not attached
-      // yet; otherwise the effect records its request id as handled and the
-      // command is lost permanently before the bridge can announce readiness.
       if (!win || !bridgeReadyRef.current || !editorChromeReadyRef.current) {
         pendingOneShotMessagesRef.current.push(message);
-        // The readiness recovery in the message handler below is PASSIVE: it
-        // waits for the frame to say something first. A live-edit screen keeps
-        // its already-loaded iframe across a canvas remount, so a replacement
-        // instance never sees `editor-chrome-ready`, and an idle frame says
-        // nothing on its own — every inspector style commit then sat here
-        // reporting success while the running app never changed, until some
-        // unrelated hover/selection happened to talk and flushed the backlog.
-        // Ask instead of waiting: `agent-native:text-edit-status` is the
-        // cheapest bridge round trip (no DOM walk with an empty nodeId), its
-        // reply is a trusted message from the current frame, and that reply is
-        // what marks the bridge ready and drains this queue. A frame with no
-        // bridge attached simply never answers, so the queue keeps its original
-        // meaning.
-        // ...and keep asking. A single probe is fire-and-forget: if it lands
-        // while the frame is mid-navigation (or before its bridge listener is
-        // attached) nothing answers, and because the frame is otherwise idle
-        // nothing ever asks again — the queue strands and every queued command
-        // keeps reporting success. Undo of a live style edit is the visible
-        // case: the revert never reaches the running app. Retry on a bounded
-        // schedule and stop as soon as the queue drains.
         if (win) probeBridgeReadinessUntilDrained();
         return true;
       }
@@ -2155,9 +1723,6 @@ export function DesignCanvas({
           cancelPendingTextEditResume();
         }
         setInspectorFocus(true);
-        // A closing select or picker hands focus back to its trigger (after
-        // unmounting, so relatedTarget is null): the range style is
-        // committed, so return the keyboard to the text.
         const target = event.target;
         if (
           target instanceof Element &&
@@ -2276,14 +1841,26 @@ export function DesignCanvas({
     setEffectiveLiveEditRegistrationCapability(liveEditRegistrationCapability);
   }, [liveEditRegistrationCapability]);
   const renderedContent = renderedDocument.content;
-  // What a freshly loaded document already contains, since srcdoc is built from
-  // it. The load handler below needs this to skip redundant pushes.
   const renderedContentRef = useRef(renderedContent);
   renderedContentRef.current = renderedContent;
-  // True while a drawing send is capturing/compositing/uploading the
-  // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
-  // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
-  // twice from the same drawing.
+  const pendingRuntimeLayerSnapshotReservationsRef = useRef(
+    new Map<
+      string,
+      {
+        promise: Promise<{ reservationToken: string } | { error: unknown }>;
+        timeout: number;
+      }
+    >(),
+  );
+  useEffect(
+    () => () => {
+      for (const reservation of pendingRuntimeLayerSnapshotReservationsRef.current.values()) {
+        window.clearTimeout(reservation.timeout);
+      }
+      pendingRuntimeLayerSnapshotReservationsRef.current.clear();
+    },
+    [],
+  );
   const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
   const annotationCaptureBusyRef = useRef(false);
   const [, setFetchedExternalSnapshot] = useState<{
@@ -2299,27 +1876,9 @@ export function DesignCanvas({
     useState<string | null>(null);
   const [externalSnapshotRetryNonce, setExternalSnapshotRetryNonce] =
     useState(0);
-  // Exponential backoff for the auto-retry loop below: 1.5s → 3s → 6s →
-  // capped at ~15s, so a genuinely-down dev server doesn't get hammered with
-  // a fixed 1.5s-forever retry loop. Resets to 0 on a successful fetch or a
-  // manual retry click (see handleManualSnapshotRetry) so the next failure
-  // starts the backoff over rather than continuing to climb.
   const snapshotRetryAttemptRef = useRef(0);
-  // Mirrors the snapshot fetch's own retry/error state above: the
-  // /live-edit-bridge registration POST used to have no retry/backoff or
-  // error surface at all — a transient failure (dev server hiccup, brief
-  // network blip) left registeredLiveEditBridgeKey stuck at null forever,
-  // which pins waitingForLiveEditBridge true and the user stares at
-  // "Preparing live editor..." with no explanation and no way to recover
-  // short of reloading the whole page.
   const bridgeRegistrationRetryAttemptRef = useRef(0);
   const bridgeRegistrationRetryTimerRef = useRef<number | undefined>(undefined);
-  // Two registration attempts can be in flight at once — the automatic
-  // effect-driven one and a manually-triggered "Connect" click (see
-  // attemptBridgeRegistration/handleConnectLocalNetworkAccess below) — and
-  // they can resolve out of order. Only the most recent attempt's result may
-  // ever be written to state, or an earlier failure resolving after a later
-  // success would incorrectly flip the UI back to "still blocked".
   const bridgeRegistrationAttemptGenerationRef = useRef(0);
   const previewTokenRefreshAttemptRef = useRef<string | null>(null);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
@@ -2339,24 +1898,12 @@ export function DesignCanvas({
     bridgeKey: string;
     message: string;
   } | null>(null);
-  // handleSuspectedBridgeRestart's destructive terminal states (retry budget
-  // exhausted, or /health itself confirms the process is unreachable) keep
-  // their original full-cover blocking card and retry action, untouched by
-  // the raw-fallback/floating-card behavior above — see
-  // bridgeRegistrationError's comment for why these must not share state.
   const [bridgeConnectionLostError, setBridgeConnectionLostError] = useState<{
     bridgeKey: string;
     message: string;
   } | null>(null);
-  // Distinguishes "Chrome's Local Network Access permission is blocking this
-  // request" from "the dev server is genuinely down" — see
-  // classifyBridgeRegistrationFailure. Drives which copy/icon the floating
-  // LocalNetworkAccessPrompt card shows; null while unclassified or resolved.
   const [bridgeRegistrationFailureKind, setBridgeRegistrationFailureKind] =
     useState<BridgeRegistrationFailureKind | null>(null);
-  // Dismissing the floating connect card is per-script-revision: keyed by the
-  // liveEditBridgeKey it was shown for, so a genuinely new script/mode change
-  // re-surfaces the card instead of leaving it permanently dismissed.
   const [
     localNetworkAccessDismissedForKey,
     setLocalNetworkAccessDismissedForKey,
@@ -2367,49 +1914,19 @@ export function DesignCanvas({
     localNetworkAccessPermissionState,
     setLocalNetworkAccessPermissionState,
   ] = useState<LocalNetworkAccessPermissionState | null>(null);
-  // Cache of the bridgeInstanceId returned by the client's LAST successful
-  // /live-edit-bridge registration POST (see the registration effect below).
-  // Compared against a later /health probe's bridgeInstanceId to tell "the
-  // bridge process restarted since we registered" apart from "the same
-  // process really doesn't know this key" — see classifyLiveEditHealthProbe
-  // above.
   const bridgeInstanceIdRef = useRef<string | null>(null);
-  // A destructive watchdog outcome replaces the live iframe with the neutral
-  // pending document. The live document can still have queued its ready
-  // handshake immediately before that replacement; once unmounted, its
-  // WindowProxy no longer equals iframeRef.current.contentWindow and would be
-  // rejected by the normal bridge trust check. Preserve exactly that retired
-  // generation so its late ready can restore the matching bridge key. Both
-  // source-window identity and bridge-key identity must match, preventing a
-  // stale document from reviving a different screen/script generation.
   const lateLiveEditReadyRecoveryRef = useRef<{
     source: Window;
     bridgeKey: string;
     registrationHandoffKey: string | null;
   } | null>(null);
-  // Guards the auto-reregister probe below against overlapping runs and bounds
-  // how many times it will silently retry before giving up and surfacing the
-  // existing error/Retry UI (MAX_LIVE_EDIT_RESTART_ATTEMPTS). This budget is
-  // specific to the "reregister" (different bridgeInstanceId, genuine bridge
-  // restart) loop — the same-instance-id "escalate" loop below has its own,
-  // separate ceiling and does not consume this budget.
   const liveEditRestartInFlightRef = useRef(false);
   const liveEditRestartAttemptRef = useRef(0);
-  // Same-instance-id ("escalate") loop state: how long we've cumulatively
-  // waited on THIS bridge key while /health keeps confirming the bridge
-  // process is healthy, the current per-arm wait, and the pending re-arm
-  // timer (so it can be cancelled on ready/unmount/key-change). See
-  // handleSuspectedBridgeRestart and classifyLiveEditHealthProbe above.
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
   const liveEditSameInstanceRearmTimerRef = useRef<number | undefined>(
     undefined,
   );
-  // Non-destructive counterpart to bridgeRegistrationError: shown as an
-  // overlay error/Retry card WITHOUT nulling registeredLiveEditBridgeKey, so
-  // the still-loading iframe is never torn down while it's shown. Only set
-  // once the same-instance-id escalation loop above exceeds its ceiling; a
-  // late ready handshake clears it (see the message-handler branch below).
   const [
     liveEditSameInstanceStalledError,
     setLiveEditSameInstanceStalledError,
@@ -2417,11 +1934,6 @@ export function DesignCanvas({
     bridgeKey: string;
     message: string;
   } | null>(null);
-  // Clears the escalation re-arm timer on unmount so it can't fire and
-  // schedule a fetch after this component is gone. (A stray fetch would be a
-  // no-op anyway — every /health probe checkpoint is generation-guarded via
-  // bridgeRegistrationAttemptGenerationRef, see handleSuspectedBridgeRestart
-  // — but there's no reason to let the timer fire in the first place.)
   useEffect(
     () => () => {
       if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
@@ -2438,6 +1950,7 @@ export function DesignCanvas({
     fileId: string;
     html: string | null;
     updatedAt: string | null;
+    captureRevision: string;
     publishedRevision: string;
   } | null>(null);
   const matchingSharedSnapshot =
@@ -2446,12 +1959,10 @@ export function DesignCanvas({
       ? cachedSharedSnapshot
       : null;
   const handleSharedSnapshot = useCallback(
-    (snapshot: VisualEditSharedSnapshot) => setCachedSharedSnapshot(snapshot),
+    (snapshot: VisualEditSharedSnapshot | null) =>
+      setCachedSharedSnapshot(snapshot),
     [],
   );
-  // The screen's own URL wins: it carries the route path and may address the
-  // container through a same-origin proxy. `fusionUrl` only covers fusion
-  // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
     if (snapshotOnly && sourceType === "localhost") return null;
     const overrideUrl = getExternalPreviewUrl(previewUrlOverride ?? "");
@@ -2485,30 +1996,8 @@ export function DesignCanvas({
     Boolean(rawExternalPreviewUrl) &&
     Boolean(onRuntimeLayerSnapshot);
 
-  // Only a URL-backed frame installs the live-edit bundle built below. An
-  // inline screen carries its bridge in srcdoc, and building plus hashing
-  // ~800KB per screen is not free.
   const urlBackedFrame = Boolean(rawExternalPreviewUrl);
 
-  // Bake a neutral scale of 1 here (not the zoom-folded scale): this script is
-  // registered with the localhost bridge via a large POST, so folding live zoom
-  // in would re-fire the registration effect on every zoom tick. Live scale is
-  // pushed separately over the `set-editor-chrome-scale` postMessage below.
-  //
-  // readOnly and editMode are ALSO intentionally excluded from the deps below
-  // (only read for their FIRST-render baked value) — mirroring the srcdoc
-  // useMemo's own "readOnly and editMode are intentionally NOT deps" comment
-  // for inline screens further down this file. Before this fix, this memo
-  // (unlike the inline srcdoc one) DID list them as deps: every readOnly/
-  // editMode change rebuilt this script, which changed liveEditBridgeKey
-  // (its contentHash), which is embedded in the localhost iframe's `src` via
-  // resolveLiveEditPreviewUrl — so a routine Edit ⇄ Preview toggle (or a
-  // canEditDesign permission flip) forced a real cross-origin navigation of
-  // the embedded dev-server iframe, losing its in-app route/scroll/state.
-  // Live readOnly/editMode changes flow through the set-read-only and
-  // set-text-editing-enabled postMessages (see the useEffects below) exactly
-  // like the inline path, so no live-update behavior is lost by removing
-  // them here.
   const editorChromeBridgeForCurrentState = useMemo(
     () =>
       urlBackedFrame
@@ -2522,22 +2011,12 @@ export function DesignCanvas({
             contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
             contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
             runtimeLayerSnapshotEnabled,
-            // A live/localhost screen's document is the running app, not
-            // content this canvas rendered, so there is no source head to
-            // diff against.
             initialSourceHead: "",
           })
         : "",
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, runtimeLayerSnapshotEnabled, screenId, urlBackedFrame],
   );
-  // Keep the installed gesture script identical between overview and focused
-  // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
-  // script changed the bridge key during responsive Interact and defeated the
-  // registration handoff cache, forcing an avoidable iframe navigation.
-  // Interaction ownership is switched in-place after the bridge handshake;
-  // baking the mode into this script changes the live bridge key and reloads
-  // the running app.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -2548,9 +2027,6 @@ export function DesignCanvas({
         .replace("__EDITING_SAFETY_ENABLED__", "true"),
     [],
   );
-  // srcdoc is rebuilt per document, so unlike the keyed live-edit bundle above
-  // it can carry the real first-paint value: forwarding that arrives only by
-  // postMessage stays dead until the handshake, and is stranded by a swap.
   const initialInteractModeRef = useRef(interactMode);
   const embeddedGestureBridgeForSrcdoc = useMemo(
     () =>
@@ -2610,14 +2086,6 @@ export function DesignCanvas({
       cancelled = true;
     };
   }, [usesLiveEditInjectedBridge]);
-  // Hoisted above usesLiveEditEditorBridge (rather than declared next to
-  // externalPreviewUrl/usingRawFallbackPreview below, which reuse it) because
-  // a failed registration's raw-URL fallback document has no injected editor
-  // bridge script and can never answer an editor command or post the ready
-  // handshake — usesLiveEditEditorBridge must already reflect that, or the
-  // still-"editable" chrome above it (selection, inspector, hover) lets the
-  // user attempt edits that silently queue forever against a frame that will
-  // never respond (see postOneShotBridgeMessage's queueing above).
   const bridgeRegistrationFailedForCurrentKey =
     bridgeRegistrationError?.bridgeKey === liveEditBridgeKey;
   const usesLiveEditEditorBridge =
@@ -2632,10 +2100,6 @@ export function DesignCanvas({
   const liveEditBridgeRegistered =
     usesLiveEditInjectedBridge &&
     effectiveRegisteredLiveEditBridgeKey === liveEditBridgeKey;
-  // The live iframe and the editable source model are deliberately separate:
-  // render exactly one authenticated /live-edit document while fetching
-  // /snapshot in parallel so DesignEditor patches real HTML rather than the
-  // persisted URL string. The snapshot never replaces the live iframe.
   const requiresExternalSourceSnapshot = shouldFetchExternalSourceSnapshot({
     sourceType,
     bridgeUrl,
@@ -2651,22 +2115,6 @@ export function DesignCanvas({
     bridgeKey: liveEditBridgeKey,
     registeredBridgeKey: effectiveRegisteredLiveEditBridgeKey,
   });
-  // Edit mode deliberately keeps `renderedContent` stable while same-screen
-  // source writes echo back, because the bridge already applied them and a
-  // srcdoc rebuild would flash/reload the canvas. Interact mode has no editor
-  // bridge, so crossing that boundary must use the latest persisted `content`
-  // or native hover/focus/pressed behavior would run against the stale HTML
-  // from before the inspector edits.
-  //
-  // The owner uses the running localhost app. A shared Visual Edit viewer gets
-  // the last published snapshot and never attempts to load its own localhost.
-  // A source-mode transition is also an authoritative content boundary. A
-  // URL cached by the edit-mode bridge must not keep a URL-backed iframe alive
-  // after URL -> static, or the canvas shows the old live app behind a
-  // permanent bridge-loading surface. Same-mode localhost edits still keep
-  // their cached URL so the live document is not needlessly reloaded. Keep the
-  // legacy inline baseline stable for same-screen runtime replacements; only a
-  // stale URL marker needs the new source bytes immediately.
   const useCurrentIframeContent =
     interactMode ||
     (sourceType !== "localhost" &&
@@ -2728,19 +2176,6 @@ export function DesignCanvas({
     editMode,
     hasLiveEditorBridge: usesLiveEditEditorBridge,
   });
-  // Null only while an entitled viewer's keyed bridge is still registering.
-  // During that interval the loading surface renders without an iframe; once
-  // registration succeeds, the one real proxied document mounts directly.
-  // A viewer with no previewToken has no bridge to wait for, so it loads the
-  // dev server directly rather than degrading to a snapshot.
-  //
-  // A FAILED registration (most commonly Chrome's Local Network Access
-  // permission blocking the fetch — see classifyBridgeRegistrationFailure)
-  // falls back the same way: the dev server URL remains the honest live
-  // fallback, although Chrome may gate this loopback iframe navigation behind
-  // the same Local Network Access permission. The iframe's explicit policy
-  // allows that prompt; LocalNetworkAccessPrompt offers the way to enable
-  // editing from here.
   const usingRawFallbackPreview =
     usesLiveEditInjectedBridge &&
     !liveEditExternalPreviewUrl &&
@@ -2756,9 +2191,6 @@ export function DesignCanvas({
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
   }, [externalPreviewUrl, runtimeVerificationRequest]);
-  // Source hydration is parallel and must never block or replace the one live
-  // iframe. Apply-to-source remains guarded until the callback has populated
-  // DesignEditor's source snapshot.
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
     usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
@@ -2789,11 +2221,7 @@ export function DesignCanvas({
     authoredSourceContent ?? runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
 
-  // A framed container has no dev-server bridge to register the editor chrome
-  // with, so it goes over postMessage to the bootstrap its proxy injects.
   const containerPreview = useMemo(() => {
-    // Not the localhost live-edit path: there the bridge server injects the
-    // bridge into its own proxied document, so nothing is posted from here.
     if (usesLiveEditInjectedBridge) return false;
     if (!externalPreviewUrl || typeof window === "undefined") return false;
     try {
@@ -2820,8 +2248,6 @@ export function DesignCanvas({
       return;
     }
     try {
-      // Never "*": the bridge carries editor internals, and the container is
-      // the only window that should receive it.
       target.postMessage(
         {
           type: "agentNative.installBridge",
@@ -2831,8 +2257,6 @@ export function DesignCanvas({
         origin,
       );
     } catch (error) {
-      // Leave the key unmarked: `bridgeReady` drives the real install, and
-      // marking a failed attempt disables the bridge for the document's life.
       console.error("[design:bridge] install post threw", origin, error);
       return;
     }
@@ -2850,14 +2274,10 @@ export function DesignCanvas({
     liveEditBridgeKey,
     liveEditBridgeScript,
   ]);
-  // The bootstrap announces itself on every document load, which is also how a
-  // reload or in-frame navigation asks for the bridge again.
   useEffect(() => {
     if (!containerPreview) return;
     function onBootstrapMessage(event: MessageEvent) {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      // A failed install must not read as an installed one, or the retry below
-      // never fires and the canvas silently loses selection and inline editing.
       if (event.data?.type === "agentNative.bridgeFailed") {
         installedBridgeKeyRef.current = null;
         console.error(
@@ -2892,16 +2312,6 @@ export function DesignCanvas({
     onExternalContentSnapshotRef.current = onExternalContentSnapshot;
   }, [onExternalContentSnapshot]);
 
-  // Register the editor bridge script with the localhost live-edit bridge so
-  // it gets injected into the proxied preview. Re-runs only when the script
-  // content (liveEditBridgeKey) or the bridge target changes (or a retry —
-  // auto or manual — bumps bridgeRegistrationRetryNonce).
-  //
-  // Mirrors the external-source-snapshot fetch effect's own retry/backoff:
-  // a transient failure used to leave registeredLiveEditBridgeKey stuck at
-  // null forever (console.warn only, no retry, no error UI), pinning
-  // waitingForLiveEditBridge true with no way to recover short of a full
-  // page reload.
   const scheduleBridgeRegistrationRetry = useCallback(() => {
     const delay = getSnapshotRetryDelayMs(
       bridgeRegistrationRetryAttemptRef.current,
@@ -2911,15 +2321,6 @@ export function DesignCanvas({
       setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
     }, delay);
   }, []);
-  // Invalidates any registration attempt still in flight when THIS effect
-  // instance unmounts — deliberately not a one-way "isUnmounted" flag: that
-  // shape never resets, so under StrictMode's dev-only mount→cleanup→mount
-  // replay it would stay stuck true after the first (intentionally
-  // discarded) cleanup and permanently block every later, genuinely-live
-  // attempt. Bumping the generation counter here instead only invalidates
-  // the specific attempt that was in
-  // flight at THIS cleanup; the next mount's own attempt captures a fresh
-  // generation and is unaffected.
   useEffect(
     () => () => {
       bridgeRegistrationAttemptGenerationRef.current += 1;
@@ -2949,19 +2350,8 @@ export function DesignCanvas({
         return null;
       }
       const generation = ++bridgeRegistrationAttemptGenerationRef.current;
-      // Unmount is covered by the dedicated cleanup-only effect above, which
-      // bumps this same counter — a manual Connect click's fetch has no effect
-      // cleanup of its own to cancel it, but that effect's bump still
-      // invalidates it the same way a superseded attempt is invalidated.
       const isCurrent = () =>
         bridgeRegistrationAttemptGenerationRef.current === generation;
-      // A fresh attempt — whether auto-retry or a manual Connect click,
-      // including one retried from the destructive bridgeConnectionLostError
-      // card's own Retry button (see handleConnectLocalNetworkAccess) — means
-      // we're no longer in "connection lost, needs a click" limbo. Clear it now
-      // rather than only on success/failure, or the full-cover destructive card
-      // stays visible (it takes priority in the overlay below) even once this
-      // attempt resolves as an ordinary registration-fetch failure instead.
       setBridgeConnectionLostError(null);
       const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
       try {
@@ -3023,8 +2413,6 @@ export function DesignCanvas({
                   setEffectivePreviewToken(nextPreviewToken);
                   onPreviewTokenChange?.(screenId, nextPreviewToken);
                 } else {
-                  // State equality would otherwise suppress the retry after a
-                  // bridge reboot that preserved its deterministic token.
                   setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
                 }
                 if (nextLiveEditCapability) {
@@ -3082,13 +2470,6 @@ export function DesignCanvas({
         } | null;
         if (!isCurrent()) return null;
         if (payload && typeof payload.bridgeInstanceId === "string") {
-          // Cache the instance id from THIS successful registration so a
-          // later suspected-restart probe (see handleSuspectedBridgeRestart)
-          // can tell a genuinely restarted bridge process apart from the same
-          // process rejecting a stale key. Written only after isCurrent()
-          // passes: an older overlapping request resolving after a newer one
-          // must not overwrite the current attempt's instance id, or the
-          // watchdog misdiagnoses a restart and burns its reload/retry budget.
           bridgeInstanceIdRef.current = payload.bridgeInstanceId;
         }
         bridgeRegistrationRetryAttemptRef.current = 0;
@@ -3096,14 +2477,6 @@ export function DesignCanvas({
         if (registrationHandoffKey) {
           liveEditRegistrationHandoff.set(registrationHandoffKey, Date.now());
         }
-        // liveEditRestartAttemptRef is intentionally NOT reset here: a
-        // successful registration POST only proves the bridge accepted the
-        // script, not that the live document actually loaded it (that's what
-        // the ready-handshake watchdog below still has to confirm). Resetting
-        // the restart budget on every registration success — rather than only
-        // on a genuine agent-native:editor-chrome-ready — would let a
-        // pathological bridge that keeps minting a new bridgeInstanceId
-        // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
         setBridgeRegistrationError(null);
         setBridgeRegistrationFailureKind(null);
         setBridgeConnectionLostError(null);
@@ -3152,12 +2525,6 @@ export function DesignCanvas({
       !effectivePreviewToken ||
       !(effectiveLiveEditRegistrationCapability ?? effectiveLiveEditCapability)
     ) {
-      // Invalidate any attempt still in flight from before this branch was
-      // entered (previous bridge key/mode) BEFORE clearing state below —
-      // otherwise that stale attempt's isCurrent() check would still pass
-      // when it resolves and could restore registeredLiveEditBridgeKey,
-      // failure state, or handoff data after we've already left this
-      // localhost/bridge configuration.
       bridgeRegistrationAttemptGenerationRef.current += 1;
       bridgeRegistrationRetryAttemptRef.current = 0;
       liveEditRestartAttemptRef.current = 0;
@@ -3180,10 +2547,6 @@ export function DesignCanvas({
     );
     let cancelled = false;
     void attemptBridgeRegistration().then((result) => {
-      // result === false is a definite, still-applicable failure; null means
-      // a newer attempt already superseded this one (see
-      // attemptBridgeRegistration's return-type comment) and must not
-      // schedule a redundant retry.
       if (result === false && !cancelled) scheduleBridgeRegistrationRetry();
     });
     return () => {
@@ -3203,17 +2566,6 @@ export function DesignCanvas({
     usesLiveEditInjectedBridge,
   ]);
 
-  // A liveEditBridgeKey change means the registered script content changed
-  // (different screen, mode, or scale bake) — a completely new registration
-  // target. Reset the reregister-attempt budget and the same-instance-id
-  // escalation state (elapsed wait, backoff delay, pending re-arm timer, and
-  // any stalled-error card) so a previous screen's exhausted retries/backoff
-  // never leak into this new screen's fresh watchdog cycle. Deliberately
-  // separate from the watchdog-arm effect below, which resets the escalation
-  // state on every successful (re)registration INCLUDING same-key reregister
-  // cycles — liveEditRestartAttemptRef must NOT reset on those, or the
-  // MAX_LIVE_EDIT_RESTART_ATTEMPTS budget it guards would never trip (see
-  // that effect's own comment).
   useEffect(() => {
     previewTokenRefreshAttemptRef.current = null;
     liveEditRestartAttemptRef.current = 0;
@@ -3227,16 +2579,6 @@ export function DesignCanvas({
     lateLiveEditReadyRecoveryRef.current = null;
   }, [liveEditBridgeKey]);
 
-  // Chrome only offers its Local Network Access permission dialog for a
-  // fetch made within an active user-gesture window, so this calls the
-  // SAME attemptBridgeRegistration used by the automatic retry effect
-  // directly and synchronously — not through a nonce bump, which would
-  // defer the actual fetch() past the click's gesture window and lose the
-  // ability to trigger Chrome's permission prompt. Also resets the backoff
-  // and same-instance escalation state, mirroring the offline-state "Retry"
-  // buttons elsewhere in this file, so the user-initiated attempt starts
-  // every counter fresh and any already-scheduled auto-retry doesn't fire a
-  // second, redundant attempt shortly after this one.
   const handleConnectLocalNetworkAccess = useCallback(async () => {
     setConnectingLocalNetworkAccess(true);
     bridgeRegistrationRetryAttemptRef.current = 0;
@@ -3350,33 +2692,10 @@ export function DesignCanvas({
     setLocalNetworkAccessDismissedForKey(liveEditBridgeKey);
   }, [liveEditBridgeKey]);
 
-  // The registered iframe's `src` is a real cross-origin navigation straight
-  // to the bridge's authenticated /live-edit URL, so this component can never
-  // read that response's status or body (a 409 "unknown-bridge-key" looks
-  // identical to any other document from here). What IS observable is
-  // whether the editor-chrome bridge's "agent-native:editor-chrome-ready"
-  // handshake (see the message handler below) arrives within a reasonable
-  // window after we mounted the real document. A healthy load posts ready
-  // almost immediately; a 409 never injects the bridge script at all, so
-  // ready never arrives. Treat a stuck non-ready state as a suspected restart
-  // and settle it with a /health probe instead of guessing from the error UI.
   const handleSuspectedBridgeRestart = useCallback(async () => {
     if (!bridgeUrl || !effectivePreviewToken) return;
     if (liveEditRestartInFlightRef.current) return;
     liveEditRestartInFlightRef.current = true;
-    // Captured once per call, not re-read at each checkpoint below: a probe
-    // started against an old screen/key can resolve after a NEW screen has
-    // already registered successfully (bumping this same counter via
-    // attemptBridgeRegistration or the unmount-cleanup effect above) — this
-    // guards every mutating branch below against silently tearing down or
-    // re-registering that newer, unrelated registration.
-    // Deliberately not gated on a one-way "isUnmounted" flag: that shape
-    // never resets, so it would stay stuck true after StrictMode's dev-only
-    // mount→cleanup→mount replay and silently stop every later health probe
-    // from ever resolving (see attemptBridgeRegistration's identical fix
-    // above). The dedicated unmount-cleanup effect there bumps this same
-    // counter on a real
-    // unmount, which isHealthProbeCurrent() already covers correctly.
     const healthProbeGeneration =
       bridgeRegistrationAttemptGenerationRef.current;
     const isHealthProbeCurrent = () =>
@@ -3421,20 +2740,10 @@ export function DesignCanvas({
         if (registrationHandoffKey) {
           liveEditRegistrationHandoff.delete(registrationHandoffKey);
         }
-        // The bridge process restarted since our last registration — silently
-        // re-POST the same script/key and reload the frame. Resetting
-        // registeredLiveEditBridgeKey (without setting an error) re-arms the
-        // "Preparing live editor..." placeholder — the same neutral state
-        // already shown on first connect — and bumping the retry nonce
-        // re-triggers the registration effect above.
         bridgeInstanceIdRef.current = responseBridgeInstanceId;
         setRegisteredLiveEditBridgeKey(null);
         setBridgeConnectionLostError(null);
         setLiveEditSameInstanceStalledError(null);
-        // A genuine restart makes any same-instance-id wait we'd accumulated
-        // against the OLD process meaningless — reset the escalation clock so
-        // the fresh document this reregister produces gets the full ceiling,
-        // not whatever was left over from the previous one.
         liveEditSameInstanceElapsedMsRef.current = 0;
         liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
@@ -3445,13 +2754,6 @@ export function DesignCanvas({
         return;
       }
       if (decision === "escalate") {
-        // Same bridge process, still healthy and reachable — the page is
-        // just slow (e.g. a cold dev-server compile), not actually failing.
-        // Do NOT touch registeredLiveEditBridgeKey or bridgeRegistrationError
-        // here: that would tear down the still-legitimately-loading iframe
-        // (the regression this fix addresses). Re-arm with a longer wait
-        // instead, up to a generous total ceiling, before finally surfacing a
-        // separate NON-destructive error card that leaves the iframe alone.
         liveEditSameInstanceElapsedMsRef.current +=
           liveEditSameInstanceDelayRef.current;
         if (
@@ -3479,10 +2781,6 @@ export function DesignCanvas({
         }, nextDelay);
         return;
       }
-      // decision === "error": no bridgeInstanceId on one or both sides, so we
-      // can't confirm the same-process-still-healthy story above. Treat this
-      // as a genuine, unresolved failure and surface the existing
-      // (destructive) error/Retry UI instead of looping forever.
       if (registrationHandoffKey) {
         liveEditRegistrationHandoff.delete(registrationHandoffKey);
       }
@@ -3501,9 +2799,6 @@ export function DesignCanvas({
       });
     } catch (error) {
       if (!isHealthProbeCurrent()) return;
-      // /health itself is unreachable (network error / thrown before a
-      // response) — the dev server process is actually down, not just slow.
-      // This destructive path (tear down + surface the error) is justified.
       if (registrationHandoffKey) {
         liveEditRegistrationHandoff.delete(registrationHandoffKey);
       }
@@ -3531,13 +2826,6 @@ export function DesignCanvas({
     t,
   ]);
 
-  // Manual retry for the NON-destructive same-instance-id stalled card only
-  // (see liveEditSameInstanceStalledError below): unlike
-  // handleConnectLocalNetworkAccess, registeredLiveEditBridgeKey was never
-  // nulled here, so calling attemptBridgeRegistration again would not
-  // reschedule a fresh watchdog probe (liveEditBridgeRegistered never flips
-  // false→true to rearm that effect). Reset the backoff and probe /health
-  // again directly instead.
   const handleManualLiveEditSameInstanceRetry = useCallback(() => {
     liveEditSameInstanceElapsedMsRef.current = 0;
     liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
@@ -3549,24 +2837,6 @@ export function DesignCanvas({
     void handleSuspectedBridgeRestart();
   }, [handleSuspectedBridgeRestart]);
 
-  // Arm the ready-handshake watchdog whenever the real authenticated live-edit
-  // document is (re)mounted in editor-chrome mode (the only mode that ever
-  // posts agent-native:editor-chrome-ready — see usesLiveEditEditorBridge).
-  // liveEditBridgeRegistered flips false→true on every fresh mount (including
-  // the reregister cycle above), so this effect reliably rearms each time.
-  //
-  // NOTE: deliberately does NOT reset the same-instance-id escalation refs
-  // (liveEditSameInstance*) here even though this effect conceptually marks a
-  // fresh mount: handleSuspectedBridgeRestart depends on `t`, whose identity
-  // is not guaranteed stable across renders (see useT), so this effect's own
-  // dependency array can cause it to re-run on unrelated re-renders — not
-  // only on a genuine fresh mount. Resetting escalation state here would
-  // then race with (and can clobber) the very state update that triggered
-  // that extra re-render, e.g. immediately wiping the non-destructive stalled
-  // error the moment it's set. The escalation refs are instead reset from
-  // known-good, less-churny signals: the liveEditBridgeKey-keyed effect below
-  // (genuinely new script/screen) and the "reregister" branch inside
-  // handleSuspectedBridgeRestart itself (genuine bridge-process restart).
   useEffect(() => {
     if (
       !usesLiveEditEditorBridge ||
@@ -3717,10 +2987,6 @@ export function DesignCanvas({
     effectivePreviewToken,
   ]);
 
-  // Manual retry (offline-state "Retry" button): reset the backoff so the
-  // user-initiated attempt fires immediately rather than waiting out
-  // whatever delay the auto-retry loop had climbed to, then trigger the
-  // fetch effect above via the nonce dependency.
   const handleManualSnapshotRetry = useCallback(() => {
     snapshotRetryAttemptRef.current = 0;
     setExternalSnapshotRetryNonce((nonce) => nonce + 1);
@@ -3731,11 +2997,7 @@ export function DesignCanvas({
       previousContentKeyRef.current = contentKey;
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
-      // A content-key change rebuilds srcdoc, but a URL-backed preview keeps
-      // its live document. Its bridge readiness and queued edits remain valid.
       if (!externalPreviewUrl) {
-        // Reset synchronously rather than on `load`: load fires after the new
-        // srcdoc bridge has already posted its ready handshake.
         bridgeReadyRef.current = false;
         editorChromeReadyRef.current = false;
         bootReadyRef.current = false;
@@ -3762,10 +3024,6 @@ export function DesignCanvas({
 
   useEffect(() => {
     if (!interactMode) return;
-    // Interact renders the authoritative persisted source because the editor
-    // bridge is intentionally absent. Keep that same source as the next
-    // edit-mode baseline so leaving Interact cannot resurrect the older
-    // bridge-managed snapshot and make the design visibly jump backward.
     setRenderedDocument({
       content,
       sourceContent: authoredSourceContent ?? content,
@@ -3776,16 +3034,6 @@ export function DesignCanvas({
     containerRef: scrollContainerRef,
     zoom,
     setZoom: onZoomChange ?? (() => {}),
-    // Match the overview's Figma-parity zoom range (2%–25600%) rather than a
-    // narrower single-screen-only clamp. Both the "none" (fills-canvas) and
-    // framed (desktop/tablet/mobile DeviceFrame) render paths share this same
-    // `zoom` prop/state and hook call today — there's no separate framed-mode
-    // clamp to preserve. DeviceFrame chrome (title bars, home indicator) and
-    // the iframe both scale proportionally via the outer `transform: scale()`
-    // wrapper, so extreme zoom just renders very small/very large, it doesn't
-    // break layout or clip content (fixed-px chrome scales with everything
-    // else). Verified 1280px-wide desktop frame at 256x (25600%) renders at
-    // ~327,680px, comfortably under browser max-element-size limits.
     min: DEFAULT_CANVAS_MIN_ZOOM,
     max: DEFAULT_CANVAS_MAX_ZOOM,
     zoomToCursor: deviceFrame === "none" && !centerInteractPreview,
@@ -3794,37 +3042,11 @@ export function DesignCanvas({
     onZoomEnd: onZoomChange ? commitZoom : undefined,
   });
 
-  // T-zoom-anchor: the "none"-mode zoom layer now uses `transform-origin: top
-  // left` (see the render below) so Cmd/Ctrl+wheel and pinch zoom correctly
-  // keep the point under the cursor stationary — usePinchZoom's own
-  // zoomToCursor math and the pinch-zoom-wheel handler above both assume that
-  // invariant. That means the layout is no longer flex-centered, so on first
-  // mount (and whenever the content is re-keyed, e.g. a screen switch) we
-  // imperatively center the scroll position once here — mirroring what the
-  // flex-centering used to give us "for free" at rest — without touching
-  // scroll position during an actual zoom gesture (those already apply their
-  // own precise scroll deltas above).
-  //
-  // BP-DEEP item 2: also re-center when `previewWidthPx` changes (a
-  // breakpoint chip is clicked). Without this, switching to a narrower
-  // breakpoint shrinks the wrapper's rendered width in place — the scroll
-  // container's existing scrollLeft (from whatever it was showing at the
-  // WIDER content's width) is left untouched, so the narrower frame renders
-  // pinned to the left edge of the visible area instead of centered. This is
-  // the single-screen equivalent of the device-preview control's centered
-  // `deviceFrame !== "none"` branch below, without giving up the top-left
-  // transform-origin the zoom-anchor math above depends on.
   useEffect(() => {
     if (deviceFrame !== "none" || centerInteractPreview) return;
     const scroll = scrollContainerRef.current;
     const layer = zoomLayerRef.current;
     if (!scroll || !layer) return;
-    // Read the SCROLL CONTAINER's own scrollWidth/scrollHeight, not the zoom
-    // layer's: `transform: scale()` never changes an element's own layout
-    // size (scrollWidth/scrollHeight of the transformed element itself stay
-    // at its pre-transform size), but it DOES change how much scrollable
-    // overflow it contributes to its ancestor — which is exactly the
-    // post-transform visual bounds we need here.
     scroll.scrollLeft = Math.max(
       0,
       (scroll.scrollWidth - scroll.clientWidth) / 2,
@@ -3840,20 +3062,7 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
-  // Build the srcdoc. Both mode bridges stay installed; live postMessages
-  // switch pointer ownership without replacing the iframe document.
-  //
-  // readOnly and editMode are intentionally NOT deps here: the initial
-  // __READ_ONLY__ / __TEXT_EDITING_ENABLED__ placeholders are baked from the
-  // first render only (so first paint never flashes the wrong mode). After
-  // that, live readOnly / editMode changes flow through set-read-only and
-  // set-text-editing-enabled postMessages (see the useEffects below) so
-  // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
-  // never rebuilds srcdoc / reloads every screen iframe.
   const srcdoc = useMemo(() => {
-    // A URL-backed screen is never an inline document, including while its
-    // keyed bridge registration is pending. The loading surface waits without
-    // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
     const editorChromeBridge =
@@ -3899,13 +3108,6 @@ export function DesignCanvas({
         .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
           inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
         );
-    // ALWAYS injected (like the other always-on bridges above) so
-    // MultiScreenCanvas's cross-screen drag hit-testing
-    // (agent-native:hit-test / agent-native:hit-test-result) resolves an
-    // anchor+placement against this screen's live DOM too, not only the
-    // static-fallback board thumbnails that call appendHitTestResponder.
-    // Without this, a drop onto a live/active screen has no responder and
-    // always falls through to the 50ms request timeout.
     const imageDiagBridge = "";
     const bridgeToInject =
       sourceProvenanceBootstrap(iframeSourceProvenance) +
@@ -3930,7 +3132,6 @@ export function DesignCanvas({
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
       frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
     } else {
-      // No body/html tags — wrap it
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
           embeddedFrameBackground,
@@ -3943,10 +3144,6 @@ export function DesignCanvas({
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
-    // Overview frames report their own content height so the canvas can
-    // content-fit them (Framer-style). Embedded (overview) frames only — a
-    // focused single-screen view fills the viewport and must keep native
-    // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
@@ -3970,9 +3167,6 @@ export function DesignCanvas({
     transparentBackground,
   ]);
 
-  // The document identity only has to change when the srcdoc text does. A
-  // rebuild from unchanged inputs yields an equal string, and string equality
-  // is a native compare, where hashing walked ~900KB per screen in JS.
   const srcdocVersionRef = useRef({ srcdoc, version: 0 });
   if (srcdocVersionRef.current.srcdoc !== srcdoc) {
     srcdocVersionRef.current = {
@@ -3981,12 +3175,6 @@ export function DesignCanvas({
     };
   }
   const srcdocHash = srcdocVersionRef.current.version;
-  /**
-   * A container we framed ourselves is cross-origin, so its messages match
-   * neither `parentOrigin` nor the localhost bridge origin. Without its origin
-   * here every selection, hover and layer message from the editor bridge is
-   * dropped as untrusted while the bootstrap handshake still succeeds.
-   */
   const canvasBridgeAllowedOrigins = useMemo(
     () =>
       [
@@ -4007,10 +3195,6 @@ export function DesignCanvas({
   iframeDocumentIdentityRef.current = iframeDocumentIdentity;
   const externalPreviewUrlRef = useRef(externalPreviewUrl);
   externalPreviewUrlRef.current = externalPreviewUrl;
-  // Route navigation inside a live URL updates `externalPreviewUrl`, but it
-  // must not replace the host iframe. Keeping the element stable lets the
-  // running app navigate in place while the document identity below still
-  // resets readiness and re-arms the edit shield for the new route.
   const iframeElementIdentity = externalPreviewUrl
     ? `external:${previewFrameId ?? screenId ?? contentKey ?? "screen"}:${
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
@@ -4048,8 +3232,6 @@ export function DesignCanvas({
       readyIframeDocumentIdentity !== iframeDocumentIdentity);
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
-  // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
-  // an onLoad that already fired would strand a spinner over finished content.
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
   const markPreviewFrameReady = useCallback(() => {
     setPreviewFrameLoaded(true);
@@ -4063,15 +3245,6 @@ export function DesignCanvas({
       readyIframeDocumentIdentity === iframeDocumentIdentity,
     );
   }, [externalPreviewUrl, iframeDocumentIdentity, readyIframeDocumentIdentity]);
-  // No snapshot is ever painted over the live frame, not even for the few
-  // frames of a document swap. Covering the real iframe with a frozen copy is
-  // the same false-success shape as rendering the snapshot outright: when the
-  // swap stalls, the canvas keeps showing a screen that looks correct and
-  // responds to nothing. A brief flash is the honest signal.
-  // A raw fallback document (see usingRawFallbackPreview above) never gets an
-  // injected editor-chrome bridge, so it can never post the ready handshake
-  // this waits for — without excluding it here, the fallback iframe would
-  // stay marked "pending" (and thus blocked by the overlay below) forever.
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
@@ -4083,14 +3256,11 @@ export function DesignCanvas({
   // denied local-network permission can never hand clicks to the app.
   const liveEditRegistrationFailurePending =
     liveEditFrameRequiresBridge && bridgeRegistrationFailedForCurrentKey;
-  // A proxied container paints its own app immediately, so without this the
-  // canvas looks ready while hover, selection and layers are still dead.
   const sameOriginBridgePending =
     containerPreview &&
     includeLiveEditEditorChrome &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
 
-  // Listen for messages from the iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       const iframeWindow = iframeRef.current?.contentWindow;
@@ -4142,9 +3312,6 @@ export function DesignCanvas({
         e.data?.type === "agent-native:editor-chrome-ready"
           ? lateLiveEditReadyRecoveryRef.current
           : null;
-      // A cross-origin fusion frame can never satisfy `origin === parentOrigin`,
-      // so trust there rests on window identity plus a Builder-host allowlist.
-      // A proxied one is same-origin and takes the strict path unchanged.
       const trustedCurrentFrame =
         sourceType === "fusion" && e.origin !== window.location.origin
           ? iframeWindow !== null &&
@@ -4221,9 +3388,6 @@ export function DesignCanvas({
           liveEditDocumentIdRef.current = documentId;
         }
       }
-      // A srcdoc editor has booted once its chrome bridge, the last script in
-      // the body, reports ready; `load` would also wait for every image. Not
-      // any message: the session-replay bootstrap posts a probe from <head>.
       if (
         trustedCurrentFrame &&
         e.data?.type === "agent-native:editor-chrome-ready" &&
@@ -4244,23 +3408,121 @@ export function DesignCanvas({
       }
       if (!e.data || !e.data.type) return;
       if (
+        trustedCurrentFrame &&
+        sourceType === "localhost" &&
+        !readOnly &&
+        editMode &&
+        !interactMode &&
+        ((e.data.type === "agent-native:editor-chrome-ready" &&
+          e.data.focusSafe === true) ||
+          (e.data.type === "agent-native:canvas-focus-state" &&
+            e.data.focusSafe === true))
+      ) {
+        focusScrollSurfaceRef.current?.(
+          e.data.type === "agent-native:editor-chrome-ready",
+          true,
+        );
+      }
+      if (
+        e.data.type === "agent-native:runtime-layer-snapshot-error" ||
+        e.data.type === "agent-native:runtime-layer-snapshot-unchanged"
+      ) {
+        const requestId = e.data.payload?.requestId;
+        const documentId = e.data.payload?.documentId;
+        if (
+          Number.isSafeInteger(requestId) &&
+          typeof documentId === "string" &&
+          typeof e.data.payload?.reservationToken === "string"
+        ) {
+          const reservationKey = `${documentId}:${requestId as number}`;
+          const pending =
+            pendingRuntimeLayerSnapshotReservationsRef.current.get(
+              reservationKey,
+            );
+          if (pending) {
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+          }
+        }
+        return;
+      }
+      if (
         e.data.type ===
         "agent-native:runtime-layer-snapshot-reservation-request"
       ) {
         if (!Number.isSafeInteger(e.data.requestId)) return;
+        const requestId = e.data.requestId as number;
+        const documentId =
+          typeof e.data.documentId === "string" ? e.data.documentId : "";
+        if (!documentId) {
+          postOneShotBridgeMessage({
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId,
+          });
+          return;
+        }
+        const reservationKey = `${documentId}:${requestId}`;
         const grantSnapshot = (reservationToken?: string) =>
           postOneShotBridgeMessage({
             type: "grant-runtime-layer-snapshot-reservation",
-            requestId: e.data.requestId,
+            requestId,
+            documentId,
             ...(reservationToken ? { reservationToken } : {}),
           });
-        if (!onReserveVisualEditSnapshot || sourceType !== "localhost") {
-          grantSnapshot();
-        } else {
-          void onReserveVisualEditSnapshot(screenId)
-            .then(({ reservationToken }) => grantSnapshot(reservationToken))
-            .catch(() => grantSnapshot());
+        if (
+          sourceType === "localhost" &&
+          !snapshotOnly &&
+          onReserveVisualEditSnapshot &&
+          !pendingRuntimeLayerSnapshotReservationsRef.current.has(
+            reservationKey,
+          )
+        ) {
+          const promise = Promise.resolve()
+            .then(() => onReserveVisualEditSnapshot(screenId))
+            .then(
+              ({ reservationToken }) => ({ reservationToken }),
+              (error: unknown) => ({ error }),
+            );
+          const timeout = window.setTimeout(() => {
+            const current =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (current?.promise === promise) {
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }, 15_000);
+          pendingRuntimeLayerSnapshotReservationsRef.current.set(
+            reservationKey,
+            { promise, timeout },
+          );
+          void promise.then((result) => {
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending?.promise !== promise) return;
+            window.clearTimeout(pending.timeout);
+            pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+              reservationKey,
+            );
+            if (!("reservationToken" in result)) {
+              console.warn(
+                "[design:visual-edit] shared snapshot reservation failed",
+                { screenId, error: result.error },
+              );
+              return;
+            }
+            grantSnapshot(result.reservationToken);
+          });
         }
+        // Local Layers must not wait for the owner-only shared snapshot reservation.
+        // The iframe captures again with its reservation token before publishing.
+        grantSnapshot();
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
@@ -4299,10 +3561,6 @@ export function DesignCanvas({
             targetTransactionId,
           );
         }
-        // A local dev server full reload is unavoidable after some source
-        // writes. Keep the last authenticated snapshot painted instead of
-        // exposing the iframe's blank navigation frame; the replacement
-        // document's ready handshake clears this fallback again.
         if (usesLiveEditEditorBridge) {
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
@@ -4317,10 +3575,21 @@ export function DesignCanvas({
             const queueOnce = (message: Record<string, unknown>) => {
               const alreadyQueued = pendingOneShotMessagesRef.current.some(
                 (queued) =>
-                  (queued as { type?: unknown; requestId?: unknown } | null)
-                    ?.type === message.type &&
-                  (queued as { requestId?: unknown } | null)?.requestId ===
-                    message.requestId,
+                  (
+                    queued as {
+                      type?: unknown;
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.type === message.type &&
+                  (
+                    queued as {
+                      requestId?: unknown;
+                      documentId?: unknown;
+                    } | null
+                  )?.requestId === message.requestId &&
+                  (queued as { documentId?: unknown } | null)?.documentId ===
+                    message.documentId,
               );
               if (!alreadyQueued) {
                 pendingOneShotMessagesRef.current.push(message);
@@ -4364,15 +3633,6 @@ export function DesignCanvas({
         }
         return;
       }
-      // Any other trusted message from the CURRENT frame proves the chrome
-      // bridge is live in the document that is in the iframe right now.
-      // Readiness must follow the document, not the one-time handshake: a
-      // live-edit screen keeps its already-loaded iframe across a canvas
-      // remount, so a later instance never sees `editor-chrome-ready` and
-      // `bridgeReadyRef` stays false forever. Every one-shot command then
-      // lands in `pendingOneShotMessagesRef` and nothing ever flushes it —
-      // the drop, the text edit, the delete all report success and do
-      // nothing. Re-derive readiness here so the queue always drains.
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
@@ -4391,28 +3651,44 @@ export function DesignCanvas({
           payload.html.length <= 2_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
-          onRuntimeLayerSnapshot?.({
+          const snapshot = {
             html: payload.html,
             nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
             documentId:
               typeof payload.documentId === "string"
                 ? payload.documentId
                 : undefined,
-            reservationToken:
-              typeof payload.reservationToken === "string"
-                ? payload.reservationToken
-                : undefined,
-          });
+          };
+          const reservationToken =
+            typeof payload.reservationToken === "string"
+              ? payload.reservationToken
+              : undefined;
+          const requestId = Number.isSafeInteger(payload.requestId)
+            ? (payload.requestId as number)
+            : undefined;
+          onRuntimeLayerSnapshot?.({ ...snapshot, reservationToken });
+          if (
+            reservationToken &&
+            requestId !== undefined &&
+            snapshot.documentId
+          ) {
+            const reservationKey = `${snapshot.documentId}:${requestId}`;
+            const pending =
+              pendingRuntimeLayerSnapshotReservationsRef.current.get(
+                reservationKey,
+              );
+            if (pending) {
+              window.clearTimeout(pending.timeout);
+              pendingRuntimeLayerSnapshotReservationsRef.current.delete(
+                reservationKey,
+              );
+            }
+          }
         }
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
         if (trustedLateLiveEditReady && lateReadyRecovery) {
-          // This handshake belongs to the one retired live document saved by
-          // the destructive watchdog path, not the pending iframe now in the
-          // DOM. Restore its exact registration generation and let the newly
-          // mounted live document send the normal ready signal; do not mark
-          // the pending document ready or flush one-shot messages into it.
           lateLiveEditReadyRecoveryRef.current = null;
           if (lateReadyRecovery.registrationHandoffKey) {
             liveEditRegistrationHandoff.set(
@@ -4431,17 +3707,7 @@ export function DesignCanvas({
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
-        // A confirmed ready handshake proves this bridgeInstanceId/key pair
-        // is genuinely live — clear the suspected-restart attempt counter so
-        // a later transient hiccup gets the full retry budget again instead
-        // of inheriting an already-elevated count from an unrelated earlier
-        // load.
         liveEditRestartAttemptRef.current = 0;
-        // A late ready handshake wins even after the same-instance-id
-        // escalation loop gave up and showed its non-destructive error card:
-        // cancel any pending re-arm timer, reset the backoff, and clear the
-        // error so the now-loaded iframe (which was never torn down) reads
-        // as fully connected.
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
           window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
           liveEditSameInstanceRearmTimerRef.current = undefined;
@@ -4450,9 +3716,6 @@ export function DesignCanvas({
         liveEditSameInstanceDelayRef.current = LIVE_EDIT_READY_TIMEOUT_MS;
         setLiveEditSameInstanceStalledError(null);
         flushPendingOneShotMessages();
-        // Re-send every persistent editor mode after the queue is flushed.
-        // This covers a ready handshake that wins the race with the initial
-        // effects, including the bridge's baked-off wheel default.
         forceSelectionMirrorResyncRef.current = true;
         replayIframeEditorStateRef.current?.();
         return;
@@ -4475,8 +3738,6 @@ export function DesignCanvas({
         }
         const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
         if (e.data.intent) {
-          // User click (carries intent): iframe already shows it — suppress the
-          // echo-back to avoid the fast-click bounce.
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
         } else if (
@@ -4488,8 +3749,6 @@ export function DesignCanvas({
             reportedCandidates.includes(c),
           )
         ) {
-          // Intent-less echo ≠ committed selection: iframe drifted; force a
-          // resync (dedup would otherwise block the corrective mirror).
           forceSelectionMirrorResyncRef.current = true;
           replayIframeEditorStateRef.current?.();
         }
@@ -4656,11 +3915,6 @@ export function DesignCanvas({
             typeof e.data.sourceId === "string" ? e.data.sourceId : undefined,
           applied: e.data.applied !== false,
         });
-        // Keep the bridge's optimistic insert record alive. The host records
-        // this as a pending live edit, and Apply or Undo owns the eventual
-        // visual-structure-ack. Sending an applied:true ack here would discard
-        // the bridge's rollback record before Cmd+Z can remove the inserted
-        // node from the running DOM.
         return;
       }
       if (e.data.type === "runtime-element-deleted") {
@@ -4698,6 +3952,25 @@ export function DesignCanvas({
               ? e.data.routePath
               : (liveRoutePathRef.current ?? undefined),
           reason: String(e.data.reason || "unknown"),
+        });
+        return;
+      }
+      if (e.data.type === "runtime-structure-delete-cancelled") {
+        const requestId = String(e.data.requestId || "");
+        if (!requestId) return;
+        onRuntimeStructureDeleteRejected?.({
+          screenId,
+          requestId,
+          transactionId:
+            typeof e.data.transactionId === "string"
+              ? e.data.transactionId
+              : undefined,
+          routePath:
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined),
+          reason: "cancelled",
+          sourcePresent: e.data.sourcePresent === true,
         });
         return;
       }
@@ -5078,28 +4351,11 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-edit-pending") {
-        // The bridge is waiting for a just-created node before it can enter
-        // text-edit mode (begin-text-edit arrived first). Arm the host-side
-        // keystroke buffer for the window — repeated pending:true re-posts
-        // for the same node (DesignEditor's T6 retry loop) only extend the
-        // wait, never reset an in-progress buffer.
         const pendingNodeId =
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const currentPending = pendingTextEditRef.current;
-        // A breakpoint preview renders the SAME screenId as the primary frame
-        // (which is why owner registration excludes it). Without the same
-        // exclusion here, a preview's reply drains the creation's buffer into
-        // a frame that will never own the session.
         const capturedOwner = capturedOwnerRef.current;
         if (e.data.pending && pendingNodeId) {
-          // A reply for a request that has already been stood down (pointer
-          // away, Escape, undo, superseded) must not re-arm the buffer or keep
-          // the abandoned node alive; only this canvas's own live request may.
-          // Owed text rides in its own begin-text-edit, so once interception
-          // has ended nothing moves it back into a canvas that intercepts.
-          // A breakpoint preview deliberately has no owner identity: it can
-          // never take this capture, drain it, or acknowledge it, so arming its
-          // key listener only swallowed keys nobody could ever deliver.
           if (!capturedOwner) return;
           if (
             currentPending?.nodeId !== pendingNodeId &&
@@ -5110,9 +4366,6 @@ export function DesignCanvas({
           if (currentPending && currentPending.nodeId === pendingNodeId) {
             currentPending.startedAt = Date.now();
           } else {
-            // The retry ladder posts begin-text-edit straight at the iframe,
-            // so this can be the first time THIS canvas learns it owns the
-            // node — take the creation gesture's buffer here too.
             pendingTextEditRef.current = {
               nodeId: pendingNodeId,
               buffer:
@@ -5121,21 +4374,10 @@ export function DesignCanvas({
             };
           }
         } else if (pendingNodeId) {
-          // pending:false covers two different facts. Escape, a pointerdown in
-          // the frame, and a superseding dblclick are the USER abandoning this
-          // request, and the host request dies with it. The frame's own
-          // pump deadline is not: it only means the node has not arrived there
-          // yet, and escalating it to abandonment deletes a node the host's own
-          // ladder is still working on. An unlabelled report is treated as the
-          // latter — the host's deadline still decides.
           const abandonedByUser =
             e.data.reason === "escape" ||
             e.data.reason === "pointerdown" ||
             e.data.reason === "superseded";
-          // The frame's own deadline, a failed takeover, and an unlabelled
-          // report all mean "not yet", not "abandoned". Clearing the typed
-          // buffer on those discarded everything the user had typed while a
-          // slow board mounted.
           if (abandonedByUser && currentPending?.nodeId === pendingNodeId) {
             pendingTextEditRef.current = null;
           }
@@ -5143,7 +4385,6 @@ export function DesignCanvas({
           if (abandonedByUser) {
             cancelPendingTextCapture(capturedOwner, pendingNodeId);
           } else if (e.data.reason === "committed") {
-            // The frame has the text; the host copy is no longer the original.
             pendingTextEditRef.current =
               currentPending?.nodeId === pendingNodeId
                 ? null
@@ -5154,9 +4395,6 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-edit-insert-result") {
-        // The frame is the only place that knows whether handed-over keystrokes
-        // reached the document. Until it says so the capture keeps owing them,
-        // so a dropped insert is re-delivered instead of vanishing.
         const insertNodeId =
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const owner = capturedOwnerRef.current;
@@ -5170,13 +4408,6 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-editing-state") {
-        // Creation-race replay: the bridge just armed the session for the
-        // node we were waiting on — complete that request and flush everything
-        // still held for it into the now-live editable. Keyed on the reported
-        // element: a late activation for the PREVIOUS creation used to swallow
-        // the next one's buffer, splicing its keystrokes into the wrong layer
-        // ("Beta" landing inside "Alpha"). Complete first: a capture that ends
-        // interception on this very call reclaims this canvas's buffer.
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         if (e.data.active && activatedSourceId) {
@@ -5191,9 +4422,6 @@ export function DesignCanvas({
             ? beginPendingTextDelivery(owner, activatedSourceId, buffered)
             : null;
           const text = delivery ? delivery.text : buffered;
-          // An owed delivery carried its text in its own begin command, so its
-          // result settles the request — a second copy would double the text.
-          // The capture keeps owning this one until the frame says it landed.
           if (delivery?.alreadyPosted) {
             // Nothing to send; the begin command's own result decides.
           } else if (text) {
@@ -5280,7 +4508,7 @@ export function DesignCanvas({
       if (e.data.type === "canvas-image-paste") {
         const raw = Array.isArray(e.data.files) ? e.data.files : [];
         const MAX_IMAGE_PASTE_FILES = 20;
-        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024; // 20 MB per file
+        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024;
         const files = raw
           .slice(0, MAX_IMAGE_PASTE_FILES)
           .filter(
@@ -5360,8 +4588,6 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
-        // External links are opened inside the iframe (sandbox allow-popups);
-        // only internal screen switches reach the parent.
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
@@ -5369,8 +4595,6 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "component-source-jump") {
-        // The user clicked the component-instance tag ("ComponentName →").
-        // Relay to the parent so it can invoke open-component-source.
         const nodeId = String(e.data.nodeId || "");
         const componentName = String(e.data.componentName || "");
         if (nodeId && componentName) {
@@ -5388,9 +4612,6 @@ export function DesignCanvas({
           session: embeddedCanvasPanSessionRef.current,
         });
         embeddedCanvasPanSessionRef.current = result.session;
-        // The message type belongs exclusively to the gesture bridge. Even a
-        // malformed/reordered packet must not fall through to another bridge
-        // protocol handler after validation rejects it.
         return;
       }
       if (e.data.type === "embedded-canvas-wheel") {
@@ -5422,25 +4643,14 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "pinch-zoom-wheel") {
-        // An embedded frame's zoom belongs to the parent canvas, which already
-        // gets the same gesture as embedded-canvas-wheel. Both bridges are
-        // installed in every document, so without this the two apply twice.
         if (isEmbeddedFrame) return;
         if (interactMode) return;
         if (!onZoomChange) return;
         const iframe = iframeRef.current;
         const scroll = scrollContainerRef.current;
         if (!iframe || !scroll) return;
-        // Guard against non-finite values (NaN/undefined/string) before they
-        // reach Math.max/Math.min/Math.exp — an unguarded NaN here would
-        // propagate through nextZoom and silently break zoom (mirrors the
-        // Number.isFinite-style validation the embedded-canvas-wheel sibling
-        // handler above applies to its own wheel deltas/coordinates).
         const rawDeltaY = Number(e.data.deltaY);
         if (!Number.isFinite(rawDeltaY)) return;
-        // A synthetic WheelEvent cannot reliably reach usePinchZoom's listener,
-        // so this path computes the factor itself — from the same module, never
-        // re-derived by hand, or the two curves drift apart again.
         const forwardedMode = Number(e.data.deltaMode);
         const deltaMode = Number.isFinite(forwardedMode) ? forwardedMode : 0;
         pinchZoomDeviceRef.current = resolveZoomGestureDevice({
@@ -5470,13 +4680,6 @@ export function DesignCanvas({
             scheduleZoomCommit(nextZoom);
             return;
           }
-          // The iframe lives inside a `transform: scale(zoom/100)` wrapper, so
-          // its visual scale relative to viewport is currentZoom / 100. Convert
-          // the iframe-document point under the cursor → viewport point, then
-          // preserve cursor anchoring while zooming via
-          // getZoomToCursorScrollDelta (requires the zoom layer's
-          // transform-origin to be "top left" — see that function's doc
-          // comment and the "none"-mode zoom layer render comment).
           const iframeRect = iframe.getBoundingClientRect();
           const scrollRect = scroll.getBoundingClientRect();
           const scale = currentZoom / 100;
@@ -5547,6 +4750,9 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    readOnly,
+    editMode,
+    interactMode,
     runtimeVerificationRequest,
     runtimeStructureTargetTransactionId,
     fusionUrl,
@@ -5559,21 +4765,13 @@ export function DesignCanvas({
   // race a fast click and re-highlight the old element.
   const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
   const forceSelectionMirrorResyncRef = useRef(true);
-  // Selectors from the iframe's own click; skip mirroring them back once to
-  // avoid the fast-click bounce.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
-  // The iframe cleared this selection itself. A ready handshake can land
-  // before the parent renders the clear, and replaying then re-selects it.
   const iframeClearedSelectorRef = useRef<string | null>(null);
-  // Latest replayIframeEditorState, synced during render (below) so the message
-  // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
   const interactModeRef = useRef(interactMode);
   interactModeRef.current = interactMode;
   const editModeRef = useRef(editMode);
   editModeRef.current = editMode;
-  // Render-synced committed selection so the message handler reads current
-  // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
@@ -5582,6 +4780,14 @@ export function DesignCanvas({
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    iframe.contentWindow?.postMessage(
+      {
+        type: "set-editor-chrome-scale",
+        scaleX: effectiveEditorChromeScaleX,
+        scaleY: effectiveEditorChromeScaleY,
+      },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       { type: "set-interaction-mode", interact: interactModeRef.current },
       "*",
@@ -5627,8 +4833,6 @@ export function DesignCanvas({
       selector: selectedSelector ?? null,
       candidates: selectedSelectorCandidates ?? [],
     });
-    // Skip echoing back a selection the iframe just reported (fast-click
-    // bounce). One-shot: reload forces a resync; external selection clears it.
     const isIframeOriginatedEcho =
       !forceSelectionMirrorResyncRef.current &&
       !!selectedSelector &&
@@ -5658,7 +4862,6 @@ export function DesignCanvas({
       );
       lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
       forceSelectionMirrorResyncRef.current = false;
-      // An external selection just went down; pending suppression is now stale.
       suppressMirrorSelectorsRef.current = null;
     }
     iframe.contentWindow?.postMessage(
@@ -5685,7 +4888,6 @@ export function DesignCanvas({
           },
       "*",
     );
-    // Re-send motion tracks so the preview bridge is ready after a reload.
     if (motionTracks && motionTracks.length > 0) {
       iframe.contentWindow?.postMessage(
         {
@@ -5699,8 +4901,6 @@ export function DesignCanvas({
     } else {
       iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
     }
-    // Re-apply the shader-fill preview after a reload so the preview survives
-    // screen switches.  Preview-only — never writes to DB, Yjs, or source.
     if (shaderFillPreview) {
       iframe.contentWindow?.postMessage(
         {
@@ -5730,6 +4930,8 @@ export function DesignCanvas({
     );
   }, [
     handToolActive,
+    effectiveEditorChromeScaleX,
+    effectiveEditorChromeScaleY,
     hoveredSelector,
     hoveredSelectorCandidates,
     hiddenSelectors,
@@ -5749,18 +4951,11 @@ export function DesignCanvas({
     statePreviewTarget,
     tweakValues,
   ]);
-  // Sync during render (not in an effect) so a drift echo can't invoke a stale
-  // closure that reposts the previous selection.
   replayIframeEditorStateRef.current = replayIframeEditorState;
 
-  // Replay the editor state whenever it changes OR the iframe (re)loads. The
-  // load case matters for screen switches and mode changes; without replaying
-  // selection/layer state here, the freshly mounted document looks deselected.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
-    // A (re)loaded document starts with no selection, so force the next
-    // mirror to post even if the selector is unchanged from before the load.
     const replayAfterLoad = () => {
       forceSelectionMirrorResyncRef.current = true;
       replayIframeEditorState();
@@ -5770,10 +4965,6 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", replayAfterLoad);
   }, [replayIframeEditorState]);
 
-  // A real top-level focus loss (Cmd+Tab, switching windows, browser chrome)
-  // does not reliably produce pointercancel inside every browser's iframe.
-  // Explicitly reset the child bridge as well as the host-side packet session
-  // so the next middle/hand drag can always start cleanly after focus returns.
   useEffect(() => {
     const handleHostWindowBlur = () => {
       embeddedCanvasPanSessionRef.current = null;
@@ -5786,15 +4977,6 @@ export function DesignCanvas({
     return () => window.removeEventListener("blur", handleHostWindowBlur);
   }, []);
 
-  // Fallback for documents that never inject the editor-chrome bridge (e.g.
-  // interactMode, or an external-preview iframe where srcdoc is undefined):
-  // those never post agent-native:editor-chrome-ready, so nothing would ever
-  // flush a queued one-shot command. Treat the iframe's `load` event as an
-  // implicit ready in that case — the queued commands (begin-text-edit,
-  // style-change, delete-element, replace-document-content) target the
-  // editor-chrome bridge's own message handlers, so with no chrome bridge
-  // present there is nothing that would have handled them regardless; this
-  // just prevents the queue from growing unbounded across repeated reloads.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -5815,8 +4997,6 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", handleLoadReadyFallback);
   }, [flushPendingOneShotMessages, onBridgeReady, usesLiveEditEditorBridge]);
 
-  // `load` is a URL-backed frame's boot signal, and the fallback for a srcdoc
-  // document with no editor-chrome bridge to report ready (Interact mode).
   useEffect(() => {
     if (!onBootReady) return;
     const iframe = iframeRef.current;
@@ -5842,9 +5022,6 @@ export function DesignCanvas({
     );
   }, [clearSelectionRequest]);
 
-  // Sync motion tracks to the iframe bridge whenever they change.
-  // When motionTracks is empty/undefined, clear any preview overrides so the
-  // design returns to its authored state (no stale inline styles).
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -5863,10 +5040,6 @@ export function DesignCanvas({
     }
   }, [motionTracks, motionDefaultEase, motionDurationMs]);
 
-  // Sync shader-fill preview to the iframe whenever the prop changes.
-  // When cleared (null / undefined) send a clear message so the bridge
-  // restores the original background on the previously-patched element.
-  // Preview-only — never writes to DB, Yjs, or source.
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -5885,10 +5058,6 @@ export function DesignCanvas({
     }
   }, [shaderFillPreview]);
 
-  // Item 8 — sync the in-screen gradient-edit target to the iframe whenever
-  // the prop changes. Mirrors shaderFillPreview's pattern exactly: cleared
-  // (null/undefined) posts gradient-edit-clear, set posts gradient-edit-target
-  // so the editor-chrome bridge renders drag handles on that node.
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
@@ -5906,13 +5075,6 @@ export function DesignCanvas({
     }
   }, [gradientEditTarget]);
 
-  // Interaction-state forced preview (phase 2) — sync statePreviewTarget to
-  // the iframe whenever the prop changes, exactly mirroring gradientEditTarget's
-  // sync effect above: cleared (null/undefined) posts a clearing
-  // state-preview message, set posts the node id + state so the bridge sets
-  // `data-an-state-preview` on the matching element (see the
-  // `statePreviewTarget` prop doc comment and shared/interaction-states.ts's
-  // "Forced-preview mechanism" doc comment for the full contract).
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "state-preview",
@@ -5924,52 +5086,11 @@ export function DesignCanvas({
     });
   }, [postOneShotBridgeMessage, statePreviewTarget]);
 
-  // Push the constant-size chrome scale into the iframe LIVE (CSS vars only) when
-  // overview zoom settles. This is intentionally separate from the srcdoc build so
-  // a scale change never rebuilds srcdoc / reloads the iframe (which flashes the
-  // content white). The baked __EDITOR_CHROME_SCALE__ values cover first paint.
-  // Routed through the one-shot queue too: a zoom settle that lands while the
-  // iframe is mid-reload would otherwise be silently dropped, leaving the
-  // chrome at a stale scale until the next zoom change.
-  //
-  // readyIframeDocumentIdentity is a dep for the same reason it's one on the
-  // embedded-canvas-gesture-mode effect below: a document swap resets
-  // bridgeReadyRef and wipes pendingOneShotMessagesRef, silently dropping this
-  // message if it queued before the swap. Without this dep, a URL-backed frame
-  // that loads at a non-1 overview scale never gets a live scale push after the
-  // swap (only the baked-at-1 script value applies) until the next zoom change.
-  useEffect(() => {
-    postOneShotBridgeMessage({
-      type: "set-editor-chrome-scale",
-      scaleX: effectiveEditorChromeScaleX,
-      scaleY: effectiveEditorChromeScaleY,
-    });
-  }, [
-    effectiveEditorChromeScaleX,
-    effectiveEditorChromeScaleY,
-    postOneShotBridgeMessage,
-    readyIframeDocumentIdentity,
-  ]);
-
-  // Overview/focused placement is presentation state, not document identity.
-  // Update gesture routing in place when entering responsive Interact.
-  // registered bridge key instead of rebuilding the injected script.
-  //
-  // readyIframeDocumentIdentity is a dep purely to re-fire this on every
-  // (re)ready handshake: a document swap resets bridgeReadyRef and wipes
-  // pendingOneShotMessagesRef (see the contentKey-change effect above), which
-  // silently drops this message if it was still queued when the swap
-  // happened. Its own value isn't read here — only bridgeReadyRef.current
-  // (already true by the time the ready handler flips this state) matters,
-  // so re-running always sends live instead of re-queuing into the
-  // just-cleared queue.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
       wheelEnabled: isEmbeddedFrame && !interactMode,
       spaceKeyForwardingEnabled: interactMode || isEmbeddedFrame || readOnly,
-      // Interact hands the app its own native interaction back; every other
-      // mode keeps the editing shield armed.
       editingSafetyEnabled: !interactMode,
     });
   }, [
@@ -5980,10 +5101,6 @@ export function DesignCanvas({
     readyIframeDocumentIdentity,
   ]);
 
-  // The board iframe is a finite paint window over an infinite logical
-  // canvas. Re-centering that window must update its CSS/bridge coordinate
-  // offset in place; rebuilding srcdoc here would reload the iframe, flash,
-  // and discard transient Alpine state on every chunk crossing.
   const embeddedContentOffsetX = embeddedFrame?.contentOffsetX ?? 0;
   const embeddedContentOffsetY = embeddedFrame?.contentOffsetY ?? 0;
   useEffect(() => {
@@ -6029,9 +5146,6 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY]);
 
-  // The screen's own layout grid step, in this document's content px. Pushed
-  // in-place (never baked into srcdoc) so adding or resizing a grid does not
-  // reload the iframe and drop its Alpine state.
   const layoutGridStepRef = useRef(layoutGridStep);
   layoutGridStepRef.current = layoutGridStep;
   useEffect(() => {
@@ -6050,11 +5164,6 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutGridStep]);
 
-  // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
-  // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
-  // The initial baked __READ_ONLY__ placeholder covers first paint; subsequent
-  // changes arrive here. Also re-send on iframe load so the bridge is in sync
-  // after any content-key-driven reload.
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   useEffect(() => {
@@ -6108,13 +5217,6 @@ export function DesignCanvas({
     return () => iframe.removeEventListener("load", sendGridGroupBatching);
   }, [sourceType, rawExternalPreviewUrl]);
 
-  // Sync editMode to the bridge IN-PLACE via postMessage so toggling Edit ⇄
-  // Preview does not rebuild srcdoc / reload every screen iframe (which was
-  // PF21: __TEXT_EDITING_ENABLED__ used to be baked into srcdoc, so flipping
-  // edit/preview mode reloaded every iframe — white flash + lost in-iframe
-  // Alpine state). The initial baked __TEXT_EDITING_ENABLED__ placeholder
-  // covers first paint; subsequent changes arrive here. Also re-send on
-  // iframe load so the bridge is in sync after any content-key-driven reload.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -6134,36 +5236,14 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode]);
 
-  /**
-   * Trigger immediate text-editing mode for a specific node inside the iframe,
-   * identified by its data-agent-native-node-id value.  Call this after
-   * programmatically creating a TEXT primitive so the user can type right away
-   * without a second click.
-   *
-   * Posts { type: 'begin-text-edit', nodeId } to the iframe bridge.
-   * The bridge enters the same contenteditable text-editing path used on dblclick.
-   */
-  // The one identity this canvas owns text-edit requests under. A breakpoint
-  // preview renders the SAME screenId and must never own one. Read through a
-  // ref because the keystroke listener below installs once while `screenId`
-  // mutates in place on the single-screen canvas (no key), and a stale owner
-  // made every identity check a silent no-op.
   const capturedOwnerRef = useRef<string | null>(null);
   capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);
 
   const beginTextEdit = useCallback(
     (nodeId: string, options?: BeginTextEditOptions): boolean => {
       const iframe = iframeRef.current;
-      // Not delivered: the caller keeps the intent so a later render (or the
-      // next registration) can post it, instead of losing the creation here.
       if (!iframe?.contentWindow || !nodeId) return false;
       const owner = capturedOwnerRef.current;
-      // Take over the creation gesture's host-level buffer (see
-      // pending-text-capture.ts) for this node: from here until the bridge
-      // reports text-editing-state active, host keystrokes are
-      // buffered/swallowed here instead of hitting host shortcuts, then
-      // replayed into the editable. Re-arming for the same node preserves an
-      // in-progress buffer.
       const adopted = owner ? takePendingTextCapture(owner, nodeId) : null;
       if (pendingTextEditRef.current?.nodeId !== nodeId) {
         pendingTextEditRef.current = {
@@ -6174,9 +5254,6 @@ export function DesignCanvas({
       } else if (adopted) {
         pendingTextEditRef.current.buffer += adopted;
       }
-      // Re-arming the same node only replaces its timer. Running the full
-      // cancel here would drop the buffer this call just adopted and tell the
-      // bridge to forget a request we are about to re-issue.
       const previousActivation = pendingTextEditActivationRef.current;
       if (previousActivation?.nodeId === nodeId) {
         previousActivation.cancelTimer();
@@ -6184,25 +5261,15 @@ export function DesignCanvas({
         previousActivation?.cancelRequest();
       }
       if (options?.commitImmediately || options?.deliverOwed) {
-        // Escape's commit, or text still owed after interception ended: the
-        // buffer travels WITH the command, and the command is only a COPY — the
-        // host capture keeps the original until the frame acknowledges it,
-        // because this payload dies with an iframe swap or an unmount and
-        // nothing downstream would know the text had been lost. Nothing
-        // intercepts from here: new keys belong to the host, or to the session.
         const commitImmediately = options.commitImmediately === true;
         const local = pendingTextEditRef.current;
         const localText = local?.nodeId === nodeId ? local.buffer : "";
         if (local?.nodeId === nodeId) pendingTextEditRef.current = null;
-        // No live request means no host original to fold into; this canvas's
-        // own copy is then the only text there is.
         const insertText = owner
           ? (owePendingTextCapture(owner, nodeId, localText, {
               commit: commitImmediately,
             }) ?? localText)
           : localText;
-        // The plain activation for this node may still be queued; letting both
-        // flush would open an empty session and then re-open it for the text.
         dropQueuedBeginTextEdit(nodeId);
         postOneShotBridgeMessage({
           type: "begin-text-edit",
@@ -6214,10 +5281,6 @@ export function DesignCanvas({
         if (owner) {
           onPendingTextCaptureCancel(owner, nodeId, () => {
             dropQueuedBeginTextEdit(nodeId);
-            // Dropping the QUEUED copy is not enough: the frame may already
-            // hold this begin, and the host-side commit that follows a
-            // stand-down would then be a second copy of the same characters.
-            // Revoke it at the frame, identity-scoped, before that commit.
             iframeRef.current?.contentWindow?.postMessage(
               {
                 type: "agent-native:cancel-text-edit",
@@ -6240,18 +5303,9 @@ export function DesignCanvas({
         },
         { afterPointerGesture: options?.afterPointerGesture },
       );
-      // Pointer-away stands the creation's whole request down, and this post is
-      // part of it. Cancelling the timer is not enough: a post made while the
-      // bridge was not ready is sitting in the one-shot queue, and the flush
-      // that follows readiness focuses a node the user has already left. Drop
-      // it by node id while it is still ours to drop — once the iframe has the
-      // message, only the iframe can decide.
       const cancelRequest = () => {
         cancelTimer();
         dropQueuedBeginTextEdit(nodeId);
-        // Posted straight at the frame, not through the one-shot queue: a
-        // cancel only matters to a bridge that already HAS the begin, and
-        // queueing it would just replay behind the begin we dropped.
         iframeRef.current?.contentWindow?.postMessage(
           {
             type: "agent-native:cancel-text-edit",
@@ -6274,24 +5328,12 @@ export function DesignCanvas({
     },
     [dropQueuedBeginTextEdit, postOneShotBridgeMessage],
   );
-  // The keystroke listener below is installed once and must still reach the
-  // CURRENT beginTextEdit when Escape asks it to commit.
   const beginTextEditRef = useRef(beginTextEdit);
   beginTextEditRef.current = beginTextEdit;
 
-  // Routing target for a just-created node's text edit. Only the PRIMARY frame
-  // of a screen registers — a breakpoint preview renders the same screen and
-  // would collide on the same key — and the board canvas registers under the
-  // board file id. Deliberately NOT gated on `registerRuntimeBridge`: a board
-  // canvas is inactive at the moment its own first primitive is created, and
-  // an unroutable owner is exactly how the gesture's typing got lost.
   useEffect(() => {
     if (previewFrameId) return;
     const owner = screenId;
-    // Registered per OWNER IDENTITY, not per callback identity: beginTextEdit
-    // is re-created whenever its own dependencies churn, and re-running this
-    // effect for that treated a live creation as an owner going away — handing
-    // its buffer back and re-beginning mid-session.
     const unregister = registerTextEditOwner(
       owner,
       (nodeId, options) => Boolean(beginTextEditRef.current?.(nodeId, options)),
@@ -6304,41 +5346,24 @@ export function DesignCanvas({
     );
     return () => {
       unregister();
-      // Unmounting between the handoff and activation would otherwise destroy
-      // the only copy of the gesture's keystrokes; hand them back so a remount
-      // (or the retry ladder's own pending-window arming) can still use them.
-      // An EMPTY buffer has to go back too: the user may not have typed their
-      // first character yet, and a capture left handed-off buffers nothing
-      // during the remount window.
       const pending = pendingTextEditRef.current;
       if (owner && pending) {
         returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
       }
       pendingTextEditRef.current = null;
-      // Only the timer: the REQUEST outlives this instance, so cancelling it
-      // here would tell the bridge to drop a begin the replacement still wants.
       pendingTextEditActivationRef.current?.cancelTimer();
       pendingTextEditActivationRef.current = null;
     };
   }, [previewFrameId, screenId]);
 
-  // Creation-race keystroke routing (host side). Active only while a
-  // beginTextEdit() command is pending; see routePendingTextEditKey's doc
-  // comment for the exact policy. Capture-phase on window so it runs before
-  // the editor's own shortcut handlers.
   const pendingTextEditRef = useRef<{
     nodeId: string;
     buffer: string;
     startedAt: number;
   } | null>(null);
-  // The one in-flight delayed begin-text-edit post, kept so pointer-away (and
-  // the next creation) can drop it instead of letting it land late.
   const pendingTextEditActivationRef = useRef<{
     nodeId: string;
-    /** Drops only this instance's delayed post — what an unmount needs, since
-     *  the request itself survives into the replacement canvas. */
     cancelTimer: () => void;
-    /** Drops the whole request: timer, queued command, and the bridge's copy. */
     cancelRequest: () => void;
   } | null>(null);
   useEffect(() => {
@@ -6347,9 +5372,6 @@ export function DesignCanvas({
       if (!pending) return;
       const interceptOwner = capturedOwnerRef.current;
       if (interceptOwner) {
-        // The creation's capture decides how long keys are held back. Asking it
-        // past the cap is what takes this buffer on for delivery, and the key
-        // that asked goes to the host like every key after it.
         if (!isPendingTextInterceptionOpen(interceptOwner, pending.nodeId)) {
           return;
         }
@@ -6370,18 +5392,11 @@ export function DesignCanvas({
       } else if (routed.action === "drop-last") {
         pending.buffer = pending.buffer.slice(0, -1);
       } else if (routed.action === "clear-and-swallow") {
-        // This handler registered on mount, so it runs BEFORE the capture's own
-        // listener and stopImmediatePropagation() above means that listener
-        // never sees the Escape. Decide it here instead, or the capture and its
-        // retry ladder stay live and re-focus the node.
         const escapedNodeId = pending.nodeId;
         const escapedText = pending.buffer;
         pendingTextEditActivationRef.current?.cancelTimer();
         pendingTextEditActivationRef.current = null;
         if (escapedText) {
-          // Escape ends the session and KEEPS the text (Figma). The commit
-          // rides straight to the bridge; the creation's own exhaustion
-          // cleanup then keeps the node because it now has content.
           beginTextEditRef.current?.(escapedNodeId, {
             commitImmediately: true,
           });
@@ -6394,9 +5409,6 @@ export function DesignCanvas({
       }
     }
     function onPendingTextEditPointerDown() {
-      // The user clicked somewhere else in the host — stand down so buffered
-      // keys are never replayed into an edit they've abandoned, and so the
-      // delayed begin-text-edit cannot arrive after they moved on.
       pendingTextEditRef.current = null;
       pendingTextEditActivationRef.current?.cancelRequest();
       pendingTextEditActivationRef.current = null;
@@ -6703,9 +5715,6 @@ export function DesignCanvas({
           ? { replaceAnchor: true }
           : {}),
       });
-      // Repeated "after" inserts against the original anchor reverse their
-      // order. Chain each subsequent root after the clone before it so a
-      // multi-layer clipboard lands in the same order the user copied.
       if (runtimeStructureInsertRequest.placement === "after") {
         const root = new DOMParser()
           .parseFromString(`<template>${html}</template>`, "text/html")
@@ -6742,7 +5751,7 @@ export function DesignCanvas({
       currentPreview.transactionId = request?.transactionId;
       currentPreview.awaitingTransaction = false;
     }
-    if (!request?.waitForInsertTransaction) return;
+    if (!request || request.waitForInsertTransaction) return;
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
       if (currentPreview?.requestId === request.requestId) {
         currentPreview.documentIdentity = null;
@@ -6781,19 +5790,26 @@ export function DesignCanvas({
   useEffect(() => {
     const request = runtimeStructureDeleteRequest;
     if (!request?.cancelRequested) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
     if (readyIframeDocumentIdentity !== iframeDocumentIdentity) {
-      lastRuntimeStructureDeleteCancelRequestIdRef.current = null;
+      lastRuntimeStructureDeleteCancelRequestRef.current = null;
       return;
     }
+    const retryCount = request.cancellationRetryCount ?? 0;
     if (
-      lastRuntimeStructureDeleteCancelRequestIdRef.current === request.requestId
+      lastRuntimeStructureDeleteCancelRequestRef.current?.requestId ===
+        request.requestId &&
+      lastRuntimeStructureDeleteCancelRequestRef.current.retryCount ===
+        retryCount
     ) {
       return;
     }
-    lastRuntimeStructureDeleteCancelRequestIdRef.current = request.requestId;
+    lastRuntimeStructureDeleteCancelRequestRef.current = {
+      requestId: request.requestId,
+      retryCount,
+    };
     postOneShotBridgeMessage({
       type: "cancel-pending-delete-element",
       selector: request.selector,
@@ -6805,12 +5821,11 @@ export function DesignCanvas({
       type: "visual-structure-ack",
       requestId: request.requestId,
       applied: false,
-    });
-    onRuntimeStructureDeleteRejected?.({
-      screenId,
-      requestId: request.requestId,
-      transactionId: request.transactionId,
-      reason: "cancelled",
+      cancelRuntimeStructureDelete: {
+        transactionId: request.transactionId,
+        selector: request.selector,
+        selectorCandidates: request.selectorCandidates ?? [],
+      },
     });
   }, [
     iframeDocumentIdentity,
@@ -6911,12 +5926,6 @@ export function DesignCanvas({
     requestRuntimeLayerSnapshot();
   }, [requestRuntimeLayerSnapshot, runtimeLayerSnapshotRequest]);
 
-  /**
-   * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
-   * playhead position in [0, 1].  Tracks must have been loaded first via the
-   * `motionTracks` prop (or an explicit `motion-load-tracks` message).
-   * Preview-only — never writes to DB/Yjs/source.
-   */
   const sendMotionPreview = useCallback((t: number, durationMs?: number) => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow) return;
@@ -6926,10 +5935,6 @@ export function DesignCanvas({
     );
   }, []);
 
-  /**
-   * Clear all motion-preview inline-style overrides in the iframe and remove
-   * the in-memory track list.  Call when the Motion dock is closed.
-   */
   const clearMotionPreview = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: "motion-preview-clear" },
@@ -6937,11 +5942,6 @@ export function DesignCanvas({
     );
   }, []);
 
-  /**
-   * Send a shader-fill CSS preview to the iframe.  Targets the element
-   * identified by `selector` (preferred) or `nodeId`.  Preview-only — the
-   * bridge script restores the original background on clear.
-   */
   const sendShaderFillPreview = useCallback(
     (selector: string, nodeId: string, css: string) => {
       const win = iframeRef.current?.contentWindow;
@@ -6954,11 +5954,6 @@ export function DesignCanvas({
     [],
   );
 
-  /**
-   * Clear the shader-fill preview in the iframe, restoring the original
-   * background on the patched element.  Call when the preview is dismissed
-   * or when the selection changes to a different element.
-   */
   const clearShaderFillPreview = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: "shader-fill-preview-clear" },
@@ -7003,17 +5998,6 @@ export function DesignCanvas({
         preserveTextEditingSession?: boolean;
       },
     ) => {
-      // Raw content here drops the injected offset/background styles, moving a
-      // frame authored at a negative offset off screen. Both channels push the
-      // same shape.
-      //
-      // A board surface additionally needs its render-style tag
-      // (color-scheme + transparent background) re-applied here: this is raw
-      // file content — e.g. an undo/redo content revert — that never passed
-      // through MultiScreenCanvas's own `getBoardSurfaceRenderContent` wrap.
-      // Skipping it drops `color-scheme:dark` from the live document, and
-      // Chrome then paints its opaque light UA base behind the still-
-      // transparent iframe — a white canvas in a dark editor.
       const nextContent = boardSurface
         ? getBoardSurfaceRenderContent(rawNextContent, resolvedTheme === "dark")
         : rawNextContent;
@@ -7034,12 +6018,6 @@ export function DesignCanvas({
         },
       );
       if (replaced) {
-        // The orchestrator applied these exact bytes imperatively before the
-        // React props carrying their new runtimeReplacementKey rendered.
-        // Remember the board-wrapped form so the later React-prop comparison
-        // (against MultiScreenCanvas's own equally-wrapped
-        // `runtimeReplacementContent`) recognizes the live document as
-        // already current instead of re-applying the same content again.
         lastRuntimeReplacementContentRef.current = nextContent;
       }
       return replaced;
@@ -7069,8 +6047,6 @@ export function DesignCanvas({
         })
       | null
       | undefined;
-    // The source morph preserves unchanged live styles; unwind K's imperative
-    // preview first so it cannot be mistaken for a runtime-owned value.
     try {
       previewWindow?.__designCanvasScaleContents?.(1, "cancel");
     } catch (error) {
@@ -7089,22 +6065,11 @@ export function DesignCanvas({
   const replaceRuntimeContentInPlace = useCallback(
     (rawNextContent: string, rawSourceContent: string = rawNextContent) => {
       if (externalPreviewUrl) return false;
-      // Symmetric with replacePreviewContentFromHost above: this channel's
-      // callers (the runtimeReplacementContent effect, the iframe load
-      // listener) already pass board-wrapped content today, but relying on
-      // every current and future caller to remember that is exactly the
-      // stale-cache trap that produced the white-canvas bug there — wrap
-      // unconditionally so this channel can never regress the same way.
       const nextContent = boardSurface
         ? getBoardSurfaceRenderContent(rawNextContent, resolvedTheme === "dark")
         : rawNextContent;
       return replacePreviewContent(
         getEmbeddedFrameDocumentContent({
-          // The initial srcdoc is normalized through withLocalRuntimes below.
-          // Keep the in-place overview replacement on that same local runtime
-          // path, otherwise a saved CDN script is reintroduced after the
-          // iframe has mounted and can leave the design unstyled when the
-          // browser cannot reach the provider.
           content: withLocalRuntimes(nextContent),
           embeddedFrameBackground,
           transparentBackground,
@@ -7112,17 +6077,11 @@ export function DesignCanvas({
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
           fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
         }),
-        // Carry the host's committed selection so the bridge can re-anchor it
-        // after the morph: without it the canvas silently deselects while the
-        // inspector still shows the element.
         selectedSelectorRef.current,
         selectedSelectorCandidatesRef.current ?? [],
         {
           forceFullDocument: true,
           sourceProvenance: createSourceDocumentProvenance(rawSourceContent),
-          // Prop/save echoes are synchronization, not a user command. If a
-          // text draft is active, buffer the newest generation until commit
-          // instead of tearing down its caret mid-keystroke.
           preserveTextEditingSession: true,
         },
       );
@@ -7163,11 +6122,6 @@ export function DesignCanvas({
         runtimeReplacementContent,
       )
     ) {
-      // `replaceRuntimeDocument` cannot execute scripts introduced through
-      // innerHTML. A real srcdoc rebuild is required for transitions such as a
-      // static variant becoming an Alpine app with `body[x-cloak]`; otherwise
-      // Alpine never starts and the entire editable canvas remains hidden
-      // while Interact mode (which does reload) appears to work.
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
       bridgeReadyRef.current = false;
@@ -7205,8 +6159,6 @@ export function DesignCanvas({
     const replaceLatestRuntimeContent = () => {
       const nextContent = runtimeReplacementContentRef.current;
       if (nextContent === undefined) return;
-      // The document that just loaded was built from these bytes; swapping it
-      // for itself only costs a blank frame.
       if (renderedContentRef.current === nextContent) return;
       if (
         replaceRuntimeContentInPlace(
@@ -7224,14 +6176,7 @@ export function DesignCanvas({
   }, [replaceRuntimeContentInPlace, runtimeReplacementEnabled]);
 
   const deleteRuntimeElement = useCallback(
-    (
-      selector?: string | null,
-      candidates?: string[],
-      // Present when the host queued this deletion as a pending live edit; the
-      // bridge keeps the detached node under this id so a later
-      // visual-structure-ack with applied:false can put it back.
-      requestId?: string,
-    ) => {
+    (selector?: string | null, candidates?: string[], requestId?: string) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
       return postOneShotBridgeMessage({
@@ -7308,7 +6253,6 @@ export function DesignCanvas({
     sendStyleChange,
   ]);
 
-  // Expose iframe runtime mutations for the editor orchestrator.
   useEffect(() => {
     if (!registerRuntimeBridge) return;
     // Fan out base-scope style edits to linked breakpoint iframes so they stay
@@ -7413,7 +6357,6 @@ export function DesignCanvas({
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
-    // Shader-fill preview helpers (preview-only, §6.7 gating applies to apply).
     (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
     (window as any).__designCanvasClearShaderFillPreview =
       clearShaderFillPreview;
@@ -7482,9 +6425,6 @@ export function DesignCanvas({
     clearShaderFillPreview,
   ]);
 
-  // Device dimensions match real-world devices. iframes are replaced elements
-  // with an intrinsic 300×150 size, so `aspect-ratio` + `height: auto` doesn't
-  // reliably compute height from width — explicit pixel heights are required.
   const deviceDimensions: Record<
     DeviceFrameType,
     { width: string; height: string | null }
@@ -7506,8 +6446,6 @@ export function DesignCanvas({
     embeddedFrame && !embeddedFrameFluid
       ? embeddedFrame.displayHeight / Math.max(1, embeddedFrame.viewportHeight)
       : 1;
-  // One oversized axis can force the whole iframe backing surface onto the
-  // compositor path, so use the larger inner and editor scale conservatively.
   const embeddedPaintScale =
     Math.max(1, embeddedFramePaintScaleX, embeddedFramePaintScaleY) *
     Math.max(1, editorChromeScaleX, editorChromeScaleY);
@@ -7516,9 +6454,6 @@ export function DesignCanvas({
     transparentBackground,
   });
 
-  // Per-breakpoint override: when previewWidthPx is set it takes priority over
-  // the deviceFrame width so the caller can render the same source at an
-  // explicit viewport width (e.g. 390 / 768 / 1280 side-by-side breakpoints).
   const resolvedWidth =
     previewWidthPx !== null && previewWidthPx !== undefined
       ? `${previewWidthPx}px`
@@ -7529,55 +6464,65 @@ export function DesignCanvas({
       : deviceFrame === "none"
         ? "100%"
         : (iframeHeight ?? undefined);
-  const focusScrollSurface = useCallback(() => {
-    const surface = scrollContainerRef.current;
-    if (!surface || document.activeElement === surface) return;
-    // A picker drag ending over the canvas must not take focus from the open
-    // picker: losing it ends the inspector gesture and drops a styled text range.
-    if (
-      textEditingStateRef.current.active ||
-      document.activeElement?.closest("[data-radix-popper-content-wrapper]")
-    ) {
-      return;
-    }
-    const focusedElement = document.activeElement;
-    if (focusedElement instanceof HTMLIFrameElement) {
-      try {
-        const frameDocument = focusedElement.contentDocument;
-        if (
-          !frameDocument ||
-          frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
-        ) {
-          return;
-        }
-      } catch {
-        // Keep focus inside a frame we cannot inspect; it may own an editor.
+  const focusScrollSurface = useCallback(
+    (fromIframeLoad = false, iframeReportedFocusSafe = false) => {
+      const surface = scrollContainerRef.current;
+      if (
+        !surface ||
+        document.activeElement === surface ||
+        !editMode ||
+        interactMode
+      )
+        return;
+      if (
+        textEditingStateRef.current.active ||
+        document.activeElement?.closest("[data-radix-popper-content-wrapper]")
+      ) {
         return;
       }
-    }
-    // Taking focus for keyboard panning must never outrank a field the user
-    // was just handed: a composer that opens under the cursor would otherwise
-    // be focused on mount and silently unfocused by the same pointer motion.
-    if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
-    surface.focus({ preventScroll: true });
-  }, []);
+      const focusedElement = document.activeElement;
+      if (
+        (iframeReportedFocusSafe || fromIframeLoad) &&
+        focusedElement !== document.body &&
+        focusedElement !== iframeRef.current
+      ) {
+        return;
+      }
+      if (
+        focusedElement instanceof HTMLIFrameElement &&
+        !iframeReportedFocusSafe
+      ) {
+        try {
+          const frameDocument = focusedElement.contentDocument;
+          if (!frameDocument) {
+            if (!fromIframeLoad) return;
+          } else if (
+            frameDocument.activeElement?.closest(EDITABLE_FOCUS_SELECTOR)
+          ) {
+            return;
+          }
+        } catch (error) {
+          if (
+            !(error instanceof DOMException) ||
+            error.name !== "SecurityError"
+          ) {
+            throw error;
+          }
+          return;
+        }
+      }
+      if (focusedElement?.closest(EDITABLE_FOCUS_SELECTOR)) return;
+      surface.focus({ preventScroll: true });
+    },
+    [editMode, interactMode],
+  );
+  focusScrollSurfaceRef.current = focusScrollSurface;
+  const handleCanvasPointerEnter = useCallback(
+    () => focusScrollSurface(),
+    [focusScrollSurface],
+  );
+  useLayoutEffect(() => focusScrollSurface(), [focusScrollSurface]);
 
-  // Single-screen pan (Figma parity §3): middle-mouse-button drag always
-  // pans (mirrors MultiScreenCanvas's unconditional `e.button === 1` branch
-  // in its own beginPan); a plain left-button drag pans too when the hand
-  // tool is armed (`handToolActive`) or the spacebar is held
-  // (`spacePanActive` — see the prop doc comment for why DesignCanvas
-  // doesn't listen for the spacebar itself). Movement is 1:1 and
-  // un-animated (direct scrollLeft/scrollTop deltas each mousemove, no
-  // inertia/momentum), matching MultiScreenCanvas's own beginPan feel —
-  // plain `mousemove`/`mouseup` window listeners for the drag's lifetime,
-  // same pattern as its `installDragListeners(handleMouseMove, handlePanEnd)`.
-  //
-  // Drags that begin inside the iframe arrive through the generated embedded
-  // gesture bridge as a synthetic mousedown on the parent iframe element,
-  // followed by window mousemove/mouseup events. That deliberately reuses
-  // this exact path, keeping empty-canvas, inline HTML/Alpine, and localhost
-  // live-edit panning behavior identical without an iframe-local pan model.
   const [isPanningState, setIsPanningState] = useState(false);
 
   const handleScrollSurfaceMouseDown = useCallback(
@@ -7599,9 +6544,6 @@ export function DesignCanvas({
         const dy = ev.clientY - lastClientY;
         lastClientX = ev.clientX;
         lastClientY = ev.clientY;
-        // 1:1 drag-scroll, no inertia: dragging right/down moves the
-        // viewport left/up over the content, i.e. subtract the pointer delta
-        // from scroll position.
         scroll.scrollLeft -= dx;
         scroll.scrollTop -= dy;
       };
@@ -7618,10 +6560,6 @@ export function DesignCanvas({
     [handToolActive, spacePanActive],
   );
 
-  // Clicking the empty grey canvas background deselects the current element.
-  // Preview-iframe clicks never bubble to the parent document (that path uses
-  // postMessage → onClearSelection), so a plain left click that reaches this
-  // scroll surface means the user clicked outside the framed preview.
   const handleScrollSurfaceBackgroundClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (isCanvasOverlayInteractionTarget(e.target)) return;
@@ -7643,17 +6581,6 @@ export function DesignCanvas({
     externalPreviewUrl && !browserOrigin,
   );
 
-  // OS file drag-and-drop (Figma parity §1): the sandboxed iframe sits on top
-  // of the wrapper and is a normal DOM element to the parent document's drag
-  // events (dragenter/dragover/drop still bubble through it to the wrapper —
-  // unlike mouse clicks, an iframe does not need its own listeners to forward
-  // these), but relying on that alone is fragile across browsers/sandbox
-  // combinations. Track a native-file-drag-in-progress flag via a
-  // dragenter/dragleave depth counter (nested elements each fire enter/leave)
-  // so a transparent capture overlay — mirroring the SingleScreenCreationOverlay
-  // mount pattern above — mounts ONLY while an OS file drag is actually over
-  // this wrapper, guaranteeing the drop lands on our own handler instead of
-  // being swallowed by the iframe.
   const [nativeFileDragActive, setNativeFileDragActive] = useState(false);
   const nativeFileDragDepthRef = useRef(0);
 
@@ -7721,13 +6648,6 @@ export function DesignCanvas({
 
   useEffect(() => resetNativeFileDragState, [resetNativeFileDragState]);
 
-  // Wrap the iframe in a positioned container so DrawOverlay /
-  // CanvasCommentPins can absolutely-position themselves on top of the
-  // iframe. The pin component anchors to `.design-canvas-iframe-wrapper`
-  // via canvasSelector.
-  //
-  // The wrapper carries a faint outline + soft shadow so the frame edge stays
-  // visible when a design background matches the editor canvas.
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
@@ -7826,15 +6746,28 @@ export function DesignCanvas({
           })}
           allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
           data-design-preview-iframe
+          onFocus={(event) => {
+            if (
+              sourceType !== "localhost" ||
+              readOnly ||
+              !editMode ||
+              interactMode
+            ) {
+              return;
+            }
+            event.currentTarget.contentWindow?.postMessage(
+              { type: "agent-native:canvas-focus-state-probe" },
+              "*",
+            );
+          }}
           onLoad={(event) => {
-            markPreviewFrameReady();
+            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
+            focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(
               { type: "agent-native:editor-chrome-ready-probe" },
               "*",
             );
-            // The bridge logs into the IFRAME console and cannot read
-            // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
             try {
               const win = event.currentTarget.contentWindow as
@@ -7853,17 +6786,12 @@ export function DesignCanvas({
             boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
           }
           data-design-source-type={
-            sourceType ??
-            (externalPreviewUrl
-              ? "localhost" // inferred — content is a URL
-              : "inline")
+            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
           }
           className="relative block h-full w-full border-0 bg-transparent"
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
-            // An inline screen is light unless it says otherwise; inheriting the dark
-            // editor's scheme makes Chrome paint an opaque white base under a no-fill frame.
             colorScheme:
               boardSurface || externalPreviewUrl ? undefined : "light",
             pointerEvents:
@@ -7914,9 +6842,6 @@ export function DesignCanvas({
           data-runtime-verification-iframe
           aria-hidden="true"
           tabIndex={-1}
-          // scaled-iframe-paint-ignore -- parked off-viewport and never
-          // painted, so promoting it to its own composited layer would only
-          // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
             left: -100_000,
@@ -7927,23 +6852,19 @@ export function DesignCanvas({
           title=""
         />
       ) : null}
-      {/* Single-screen click-to-place creation overlay — sits over the
-          iframe, NOT inside it, mirroring the SharedDrawOverlay pattern
-          below. Only mounts while a creation tool is active so it never
-          changes existing behavior otherwise (T14: single-screen mode
-          previously had no creation capability at all). */}
-      {activeCreationTool && !interactMode ? (
-        <SingleScreenCreationOverlay
-          tool={activeCreationTool}
-          iframeRef={iframeRef}
-          selectedPenPathNodeId={selectedPenPathNodeId}
-          onCreatePrimitive={onCreatePrimitive}
-          onUpdatePenPath={onUpdatePenPath}
-        />
-      ) : null}
+      {/* Keep the overlay mounted while Move is active so a rejected Pen
+          commit remains available to retry; without a creation tool it is
+          transparent to pointer events. */}
+      <SingleScreenCreationOverlay
+        key={screenId}
+        tool={interactMode ? null : (activeCreationTool ?? null)}
+        iframeRef={iframeRef}
+        selectedPenPathNodeId={selectedPenPathNodeId}
+        onCreatePrimitive={onCreatePrimitive}
+        onUpdatePenPath={onUpdatePenPath}
+      />
       {/* OS file drag-over capture overlay — sits over the iframe, NOT
-          inside it, mirroring the SingleScreenCreationOverlay mount pattern
-          just above. Only mounts while a native OS file drag is actually in
+          inside it. Only mounts while a native OS file drag is actually in
           progress over this wrapper (see handleWrapperDragEnter/Leave), so it
           never changes existing pointer/click behavior otherwise. Skipped
           while a creation tool is active — the two capture surfaces would
@@ -7962,16 +6883,6 @@ export function DesignCanvas({
         </div>
       ) : null}
       {liveEditSameInstanceStalledError?.bridgeKey === liveEditBridgeKey ? (
-        // Non-destructive counterpart to the registration-failure card below:
-        // the same-instance-id escalation loop in handleSuspectedBridgeRestart
-        // hit its ceiling, but /health confirmed the bridge process is still
-        // the one we registered with — registeredLiveEditBridgeKey was never
-        // nulled, so the iframe underneath is still the real, still-loading
-        // document rather than the blank placeholder. Render as a small
-        // floating banner (not an opaque full-cover overlay like the cards
-        // below) so that still-loading iframe stays visible, and a late
-        // agent-native:editor-chrome-ready handshake clears this card (see
-        // the message-handler branch above) even after this point.
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
           <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
             <div className="flex items-center gap-1.5 font-medium text-foreground">
@@ -8012,10 +6923,6 @@ export function DesignCanvas({
       {bridgeRegistrationFailedForCurrentKey &&
       !showProactiveLocalNetworkAccessPrompt &&
       localNetworkAccessDismissedForKey !== liveEditBridgeKey ? (
-        // Deliberately NOT inside the blocking overlay below: usingRawFallback
-        // Preview means the iframe right underneath is the real running dev
-        // server, so this stays a small, dismissible corner card rather than
-        // hiding working content behind an indefinite "preparing" screen.
         <LocalNetworkAccessPrompt
           kind={bridgeRegistrationFailureKind ?? "maybePermissionBlocked"}
           connecting={connectingLocalNetworkAccess}
@@ -8032,13 +6939,6 @@ export function DesignCanvas({
       liveEditRegistrationFailurePending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ? (
-            // handleSuspectedBridgeRestart's destructive terminal state (see
-            // bridgeConnectionLostError's declaration comment): the
-            // registration itself succeeded, so unlike the floating
-            // LocalNetworkAccessPrompt card above there's no raw dev-server
-            // fallback to show underneath — the live document is what
-            // stopped responding, not the fetch. Keeps its original
-            // full-cover card and copy, unchanged from before this PR.
             <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
@@ -8107,13 +7007,6 @@ export function DesignCanvas({
               }
             </div>
           ) : externalSnapshotState?.status === "error" ? (
-            // A real offline dev server previously looked identical to the
-            // ordinary "still loading" state and retried forever on a fixed
-            // 1.5s timer — see getSnapshotRetryDelayMs for the backoff that
-            // now paces the auto-retry loop. Surface the actual failure here
-            // (network error / non-2xx / bridge error message) plus a manual
-            // retry action so the user isn't staring at an unexplained
-            // eternal spinner.
             <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
@@ -8179,13 +7072,6 @@ export function DesignCanvas({
           ];
           const message = lines.join("\n");
 
-          // Best-effort: render the annotated screen + composited drawing as
-          // ONE image the agent can see (see design-canvas/annotation-snapshot.ts),
-          // then send it alongside the existing text summary in the same chat
-          // turn. Never blocks or drops the annotation — any capture failure
-          // (no Chromium in hosted deploys, network blip, upload not
-          // configured, timeout) silently resolves to `null` and the message
-          // still goes out text-only, exactly as it did before this feature.
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
@@ -8202,13 +7088,6 @@ export function DesignCanvas({
               submitDesignAnnotations({
                 message,
                 hasQueuedPins: false,
-                // Ack-confirmed send: only exit draw mode / mark pins
-                // submitted once the message is CONFIRMED to have reached
-                // the chat (became a visible turn). A fire-and-forget send
-                // here would let the overlay tear down and the pins clear
-                // even when delivery is silently dropped — e.g. no LLM/agent
-                // engine configured, or the panel never finished mounting —
-                // discarding the user's drawing with no way to retry it.
                 send: async (message) => {
                   const result = await sendToDesignAgentChatAndConfirm({
                     message,
@@ -8280,8 +7159,8 @@ export function DesignCanvas({
         <div
           ref={scrollContainerRef}
           tabIndex={-1}
-          onPointerEnter={focusScrollSurface}
-          onMouseEnter={focusScrollSurface}
+          onPointerEnter={handleCanvasPointerEnter}
+          onMouseEnter={handleCanvasPointerEnter}
           className="relative h-full w-full overflow-clip"
         >
           {iframeElement}
@@ -8298,8 +7177,8 @@ export function DesignCanvas({
       <div
         ref={scrollContainerRef}
         tabIndex={-1}
-        onPointerEnter={focusScrollSurface}
-        onMouseEnter={focusScrollSurface}
+        onPointerEnter={handleCanvasPointerEnter}
+        onMouseEnter={handleCanvasPointerEnter}
         className="relative h-full w-full overflow-clip"
         style={{
           width: embeddedFrame.displayWidth,
@@ -8332,8 +7211,8 @@ export function DesignCanvas({
     <div
       ref={scrollContainerRef}
       tabIndex={-1}
-      onPointerEnter={focusScrollSurface}
-      onMouseEnter={focusScrollSurface}
+      onPointerEnter={handleCanvasPointerEnter}
+      onMouseEnter={handleCanvasPointerEnter}
       onMouseDown={handleScrollSurfaceMouseDown}
       onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"
@@ -8445,18 +7324,8 @@ export function DesignCanvas({
   );
 }
 
-/** Minimum pointer movement (in viewport/client px) before a pointerdown→up
- *  gesture counts as a drag instead of a click. Matches the small-threshold
- *  click-vs-drag convention used elsewhere in the editor (e.g. marquee-vs-
- *  click hit-testing) rather than MultiScreenCanvas's own canvas-space
- *  threshold, since this overlay only ever sees viewport-space pointer
- *  events. */
 const CREATION_CLICK_MOVE_THRESHOLD_PX = 4;
 
-/** Default click-to-place sizes, in screen-content px, for tools that need a
- *  sensible size when the user clicks instead of drags. Mirrors
- *  MultiScreenCanvas's own DRAFT_*_WIDTH/HEIGHT defaults closely enough for
- *  single-screen placement (kept local — those constants aren't exported). */
 const CREATION_DEFAULT_SIZE: Record<
   Exclude<CreationTool, "line" | "arrow" | "pen">,
   { width: number; height: number }
@@ -8464,23 +7333,15 @@ const CREATION_DEFAULT_SIZE: Record<
   rectangle: { width: 160, height: 100 },
   ellipse: { width: 120, height: 120 },
   text: { width: 160, height: 32 },
-  // Figma's frame-tool click default is a 100x100 frame.
   frame: { width: 100, height: 100 },
 };
 
-/** Default line/arrow length (screen-content px) for a click (no drag). */
 const CREATION_DEFAULT_LINE_LENGTH = 120;
 
 interface CreationDragState {
   tool: CreationTool;
-  /** Screen-content coordinates of the initial pointerdown. */
   startContent: { x: number; y: number };
-  /** Screen-content coordinates of the latest pointer position. */
   currentContent: { x: number; y: number };
-  /** Viewport (client) coordinates of the initial pointerdown — kept
-   *  alongside startContent so the click-vs-drag movement threshold can be
-   *  measured in client space (a constant visual distance regardless of
-   *  zoom) without re-deriving it from content-space coordinates. */
   startClient: { x: number; y: number };
   pointerId: number;
   moved: boolean;
@@ -8499,29 +7360,17 @@ interface SingleScreenPenGestureState {
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
 
 interface SingleScreenCreationOverlayProps {
-  tool: CreationTool;
+  tool: CreationTool | null;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   selectedPenPathNodeId?: string | null;
-  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | void;
-  onUpdatePenPath?: (nodeId: string, path: PenPath) => boolean;
+  onCreatePrimitive?: (spec: CreatePrimitiveSpec) => string | false | void;
+  onUpdatePenPath?: (
+    nodeId: string,
+    path: PenPath,
+    nextTool?: "move",
+  ) => boolean;
 }
 
-/**
- * Figma-style click-to-place creation overlay for single-screen mode.
- *
- * Mounts a transparent, `pointer-events: auto` surface above the iframe
- * (matching the `SharedDrawOverlay` mount pattern) that intercepts pointer
- * gestures instead of letting them reach the iframe's own content/editor-
- * chrome bridge. A pointerdown→move→up past `CREATION_CLICK_MOVE_THRESHOLD_PX`
- * is treated as a drag (draws a rect/line via `getDraftGeometryFromPoints`,
- * the same helper MultiScreenCanvas uses for overview drafts); a
- * pointerdown→up with negligible movement is treated as a click (places a
- * default-sized primitive). Pen owns a stateful path until the user presses
- * Enter/Escape, double-clicks, closes on the first anchor, or chooses another
- * tool. Clicks add corner anchors; pointer drags add Bezier handles; primary
- * undo/Delete/Backspace remove the latest active segment. This mirrors the
- * overview pen workflow without forcing a mode switch.
- */
 function SingleScreenCreationOverlay({
   tool,
   iframeRef,
@@ -8580,19 +7429,10 @@ function SingleScreenCreationOverlay({
     null,
   );
   const penGestureRef = useRef<SingleScreenPenGestureState | null>(null);
+  const penOverlayRef = useRef<HTMLDivElement>(null);
   const [penPointer, setPenPointer] = useState<PenPoint | null>(null);
   const [penCloseHover, setPenCloseHover] = useState(false);
 
-  // Returns the click/pointer point in SCREEN-CONTENT (document-absolute)
-  // coordinates — the same "screen's own pixel coordinate system" contract
-  // `onCreatePrimitive` documents, which already folds in the embedded
-  // screen's own internal scroll (see `getScreenContentPointFromClient`).
-  // Anything that renders these points directly as this overlay's own CSS
-  // position (the drag/line preview below, and `SingleScreenPenPathOverlay`)
-  // must convert back to overlay-local (viewport-relative) coordinates by
-  // subtracting the same scroll offset — the overlay itself never scrolls
-  // with the embedded screen's internal document, it only tracks the
-  // iframe's host-page box.
   const toContentPoint = useCallback(
     (clientX: number, clientY: number) => {
       const iframe = iframeRef.current;
@@ -8625,8 +7465,15 @@ function SingleScreenCreationOverlay({
   }, []);
 
   const clearPenPath = useCallback(() => {
-    updatePenPath(null);
+    const gesture = penGestureRef.current;
     penGestureRef.current = null;
+    if (
+      gesture &&
+      penOverlayRef.current?.hasPointerCapture(gesture.pointerId)
+    ) {
+      penOverlayRef.current.releasePointerCapture(gesture.pointerId);
+    }
+    updatePenPath(null);
     setPenGesturePreview(null);
     setPenPointer(null);
     setPenCloseHover(false);
@@ -8638,6 +7485,7 @@ function SingleScreenCreationOverlay({
       options?: {
         preserveActiveTool?: boolean;
         continueAfterCommit?: boolean;
+        nextTool?: "move" | "pen";
       },
     ) => {
       const committed = path ? clonePenPath(path) : null;
@@ -8648,9 +7496,12 @@ function SingleScreenCreationOverlay({
 
       const continuation = continuationPenPathRef.current;
       if (continuation) {
-        const updated = onUpdatePenPath?.(continuation.nodeId, committed);
+        const updated = onUpdatePenPath?.(
+          continuation.nodeId,
+          committed,
+          options?.preserveActiveTool === false ? "move" : undefined,
+        );
         if (!updated) {
-          continuationPenPathRef.current = null;
           updatePenPath(committed);
           setPenGesturePreview(null);
           return;
@@ -8665,13 +7516,30 @@ function SingleScreenCreationOverlay({
           return;
         }
         clearPenPath();
-        const nodeId = onCreatePrimitive({
-          tool: "pen",
-          points: committed.nodes.map((node) => node.point),
-          penPath: committed,
-          fromClick: false,
-          preserveActiveTool: options?.preserveActiveTool,
-        });
+        const restoreDraft = () => {
+          updatePenPath(committed);
+          setPenGesturePreview(null);
+          setPenPointer(null);
+          setPenCloseHover(false);
+        };
+        let nodeId: string | false | void;
+        try {
+          nodeId = onCreatePrimitive({
+            tool: "pen",
+            points: committed.nodes.map((node) => node.point),
+            penPath: committed,
+            fromClick: false,
+            preserveActiveTool: options?.preserveActiveTool,
+            nextTool: options?.nextTool,
+          });
+        } catch (error) {
+          restoreDraft();
+          throw error;
+        }
+        if (nodeId === false) {
+          restoreDraft();
+          return;
+        }
         continuationPenPathRef.current =
           typeof nodeId === "string" &&
           !committed.closed &&
@@ -8725,6 +7593,12 @@ function SingleScreenCreationOverlay({
       finishPenPath(penPathRef.current, { preserveActiveTool: true });
       if (!penPathRef.current) continuationPenPathRef.current = null;
     }
+    if (!tool) {
+      dragRef.current = null;
+      setDrag(null);
+      setPenPointer(null);
+      setPenCloseHover(false);
+    }
   }, [finishPenPath, tool]);
 
   const emit = useCallback(
@@ -8747,7 +7621,6 @@ function SingleScreenCreationOverlay({
         return;
       }
 
-      // Pen commits through finishPenPath after collecting multiple gestures.
       if (activeTool === "pen") return;
 
       if (!moved) {
@@ -8786,14 +7659,13 @@ function SingleScreenCreationOverlay({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !tool) return;
       if (tool === "pen") {
         e.preventDefault();
         e.stopPropagation();
         seedSelectedPenContinuation();
-        const currentPath = penPathRef.current?.closed
-          ? null
-          : penPathRef.current;
+        const currentPath = penPathRef.current;
+        if (currentPath?.closed) return;
         const pathBefore = currentPath ? clonePenPath(currentPath) : null;
         const rawPoint = toContentPoint(e.clientX, e.clientY);
         if (!pathBefore && continuationPenPathRef.current) {
@@ -8898,10 +7770,6 @@ function SingleScreenCreationOverlay({
       }
       const current = dragRef.current;
       if (!current || current.pointerId !== e.pointerId) return;
-      // Movement threshold measured in client (viewport) space — a constant
-      // visual distance regardless of zoom — rather than screen-content
-      // space, which would need dividing by scale to mean the same thing at
-      // every zoom level.
       const movedPastThreshold =
         Math.hypot(
           e.clientX - current.startClient.x,
@@ -9035,9 +7903,23 @@ function SingleScreenCreationOverlay({
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
+      if (event.key === "Escape" && penGestureRef.current) {
+        const pathBefore = penGestureRef.current.pathBefore;
+        clearPenPath();
+        updatePenPath(pathBefore);
+        return;
+      }
+      const continuesExistingPath =
+        event.key === "Enter" && continuationPenPathRef.current !== null;
       finishPenPath(path, {
-        preserveActiveTool: true,
-        continueAfterCommit: event.key === "Enter",
+        preserveActiveTool: event.key === "Escape" || continuesExistingPath,
+        continueAfterCommit: continuesExistingPath,
+        nextTool:
+          event.key === "Enter"
+            ? continuesExistingPath
+              ? "pen"
+              : "move"
+            : undefined,
       });
     };
 
@@ -9045,7 +7927,13 @@ function SingleScreenCreationOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [clearPenPath, finishPenPath, tool, updatePenPath]);
 
-  const cursorClass = tool === "text" ? "cursor-text" : "cursor-crosshair";
+  const cursorClass =
+    tool === null
+      ? "pointer-events-none"
+      : cn(
+          "pointer-events-auto",
+          tool === "text" ? "cursor-text" : "cursor-crosshair",
+        );
   const isLineTool = tool === "line" || tool === "arrow";
   const displayedPenPath =
     penGesturePreview ??
@@ -9055,26 +7943,13 @@ function SingleScreenCreationOverlay({
         : appendPenNode(penPath, createCornerNode(penPointer))
       : penPath);
 
-  // Live drag preview, converted back from screen-content space to the
-  // overlay's own (unscaled, layout-space) coordinates. The overlay div is
-  // sized to the iframe's layout box (via inset-0 on a wrapper that already
-  // matches iframe.clientWidth/Height 1:1 before the outer zoom transform),
-  // so screen-content coordinates equal this overlay's local coordinates
-  // when the screen is unscrolled — no extra scale conversion is needed for
-  // the preview's own CSS position. When the embedded screen IS scrolled,
-  // `drag.startContent`/`currentContent` (from `toContentPoint`) carry that
-  // scroll baked in (screen-content space is document-absolute, per
-  // `onCreatePrimitive`'s contract), but this overlay div never scrolls with
-  // the iframe's internal document — it only tracks the iframe's fixed host-
-  // page box — so the scroll must be subtracted back out here to keep the
-  // live preview aligned under the cursor.
   const previewScrollOffset = readIframeScrollOffset(iframeRef.current);
   const toOverlayLocal = (point: { x: number; y: number }) => ({
     x: point.x - previewScrollOffset.left,
     y: point.y - previewScrollOffset.top,
   });
   const previewRect =
-    drag && drag.moved && !isLineTool && tool !== "pen"
+    tool && drag && drag.moved && !isLineTool && tool !== "pen"
       ? getDraftGeometryFromPoints(
           toOverlayLocal(drag.startContent),
           toOverlayLocal(drag.currentContent),
@@ -9091,10 +7966,6 @@ function SingleScreenCreationOverlay({
           end: toOverlayLocal(drag.currentContent),
         }
       : null;
-  // Same overlay-local conversion for the live pen path — its anchors/
-  // handles are stored in screen-content (document-absolute) space via
-  // `toContentPoint`/`getPenAnchor`, but `SingleScreenPenPathOverlay` renders
-  // them directly as this overlay's own (unscrolled) SVG/CSS coordinates.
   const displayedPenPathOverlay = displayedPenPath
     ? translatePenPath(
         displayedPenPath,
@@ -9105,9 +7976,10 @@ function SingleScreenCreationOverlay({
 
   return (
     <div
+      ref={penOverlayRef}
       data-design-canvas-creation-overlay
       data-creation-tool={tool}
-      className={cn("absolute inset-0 z-20 pointer-events-auto", cursorClass)}
+      className={cn("absolute inset-0 z-20", cursorClass)}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -9125,7 +7997,7 @@ function SingleScreenCreationOverlay({
         }
       }}
     >
-      {tool === "pen" && displayedPenPathOverlay ? (
+      {displayedPenPathOverlay ? (
         <SingleScreenPenPathOverlay
           path={displayedPenPathOverlay}
           closeHover={penCloseHover}

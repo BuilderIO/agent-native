@@ -54,8 +54,6 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
     dispatchFirstRunOnboardingStatus(firstRun);
     return firstRun;
   } catch (error) {
-    // The safe UI behavior for an unavailable eligibility check is to show no
-    // onboarding. Callers can still surface the error through their own path.
     dispatchFirstRunOnboardingStatus(false);
     throw error;
   } finally {
@@ -63,7 +61,6 @@ async function requestFirstRunOnboardingStatus(): Promise<boolean> {
   }
 }
 
-/** Save the optional role selected during the shared first-run flow. */
 export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
   const browserSessionId = getOrCreateAnalyticsSessionId();
   const response = await fetch(
@@ -85,7 +82,6 @@ export async function saveFirstRunOnboardingRole(role: string): Promise<void> {
   }
 }
 
-/** Fetch the server-owned first-run decision and notify other initial flows. */
 export function fetchFirstRunOnboardingStatus(): Promise<boolean> {
   if (firstRunStatusRequest) return firstRunStatusRequest;
   firstRunStatusRequest = requestFirstRunOnboardingStatus().finally(() => {

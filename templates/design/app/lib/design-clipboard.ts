@@ -26,8 +26,6 @@ export interface DesignClipboardEnvironment {
   ClipboardItem?: ClipboardItemConstructor | null;
   legacyCopy?: (representations: DesignClipboardRepresentations) => boolean;
   preferLegacyCopy?: boolean;
-  /** Per-installation secret used to reject marker-shaped HTML authored by
-   * arbitrary external clipboard sources. `null` fails closed. */
   trustToken?: string | null;
 }
 
@@ -77,18 +75,11 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
               once: true,
             });
             try {
-              // The synchronous copy-event path remains available in browsers
-              // that deny the async Clipboard API. It preserves Design's rich
-              // marker across files/tabs without leaking that marker into the
-              // human-readable text/plain representation.
               return document.execCommand("copy") && wroteRepresentations;
             } finally {
               document.removeEventListener("copy", handleCopy, true);
             }
           },
-    // A navigation immediately after Cmd+C can cancel Chromium's pending
-    // async clipboard.write promise. The copy-event path completes before the
-    // key handler returns, matching Figma's durable copy-before-leave behavior.
     preferLegacyCopy: true,
     trustToken: getDesignClipboardTrustToken(),
   };
@@ -97,14 +88,6 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
 const DESIGN_CLIPBOARD_TRUST_TOKEN_KEY =
   "agent-native.design.clipboard-trust-token.v1";
 
-/**
- * A stable, origin-local capability for rich Design clipboard markers. Plain
- * HTML copied from another page can imitate our public marker syntax; without
- * this capability it could smuggle script/event-handler markup into a srcdoc
- * preview that intentionally supports executable Alpine designs. localStorage
- * makes the token available to independent Design files and browser tabs while
- * keeping ordinary clipboard contents from forging it.
- */
 export function getDesignClipboardTrustToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -131,11 +114,6 @@ function supportsClipboardType(
   );
 }
 
-/**
- * Writes the user-facing text as text/plain and keeps Design's lossless layer
- * payload in text/html. Apps that only want text therefore receive readable
- * content, while another Design tab can still reconstruct the copied layers.
- */
 export async function writeDesignClipboard(
   representations: DesignClipboardRepresentations,
   environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
@@ -265,16 +243,10 @@ export async function readDesignClipboardPayloadFromSystem(
 
 export interface SystemClipboardContents {
   design: ReadDesignClipboardPayload | null;
-  /** Images and SVG code, as files the image paste path inserts. */
   files: File[];
-  /** Item representations that failed while other clipboard data was readable. */
   readErrors?: unknown[];
 }
 
-/**
- * Design layers and pasteable images from one clipboard read: Safari and
- * Firefox prompt on every `clipboard.read()`. Null means it could not be read.
- */
 export async function readSystemClipboard(
   environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
 ): Promise<SystemClipboardContents | null> {

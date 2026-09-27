@@ -1256,7 +1256,6 @@ describe("@agent-native/skills", () => {
         source: repo,
         skillNames: ["quick-recap"],
         clients: ["claude-code"],
-        // scope intentionally omitted so resolveSelectedScope picks a default
         baseDir: project,
         updateInstructions: false,
         yes: true,

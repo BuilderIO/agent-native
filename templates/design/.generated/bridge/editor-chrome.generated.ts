@@ -943,12 +943,45 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    function isCanvasFocusTransferSafe() {
+      if (activeTextEditEl) return false;
+      var active = document.activeElement;
+      var visited = /* @__PURE__ */ new Set();
+      var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+      while (active && !visited.has(active)) {
+        visited.add(active);
+        if (isEditorTypingTarget(active) || active.closest?.(focusTargetSelector)) {
+          return false;
+        }
+        var shadowActive = active.shadowRoot?.activeElement;
+        if (shadowActive) {
+          active = shadowActive;
+          continue;
+        }
+        if (active !== document.body && active !== document.documentElement && active.matches?.(":focus-within")) {
+          return false;
+        }
+        return true;
+      }
+      return true;
+    }
+    function reportCanvasFocusState() {
+      if (readOnly || interactionMode) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          focusSafe: isCanvasFocusTransferSafe()
+        },
+        "*"
+      );
+    }
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
           routePath: window.location.pathname + window.location.search,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe()
         },
         "*"
       );
@@ -2188,7 +2221,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         documentId: runtimeDocumentId
       };
     }
-    function postRuntimeLayerSnapshot(reservationToken) {
+    function postRuntimeLayerSnapshot(reservationToken, requestId) {
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2202,7 +2235,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "agent-native:runtime-layer-snapshot-error",
-            payload: snapshot
+            payload: {
+              ...snapshot,
+              requestId,
+              documentId: runtimeDocumentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
           },
           "*"
         );
@@ -2210,10 +2248,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var snapshotReservationToken = reservationToken || "";
       if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken) {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-unchanged",
+            payload: {
+              requestId,
+              documentId: snapshot.documentId,
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
         return;
       }
       lastRuntimeLayerSnapshotHtml = snapshot.html;
       lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+      if (requestId !== void 0) snapshot.requestId = requestId;
       if (reservationToken) snapshot.reservationToken = reservationToken;
       window.parent.postMessage(
         {
@@ -2241,7 +2291,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "agent-native:runtime-layer-snapshot-reservation-request",
-          requestId: runtimeLayerSnapshotReservationRequestId
+          requestId: runtimeLayerSnapshotReservationRequestId,
+          documentId: runtimeDocumentId
         },
         "*"
       );
@@ -8422,7 +8473,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+        'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]'
       );
     }
     var ALT_CODE_KEYS = {
@@ -12392,6 +12443,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -12408,7 +12460,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          var before = placementPointer < center;
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -12599,7 +12653,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "flow-insert"
         };
       }
-      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var receivingContainer = currentParent.parentElement;
+      var target = null;
+      if (pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+        target = nearestChildInsertionTarget(
+          receivingContainer,
+          clientX,
+          clientY,
+          dragged
+        ) || {
+          anchor: receivingContainer,
+          placement: "inside",
+          axis: parentFlowAxis(receivingContainer),
+          dropMode: "flow-insert"
+        };
+      } else {
+        target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
@@ -12623,21 +12693,46 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
           dropMode: "absolute-container"
         };
       }
-      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+      var unnestPromotedBoardRootTarget = target?.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget) {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && target.anchor?.parentElement !== document.body && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
@@ -12849,16 +12944,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-      var parent = el && el.parentElement;
-      if (!parent || parent === document.body || parent === document.documentElement) {
+      var child = el && el.parentElement;
+      var childRect = child && child.getBoundingClientRect();
+      if (!child || child === document.body || child === document.documentElement || !childRect || clientX >= childRect.left && clientX <= childRect.right && clientY >= childRect.top && clientY <= childRect.bottom) {
         return null;
       }
-      var parentRect = parent.getBoundingClientRect();
-      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
-        return null;
+      var parent = child.parentElement;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        var parentRect = parent.getBoundingClientRect();
+        if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+          return {
+            anchor: child,
+            placement: "after",
+            axis: parentFlowAxis(parent),
+            dropMode: "absolute-container"
+          };
+        }
+        child = parent;
+        parent = parent.parentElement;
       }
       return {
-        anchor: parent,
+        anchor: child,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container"
@@ -15949,7 +16055,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -15968,21 +16073,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
-            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-              var selector = getSelector(dragEl);
-              var sourceId = getSourceId(dragEl);
-              var selectorCandidates = [selector];
-              if (sourceId) {
-                selectorCandidates.push(
-                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
-                );
-              }
-              concealPendingRuntimeDelete(
-                selector,
-                selectorCandidates,
-                sourceDeleteRequestId
-              );
-            }
           }
           return;
         }
@@ -17664,6 +17754,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
+    document.addEventListener("focusin", reportCanvasFocusState, true);
+    document.addEventListener(
+      "focusout",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerup",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
     shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
     selectionOverlay.addEventListener(
@@ -18779,6 +18884,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         sendEditorChromeReady();
         return;
       }
+      if (e.data.type === "agent-native:canvas-focus-state-probe") {
+        reportCanvasFocusState();
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
@@ -18884,6 +18993,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
+          window.setTimeout(reportCanvasFocusState, 0);
         }
         return;
       }
@@ -19649,8 +19759,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19671,6 +19804,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19688,6 +19822,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19712,6 +19849,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19734,6 +19872,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {
@@ -19854,7 +19993,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "grant-runtime-layer-snapshot-reservation") {
-        if (e.data.requestId !== runtimeLayerSnapshotReservationRequestId) return;
+        if (e.data.documentId !== runtimeDocumentId || e.data.requestId !== runtimeLayerSnapshotReservationRequestId) {
+          return;
+        }
         runtimeLayerSnapshotReservationInFlight = false;
         if (runtimeLayerSnapshotReservationDirty) {
           runtimeLayerSnapshotReservationDirty = false;
@@ -19862,7 +20003,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         postRuntimeLayerSnapshot(
-          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0
+          typeof e.data.reservationToken === "string" ? e.data.reservationToken : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

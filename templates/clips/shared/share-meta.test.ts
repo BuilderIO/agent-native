@@ -172,6 +172,22 @@ describe("Clips share metadata", () => {
     );
   });
 
+  it("versions generated frames when the recording changes", () => {
+    const imageUrl = resolveClipsSocialImageUrl({
+      recording: {
+        id: "rec-1",
+        visibility: "public",
+        status: "ready",
+        updatedAt: "2026-09-25T18:00:00.000Z",
+      },
+      origin: "https://clips.example.com",
+    });
+
+    expect(imageUrl).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350&v=2026-09-25T18%3A00%3A00.000Z",
+    );
+  });
+
   it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
     expect(
       resolveClipsSocialImageUrl({
@@ -201,6 +217,23 @@ describe("Clips share metadata", () => {
         origin: "https://clips.example.com",
       }),
     ).toBe("https://clips.example.com/api/thumbnail/rec-1");
+  });
+
+  it("versions proxied thumbnails when the recording changes", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "public",
+          status: "ready",
+          thumbnailUrl: "https://cdn.example.com/preview.jpg",
+          updatedAt: "2026-09-25T18:00:00.000Z",
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBe(
+      "https://clips.example.com/api/thumbnail/rec-1?v=2026-09-25T18%3A00%3A00.000Z",
+    );
   });
 
   it("does not expose generated frames for non-public recordings", () => {

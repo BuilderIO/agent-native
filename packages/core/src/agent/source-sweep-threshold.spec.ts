@@ -41,7 +41,6 @@ describe("agent.sourceSweepToolCallThreshold", () => {
         priorToolCalls: sweepCalls(count),
       });
 
-    // The previous default no longer stops the sweep.
     expect(guardAt(24)).toBeNull();
     expect(guardAt(39)).toBeNull();
     expect(guardAt(40)).toMatchObject({ priorCalls: 40 });

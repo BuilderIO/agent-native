@@ -1,5 +1,3 @@
-/** URL validation shared by remote MCP storage and OAuth discovery. */
-
 const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
   /^localhost$/i,
   /\.localhost$/i,
@@ -65,7 +63,6 @@ function isBlockedHostname(hostname: string): boolean {
   return BLOCKED_HOSTNAME_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-/** Reject public-resource URLs that could target an internal network. */
 export function validateRemoteUrl(raw: string): {
   ok: boolean;
   url?: URL;

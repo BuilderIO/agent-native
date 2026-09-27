@@ -16,14 +16,6 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
- * and return a DashboardRecord-shaped result carrying the mutated config.
- * Individual tests override this with `mockImplementationOnce` to simulate a
- * lost race and prove the action recomputes from fresh state on retry.
- */
 function defaultUpsertDashboardWithRetry(
   id: string,
   ctx: unknown,
@@ -548,12 +540,6 @@ describe("mutate-dashboard", () => {
   });
 
   it("recomputes the mutation against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
-    // Simulates two interleaved writers racing on the same dashboard: this
-    // call inserts panel "writer-b", but its first fenced write is lost
-    // because a concurrent writer already saved a different panel
-    // ("writer-a") in between. A correct retry re-reads that winning save and
-    // reapplies "insert writer-b" on top of it, so both panels land instead
-    // of the second writer clobbering the first's insert.
     const beforeConcurrentWrite = {
       kind: "sql",
       config: dashboardConfig(),
@@ -570,9 +556,9 @@ describe("mutate-dashboard", () => {
     mocks.upsertDashboardWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
-        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
-        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
         return { ...afterConcurrentWrite, kind, config: body };
       },

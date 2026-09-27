@@ -7,10 +7,6 @@ type LifecycleToastOptions = Pick<
   "action" | "description" | "duration"
 >;
 
-/**
- * Keeps one in-flight operation in one Sonner instead of stacking a loading,
- * success, and error notification for the same work.
- */
 export function useSonnerLifecycleToast() {
   const toastIdRef = useRef<ToastId | null>(null);
 
