@@ -341,16 +341,19 @@ back a `CommandSearchProvider` when the shared command menu lands.
   - the relevance eval, including infix, camelCase, URL, and CJK cases;
   - lifecycle tests for share, unshare, visibility, cross-space moves,
     hide-from-search on a subtree, and inline database deletion;
-  - the local Neon latency harness against the latency target: p95 at or under 400 ms
-    for each query class, in each batch, on short-body and long-body corpora.
+  - latency measured against Neon on 10,000-document corpora with short and
+    long bodies: p95 at or under 400 ms for each query class.
+
+## Decisions made in revision 2
+
+- **Trigger installation:** core exports the trigger SQL for a registration.
+  Apps add it as a named migration: Content through `runMigrations` in
+  `server/plugins/db.ts`. The startup check catches a missing trigger.
+- **Caller orgs:** `callerOrgIds` defaults to the active org only. Content opts
+  into its existing multi-org search.
 
 ## Open questions
 
-1. Trigger installation: should core generate the trigger SQL into each app's
-   migration, or install triggers itself at release from the registration? The
-   release pass would need to load app registrations.
-2. Is a 100 ms read-your-writes drain budget compatible with the 400 ms p95
+1. Is a 100 ms read-your-writes drain budget compatible with the 400 ms p95
    target when an import leaves a large backlog? The alternative is draining
-   only the caller's own recent writes.
-3. Should `callerOrgIds` default to the active org only, with multi-org search
-   opt-in per app?
+   only the caller's own recent writes. Measure before choosing.
