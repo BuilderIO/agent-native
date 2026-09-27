@@ -710,6 +710,26 @@ export function shouldStartWithLocalDev(
   );
 }
 
+function AuthMarketingBackground() {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 901px)");
+    const update = () => setVisible(desktop.matches);
+    update();
+    if (typeof desktop.addEventListener === "function") {
+      desktop.addEventListener("change", update);
+      return () => desktop.removeEventListener("change", update);
+    }
+    desktop.addListener(update);
+    return () => desktop.removeListener(update);
+  }, []);
+
+  return visible ? (
+    <OceanBackground className="auth-marketing-screenshot" />
+  ) : null;
+}
+
 export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
@@ -3139,7 +3159,7 @@ export function AuthPage(props: AuthPageProps) {
           <section className="marketing-panel">
             <div className="auth-marketing-visual">
               <div className="auth-marketing-screenshot-wrap">
-                <OceanBackground className="auth-marketing-screenshot" />
+                <AuthMarketingBackground />
               </div>
               {marketingContent}
             </div>

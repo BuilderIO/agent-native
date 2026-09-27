@@ -254,6 +254,7 @@ describe("AuthPage", () => {
     expect(html).toContain('href="https://agent-native.com/apps/slides"');
     expect(html).toContain(">Learn more</a>");
     expect(html).toContain('class="oss-badge"');
+    expect(html).not.toContain("data-agent-native-starfield");
   });
 
   it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
