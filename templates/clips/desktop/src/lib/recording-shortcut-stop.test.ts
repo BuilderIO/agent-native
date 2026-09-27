@@ -111,6 +111,27 @@ describe("requestRecordingShortcutStop", () => {
     await vi.advanceTimersByTimeAsync(300);
     await stopRequest;
 
+    expect(
+      emit.mock.calls.filter(([event]) => event === "clips:tray-stop-request"),
+    ).toHaveLength(1);
+    expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
+  });
+
+  it("caps direct fallback waits at the absolute stop deadline", async () => {
+    emit.mockImplementation((event, payload) => {
+      if (event === "clips:tray-stop-request" && payload?.fallback) {
+        return new Promise(() => {});
+      }
+      return Promise.resolve(undefined);
+    });
+    invoke.mockImplementation(() => new Promise(() => {}));
+
+    const stopRequest = requestRecordingShortcutStop();
+    await vi.advanceTimersByTimeAsync(69);
+    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
+    await vi.advanceTimersByTimeAsync(1);
+    await stopRequest;
+
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 
@@ -137,12 +158,14 @@ describe("requestRecordingShortcutStop", () => {
     unlistenAcks = await setup;
     await vi.advanceTimersByTimeAsync(80);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(69);
+    await vi.advanceTimersByTimeAsync(50);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
     await vi.advanceTimersByTimeAsync(1);
     await stopRequest;
 
+    expect(
+      emit.mock.calls.filter(([event]) => event === "clips:tray-stop-request"),
+    ).toHaveLength(1);
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 
@@ -156,7 +179,9 @@ describe("requestRecordingShortcutStop", () => {
       type: "direct",
       reason: "acknowledgement-listener-registration-failed",
     });
-    expect(emit).toHaveBeenCalledWith("clips:tray-stop-request");
+    expect(emit).toHaveBeenCalledWith("clips:tray-stop-request", {
+      fallback: true,
+    });
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 
@@ -165,7 +190,9 @@ describe("requestRecordingShortcutStop", () => {
       type: "direct",
       reason: "acknowledgement-listener-not-registered",
     });
-    expect(emit).toHaveBeenCalledWith("clips:tray-stop-request");
+    expect(emit).toHaveBeenCalledWith("clips:tray-stop-request", {
+      fallback: true,
+    });
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 });

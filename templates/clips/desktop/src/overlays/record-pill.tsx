@@ -546,7 +546,7 @@ export function RecordingPill() {
     setAnnouncement(transition === "pause" ? "Paused" : "Recording");
   }
 
-  function stop() {
+  function stop(options?: { requireFinishingHold?: boolean }) {
     if (!enabledRef.current || modeRef.current === "done") return false;
     playheadConfirmOpenRef.current = false;
     setDoneDurationMs(elapsedRef.current);
@@ -566,6 +566,9 @@ export function RecordingPill() {
           finishingHoldSet = false;
           console.error("[record-pill] finishing hold failed:", error);
         }
+      }
+      if (!finishingHoldSet && options?.requireFinishingHold) {
+        return { finishingHoldSet };
       }
       await safeEmit("clips:recorder-stop");
       return { finishingHoldSet };
@@ -917,17 +920,21 @@ export function RecordingPill() {
       ),
     );
     track(
-      safeListen<{ requestId?: string }>(
+      safeListen<{ fallback?: boolean; requestId?: string }>(
         "clips:tray-stop-request",
         async (payload) => {
           const requestId = payload?.requestId;
           const alreadyDone = modeRef.current === "done";
-          if (!alreadyDone && (!enabledRef.current || !stop())) {
+          const requireFinishingHold = Boolean(requestId || payload?.fallback);
+          if (
+            !alreadyDone &&
+            (!enabledRef.current || !stop({ requireFinishingHold }))
+          ) {
             void safeInvoke("show_popover");
             return;
           }
           if (alreadyDone && !requestId) {
-            void safeInvoke("show_popover");
+            if (!payload?.fallback) void safeInvoke("show_popover");
             return;
           }
           if (requestId) {

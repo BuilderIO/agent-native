@@ -370,7 +370,11 @@ describe("completion card actions", () => {
     expect(button("Open")).toBeDefined();
     const fallbackRequest = tauriEvents.emit.mock.calls.findIndex(
       ([event, payload]) =>
-        event === "clips:tray-stop-request" && payload === undefined,
+        event === "clips:tray-stop-request" &&
+        payload !== null &&
+        typeof payload === "object" &&
+        "fallback" in payload &&
+        payload.fallback === true,
     );
     const recorderStop = tauriEvents.emit.mock.calls.findIndex(
       ([event]) => event === "clips:recorder-stop",
@@ -390,14 +394,27 @@ describe("completion card actions", () => {
       });
     });
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    tauriCore.invoke.mockRejectedValueOnce(new Error("hold unavailable"));
+    tauriCore.invoke.mockRejectedValue(new Error("hold unavailable"));
     const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
       await import("../lib/recording-shortcut-stop");
     const unlistenAcks = await listenForRecordingShortcutStopAcks();
     let outcome;
     const stopRequest = requestRecordingShortcutStop();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      tauriEvents.emit.mock.calls.some(
+        ([event]) => event === "clips:recorder-stop",
+      ),
+    ).toBe(false);
+    expect(tauriEvents.emit).not.toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      expect.anything(),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(230);
       outcome = await stopRequest;
     });
     unlistenAcks();
@@ -410,6 +427,13 @@ describe("completion card actions", () => {
       "clips:tray-stop-ack",
       expect.anything(),
     );
+    expect(
+      tauriEvents.emit.mock.calls.filter(
+        ([event]) => event === "clips:tray-stop-request",
+      ),
+    ).toHaveLength(1);
+    expect(tauriEvents.emit).toHaveBeenCalledWith("clips:recorder-stop");
+    expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover");
     expect(tauriCore.invoke).toHaveBeenCalledWith("set_toolbar_finishing", {
       hold: true,
     });
