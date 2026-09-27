@@ -1298,6 +1298,8 @@ function ReviewTab({
       latestReviewVote(review, review.runId)?.feedbackType;
     const search = reviewSearch.trim().toLocaleLowerCase();
     const searchable = [
+      review.ask,
+      review.answer,
       review.summary?.ask,
       review.summary?.outcome,
       review.threadTitle,

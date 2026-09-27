@@ -667,7 +667,12 @@ export async function listOutputReviews(opts: {
       if (threadData === undefined && !savedSummary) return null;
       const { answer, inlineApp } = askAndAnswer(summary, threadData ?? null);
       const messages = threadData ? readThreadMessages(threadData) : [];
-      const threadTitle = titles.get(key);
+      const threadTitle = summary.reviewGroupLabel?.trim()
+        ? summary.reviewGroupLabel
+            .trim()
+            .replace(/[-_/]+/g, " ")
+            .replace(/^./, (first) => first.toUpperCase())
+        : (titles.get(key) ?? "");
       const reviewSummary = savedSummary
         ? {
             ask: savedSummary.ask,

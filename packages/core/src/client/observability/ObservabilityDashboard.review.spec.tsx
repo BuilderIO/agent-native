@@ -990,12 +990,12 @@ describe("ObservabilityDashboard human review", () => {
         window.HTMLInputElement.prototype,
         "value",
       )?.set;
-      setter?.call(search, "campaign");
+      setter?.call(search, "Design a compact analytics view");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
     expect(
-      container.querySelector('[data-review-run-id="run-2"]'),
+      container.querySelector('[data-review-run-id="run-1"]'),
     ).toBeTruthy();
 
     await act(async () => {
@@ -1017,6 +1017,19 @@ describe("ObservabilityDashboard human review", () => {
         "value",
       )?.set;
       setter?.call(search, "Keep the chart inline");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);
+    expect(
+      container.querySelector('[data-review-run-id="run-1"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Sessions grew 18% this week");
       search.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelectorAll("[data-review-run-id]")).toHaveLength(1);

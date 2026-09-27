@@ -41,6 +41,7 @@ export interface TraceSummary {
   model: string;
   createdAt: number;
   runCount?: number;
+  reviewGroupLabel?: string;
 }
 
 export type FeedbackType = "thumbs_up" | "thumbs_down" | "category" | "text";

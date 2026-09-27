@@ -693,15 +693,79 @@ export async function getTraceSummaries(opts: {
     : "";
   const select = opts.requireReviewContext
     ? `SELECT * FROM (
-        SELECT agent_trace_summaries.*,
-          COUNT(*) OVER (PARTITION BY org_id, thread_id) AS run_count,
+        SELECT review_candidates.*,
+          COUNT(*) OVER (
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+          ) AS run_count,
           ROW_NUMBER() OVER (
-            PARTITION BY org_id, thread_id ORDER BY created_at DESC, run_id DESC
+            PARTITION BY org_id, review_group_owner_key, review_group_key
+            ORDER BY created_at DESC, run_id DESC
           ) AS review_row_number
-        FROM agent_trace_summaries
-        WHERE ${where}
-        ${exclude}
-        ${reviewContext}
+        FROM (
+          SELECT agent_trace_summaries.*,
+            -- ponytail: legacy spans lack resource IDs; historical resource backfill is the upgrade path.
+            CASE
+              WHEN automation_span.name IS NULL
+                THEN 'thread:' || agent_trace_summaries.thread_id
+              WHEN NULLIF(
+                automation_span.metadata::jsonb ->> 'automationId', ''
+              ) IS NOT NULL
+                THEN 'automation:' || (
+                  automation_span.metadata::jsonb ->> 'automationId'
+                )
+              WHEN automation_span.metadata::jsonb ->> 'scope' = 'organization'
+                THEN 'legacy-organization:' || COALESCE(
+                  NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
+                  SUBSTRING(
+                    automation_span.name
+                    FROM LENGTH('background_automation_run:') + 1
+                  )
+                )
+              ELSE 'legacy-personal:' || COALESCE(
+                agent_trace_summaries.user_id,
+                ''
+              ) || ':' || COALESCE(
+                NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
+                SUBSTRING(
+                  automation_span.name
+                  FROM LENGTH('background_automation_run:') + 1
+                )
+              )
+            END AS review_group_key,
+            CASE
+              WHEN automation_span.name IS NOT NULL
+                AND automation_span.metadata::jsonb ->> 'scope' = 'organization'
+                THEN ''
+              ELSE COALESCE(agent_trace_summaries.user_id, '')
+            END AS review_group_owner_key,
+            CASE
+              WHEN automation_span.name IS NULL THEN NULL
+              ELSE COALESCE(
+                NULLIF(automation_span.metadata::jsonb ->> 'automation', ''),
+                SUBSTRING(
+                  automation_span.name
+                  FROM LENGTH('background_automation_run:') + 1
+                )
+              )
+            END AS review_group_label
+          FROM agent_trace_summaries
+          LEFT JOIN LATERAL (
+            SELECT review_span.name, review_span.metadata
+            FROM agent_trace_spans review_span
+            WHERE review_span.run_id = agent_trace_summaries.run_id
+              AND review_span.span_type = 'agent_run'
+              AND review_span.name LIKE 'background_automation_run:%'
+              AND (
+                review_span.org_id = agent_trace_summaries.org_id
+                OR review_span.org_id IS NULL
+              )
+            ORDER BY review_span.created_at DESC, review_span.id DESC
+            LIMIT 1
+          ) automation_span ON TRUE
+          WHERE ${where}
+          ${exclude}
+          ${reviewContext}
+        ) AS review_candidates
       ) AS review_rollups
       WHERE review_row_number = 1
       ORDER BY created_at DESC
@@ -1854,6 +1918,9 @@ function rowToTraceSummary(row: Record<string, any>): TraceSummary {
     model: String(row.model ?? ""),
     createdAt: Number(row.created_at),
     ...(row.run_count == null ? {} : { runCount: Number(row.run_count) }),
+    ...(typeof row.review_group_label === "string"
+      ? { reviewGroupLabel: row.review_group_label }
+      : {}),
   };
 }
 

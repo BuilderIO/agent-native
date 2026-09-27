@@ -197,6 +197,32 @@ describe("listOutputReviews", () => {
     });
   });
 
+  it("uses the stable automation label for a recurring-run rollup", async () => {
+    mockGetTraceSummaries.mockResolvedValueOnce([
+      {
+        runId: "run-1",
+        threadId: "thread-1",
+        userId: "alice@example.com",
+        model: "test-model",
+        createdAt: 123,
+        runCount: 5,
+        reviewGroupLabel: "daily-digest",
+      },
+    ]);
+
+    const [row] = await listOutputReviews({
+      sinceMs: 0,
+      limit: 10,
+      orgId: "org-a",
+    });
+
+    expect(row).toMatchObject({
+      threadTitle: "Daily digest",
+      ask: "Daily digest",
+      runCount: 5,
+    });
+  });
+
   it("keeps a prior run's summary on the current thread rollup", async () => {
     mockGetRecentReviewRunsForThreads.mockResolvedValueOnce([
       {

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 interface ExecCall {
   sql: string;
   args: any[];
@@ -169,6 +171,177 @@ describe("observability store: per-user isolation", () => {
         "org-a",
         20,
       ]);
+    });
+
+    it("rolls recurring automation runs up by resource without crossing orgs", async () => {
+      const pg = await createTestPglite();
+      try {
+        await pg.exec(`
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT,
+            total_spans BIGINT DEFAULT 0, llm_calls BIGINT DEFAULT 0,
+            tool_calls BIGINT DEFAULT 0, successful_tools BIGINT DEFAULT 0,
+            failed_tools BIGINT DEFAULT 0, total_duration_ms BIGINT DEFAULT 0,
+            total_cost_cents_x100 BIGINT DEFAULT 0,
+            total_input_tokens BIGINT DEFAULT 0,
+            total_output_tokens BIGINT DEFAULT 0, model TEXT DEFAULT '',
+            created_at BIGINT NOT NULL
+          );
+          CREATE TABLE agent_trace_spans (
+            id TEXT PRIMARY KEY, run_id TEXT NOT NULL, org_id TEXT,
+            span_type TEXT NOT NULL, name TEXT NOT NULL, metadata TEXT,
+            created_at BIGINT
+          );
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT
+          );
+          CREATE TABLE agent_human_review_summaries (
+            run_id TEXT, org_id TEXT
+          );
+        `);
+        const runs = [
+          {
+            runId: "a-old",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-a1",
+            createdAt: 1,
+            automationId: "resource-a",
+          },
+          {
+            runId: "a-new",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-a2",
+            createdAt: 3,
+            automationId: "resource-a",
+          },
+          {
+            runId: "b-only",
+            orgId: "org-b",
+            userId: "alice@example.com",
+            threadId: "thread-b1",
+            createdAt: 2,
+            automationId: "resource-a",
+          },
+          {
+            runId: "c-only",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-c1",
+            createdAt: 4,
+            automationId: "resource-b",
+          },
+          {
+            runId: "d-only",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-d1",
+            createdAt: 5,
+          },
+          {
+            runId: "e-personal-alice",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-e1",
+            createdAt: 6,
+            automationId: "personal-resource",
+            scope: "personal",
+          },
+          {
+            runId: "f-personal-bob",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-f1",
+            createdAt: 7,
+            automationId: "personal-resource",
+            scope: "personal",
+          },
+        ] as const;
+        for (const run of runs) {
+          await pg.query(
+            `INSERT INTO agent_trace_summaries
+              (run_id, thread_id, user_id, org_id, created_at)
+              VALUES ($1, $2, $3, $4, $5)`,
+            [run.runId, run.threadId, run.userId, run.orgId, run.createdAt],
+          );
+          await pg.query(
+            `INSERT INTO chat_threads (id, org_id, owner_email, title)
+              VALUES ($1, $2, $3, $4)`,
+            [run.threadId, run.orgId, run.userId, "A real thread"],
+          );
+          if (run.automationId) {
+            await pg.query(
+              `INSERT INTO agent_trace_spans
+                (id, run_id, org_id, span_type, name, metadata, created_at)
+                VALUES ($1, $2, $3, 'agent_run', $4, $5, $6)`,
+              [
+                `span-${run.runId}`,
+                run.runId,
+                run.orgId,
+                "background_automation_run:daily-digest",
+                JSON.stringify({
+                  automationId: run.automationId,
+                  automation: "daily-digest",
+                  scope: run.scope ?? "organization",
+                }),
+                run.createdAt,
+              ],
+            );
+          }
+        }
+        vi.mocked(mockDb.execute).mockImplementationOnce(async (input) => {
+          if (typeof input === "string") {
+            const result = await pg.query(input);
+            return { rows: result.rows, rowsAffected: 0 };
+          }
+          const result = await pg.query(input.sql, input.args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+
+        const summaries = await getTraceSummaries({
+          sinceMs: 0,
+          limit: 20,
+          excludeSpanName: "agent_run:observability:human-review-summary",
+          requireReviewContext: true,
+        });
+
+        expect(summaries).toHaveLength(6);
+        expect(summaries).toContainEqual(
+          expect.objectContaining({
+            runId: "a-new",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            runCount: 2,
+            reviewGroupLabel: "daily-digest",
+          }),
+        );
+        expect(
+          summaries.filter(
+            (summary) => summary.reviewGroupLabel === "daily-digest",
+          ),
+        ).toHaveLength(5);
+        expect(
+          summaries.filter(
+            (summary) =>
+              summary.runId.startsWith("e-personal-") ||
+              summary.runId.startsWith("f-personal-"),
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            runId: "f-personal-bob",
+            userId: "bob@example.com",
+            runCount: 1,
+          }),
+          expect.objectContaining({
+            runId: "e-personal-alice",
+            userId: "alice@example.com",
+            runCount: 1,
+          }),
+        ]);
+      } finally {
+        await pg.close();
+      }
     });
 
     it("excludes other-org and legacy NULL-org threads before reading thread data", async () => {
