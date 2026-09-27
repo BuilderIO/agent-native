@@ -38,16 +38,10 @@ export default defineAction({
     const callerEmail = getRequestUserEmail();
     if (!callerEmail) throw new Error("no authenticated user");
 
-    // The working-hours relationship is always about the *owner's* calendar,
-    // and booking links are shareable, so the owner comes from the persisted
-    // row rather than whoever happens to be signed in.
     let ownerEmail = callerEmail;
     let linkHostEmails: string[] | null = null;
 
     if (args.bookingLinkId) {
-      // "editor", not "viewer": `booking-link` permits public access, so a
-      // public-visibility link resolves to viewer for any signed-in caller.
-      // That would turn this into an oracle over the owner's overlay peers.
       await assertAccess("booking-link", args.bookingLinkId, "editor");
 
       const [row] = await getDb()
@@ -84,9 +78,6 @@ export default defineAction({
     return statuses.map(
       ({ isOverlaidByOwner: _isOverlaidByOwner, ...rest }) => {
         const stored = requests[rest.email];
-        // A `pending:` reservation is a send still in flight, not a
-        // completed request, and must never be surfaced as one — an
-        // unparseable/stale value must also stay absent, not garbled.
         const parsed = stored ? parseOverlayRequestEntry(stored) : null;
         return {
           ...rest,

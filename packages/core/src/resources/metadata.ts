@@ -36,7 +36,6 @@ export interface CustomAgentProfile {
 
 export interface RemoteAgentBearerAuth {
   type: "bearer";
-  /** Name of the vault credential containing the bearer token. */
   credentialRef: string;
 }
 
@@ -44,7 +43,6 @@ export interface RemoteAgentOAuthClientCredentialsAuth {
   type: "oauth-client-credentials";
   tokenUrl: string;
   clientId: string;
-  /** Name of the vault credential containing the client secret. */
   clientSecretRef: string;
   scope?: string;
 }
@@ -53,12 +51,10 @@ export type RemoteAgentAuth =
   | RemoteAgentBearerAuth
   | RemoteAgentOAuthClientCredentialsAuth;
 
-/** A managed agent provider that is reached through its native API adapter. */
 export interface AnthropicManagedAgentsRemoteAgentKind {
   provider: "anthropic-managed-agents";
   agentId: string;
   environmentId: string;
-  /** Name of the vault credential containing the Anthropic API key. */
   credentialRef: string;
 }
 
@@ -71,11 +67,9 @@ export interface RemoteAgentManifest {
   description?: string;
   url: string;
   color?: string;
-  /** Optional provider-specific agent-card URL. */
   cardUrl?: string;
   /** Authentication references only; secret values never belong in a manifest. */
   auth?: RemoteAgentAuth;
-  /** Optional native provider adapter configuration. */
   kind?: RemoteAgentKind;
 }
 

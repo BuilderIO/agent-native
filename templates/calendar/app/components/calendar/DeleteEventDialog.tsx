@@ -116,8 +116,6 @@ export function DeleteEventDialog({
         onKeyDown={handleKeyDown}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          // For events with guests, Enter should default to the reversible,
-          // no-email path instead of immediately sending a cancellation.
           (canNotifyGuests
             ? dontNotifyButtonRef.current
             : confirmButtonRef.current

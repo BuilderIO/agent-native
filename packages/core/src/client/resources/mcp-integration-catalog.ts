@@ -49,22 +49,8 @@ export interface DefaultMcpIntegration {
   availability: McpIntegrationAvailability;
   verification: McpIntegrationVerification;
   logoUrl: string;
-  /**
-   * The server has a first-party OAuth client configured for this provider.
-   * Keep the connection user-scoped even when the client itself is shared.
-   */
   managedOAuth?: boolean;
-  /**
-   * The provider supports a workspace connection whose access can be shared
-   * with permitted workspace members. Keep this opt-in until provider scope
-   * semantics are verified.
-   */
   supportsOrganizationScope?: boolean;
-  /**
-   * The server refuses personal connections, so the workspace connection is the
-   * only one that can succeed. Builder Publish is org-only because its OAuth
-   * grant is shared with Content database sources rather than held by one user.
-   */
   organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
@@ -77,12 +63,6 @@ export interface DefaultMcpIntegration {
   brandAliases?: string[];
   aliases?: string[];
   keywords: string[];
-  /**
-   * Overrides `name` for prose intent matching in `findMcpIntegrationForText`
-   * when the display name is a common English word (e.g. "Box") that would
-   * otherwise false-positive on unrelated text. Leave unset unless the name
-   * itself is the ambiguous term; `brandAliases` still apply.
-   */
   promptAliases?: string[];
 }
 
@@ -216,8 +196,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
       "exploration",
       "workbooks",
     ],
-    // "Sigma" is also a math term, so only suggest the connection for a
-    // qualified provider or dashboard/workbook request.
     promptAliases: [
       "Connect Sigma",
       "Sigma Computing",
@@ -804,8 +782,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://developer.box.com/guides/box-mcp",
     setupNoteKey: "mcpIntegrations.catalog.box.setupNote",
     keywords: ["files", "folders", "documents", "enterprise content"],
-    // "Box" alone collides with everyday nouns (text box, checkbox, bounding
-    // box), so require a qualified phrase before suggesting the connection.
     promptAliases: [
       "Box.com",
       "Box file",
@@ -817,10 +793,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    // Not plain "Builder.io": onboarding connects a Builder.io *account* for
-    // model credits one screen earlier, and a row labelled "Builder.io —
-    // Connect" right after reads as that account failing to connect. This is
-    // the separate Publish content grant.
     name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
@@ -986,11 +958,6 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
-/**
- * Mirrors `resolveMcpOAuthScope` on the server, which keys its org-only rule on
- * the server URL rather than on a catalog entry. Matching by URL also covers
- * custom servers pasted by hand, which have no catalog entry to carry a flag.
- */
 export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
   if (!URL.canParse(rawUrl)) return false;
   const url = new URL(rawUrl);
@@ -1013,8 +980,6 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    // Every client OAuth start is built here, so this is the one place that can
-    // keep a personal scope off a server that only accepts a workspace one.
     scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
@@ -1030,8 +995,6 @@ export function navigateToMcpOAuthStart(url: string): boolean {
     });
     if (!popup) return false;
     popup.opener = null;
-    // The callback redirects the popup, not this window, so this marker is the
-    // only thing that tells the opener its cached server list is now suspect.
     markMcpConnectionPending();
     return true;
   } catch (error) {
@@ -1070,11 +1033,6 @@ export function supportsMcpIntegrationOrganizationScope(
   );
 }
 
-/**
- * Mirrors the server's org-only rule in `resolveMcpOAuthScope`. Offering a
- * personal connection the server will reject is what produced the misleading
- * scope error users hit on Builder.io.
- */
 export function requiresMcpIntegrationOrganizationScope(
   integration: DefaultMcpIntegration,
 ): boolean {
@@ -1192,11 +1150,6 @@ export function findMcpIntegrationForText(
   return null;
 }
 
-/**
- * Matches the server segment of an `mcp__<server>__<tool>` name, not prose, so
- * ambiguous brand words ("box", "monday", "linear") are safe here in a way they
- * are not in `findMcpIntegrationForText`.
- */
 export function findMcpIntegrationForToolName(
   toolName: string,
   integrations: readonly DefaultMcpIntegration[] = DEFAULT_MCP_INTEGRATIONS,
@@ -1221,13 +1174,6 @@ export function isMcpConnectionFailureText(text: string): boolean {
   );
 }
 
-/**
- * Agent responses need a stronger signal than a provider name alone before
- * they create an actionable card. This intentionally accepts both an
- * imperative ("connect HubSpot") and a blocked-work explanation ("HubSpot
- * access is required"), while avoiding positive status text such as
- * "HubSpot is connected".
- */
 export function isMcpConnectionSuggestionText(text: string): boolean {
   const normalized = text.trim();
   if (!normalized) return false;

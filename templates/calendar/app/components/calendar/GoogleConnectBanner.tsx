@@ -70,8 +70,6 @@ function getSetupSteps(t: CalendarT) {
 }
 
 const STATUS_POLL_INTERVAL_MS = 2000;
-// Bounds each status poll so a hung fetch can't leave the in-flight guard
-// permanently stuck and stall the interval forever.
 const STATUS_POLL_ABORT_MS = Math.max(10_000, STATUS_POLL_INTERVAL_MS * 4);
 
 function startManagedGoogleOAuth(): void {
@@ -127,7 +125,6 @@ export function GoogleConnectBanner({
     };
   }, []);
 
-  // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -155,18 +152,10 @@ export function GoogleConnectBanner({
     }
   }, [setupSteps.length]);
 
-  // Check if credentials are already configured on mount
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, open it and poll for connection.
-  //
-  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
-  // second click after closing the popup re-runs this effect (the cached
-  // authUrl.data won't change on its own). The interval lives in a ref so
-  // flipping wantAuthUrl false below doesn't tear down an already-running
-  // poll; cleanup happens on unmount via the dedicated effect above.
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     setWantAuthUrl(false);
@@ -212,7 +201,6 @@ export function GoogleConnectBanner({
     }, STATUS_POLL_INTERVAL_MS);
   }, [wantAuthUrl, authUrl.data, isBuilderFrame]);
 
-  // When auth URL fails with missing credentials, show wizard
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
@@ -246,11 +234,6 @@ export function GoogleConnectBanner({
     await signOut();
   }, []);
 
-  // When add-account URL is ready, open it and poll for new account.
-  // Same retry-intent rationale as the connect effect — `wantAddAccount`
-  // is in the deps so a second click rerun the effect; the polling
-  // interval lives in a ref so flipping wantAddAccount false here doesn't
-  // tear down the running poll.
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     if (isBuilderFrame) {
@@ -357,7 +340,6 @@ export function GoogleConnectBanner({
 
       setSaved(true);
       await fetchStatus();
-      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(
@@ -479,7 +461,6 @@ export function GoogleConnectBanner({
     );
   }
 
-  // Connected with accounts — show compact account strip
   if (hasAccounts) {
     return (
       <div className="border-b border-border/30 bg-card">
@@ -545,7 +526,6 @@ export function GoogleConnectBanner({
     );
   }
 
-  // Not connected or not configured — show setup banner
   return (
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}

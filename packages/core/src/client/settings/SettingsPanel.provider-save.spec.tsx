@@ -181,8 +181,6 @@ async function renderSettings(fetchMock: typeof fetch): Promise<{
     await Promise.resolve();
     await Promise.resolve();
   });
-  // The Builder status read is deferred past first paint; the fallback timer
-  // bounds that wait at 250ms, so settling past it is deterministic.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
   });
@@ -757,8 +755,6 @@ describe("AgentSettingsContent provider save", () => {
       'input[list="model-suggestions-ai-sdk:ollama"]',
     );
     if (!endpoint) throw new Error("Missing endpoint input");
-    // Ollama's model field is a free-typed input with no static datalist —
-    // the suggestion list only comes from a live "Find models" fetch.
     expect(model).toBeNull();
     const endpointOffset = Array.from(
       document.querySelectorAll("input, button"),
@@ -807,9 +803,6 @@ describe("AgentSettingsContent provider save", () => {
 
     expect(buttonNamed("qwen3.8-code-131k:latest")).toBeTruthy();
     expect(buttonNamed("mistral:latest")).toBeTruthy();
-    // A successful check persists the confirmed address immediately, so
-    // surfaces without their own endpoint field (the chat model picker) stop
-    // falling back to the localhost default.
     expect(fixture.providerSettingsRequests).toEqual([
       {
         key: "OLLAMA_BASE_URL",

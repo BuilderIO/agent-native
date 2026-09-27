@@ -202,7 +202,6 @@ export function renderInlineMarkdown(markdown: string): string {
   return store.restore(escaped);
 }
 
-/** Linkify plain-text email bodies without interpreting their other characters as Markdown. */
 export function renderPlainTextLinks(text: string): string {
   const ranges = findPlainTextLinkRanges(text);
   if (ranges.length === 0) return escapeHtml(text);

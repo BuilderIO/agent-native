@@ -95,7 +95,6 @@ export default defineAction({
     if (tab) {
       nav.view = args.view || "inbox";
       nav.tab = tab;
-      // Back-compat: some callers/links still read `filter` off navigation.
       if (args.filter) nav.filter = args.filter;
     }
     if (args.threadId) nav.threadId = args.threadId;

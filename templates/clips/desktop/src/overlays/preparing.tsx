@@ -1,4 +1,3 @@
-/** Visible readiness state shown before the numeric countdown takes over. */
 export function Preparing() {
   return (
     <div className="countdown-root preparing-root">

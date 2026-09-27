@@ -23,7 +23,6 @@ const CAPS = `font-size:14px;font-weight:400;letter-spacing:0.28em;text-transfor
 const BODY = `margin:0;font-size:17px;font-weight:300;line-height:1.65;color:var(--deck-ink);`;
 const HAIR = `1px solid ${C.rule}`;
 
-/** A tonal stand-in for a photograph; the caption says what belongs there. */
 const frame = (style: string, from: string, to: string, label: string) =>
   `<div style="position:absolute;${style}background:linear-gradient(160deg,${from},${to});border-radius:var(--deck-radius);display:flex;align-items:flex-end;padding:14px 16px;box-sizing:border-box;"><span style="${CAPS}letter-spacing:0.2em;background:var(--deck-bg);padding:5px 10px;">${label}</span></div>`;
 

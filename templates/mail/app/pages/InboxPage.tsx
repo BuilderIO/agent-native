@@ -72,7 +72,6 @@ function ContactPanel({
   emails: EmailMessage[];
 }) {
   const t = useT();
-  // Look up from already-cached list data instead of making a separate API call
   const email = useMemo(
     () =>
       emails.find((e) => e.id === emailId || (e.threadId || e.id) === emailId),
@@ -83,9 +82,6 @@ function ContactPanel({
     ? contactEmail
     : email?.from.name || email?.from.email;
   const normalizedDisplayEmail = displayEmail?.trim().toLowerCase() ?? "";
-  // Use all mail so contact activity survives sent/archive/inbox navigation.
-  // Search at the provider boundary so the contact panel does not page through
-  // the entire mailbox. The bounded follow-up fetches cover sparse histories.
   const {
     data: allEmails = [],
     isError: allEmailsError,
@@ -232,9 +228,6 @@ function ThreadListSidebar({
             <button
               key={email.id}
               onClick={() => {
-                // A plain click is a single-thread action — clear any
-                // in-progress multi-selection so the next keyboard shortcut
-                // doesn't act on a stale set.
                 setSelectedIds(new Set());
                 if (!email.isRead)
                   markRead.mutate({
@@ -295,9 +288,6 @@ function ThreadListSidebar({
   );
 }
 
-// Stable references for the default "empty" fallbacks of useQuery data —
-// using `[]` inline creates a fresh array on every render, which cascades
-// through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
@@ -308,10 +298,6 @@ export function InboxPage() {
     threadId: string;
   }>();
   const navigate = useNavigate();
-  // Immediate thread route override. React Router wraps navigations in
-  // startTransition, which can leave the previous route visible until the new
-  // route commits. `undefined` means "use the URL", a string means "show this
-  // thread now", and `null` means "show the list now".
   const [optimisticThreadId, setOptimisticThreadId] = useState<
     string | null | undefined
   >(undefined);
@@ -325,7 +311,6 @@ export function InboxPage() {
     },
     [],
   );
-  // Clear the override once the URL catches up.
   useEffect(() => {
     if (optimisticThreadId === undefined) return;
     if (
@@ -412,9 +397,6 @@ export function InboxPage() {
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
-  // Memoize every derived array — the emails memo depends on these, and fresh
-  // array refs on every render were cascading into EmailThread as unstable
-  // threads/emailIds props.
   const connectedAccounts = useMemo(
     () => googleStatus.data?.accounts ?? EMPTY_ACCOUNTS,
     [googleStatus.data?.accounts],
@@ -461,11 +443,6 @@ export function InboxPage() {
       activeInboxTab === OTHER_INBOX_TAB_PARAM ||
       activeInboxTab === ALL_TAB_PARAM);
 
-  // Always fetch from the URL view (inbox, starred, etc.).
-  // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
-  // the single inbox query — NOT a separate Gmail `label:` search — so the
-  // tab badge count and the list it shows always agree. Non-pinned sidebar
-  // labels (and label searches) still hit the server label query.
   const activeSavedFilter = settings?.savedFilters?.find(
     (filter) => filter.id === activeFilterId,
   );
@@ -476,11 +453,6 @@ export function InboxPage() {
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
 
-  // Inbox rows are tab-scoped; each response publishes its account-scoped
-  // counts and sync metadata to the shared overview cache. Other views still
-  // fetch through `useEmails` below, unchanged. A `q` search on /inbox is not
-  // a tab partition the store computes, so it uses the same `useEmails`
-  // search path as non-inbox views.
   const isInboxView = view === "inbox" && !searchParams.get("q");
   useEffect(() => {
     try {
@@ -511,10 +483,6 @@ export function InboxPage() {
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
-  // Page 0 drives rows and pagination totals and is the only page that polls.
-  // Its account-scoped metadata snapshot is shared across tabs. "Load more"
-  // grows `inboxExtraPageCount`, fetching one unpolled page per step (see
-  // useInboxThreadsPages's doc for why this isn't one useInfiniteQuery).
   const inboxThreads = useInboxThreads(
     {
       tab: resolvedInboxTab,
@@ -522,8 +490,6 @@ export function InboxPage() {
       limit: INBOX_PAGE_SIZE,
       offset: 0,
     },
-    // The tab bar renders from this regardless of an active `q` search, so
-    // it stays keyed on the route alone, not `isInboxView`.
     { enabled: view === "inbox" },
   );
   const inboxOverview = useInboxOverview(inboxAccountEmails);
@@ -584,9 +550,6 @@ export function InboxPage() {
   );
   const fetchInboxNextPage = useCallback(() => {
     if (!inboxHasNextPage || inboxIsFetchingNextPage) return Promise.resolve();
-    // Retry the last offset if it's the one that failed, instead of adding a
-    // new offset on top of it — otherwise that offset's rows are skipped
-    // forever and every later page permanently shifts past a gap.
     const lastPage = inboxExtraPages[inboxExtraPages.length - 1];
     if (lastPage?.isError) {
       return lastPage.refetch().then(() => undefined);
@@ -596,11 +559,6 @@ export function InboxPage() {
   }, [inboxHasNextPage, inboxIsFetchingNextPage, inboxExtraPages]);
   const inboxAccountErrors = useMemo(() => {
     if (inboxThreads.isPlaceholderData) return undefined;
-    // Also covers `needs_reauth`: an account needing reconnection has unread
-    // rows we could not read either, so it must count toward incomplete
-    // coverage the same as a sync error (the reconnect-specific banner in
-    // AppLayout is unaffected — this only feeds the generic notice + the
-    // Inbox Zero suppression below).
     const errored = inboxMetadata?.accounts.filter(
       (account) =>
         account.state === "error" || account.state === "needs_reauth",
@@ -611,9 +569,6 @@ export function InboxPage() {
           error: account.error ?? "",
         }))
       : [];
-    // A label-fetch failure is its own incomplete-coverage signal (tab chips
-    // derived from labels go stale for that account) — fold it into the same
-    // notice instead of a second banner, skipping accounts already reported.
     const reportedEmails = new Set(inboxErrors.map((e) => e.email));
     const labelErrors = (labelAccountErrors ?? []).filter(
       (e) => !reportedEmails.has(e.email),
@@ -724,10 +679,6 @@ export function InboxPage() {
   const hasEmailData = isInboxView
     ? inboxThreads.data !== undefined
     : fetchedEmails !== undefined;
-  // Inbox rows come from one poll-refreshed snapshot rather than a live
-  // Gmail fetch: "loading" also covers the first sync pass while it has not
-  // produced any rows yet, so the list shows skeleton rows (not Inbox Zero)
-  // until there is something real to show either way.
   const inboxStillSyncingEmpty =
     isInboxView && inboxMetadata?.syncing === true && inboxItems.length === 0;
   const isLoading = isInboxView
@@ -743,9 +694,6 @@ export function InboxPage() {
   const refetchEmails = isInboxView
     ? inboxThreads.refetch
     : refetchFetchedEmails;
-  // `undefined` would fall through EmailList's own `??` to its (disabled)
-  // internal query, which can resolve a stale/default `true` — these must be
-  // real booleans/false for the inbox view, not `undefined`.
   const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;
   const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;
   const isFetchingNextPage = isInboxView
@@ -761,21 +709,14 @@ export function InboxPage() {
     (!googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
-    // The inbox view's split, membership, and account scoping are all
-    // server-computed (see shared/inbox-threads.ts) — the items are already
-    // exactly the rows this tab should show, one per thread.
     if (isInboxView) return rawEmails ?? EMPTY_EMAILS;
 
-    // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
-    // matching triage tab. Shared with the badge counts (AppLayout) so the
-    // two agree on self-sent threads.
     let filtered = augmentSelfSentLabels(rawEmails ?? EMPTY_EMAILS, {
       isGoogleConnected,
       connectedEmails,
       hasNoteToSelf,
     });
 
-    // Filter by active accounts (empty set = all accounts, no filtering)
     if (activeAccounts.size > 0) {
       filtered = filtered.filter(
         (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
@@ -784,9 +725,6 @@ export function InboxPage() {
 
     if (shouldNormalizeCombinedInboxRoute) return filtered;
 
-    // Top-bar triage tab: slice the loaded inbox with the exact same
-    // membership rule the badge uses (qualifiesForInboxTab). This is what
-    // keeps the tab number equal to the emails listed under it.
     if (clientSliceTab && activeLabel) {
       return filterInboxTabEmails(
         filtered,
@@ -795,7 +733,6 @@ export function InboxPage() {
         savedFilterQueries,
       );
     }
-    // "Other" tab — the inbox remainder, same partition as its badge.
     if (isOtherTab) {
       return filterInboxTabEmails(
         filtered,
@@ -806,10 +743,6 @@ export function InboxPage() {
     }
 
     if (activeLabel) {
-      // Non-pinned sidebar label (or a label search): server-fetched. User
-      // Gmail labels keep thread membership when any fetched message carries
-      // the label, so replies don't disappear just because the latest row
-      // differs; inbox-scoped app labels stay a latest-message slice.
       const isInboxScopedLabel = activeLabelIsInboxScoped;
       const hasLabel = (e: (typeof filtered)[0]) =>
         mailLabelsInclude(e.labelIds, activeLabel);
@@ -823,7 +756,6 @@ export function InboxPage() {
           latestByThread.set(key, e);
         }
       }
-      // For "important", exclude threads that belong to any other pinned tab
       const otherPinnedLabels =
         activeLabel === "important"
           ? triageLabels.filter((l) => l !== "important")
@@ -875,15 +807,11 @@ export function InboxPage() {
     savedFilterQueries,
   ]);
 
-  // Clear multi-selection when switching views or label tabs. Do NOT clear on
-  // threadId changes — shift+j/k in detail view navigates between threads while
-  // extending the selection, so selection must persist across thread nav.
   useEffect(
     () => setSelectedIds(new Set()),
     [view, activeLabel, activeInboxTab, activeFilterId],
   );
 
-  // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchQuery;
   useEffect(() => {
     navState.sync({
@@ -893,9 +821,6 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
-      // Report the server-resolved tab id (falls back to the raw URL param
-      // until the first response lands) so the agent sees the tab that is
-      // actually active, including the default tab when the URL has none.
       activeInboxTab:
         view === "inbox"
           ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
@@ -949,10 +874,6 @@ export function InboxPage() {
     }
 
     if (navCommand.composeDraftId && !targetThread) {
-      // A deep link reopened a compose draft. The open route already wrote the
-      // matching compose-<id> app-state entry, which the compose panel
-      // auto-opens via polling. Select the requested draft immediately so
-      // existing compose tabs do not keep focus when the draft arrives.
       compose.setActiveId(navCommand.composeDraftId);
       window.dispatchEvent(
         new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
@@ -973,7 +894,6 @@ export function InboxPage() {
     } else if (navCommand.tab) {
       void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {
-      // Legacy fallback for commands that only ever set `filter`.
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
       void navigate(`/${targetView}/${targetThread}`);
@@ -981,7 +901,6 @@ export function InboxPage() {
       void navigate(`/${targetView}`);
     }
 
-    // Delete the command file so it doesn't re-trigger
     void navState.clearCommand();
   }, [navCommand, view, navigate, jevAvailability.isLoading, jevConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stable-identity pattern: keep the previous array reference when the
@@ -1035,9 +954,6 @@ export function InboxPage() {
     [threads],
   );
 
-  // Safety valve: if optimisticThreadId points to a thread that was removed from
-  // the view (archived/trashed before the route caught up), clear it so the
-  // app doesn't get stuck rendering a ghost thread.
   useEffect(() => {
     if (
       optimisticThreadId &&
@@ -1065,7 +981,6 @@ export function InboxPage() {
     [compose, myEmails],
   );
 
-  // Open a saved draft in the compose window
   const handleDraftOpen = useCallback(
     (email: EmailMessage) => {
       compose.open({
@@ -1118,17 +1033,12 @@ export function InboxPage() {
     string | undefined
   >();
 
-  // Reset sidebar contact when navigating away from a thread
   useEffect(() => {
     setSidebarContactEmail(undefined);
   }, [threadId]);
 
-  // Use the focused email ID for the contact panel, falling back to the selected thread
   const contactEmailId = threadId ?? focusedId ?? undefined;
 
-  // Error state — only show connect banner when Google is definitively not connected.
-  // For transient errors (rate limits, network blips), let EmailList render its
-  // richer retry/cooldown state instead of replacing it with a generic error.
   if (isError && !hasThread && threads.length === 0) {
     const message = emailsError?.message ?? "";
     const needsGoogleConnection =
@@ -1143,7 +1053,6 @@ export function InboxPage() {
     }
   }
 
-  // Inbox Zero — full-bleed image, no sidebar
   if (isInboxZero) {
     return <InboxZero />;
   }

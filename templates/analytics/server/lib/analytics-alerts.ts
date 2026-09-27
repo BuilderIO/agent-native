@@ -990,8 +990,6 @@ export function buildBigQueryAlertQuery(
     ...(rule.eventName
       ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
       : []),
-    // Ambiguous JSON filters stay in evaluateAnalyticsAlertRuleRows. The caller
-    // paginates this ordered candidate query before evaluating those filters.
     ...rule.filters.flatMap((filter) => {
       const predicate = bigQueryAlertFilterSql(filter);
       return predicate ? [predicate] : [];

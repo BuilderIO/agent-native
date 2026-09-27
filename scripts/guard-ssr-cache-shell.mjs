@@ -149,14 +149,6 @@ const AUTH_FILE = "packages/core/src/server/auth.ts";
 const TEMPLATES_DIR = "templates";
 const CATCH_ALL_FILENAME = "[...page].get.ts";
 
-// packages/docs is the app behind www.agent-native.com. It is not under
-// templates/, so Check E never walked it, and a per-route override shipped
-// there with green CI (#4158 pinned /apps to max-age=30, stale-while-revalidate=30
-// — a 60s cache life, then a blocking ~2.7s cold render for the next visitor).
-// ssr-cache.ts is cache-POLICY code, so it earns core's stricter pattern set
-// (which includes the headers.has("cache-control") escape hatch). The two route
-// files are request handlers, so they get the template patterns like every
-// other catch-all.
 const DOCS_POLICY_FILES = ["packages/docs/lib/ssr-cache.ts"];
 const DOCS_ROUTE_FILES = [
   "packages/docs/server/routes/[...page].get.ts",
@@ -164,10 +156,6 @@ const DOCS_ROUTE_FILES = [
 ];
 const DOCS_SSR_FILES = [...DOCS_POLICY_FILES, ...DOCS_ROUTE_FILES];
 
-// A hand-written policy may shorten freshness; it must not shorten the window
-// in which the CDN can still answer from storage. stale-while-revalidate below
-// this floor means a real visitor eventually blocks on the origin, which is the
-// failure this whole contract exists to prevent. Freshness is max-age's job.
 const MIN_STALE_WHILE_REVALIDATE_SECONDS = 3600;
 const STALE_WHILE_REVALIDATE_RE = /stale-while-revalidate=(\d+)/gi;
 
@@ -186,8 +174,6 @@ const SKIP_DIRS = new Set([
   ".wrangler",
   ".react-router",
   ".generated",
-  // Generated package corpus mirrors templates/ for agent retrieval — not
-  // the live template source. See the header comment.
   "corpus",
   ".claude",
   "coverage",
@@ -196,8 +182,6 @@ const SKIP_DIRS = new Set([
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-ssr-shell-exception\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON =
   /\/\/\s*guard:allow-ssr-shell-exception\s*[—-]\s*\S/;
-
-// ─── Shared helpers ─────────────────────────────────────────────────────
 
 function readFileSafe(absPath) {
   try {
@@ -260,27 +244,16 @@ function walkForFilename(dir, targetName) {
   return results;
 }
 
-// ─── Forbidden-pattern scanning (checks B, C, E) ───────────────────────
-
 const CALL_PATTERNS = [
   { name: "getSession( call on the SSR path", re: /\bgetSession\s*\(/g },
   { name: "getCookie( call on the SSR path", re: /\bgetCookie\s*\(/g },
   { name: "parseCookies( call on the SSR path", re: /\bparseCookies\s*\(/g },
 ];
 
-// Any quoted/template string literal containing "no-store".
 const NO_STORE_LITERAL_RE = /["'`][^"'`]*\bno-store\b[^"'`]*["'`]/g;
 
-// Any quoted/template string literal containing the word "private". Verified
-// against the current contents of ssr-handler.ts and deploy/build.ts: the
-// only "private" occurrences in either file live inside the boxed JSDoc
-// comment above applyDefaultSsrCacheHeader, which isCommentLine already
-// skips line-by-line.
 const PRIVATE_LITERAL_RE = /["'`][^"'`]*\bprivate\b[^"'`]*["'`]/g;
 
-// Escape hatches seen in past regressions: branching on whether a
-// cache-control header was already set, or on a "private"/"no-store"
-// substring check, to selectively skip the shared public policy.
 const HEADERS_HAS_CACHE_CONTROL_RE =
   /headers\.has\(\s*["'`]cache-control["'`]\s*\)/gi;
 const INCLUDES_ESCAPE_RE =
@@ -353,8 +326,6 @@ function scanTemplateCatchAll(rel, content) {
       if (re.lastIndex === m.index) re.lastIndex++;
     }
   }
-  // Line-based heuristics: a Cache-Control-ish header set with "private", or
-  // a Vary header whose literal mentions cookie/authorization.
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i];
     if (isCommentLine(lineText)) continue;
@@ -399,8 +370,6 @@ function requireIdentifiers(rel, content, identifiers) {
   }
   return violations;
 }
-
-// ─── Check A: cache-control.ts ─────────────────────────────────────────
 
 function extractConstValue(content, name, depth = 0) {
   if (depth > 5) {
@@ -461,8 +430,6 @@ function checkCacheControl() {
   return violations;
 }
 
-// ─── Check B: ssr-handler.ts ────────────────────────────────────────────
-
 function checkSsrHandler() {
   const abs = path.join(REPO_ROOT, SSR_HANDLER_FILE);
   const content = readFileSafe(abs);
@@ -478,8 +445,6 @@ function checkSsrHandler() {
   ];
 }
 
-// ─── Check C: deploy/build.ts ────────────────────────────────────────────
-
 function checkDeployBuild() {
   const abs = path.join(REPO_ROOT, DEPLOY_BUILD_FILE);
   const content = readFileSafe(abs);
@@ -493,8 +458,6 @@ function checkDeployBuild() {
     ]),
   ];
 }
-
-// ─── Check D: auth.ts ─────────────────────────────────────────────────
 
 function checkAuth() {
   const abs = path.join(REPO_ROOT, AUTH_FILE);
@@ -516,8 +479,6 @@ function checkAuth() {
   }
   return [];
 }
-
-// ─── Check E: template SSR catch-alls ──────────────────────────────────
 
 function checkTemplateCatchAlls() {
   const templatesAbs = path.join(REPO_ROOT, TEMPLATES_DIR);
@@ -544,12 +505,6 @@ function checkTemplateCatchAlls() {
   return violations;
 }
 
-// ─── Checks F/G: the deployment-wide AGENT_NATIVE_SSR_CACHE override ───
-
-// The env override is sanctioned ONLY because one value applies to every
-// visitor of a deployment, so it cannot poison a shared CDN key. These
-// patterns catch the moment someone starts deriving the policy from the
-// incoming request instead.
 const REQUEST_DERIVED_PATTERNS = [
   ...CALL_PATTERNS,
   {
@@ -651,8 +606,6 @@ function checkResolverStaysDeploymentWide() {
   return violations;
 }
 
-// ─── Check H: packages/docs SSR surfaces ──────────────────────────────
-
 function checkDocsSsrSurfaces() {
   const violations = [];
   for (const [files, scan] of [
@@ -676,8 +629,6 @@ function checkDocsSsrSurfaces() {
   }
   return violations;
 }
-
-// ─── Check I: hand-written policies must keep a long stale window ─────
 
 function checkStaleWhileRevalidateFloor() {
   const files = [...DOCS_SSR_FILES];
@@ -725,8 +676,6 @@ function checkStaleWhileRevalidateFloor() {
   }
   return violations;
 }
-
-// ─── Main ─────────────────────────────────────────────────────────────
 
 const violations = [
   ...checkCacheControl(),

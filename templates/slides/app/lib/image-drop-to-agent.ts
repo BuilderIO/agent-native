@@ -1,11 +1,3 @@
-/**
- * Resolve how to hand a dropped image to the agent chat.
- *
- * Prefer a hosted CDN URL from `/api/assets/upload` when a file-upload
- * provider is configured. A missing provider blocks the image submission;
- * inline data URLs remain a fallback only for other upload failures.
- */
-
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
@@ -114,8 +106,6 @@ export function buildImageDropAgentPayload(args: {
   }
 
   if (!isMissingUploadProviderError(args.upload.status, args.upload.error)) {
-    // Unexpected upload failure — still try the inline path so the user can
-    // keep working, but tell the agent the hosted upload didn't land.
     contextLines.push(
       "Hosted upload failed; the image is attached inline as a data URL. Call upload-image on it before placing it on the slide if a durable URL is required.",
     );
@@ -128,10 +118,6 @@ export function buildImageDropAgentPayload(args: {
     images: [inlineDataUrl],
   };
 }
-
-// Keep browser-side vision payloads below Core's encoded request boundary. A
-// hosted URL remains available for larger files, but those bytes cannot be
-// sent inline without making the chat request itself too large.
 
 export function canInlineImageFile(file: File): boolean {
   const mediaType = file.type || "application/octet-stream";

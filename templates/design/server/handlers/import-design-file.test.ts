@@ -271,7 +271,6 @@ describe("import-design-file chunked .fig uploads", () => {
       ownerEmail: "designer@example.com",
     });
     expect(result).toMatchObject({ importKind: "fig", designId: "design-1" });
-    // Session and parked chunks are cleaned up after a committed import.
     expect(sessions.size).toBe(0);
   });
 

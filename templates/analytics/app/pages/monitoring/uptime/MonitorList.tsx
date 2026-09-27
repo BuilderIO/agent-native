@@ -1,9 +1,3 @@
-/**
- * Monitor list: a "current status" overview summary on top, then one row per
- * monitor with status, a compact colorful 90-day uptime bar, latency, uptime,
- * last-checked, an enable/disable switch, and a run-now action. Rows select into
- * the detail view. Includes loading + empty states.
- */
 import {
   IconChevronRight,
   IconLoader2,

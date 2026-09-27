@@ -1,12 +1,3 @@
-/**
- * In-place text editing for one slide element. The element itself becomes
- * contentEditable, with no wrapper, copy, or visibility change, so entering
- * edit changes nothing on the slide. Chrome's own editing commands restyle and
- * restructure text (a computed-style span on Backspace, a new DIV on Enter,
- * `<b>` on Cmd+B), so only typing inside one existing text node is left to the
- * browser; every other input is performed here.
- */
-
 import {
   convertMarkdownPrefixToBullet,
   extractWithoutCopiedIdentity,
@@ -38,11 +29,8 @@ import {
 } from "./rich-text-selection";
 
 export interface InPlaceTextSessionOptions {
-  /** Viewport point of the click that started editing; the caret lands there. */
   caretPoint?: { x: number; y: number } | null;
-  /** Select the word at `caretPoint`, as a native double-click would. */
   selectWord?: boolean;
-  /** Called after every change to the edited content. */
   onInput?: () => void;
 }
 
@@ -57,33 +45,20 @@ export interface InPlaceTextSessionCommands {
   fontSize: (value: string) => boolean;
   fontFamily: (value: string) => boolean;
   textStyle: (patch: InlineTextStylePatch) => boolean;
-  /** Links the selected text; `null` unlinks it. */
   link: (href: string | null) => boolean;
   align: (value: SlideTextAlign) => boolean;
   toggleList: (kind: SlideListKind) => boolean;
 }
 
 export interface InPlaceTextSession {
-  /** The edited element. `toggleList` and undo can replace it with a retag. */
   readonly element: HTMLElement;
   readonly isActive: boolean;
-  /**
-   * False while the edit's net effect is invisible (typed and deleted back),
-   * which is exactly when `end()` restores the start bytes.
-   */
   readonly changed: boolean;
   readonly commands: InPlaceTextSessionCommands;
-  /** Runs a change to the edited element itself (a dock style) as one undo step. */
   apply: (mutate: () => void) => boolean;
   undo: () => boolean;
   redo: () => boolean;
-  /**
-   * A copy of `root` (the element's slide) as content: without the caret
-   * placeholders this session added, and with the author's own zero-width
-   * spaces, which only the session can tell apart.
-   */
   cloneWithoutPlaceholders: (root: HTMLElement) => HTMLElement;
-  /** Settles placeholders and restores the element's pre-session attributes. */
   end: () => void;
 }
 
@@ -121,7 +96,6 @@ const BLOCK_TAGS = new Set([
   "UL",
 ]);
 
-/** Blocks that Enter never splits and Backspace never merges. */
 const STRUCTURAL_BLOCK_TAGS = new Set([
   "DL",
   "OL",
@@ -137,7 +111,6 @@ const STRUCTURAL_BLOCK_TAGS = new Set([
 
 const RENDERED_ELEMENTS =
   "br, img, svg, video, canvas, picture, iframe, input, hr";
-/** Blocks whose content may include a list, so a pasted list stays one. */
 const LIST_HOLDER_TAGS = new Set([
   "ARTICLE",
   "ASIDE",
@@ -166,13 +139,8 @@ const PASTE_INLINE_TAGS = new Set([
   "U",
 ]);
 const SAFE_LINK = /^(https?:|mailto:)/i;
-/**
- * Chrome copies a page's computed style onto each run (background, display,
- * custom properties, `orphans`); pasting keeps only text formatting.
- */
 const PASTE_STYLE_PROPERTY =
   /^(color|font(-.+)?|text-decoration(-.+)?|letter-spacing|word-spacing|text-transform|vertical-align)$/;
-/** An `<ol type>` restated as CSS, which preflight's `list-style: none` beats otherwise. */
 const ORDERED_TYPE_MARKER: Record<string, string> = {
   "1": "decimal",
   a: "lower-alpha",
@@ -183,7 +151,6 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
 const UNDO_LIMIT = 100;
-/** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
 
@@ -229,7 +196,6 @@ const COMPOSITION_INPUTS = new Set([
 
 type EditKind = "typing" | "delete" | "command";
 
-/** A selection as text offsets; `*Before` keeps an edge on the text it ends. */
 interface TextOffsets {
   from: number;
   to: number;
@@ -241,11 +207,9 @@ interface Snapshot extends TextOffsets {
   tag: string;
   attributes: [string, string][];
   html: string;
-  /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
 
-/** One pasted line and the pasted UL/OL elements it was nested in, outermost first. */
 interface PastedLine {
   fragment: DocumentFragment;
   lists: readonly HTMLElement[];
@@ -272,7 +236,6 @@ function laysOutOwnLines(element: Element) {
   // Chrome lays a <br> out as a break in the anonymous item around the text.
   if (element.tagName === "BR") return false;
   const display = window.getComputedStyle(element).display;
-  // A DOM without layout (happy-dom) leaves inline defaults unresolved.
   if (!display) return BLOCK_TAGS.has(element.tagName);
   return (
     display !== "contents" &&
@@ -281,7 +244,6 @@ function laysOutOwnLines(element: Element) {
   );
 }
 
-/** A block Enter can split and Backspace can merge. */
 function isBlock(element: Element) {
   return BLOCK_TAGS.has(element.tagName) && laysOutOwnLines(element);
 }
@@ -297,11 +259,6 @@ function nearestBlock(node: Node, root: HTMLElement): HTMLElement {
   return root;
 }
 
-/**
- * The box whose lines `node` sits on. A flex or grid item is blockified, so a
- * marker `<span>` in a flex bullet row is its own line box: the text in the
- * next item never continues its line.
- */
 function nearestLineBox(node: Node, root: HTMLElement): HTMLElement {
   for (
     let element = node instanceof HTMLElement ? node : node.parentElement;
@@ -321,7 +278,6 @@ function hasRenderedContent(node: Node): boolean {
   );
 }
 
-/** What follows `node` on its own line: up to the next box that starts a line. */
 function lineRest(node: Node, line: HTMLElement): DocumentFragment {
   const rest = document.createRange();
   rest.setStartAfter(node);
@@ -337,7 +293,6 @@ function lineRest(node: Node, line: HTMLElement): DocumentFragment {
   return rest.cloneContents();
 }
 
-/** What the nearest rendered thing before `node` inside `block` is. */
 function renderedBefore(
   node: Node,
   block: HTMLElement,
@@ -372,11 +327,6 @@ function placeCaret(node: Node, offset: number) {
   selection.addRange(range);
 }
 
-/**
- * Characters before a point in `root`. With `breaks`, each `<br>` counts as
- * one, so a caret between two `<br>`s keeps its line; a count that must
- * survive `<br>`s turning into items (a list toggle) leaves them out.
- */
 function textOffset(
   root: HTMLElement,
   node: Node,
@@ -396,12 +346,6 @@ function textOffset(
   return count;
 }
 
-/**
- * The text position `offset` characters into `root`, counted as `textOffset`
- * counts them. Where two text nodes meet, `before` keeps the end of the
- * earlier one, so a caret at the end of an item stays there; otherwise the
- * later one wins, so a caret after <br> does.
- */
 function textPoint(
   root: Node,
   offset: number,
@@ -438,7 +382,6 @@ function textPoint(
   return last ? [last, last.length] : [root, root.childNodes.length];
 }
 
-/** Whether a boundary point ends the text before it, for `textPoint`'s `before`. */
 function endsText(node: Node, offset: number): boolean {
   if (node instanceof Text) return offset > 0;
   let previous: Node | null = node.childNodes[offset - 1] ?? null;
@@ -537,11 +480,6 @@ function appendPastedNode(node: Node, target: Node) {
   }
 }
 
-/**
- * Pasted HTML as inline lines: each block becomes its own line, inline text
- * formatting keeps only its `style` (and a safe `href`), and every other
- * element is unwrapped, so pasting can never bring in layout or classes.
- */
 function pastedHtmlLines(html: string): PastedLine[] {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -592,7 +530,6 @@ function plainTextLines(text: string): PastedLine[] {
   });
 }
 
-/** A slide list like a pasted one: its kind, marker, and numbering. */
 function pastedListLike(source: HTMLElement): HTMLElement {
   const ordered = source.tagName === "OL";
   const list = createSlideList(document, ordered ? "ordered" : "bullet");
@@ -608,11 +545,6 @@ function pastedListLike(source: HTMLElement): HTMLElement {
   return list;
 }
 
-/**
- * Pasted list lines as the lists they came from, nested the way they were:
- * a line opens a new list wherever its pasted list differs from the one open
- * at that depth, so an <ol> next to a <ul> stays two lists.
- */
 function pastedLists(lines: PastedLine[]): DocumentFragment {
   const lists = document.createDocumentFragment();
   const open: { from: HTMLElement; list: HTMLElement }[] = [];
@@ -649,11 +581,6 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
   return lists;
 }
 
-/**
- * Makes `element` editable in place and returns the session that owns every
- * edit to it until `end()`. Only `contenteditable` and `data-editing-block`
- * change on the element; with no input, `end()` leaves its markup identical.
- */
 export function startInPlaceTextSession(
   element: HTMLElement,
   options: InPlaceTextSessionOptions = {},
@@ -667,9 +594,6 @@ export function startInPlaceTextSession(
   const initialEditingBlock = el.getAttribute("data-editing-block");
   const startHtml = el.innerHTML;
   const startText = el.innerText;
-  // An author ZWSP is told apart from a placeholder by its place among the
-  // element's ZWSPs, never by its text node: a split, a rebuild (a list
-  // toggle, an undo), or Chrome's own typing makes new text nodes.
   let zwspText = el.textContent!;
   let authorZwsp = new Set(
     Array.from({ length: countZwsp(zwspText) }, (_, index) => index),
@@ -680,13 +604,10 @@ export function startInPlaceTextSession(
     kind: EditKind;
     at: number;
     boundary: boolean;
-    /** Where the edit left the selection; a run only continues from there. */
     after: TextOffsets | null;
   } | null = null;
   let edited = false;
-  /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
-  /** The text a drag-move deleted from, reshaped once the drop has landed. */
   let dragSource: Node | null = null;
   // Script can still scroll an overflow:hidden ancestor, and Chrome does, to
   // reveal a caret in text the slide clips; that slides the whole slide
@@ -705,11 +626,6 @@ export function startInPlaceTextSession(
     }
   }
 
-  /**
-   * The author's ZWSPs, re-placed after a change. A change that adds or
-   * removes ZWSPs does it in one place, between the text it left alone at
-   * either end; any other change keeps every ZWSP in order.
-   */
   function authorZwspOrdinals(): ReadonlySet<number> {
     const text = el.textContent!;
     if (text === zwspText) return authorZwsp;
@@ -743,7 +659,6 @@ export function startInPlaceTextSession(
     return authorZwsp;
   }
 
-  /** Whether each ZWSP in `texts` (the element's, in order from the `first`th) is the author's. */
   function authorFlags(texts: Text[], first = 0): boolean[][] {
     const author = authorZwspOrdinals();
     let ordinal = first;
@@ -841,11 +756,6 @@ export function startInPlaceTextSession(
     );
   }
 
-  /**
-   * Runs a change that moves or rebuilds the text, keeping the selection on
-   * the same characters: on the same text nodes when they were only moved,
-   * by text offsets when they were rebuilt.
-   */
   function keepingSelection(mutate: () => boolean): boolean {
     const range = selectionRange();
     const points = range
@@ -894,7 +804,6 @@ export function startInPlaceTextSession(
     selectOffsets(state, true);
   }
 
-  /** Records the pre-change state; a run of typing or deleting is one step. */
   function checkpoint(kind: EditKind, boundary = false) {
     edited = true;
     const now = Date.now();
@@ -970,7 +879,6 @@ export function startInPlaceTextSession(
     return null;
   }
 
-  /** A styled bullet row (marker span + text) whose list lies inside `el`. */
   function legacyRowAt(node: Node): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
@@ -988,7 +896,6 @@ export function startInPlaceTextSession(
     return row instanceof HTMLElement && isBulletRow(row) ? row : null;
   }
 
-  /** Any bullet row around `node`, including the edited element itself. */
   function bulletRowAt(node: Node): HTMLElement | null {
     for (
       let current = node instanceof HTMLElement ? node : node.parentElement;
@@ -1000,7 +907,6 @@ export function startInPlaceTextSession(
     return null;
   }
 
-  /** Keeps the caret in a text node, so typing inherits the styles around it. */
   function settleCaret(node: Node, offset: number) {
     if (node instanceof Text && node.length === 0) {
       node.data = ZERO_WIDTH_SPACE;
@@ -1022,11 +928,6 @@ export function startInPlaceTextSession(
     placeCaret(node, offset);
   }
 
-  /**
-   * Moves an edge that sits on an element (Mod-A, a triple click) onto the
-   * text it bounds, when only empty markup lies between. Deleting then keeps
-   * the first run, item, or row instead of emptying the element around it.
-   */
   function snapToText(range: Range) {
     const snap = (node: Node, offset: number, before: boolean) => {
       if (node instanceof Text) return null;
@@ -1048,7 +949,6 @@ export function startInPlaceTextSession(
     if (end) range.setEnd(...end);
   }
 
-  /** Deletes a range and joins the blocks it crossed, without new styling. */
   function deleteRange(range: Range) {
     snapToText(range);
     const markerRow = bulletRowAt(range.startContainer);
@@ -1060,8 +960,6 @@ export function startInPlaceTextSession(
     const endRow = legacyRowAt(range.endContainer);
     const startBlock = nearestBlock(range.startContainer, el);
     const endBlock = nearestBlock(range.endContainer, el);
-    // A range across blocks collapses *between* them after deleteContents;
-    // its original start point is still inside the first block.
     const caretNode = range.startContainer;
     const caretOffset = range.startOffset;
     range.deleteContents();
@@ -1118,11 +1016,6 @@ export function startInPlaceTextSession(
     placeCaret(node, offset);
   }
 
-  /**
-   * Backspace at the start of a styled bullet row joins it to the previous
-   * row, and Delete at its end pulls the next one in. Neither ever deletes a
-   * marker span, which would turn a bullet into a plain line.
-   */
   function deleteAtRowEdge(caret: Range, direction: DeleteDirection) {
     const row = legacyRowAt(caret.startContainer);
     if (!row) return false;
@@ -1170,7 +1063,6 @@ export function startInPlaceTextSession(
       throw new Error("in-place text session: Selection.modify is missing");
     }
     selection.modify("extend", direction, granularity);
-    // A placeholder is invisible, so deleting only it would look like a no-op.
     if (
       granularity === "character" &&
       PLACEHOLDER_ONLY.test(selection.toString())
@@ -1189,7 +1081,6 @@ export function startInPlaceTextSession(
     );
   }
 
-  /** Only a delete that stays inside one text node and leaves it non-empty. */
   function isNativeDelete(type: string, range: Range) {
     const text = range.startContainer;
     if (
@@ -1229,7 +1120,6 @@ export function startInPlaceTextSession(
     placeCaret(text, data.length);
   }
 
-  /** `<br>` plus, when nothing follows it, a placeholder that keeps the new line open. */
   function insertLineBreak(range: Range) {
     if (!range.collapsed) deleteRange(range);
     const caret = selectionRange();
@@ -1251,7 +1141,6 @@ export function startInPlaceTextSession(
     placeCaret(placeholder, 1);
   }
 
-  /** Splits `block` at the caret into itself and a same-attribute sibling. */
   function splitBlock(block: HTMLElement, caret: Range) {
     const { startContainer, startOffset } = caret;
     const tail = document.createRange();
@@ -1263,19 +1152,15 @@ export function startInPlaceTextSession(
     clone.append(moved);
     block.after(clone);
     if (!block.textContent?.replaceAll(/\s/g, "")) {
-      // At the caret, not where extractContents collapsed the range (after
-      // the inline element), so a return to this line keeps its style.
       const head = document.createRange();
       head.setStart(startContainer, startOffset);
       head.insertNode(document.createTextNode(ZERO_WIDTH_SPACE));
     }
     const [first, offset] = textPoint(clone, 0);
-    // Text that only starts inside a nested list is not this line's text.
     if (hasRenderedContent(clone) && nearestBlock(first, el) === clone) {
       placeCaret(first, offset);
       return;
     }
-    // Typing on the new line continues the inline style the caret was in.
     let target: Element = clone;
     for (
       let child = target.firstElementChild;
@@ -1309,9 +1194,7 @@ export function startInPlaceTextSession(
     return true;
   }
 
-  /** Legacy rows nest by padding, not structure: only a declaration changes. */
   function indentRow(row: HTMLElement, direction: 1 | -1) {
-    // An unset padding reads as "" outside a layout engine; it is zero.
     const padding = window.getComputedStyle(row).paddingLeft || "0px";
     const current = Number.parseFloat(padding);
     const next = Math.max(0, current + direction * LEGACY_ROW_INDENT_PX);
@@ -1347,8 +1230,6 @@ export function startInPlaceTextSession(
 
   function splitListItem(item: HTMLElement, caret: Range) {
     if (!hasRenderedContent(item) && !item.nextElementSibling) {
-      // An empty last item ends the list: a nested one steps out a level, a
-      // top-level one is dropped because the list itself is the edited root.
       if (keepingSelection(() => outdent(item))) return;
       const previous = item.previousElementSibling;
       if (previous) {
@@ -1379,7 +1260,6 @@ export function startInPlaceTextSession(
     splitBlock(item, caret);
   }
 
-  /** Enter never changes the edited element's own tag, class, or style. */
   function insertParagraph(range: Range) {
     if (!range.collapsed) deleteRange(range);
     const caret = selectionRange();
@@ -1429,14 +1309,6 @@ export function startInPlaceTextSession(
     placeCaret(after.startContainer, after.startOffset);
   }
 
-  /**
-   * Pasted list items stay list items where the caret can hold them: in a
-   * list item they become items at their own depth, and in a container that
-   * may hold a list they arrive as one. A paragraph or heading cannot hold a
-   * list, so there they are lines like any other paste. A paste with nothing
-   * left to insert (an image the allowlist drops) changes nothing, not even
-   * the selection it would have replaced.
-   */
   function insertClipboard(data: DataTransfer, at: Range): boolean {
     const html = data.getData("text/html");
     const normalized = html ? normalizeSlideClipboardHtml(html) : null;
@@ -1455,7 +1327,6 @@ export function startInPlaceTextSession(
       start instanceof Element ? start : start.parentElement
     )?.closest("a");
     if (link && el.contains(link)) {
-      // A link inside a link is split in two when the slide is parsed again.
       for (const { fragment } of lines) {
         for (const anchor of Array.from(fragment.querySelectorAll("a"))) {
           anchor.replaceWith(...Array.from(anchor.childNodes));
@@ -1491,7 +1362,6 @@ export function startInPlaceTextSession(
         if (current && target > 0) {
           while (depth < target && keepingSelection(() => indent(current))) {
             depth += 1;
-            // A sub-list this line opened is the pasted one, not the host's.
             const list = current.parentElement!;
             if (list.childElementCount === 1) {
               const like = pastedListLike(line.lists[depth - 1]);
@@ -1569,7 +1439,6 @@ export function startInPlaceTextSession(
     }
   }
 
-  /** Retags the edited element, keeping the caret: a <p> or heading cannot hold a list row. */
   function retagRoot(tagName: string) {
     const range = selectionRange();
     const caret = range
@@ -1584,8 +1453,6 @@ export function startInPlaceTextSession(
       const range = selectionRange();
       if (!range) return false;
       if (!range.collapsed) return apply().scope === "selection";
-      // A caret gets a pending run: typing lands inside its style span, and
-      // an unused one is dropped by end().
       let pending = range.startContainer;
       const parent = pending.parentElement;
       if (
@@ -1668,7 +1535,6 @@ export function startInPlaceTextSession(
     const type = event.inputType;
     if (COMPOSITION_INPUTS.has(type)) return;
     if (event.isComposing) {
-      // Enter that confirms an IME composition must not also split a line.
       if (type === "insertParagraph" || type === "insertLineBreak") {
         event.preventDefault();
       }
@@ -1689,9 +1555,6 @@ export function startInPlaceTextSession(
     dragDeleted = false;
     if (!dropJoins) dragSource = null;
     if (type === "deleteByDrag") {
-      // Chrome deletes a moved selection first and then drops it: both
-      // halves are one step. Inside one text node Chrome's delete also
-      // drops the doubled space; anywhere else it would add its markup.
       const dragged = targetRange(event) ?? range;
       if (dragged && isNativeDelete(type, dragged)) {
         checkpoint("command");
@@ -1732,7 +1595,6 @@ export function startInPlaceTextSession(
       if (range) edit("delete", () => deleteByInput(type, range));
       return;
     }
-    // Every input type not handled below would inject browser markup.
     event.preventDefault();
     if (!range) return;
     if (type === "insertParagraph") {
@@ -1791,7 +1653,6 @@ export function startInPlaceTextSession(
     const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
     const key = event.key.toLowerCase();
     if (mod && key === "z") {
-      // historyUndo is only proven cancelable in Chromium; own the shortcut.
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();
@@ -1812,7 +1673,6 @@ export function startInPlaceTextSession(
       event.preventDefault();
       commands.toggleList(event.code === "Digit7" ? "ordered" : "bullet");
     } else if (event.key === "Tab" && !mod) {
-      // Tab never moves focus out of the text being edited; Escape ends it.
       event.preventDefault();
       const range = selectionRange();
       if (!range) return;
@@ -1838,16 +1698,9 @@ export function startInPlaceTextSession(
     if (range) command(() => insertClipboard(data, range));
   }
 
-  /**
-   * The selection as the slide's own markup. Chrome's default serializer
-   * writes every computed style (a white background, `display`, custom
-   * properties) onto each run, and a paste or drop would keep it.
-   */
   function writeSelection(data: DataTransfer, range: Range) {
     const holder = document.createElement("div");
     holder.append(range.cloneContents());
-    // The copies hold the range's text in order. Only the session's
-    // placeholders are dropped, never an author's ZWSP.
     const preceding = document.createRange();
     preceding.setStart(el, 0);
     preceding.setEnd(range.startContainer, range.startOffset);
@@ -1857,7 +1710,6 @@ export function startInPlaceTextSession(
       copy.data = keepZwsp(copy.data, flags[index]);
     });
     const keptZwsp = flags.flat();
-    // Items copied across a list are that list, numbered from the first one.
     const common = range.commonAncestorContainer;
     if (
       common instanceof HTMLElement &&
@@ -1872,7 +1724,6 @@ export function startInPlaceTextSession(
         const index = items.findIndex((item) => range.intersectsNode(item));
         const reversed = common.hasAttribute("reversed");
         const start = Number.parseInt(common.getAttribute("start") ?? "", 10);
-        // An unparsable start is no start, as the browser renders it.
         const first = Number.isNaN(start)
           ? reversed
             ? items.length
@@ -1912,11 +1763,6 @@ export function startInPlaceTextSession(
     }
   }
 
-  /**
-   * Chrome deletes a selection that spans blocks natively when a composition
-   * starts over it, splitting an item's text from its nested list; the
-   * session deletes it first, the way it does for typing.
-   */
   function onCompositionStart() {
     const range = selectionRange();
     const acrossNodes =
@@ -1960,11 +1806,6 @@ export function startInPlaceTextSession(
     el.focus({ preventScroll: true });
   }
 
-  /**
-   * The last placeholder of a line that is otherwise empty becomes the `<br>`
-   * that keeps the line open (a trailing `<br>` alone renders nothing); every
-   * other placeholder character is removed.
-   */
   function settlePlaceholders() {
     const texts = textNodesIn(el);
     const flags = authorFlags(texts);
@@ -1987,15 +1828,8 @@ export function startInPlaceTextSession(
     });
   }
 
-  /**
-   * Chrome's native typing deletes collapsed whitespace (source indentation)
-   * next to the caret and can replace a text node, so typing and deleting back
-   * is not byte-identical on its own. An edit whose net effect is invisible is
-   * no edit: `end()` restores the exact start bytes, so nothing is written.
-   */
   function hasVisibleChange() {
     if (el.innerHTML === startHtml) return false;
-    // A pending style run nothing was typed into is dropped by end().
     const live = el.cloneNode(true) as HTMLElement;
     for (const span of Array.from(
       live.querySelectorAll("span[data-slide-inline-style]"),
@@ -2026,8 +1860,6 @@ export function startInPlaceTextSession(
       if (!author || author.every(Boolean)) return;
       const placeholder = copies[index];
       const rest = keepZwsp(text.data, author);
-      // A lone placeholder keeps an empty run from collapsing, so the run
-      // keeps its font; anywhere else it is dropped.
       if (rest) placeholder.data = rest;
       else if (placeholder.parentNode?.childNodes.length !== 1) {
         placeholder.remove();
@@ -2049,8 +1881,6 @@ export function startInPlaceTextSession(
         el.innerHTML = startHtml;
       } else {
         settlePlaceholders();
-        // Only an unused pending-style run; adjacent style spans the slide
-        // already had are not this session's to merge.
         for (const span of Array.from(
           el.querySelectorAll("span[data-slide-inline-style]"),
         )) {
@@ -2081,7 +1911,6 @@ export function startInPlaceTextSession(
   for (const [ancestor] of pinnedScroll) {
     ancestor.addEventListener("scroll", unscroll);
   }
-  // Firefox draws resize handles on images and tables inside an editable.
   document.execCommand?.("enableObjectResizing", false, "false");
   el.focus({ preventScroll: true });
   const point = options.caretPoint ? caretFromPoint(options.caretPoint) : null;
@@ -2103,9 +1932,6 @@ export function startInPlaceTextSession(
   } else {
     placeCaret(...textPoint(el, Infinity));
   }
-  // An element with nothing to lay out has no line box to hold a caret (a
-  // text box placed with a click is 0px tall), and Chrome drops typing into
-  // it. end() removes the placeholder again when nothing was typed.
   if (!hasRenderedContent(el) && !el.textContent?.includes(ZERO_WIDTH_SPACE)) {
     settleCaret(el, el.childNodes.length);
   }

@@ -104,8 +104,6 @@ export function buildAnalyticsSettingsCommandItems(
       const existing = commands[existingIndex];
       commands[existingIndex] = {
         ...existing,
-        // Duplicate destinations can come from the app and shared settings
-        // catalogs. Preserve both sources' search phrases and tab context.
         keywords: `${existing.keywords} ${command.keywords}`,
       };
       return;

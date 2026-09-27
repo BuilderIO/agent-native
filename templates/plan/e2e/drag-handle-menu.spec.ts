@@ -1,40 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * SINGLE-CLICK DRAG-HANDLE POPOVER MENU — interactive E2E.
- *
- * Area under test: the NEW left-margin drag-grip block menu in the shared
- * RichMarkdownEditor's `DragHandle` ProseMirror plugin
- * (packages/toolkit/src/editor/DragHandle.ts), driven inside the
- * single-document plan editor (PlanDocumentEditor / SharedRichEditor). The whole
- * plan body is ONE ProseMirror doc; its editable surface is `.an-rich-md-prose`
- * inside `.plan-document-editor-surface`, and that surface lives inside the
- * `.plan-document-editor` wrapper the grip is anchored to. Custom blocks render as
- * inline `planBlock` NodeViews (`.plan-block-node[data-block-id]`).
- *
- * The grip (`.drag-handle`) appears on hover in the left margin. It is BOTH a drag
- * source and a button:
- *   - A real DRAG (mousedown → move past ~4px → mouseup over another block)
- *     reorders the block and does NOT open the menu.
- *   - A SINGLE CLICK (mousedown → mouseup with no movement) opens a popover block
- *     menu — a `.an-rich-md-drag-menu` element (role="menu", appended to
- *     <body>) carrying three `.an-rich-md-drag-menu__item` buttons (role="menuitem")
- *     in DOM order: "Duplicate", "Delete", "Insert block below".
- *   - "Insert block below" inserts an empty focused paragraph; the caret lands in
- *     it, so typing "/" immediately opens the slash menu (`.an-rich-md-slash-menu`).
- *   - Escape closes the menu.
- *
- * Exact item labels/roles/DOM-order are pinned by DragHandle.spec.ts (the unit
- * test) and by DragHandle.ts `openMenu()` (Duplicate / Delete / Insert block
- * below). slash-insert-drag.spec.ts already covers ONE drag-reorder via the grip
- * and slash-insert; this file owns the NEW single-click MENU affordance and only
- * re-asserts drag-reorder to prove a real drag still bypasses the menu.
- *
- * Asserts CORRECT behavior; a FAILING assertion IS the bug it reports. The shared
- * dev server may HMR mid-run, so specs use web-first auto-retrying expects and
- * avoid fixed sleeps where a wait-for works. retries:2 is configured globally.
- */
-
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 const GET_ACTION = "/_agent-native/actions/get-visual-plan";
 const UPDATE_ACTION = "/_agent-native/actions/update-visual-plan";
@@ -66,7 +31,6 @@ async function readJson(res: APIResponse): Promise<Record<string, unknown>> {
   }
 }
 
-/** Create a fresh plan fixture via the authed action surface; return its id. */
 async function createPlanFixture(
   page: Page,
   content: PlanContentInput,
@@ -98,7 +62,6 @@ async function createPlanFixture(
   return planId as string;
 }
 
-/** Read the current stored blocks for order/count/type assertions. */
 async function getPlanBlocks(page: Page, planId: string): Promise<PlanBlock[]> {
   const res = await page.request.get(
     `${GET_ACTION}?id=${encodeURIComponent(planId)}`,
@@ -115,7 +78,6 @@ function proseFor(page: Page) {
     .first();
 }
 
-/** Open the plan and wait for the editable single-document surface to be ready. */
 async function openPlanForEditing(page: Page, planId: string) {
   await page.goto(`/plans/${planId}`);
   const prose = proseFor(page);
@@ -126,34 +88,20 @@ async function openPlanForEditing(page: Page, planId: string) {
   return prose;
 }
 
-/** The inline `planBlock` NodeView wrapper for a given stored block id. */
 function blockNode(page: Page, blockId: string) {
   return page.locator(
     `.plan-document-editor-surface .plan-block-node[data-block-id="${blockId}"]`,
   );
 }
 
-/**
- * The left-margin drag grip. The DragHandle plugin appends ONE `.drag-handle`
- * element to the `.plan-document-editor` wrapper (the top-level editor's wrapper
- * selector is `.plan-document-editor`). These fixtures carry no nested editor
- * regions, so a single grip exists; scope to the top wrapper + `.first()` for
- * resilience anyway.
- *
- * Selector risk: if the plan editor's wrapper class or the grip class
- * (`.drag-handle`) changes, this and the hover affordance break — both are read
- * from DragHandle.ts / PlanDocumentEditor.tsx (WRAPPER_CLASS="plan-document-editor").
- */
 function grip(page: Page) {
   return page.locator(".plan-document-editor .drag-handle").first();
 }
 
-/** The popover block menu (role="menu", appended to <body>). */
 function blockMenu(page: Page) {
   return page.locator(".an-rich-md-drag-menu");
 }
 
-/** A single block-menu item by its visible label (role="menuitem" button). */
 function menuItem(page: Page, label: string) {
   return blockMenu(page)
     .locator(".an-rich-md-drag-menu__item")
@@ -179,17 +127,12 @@ async function revealGripFor(page: Page, target: ReturnType<typeof blockNode>) {
   await expect(target).toBeVisible({ timeout: 20_000 });
   const g = grip(page);
   await expect(async () => {
-    // Hover the block's own center so the plugin's hover handler picks THIS block
-    // (first/last blocks sit at the document edges; their center is always inside
-    // the forgiving hover zone).
     await target.hover();
     await expect(g).toBeVisible({ timeout: 1_500 });
     const gripBox = await g.boundingBox();
     const blockBox = await target.boundingBox();
     expect(gripBox, "grip has a bounding box").not.toBeNull();
     expect(blockBox, "block has a bounding box").not.toBeNull();
-    // The grip has snapped to THIS block (top anchored at block.top + ~2px), not a
-    // previously-hovered block.
     expect(
       Math.abs(gripBox!.y - blockBox!.y),
       "grip top is anchored to the hovered block top",
@@ -198,12 +141,6 @@ async function revealGripFor(page: Page, target: ReturnType<typeof blockNode>) {
   return g;
 }
 
-/**
- * Single-click the grip WITHOUT moving the mouse, so the DragHandle treats it as a
- * menu click (mousedown → mouseup, hypot movement 0 ≤ 4px threshold) rather than a
- * drag, and opens the block menu. Playwright's `.click()` issues mousedown+mouseup
- * at the same point, which is exactly the no-movement "click" the plugin keys on.
- */
 async function clickGripOpenMenu(page: Page, g: ReturnType<typeof grip>) {
   await g.click();
   await expect(blockMenu(page)).toBeVisible({ timeout: 8_000 });
@@ -233,15 +170,11 @@ test.describe("drag-handle single-click block menu", () => {
     });
     await openPlanForEditing(page, planId);
 
-    // Before any hover the grip is hidden (display:none / not visible).
     await expect(grip(page)).toBeHidden();
 
-    // Hovering the callout block reveals the grip in the left margin.
     const g = await revealGripFor(page, blockNode(page, "cal-one"));
     await expect(g).toBeVisible();
 
-    // The grip is a button affordance (role=button, opens a menu) — not a plain
-    // decoration. Pinned from DragHandle.ts createHandle().
     await expect(g).toHaveAttribute("role", "button");
     await expect(g).toHaveAttribute("aria-haspopup", "menu");
   });
@@ -274,21 +207,16 @@ test.describe("drag-handle single-click block menu", () => {
 
     const menu = blockMenu(page);
     await expect(menu).toHaveAttribute("role", "menu");
-    // The grip reflects the open state for assistive tech.
     await expect(g).toHaveAttribute("aria-expanded", "true");
 
-    // EXACTLY three items in DOM order — pinned by DragHandle.spec.ts.
     const items = menu.locator(".an-rich-md-drag-menu__item");
     await expect(items).toHaveCount(3);
     await expect(items.nth(0)).toHaveText("Duplicate");
     await expect(items.nth(1)).toHaveText("Delete");
     await expect(items.nth(2)).toHaveText("Insert block below");
-    // Each is a real menuitem button.
     for (let i = 0; i < 3; i += 1) {
       await expect(items.nth(i)).toHaveAttribute("role", "menuitem");
     }
-    // The Delete item is flagged destructive (data-danger) — leaf-level detail
-    // that distinguishes it from the additive actions.
     await expect(items.nth(1)).toHaveAttribute("data-danger", "true");
   });
 
@@ -319,19 +247,13 @@ test.describe("drag-handle single-click block menu", () => {
     await clickGripOpenMenu(page, g);
 
     await menuItem(page, "Insert block below").click();
-    // The menu closes after acting.
     await expect(blockMenu(page)).toHaveCount(0, { timeout: 5_000 });
 
-    // The caret lands in the freshly-inserted empty paragraph, so typing "/" with
-    // NO extra navigation opens the slash menu — the proof that the new block is
-    // focused and empty (a "/" at the start of an empty line triggers the menu).
     await page.keyboard.type("/", { delay: 20 });
     await expect(page.locator(".an-rich-md-slash-menu")).toBeVisible({
       timeout: 8_000,
     });
 
-    // Sanity: typing a query narrows the menu (the inserted block is a real
-    // editable paragraph, not a read-only artifact).
     await page.keyboard.type("callout", { delay: 20 });
     await expect(
       page
@@ -364,10 +286,6 @@ test.describe("drag-handle single-click block menu", () => {
     });
     await openPlanForEditing(page, planId);
 
-    // Count callouts by their unique body text — the CalloutBlock renderer shows
-    // `data.body` verbatim via PlanMarkdownReader (it does NOT emit a
-    // data-block-type attribute, only data-block-id + data-tone), so the body is
-    // the reliable per-instance fingerprint. Exactly one before duplicating.
     const calloutByBody = page
       .locator(".plan-document-editor-surface .plan-block-node")
       .filter({ hasText: uniqueBody });
@@ -386,10 +304,8 @@ test.describe("drag-handle single-click block menu", () => {
     await menuItem(page, "Duplicate").click();
     await expect(blockMenu(page)).toHaveCount(0, { timeout: 5_000 });
 
-    // The block is cloned in the document: TWO NodeViews now carry the same body.
     await expect(calloutByBody).toHaveCount(2, { timeout: 10_000 });
 
-    // The duplicate autosaves; the persisted content gains a second callout.
     await okSave;
     await expect
       .poll(
@@ -425,7 +341,6 @@ test.describe("drag-handle single-click block menu", () => {
     });
     await openPlanForEditing(page, planId);
 
-    // Sanity: the callout exists in both DOM and storage to start.
     await expect(blockNode(page, "cal-del")).toBeVisible({ timeout: 20_000 });
     expect(
       (await getPlanBlocks(page, planId)).some((b) => b.id === "cal-del"),
@@ -444,13 +359,10 @@ test.describe("drag-handle single-click block menu", () => {
     await menuItem(page, "Delete").click();
     await expect(blockMenu(page)).toHaveCount(0, { timeout: 5_000 });
 
-    // The NodeView is gone from the live document.
     await expect(blockNode(page, "cal-del")).toHaveCount(0, {
       timeout: 10_000,
     });
 
-    // And the deletion persists: no callout block remains in storage; the
-    // rich-text seed survives (delete removes only the targeted block).
     await okSave;
     await expect
       .poll(
@@ -487,7 +399,6 @@ test.describe("drag-handle single-click block menu", () => {
     });
     const prose = await openPlanForEditing(page, planId);
 
-    // Initial order: [rich-text, callout].
     const before = await getPlanBlocks(page, planId);
     expect(before[0]?.type).toBe("rich-text");
     expect(before[1]?.type).toBe("callout");
@@ -505,8 +416,6 @@ test.describe("drag-handle single-click block menu", () => {
       { timeout: 20_000 },
     );
 
-    // A real drag: press on the grip, move WELL past the ~4px threshold up to the
-    // very top of the document, release before the first prose block.
     await page.mouse.move(
       gripBox!.x + gripBox!.width / 2,
       gripBox!.y + gripBox!.height / 2,
@@ -515,11 +424,8 @@ test.describe("drag-handle single-click block menu", () => {
     await page.mouse.move(proseBox!.x + 40, proseBox!.y + 6, { steps: 14 });
     await page.mouse.up();
 
-    // The drag must NOT have opened the block menu (a drag and a menu-click are
-    // mutually exclusive: movement > 4px => drag, not menu).
     await expect(blockMenu(page)).toHaveCount(0);
 
-    // The reorder committed: the callout is now the FIRST block; ids preserved.
     await okSave;
     await expect
       .poll(async () => (await getPlanBlocks(page, planId))[0]?.type, {
@@ -562,10 +468,8 @@ test.describe("drag-handle single-click block menu", () => {
 
     await page.keyboard.press("Escape");
     await expect(blockMenu(page)).toHaveCount(0, { timeout: 5_000 });
-    // The grip reflects the collapsed state again.
     await expect(g).toHaveAttribute("aria-expanded", "false");
 
-    // Closing the menu must not have mutated the document order/types.
     const after = await getPlanBlocks(page, planId);
     expect(after.map((b) => b.id)).toEqual(before.map((b) => b.id));
     expect(after.map((b) => b.type)).toEqual(before.map((b) => b.type));
@@ -597,8 +501,6 @@ test.describe("drag-handle single-click block menu", () => {
     });
     await openPlanForEditing(page, planId);
 
-    // FIRST block: the grip + menu open and offer all three actions even when the
-    // block sits at the very top (the forgiving hover zone extends above it).
     const gFirst = await revealGripFor(page, blockNode(page, "cal-first"));
     await clickGripOpenMenu(page, gFirst);
     await expect(
@@ -607,14 +509,11 @@ test.describe("drag-handle single-click block menu", () => {
     await page.keyboard.press("Escape");
     await expect(blockMenu(page)).toHaveCount(0, { timeout: 5_000 });
 
-    // LAST block: same affordance at the bottom of the document.
     const gLast = await revealGripFor(page, blockNode(page, "cal-last"));
     await clickGripOpenMenu(page, gLast);
     const items = blockMenu(page).locator(".an-rich-md-drag-menu__item");
     await expect(items).toHaveCount(3);
 
-    // Deleting the LAST block from its menu removes that block specifically and
-    // leaves the first two — proving the menu targets the right (last) node.
     const okSave = page.waitForResponse(
       (r) =>
         r.url().includes(UPDATE_ACTION) &&

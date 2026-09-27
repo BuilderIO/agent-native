@@ -1,20 +1,5 @@
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
-/**
- * Server-side inbox tab partitioning — the pure predicate `list-inbox-threads`
- * (and view-screen's inbox summary) build tabs, counts, and rows from, so a
- * tab's badge can never disagree with the rows it shows.
- *
- * Spec (Superhuman semantics):
- * - Tab order: All (when enabled), Important, one tab per pinned label (excluding
- *   "important"/"note-to-self" and any {@link COLLAPSIBLE_VIEW_IDS} system
- *   view id), then one tab per saved filter, then Other. `combineInbox`
- *   collapses all of that to a single "inbox" tab.
- * - A thread shows in EVERY custom (label/filter) tab whose query it
- *   matches — tabs are not mutually exclusive.
- * - A thread matching no custom tab falls to Important, unless it's
- *   automated (see `inbox-classify.ts`), in which case it falls to Other.
- */
 import {
   ALL_TAB_ID,
   ALL_INBOX_TAB_ID,
@@ -29,9 +14,6 @@ import type { EmailMessage } from "@shared/types.js";
 
 import { classifyAutomated } from "./inbox-classify.js";
 
-// Mirrors app/lib/inbox-tabs.ts's COLLAPSIBLE_VIEW_IDS — system views render
-// as their own collapsible sections, never as inbox triage tabs, so a stale
-// pinned value for one of these must not become a tab here either.
 const COLLAPSIBLE_VIEW_IDS = new Set([
   "unread",
   "starred",
@@ -104,8 +86,6 @@ export function resolveInboxTabs(
     return [{ id: ALL_INBOX_TAB_ID, kind: "inbox", name: "Inbox" }];
   }
 
-  // "Important" and "Other" are fixed English source strings — the client
-  // localizes built-in tab ids by `kind`, not by this `name`.
   const tabs: ResolvedInboxTab[] = [
     ...(config.showAllTab === false
       ? []
@@ -143,7 +123,6 @@ export function resolveInboxTabs(
   return tabs;
 }
 
-/** Every tab id an item belongs to, in tab order. Never empty. */
 export function inboxTabsForItem(
   item: InboxThreadItem,
   tabs: ResolvedInboxTab[],
@@ -169,7 +148,6 @@ export function inboxTabsForItem(
   ];
 }
 
-/** Partitions `items` into every tab's member list (tab id -> items), in tab order. */
 export function partitionInboxItems(
   items: InboxThreadItem[],
   tabs: ResolvedInboxTab[],
@@ -183,7 +161,6 @@ export function partitionInboxItems(
   return byTab;
 }
 
-/** Resolves the requested tab id to a configured tab, falling back to the first tab. */
 export function resolveActiveTabId(
   requested: string | undefined,
   tabs: ResolvedInboxTab[],

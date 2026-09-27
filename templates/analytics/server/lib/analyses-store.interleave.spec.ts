@@ -1,19 +1,3 @@
-/**
- * Regression coverage for the analyses read/modify/write race, mirroring
- * `dashboards-store.interleave.spec.ts`'s CAS-retry fixture for dashboards.
- *
- * `upsertAnalysis` used to write the whole record keyed only by `id`, with no
- * version/lock check (unlike `upsertDashboard`, which already had one). Two
- * concurrent writers that both read the same base — e.g. `rename-analysis`
- * renaming while `save-analysis` re-runs with fresh results — silently
- * clobbered each other, last writer wins. `upsertAnalysis` now accepts an
- * optional `expectedUpdatedAt` fence, and `upsertAnalysisWithRetry` re-reads +
- * re-applies a mutation when that fence loses a race.
- *
- * The fake database below deliberately loses the first fenced write once
- * (`state.loseNextCas`) to simulate a concurrent writer landing in between,
- * exactly like the dashboards fixture.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type AnalysisRow = {
@@ -76,14 +60,7 @@ const state = vi.hoisted(() => ({
     hiddenBy: null as string | null,
   },
   revisions: [] as any[],
-  // One-shot flag: the next fenced UPDATE attempt against `analyses`
-  // simulates a concurrent writer (e.g. save-analysis re-running with fresh
-  // results) landing in between the caller's read and write, then reports
-  // zero affected rows - exactly what a real `WHERE id = $1 AND updated_at = $2`
-  // reports when someone else already moved `updated_at`.
   loseNextCas: false,
-  // When true, every fenced UPDATE attempt loses the race forever, to prove
-  // upsertAnalysisWithRetry gives up loud instead of looping forever.
   alwaysLoseCas: false,
   updateAttempts: 0,
 }));
@@ -228,7 +205,6 @@ vi.mock("../db/index.js", () => {
           if (table !== schema.analyses) return { rowsAffected: 0 };
           state.updateAttempts += 1;
           if (state.alwaysLoseCas) {
-            // Every attempt loses: a different writer keeps landing first.
             state.analysis = {
               ...state.analysis,
               updatedAt: `2026-07-09T00:00:00.${String(state.updateAttempts).padStart(3, "0")}Z`,
@@ -237,8 +213,6 @@ vi.mock("../db/index.js", () => {
           }
           if (state.loseNextCas) {
             state.loseNextCas = false;
-            // Simulates a concurrent `save-analysis` re-run landing first
-            // with fresh results.
             state.analysis = {
               ...state.analysis,
               resultMarkdown: "# Findings v2 (concurrent re-run)",
@@ -283,8 +257,6 @@ describe("analyses-store concurrency", () => {
     const existing = await getAnalysis("closed-lost-q1", ctx);
     expect(existing).not.toBeNull();
 
-    // First writer saves using the value it read — succeeds and bumps
-    // updated_at.
     await upsertAnalysis(
       "closed-lost-q1",
       { name: "Renamed By Writer One" },
@@ -293,8 +265,6 @@ describe("analyses-store concurrency", () => {
     );
     expect(state.analysis.name).toBe("Renamed By Writer One");
 
-    // Second writer still holds the OLD updatedAt it read before the first
-    // writer's save landed — the fenced write must reject, not clobber.
     await expect(
       upsertAnalysis(
         "closed-lost-q1",
@@ -303,13 +273,11 @@ describe("analyses-store concurrency", () => {
         existing!.updatedAt,
       ),
     ).rejects.toBeInstanceOf(AnalysisConflictError);
-    // The first writer's save is untouched by the rejected second attempt.
     expect(state.analysis.name).toBe("Renamed By Writer One");
   });
 
   it("omits fencing (legacy last-write-wins) when expectedUpdatedAt is not passed", async () => {
     const existing = await getAnalysis("closed-lost-q1", ctx);
-    // Simulate the row having changed since `existing` was read.
     state.analysis = {
       ...state.analysis,
       updatedAt: "2099-01-01T00:00:00.000Z",
@@ -336,10 +304,6 @@ describe("analyses-store concurrency", () => {
       name: "Renamed While Racing",
     }));
 
-    // "# Findings v2 (concurrent re-run)" / { rows: 9 } was injected by the
-    // simulated concurrent writer on the lost first attempt; the new name is
-    // this call's own mutation. Both must be present — neither writer's edit
-    // was dropped.
     expect(saved.resultMarkdown).toBe("# Findings v2 (concurrent re-run)");
     expect(saved.resultData).toEqual({ rows: 9 });
     expect(saved.name).toBe("Renamed While Racing");
@@ -360,7 +324,6 @@ describe("analyses-store concurrency", () => {
     ).rejects.toThrow(/Could not save analysis "closed-lost-q1"/);
 
     expect(state.updateAttempts).toBe(ANALYSIS_SAVE_MAX_ATTEMPTS);
-    // Nothing from the doomed mutation ever landed.
     expect(state.analysis.name).toBe("Closed Lost Q1");
   });
 });

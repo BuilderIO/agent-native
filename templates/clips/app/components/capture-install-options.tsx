@@ -35,8 +35,6 @@ import {
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
 
-// SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
-// subscribers so mounted CTAs flip to "Open" without a reload.
 function useHasDownloadedDesktopApp(): boolean {
   return useSyncExternalStore(
     subscribeDownloaded,
@@ -53,24 +51,17 @@ type PopoverPlacement = {
 type CaptureInstallButtonProps = Omit<ButtonProps, "asChild"> &
   PopoverPlacement & {
     children: ReactNode;
-    /** Label shown once the desktop app has been downloaded. */
     downloadedChildren?: ReactNode;
     desktopHref?: string;
   };
 
 type CaptureInstallInlineLinkProps = PopoverPlacement & {
   children: ReactNode;
-  /** Label shown once the desktop app has been downloaded. */
   downloadedChildren?: ReactNode;
   className?: string;
   desktopHref?: string;
 };
 
-/**
- * The desktop-app tile shows the icon for the visitor's current OS — Apple on
- * macOS, Windows on Windows — and falls back to a neutral desktop glyph on other
- * platforms or during SSR. The Chrome tile always uses the Chrome brand icon.
- */
 function desktopOsIcon(): typeof IconDeviceDesktop {
   if (typeof navigator === "undefined") return IconDeviceDesktop;
   const ua = navigator.userAgent;

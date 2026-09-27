@@ -69,15 +69,7 @@ export function shouldRenderOverviewReviewCanvas(args: {
   return !args.boardFileId || args.boardFileContent === undefined;
 }
 
-/**
- * `color-scheme` is load-bearing, not cosmetic. Chrome paints an opaque base
- * behind a frame whose scheme disagrees with its embedder, and that base sits
- * between this transparent document and the canvas colour on the host layer —
- * white in a dark editor. Matching the editor is what keeps the frame see-through.
- */
 function boardSurfaceRenderStyle(darkScheme: boolean) {
-  // The dark scheme also turns the default text colour white; design content
-  // must render as it does in a light editor and in exports.
   const scheme = darkScheme
     ? // guard:allow-raw-color — the UA light-scheme text default, written into the render copy only
       "html{color-scheme:dark!important;color:#000}"
@@ -130,14 +122,6 @@ function getCssPixelValue(style: string, name: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * Returns the canvas-space bounds occupied by top-level board nodes.
- *
- * Board coordinates are persisted directly in each root node's absolute
- * `left`/`top`. Keeping this parser string-only makes it usable during SSR and
- * in the jsdom-less unit suite, while restricting the scan to root nodes keeps
- * nested children from being counted twice with parent-relative coordinates.
- */
 export function getBoardSurfaceContentBounds(
   html: string | undefined,
 ): FrameGeometry | null {
@@ -193,10 +177,6 @@ export function getBoardSurfaceContentBounds(
       !isAccidentalBoardBackdropTag(token) &&
       (primitiveKind || position === "absolute")
     ) {
-      // Auto-sized text has no persisted width/height. A one-pixel extent is
-      // not enough when it sits near a render-window edge. Reserve a modest
-      // intrinsic text box; the camera viewport remains the final authority
-      // for unusually long content.
       const fallbackWidth = primitiveKind === "text" ? 256 : 1;
       const fallbackHeight = primitiveKind === "text" ? 64 : 1;
       const width = Math.max(
@@ -341,8 +321,6 @@ export function getBoardSurfaceRenderContent(html: string, darkScheme = false) {
   if (markedHtml.includes(BOARD_SURFACE_RENDER_STYLE)) {
     return markedHtml;
   }
-  // A block from the other scheme is stale, not already-rendered: leaving it
-  // would pin the frame to the theme it was first rendered under.
   const renderHtml = markedHtml.replace(
     /<style data-agent-native-board-surface-render>[\s\S]*?<\/style>/i, // i18n-ignore render-style matcher, not visible UI copy
     "",
@@ -368,9 +346,6 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/<(?:link|meta|base)\b[^>]*>/gi, "")
     .replace(/@import\s+(?:url\([^)]*\)|["'][^"']*["'])\s*[^;]*;/gi, "")
     .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (match) => {
-      // Strip data:, blob:, and unknown-scheme url() references to prevent
-      // large embedded payloads or local-resource leaks. Allow https:// URLs
-      // (CDN images/fonts) — they can only fetch inert assets, not execute code.
       const raw = match.slice(4, -1).trim();
       const inner = raw.replace(/^['"]|['"]$/g, "").trim();
       return /^https:\/\//i.test(inner) ? match : "none";
@@ -384,16 +359,6 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-/**
- * Produces the inert, compressed document painted behind the live board
- * window at very low zoom. The document is also rendered in an iframe with an
- * empty sandbox, but removing executable markup here is defense in depth and
- * guarantees Alpine/React never starts a duplicate runtime.
- *
- * Root offsets use the same `translate` seam as the interactive finite board
- * iframe. Scaling the body into a small browser-safe viewport makes the whole
- * logical board paintable without allocating or scrolling a 131k iframe.
- */
 export function getBoardSurfaceStaticPreviewContent(args: {
   darkScheme?: boolean;
   html: string;
@@ -420,15 +385,11 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   return `${style}${renderHtml}`;
 }
 
-/** Simple djb2-xor string hash, used to build cheap cache keys elsewhere in
- *  the multi-screen canvas (board content signatures, primitive-parse cache
- *  keys, etc). */
 export function hashString(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
-    // h = h * 33 ^ charCode  (djb2 xor variant)
     h = ((h << 5) + h) ^ s.charCodeAt(i);
-    h = h >>> 0; // keep as unsigned 32-bit
+    h = h >>> 0;
   }
   return h.toString(16);
 }

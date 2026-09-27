@@ -49,9 +49,6 @@ const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
-// Routes whose page renders its own custom toolbar (with AgentToggleButton).
-// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
 const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
 
 function loadSidebarWidth(): number {
@@ -103,13 +100,9 @@ export function Layout({ children }: LayoutProps) {
   const activeDocumentId = pendingDocumentId ?? currentDocumentId;
   const showPendingDocumentSkeleton =
     !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
-  // The route chunk for the pending page still has to load, so carry the
-  // landing title across this gap instead of flashing a blank title bar.
   const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
     enabled: !!pendingDocumentId,
   });
-  // Bind chat to the currently-open document. Everywhere else (list view,
-  // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
     () =>
       activeDocumentId

@@ -72,8 +72,6 @@ function configurePreviewSession(partition: string): Electron.Session {
   if (configuredPreviewSessions.has(previewSession)) return previewSession;
   configuredPreviewSessions.add(previewSession);
 
-  // Phase A is intentionally fail-closed. Authentication through ordinary
-  // first-party cookies/storage works without granting device capabilities.
   previewSession.setPermissionCheckHandler(() => false);
   previewSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),

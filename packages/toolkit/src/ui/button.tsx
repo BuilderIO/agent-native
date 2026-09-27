@@ -51,9 +51,7 @@ export interface ButtonProps
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
-  /** Semantic meaning forwarded to a registered design-system ActionButton. */
   intent?: DesignSystemIntent;
-  /** Semantic prominence forwarded independently of the default visual variant. */
   emphasis?: ButtonEmphasis;
 }
 

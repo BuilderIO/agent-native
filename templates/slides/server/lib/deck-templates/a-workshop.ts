@@ -35,7 +35,6 @@ const sticky = (note: Note, tilt: number, body: string, style = "") =>
 const highlight =
   "background:linear-gradient(transparent 55%,var(--deck-surface) 55% 92%,transparent 92%);padding:0 4px;";
 
-/** A marker arc: the top border of an ellipse, finished with a chevron at its right end. */
 const arrow = (style: string, width = 140, height = 70) =>
   `<span aria-hidden="true" style="position:absolute;width:${width}px;height:${height}px;border:3px solid transparent;border-top-color:var(--deck-accent);border-radius:50%;${style}"><span style="position:absolute;right:-1px;top:${height / 2 - 14}px;width:13px;height:13px;border-right:3px solid var(--deck-accent);border-bottom:3px solid var(--deck-accent);transform:rotate(40deg);"></span></span>`;
 

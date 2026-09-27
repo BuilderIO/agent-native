@@ -288,8 +288,6 @@ export function lastDailyRunAt(
 }
 
 const DASHBOARD_REPORT_RETRY_WINDOW_MS = 60 * 60 * 1000;
-// This is the earliest nextRunAt. The generated */15 cron means the actual
-// retry occurs on the first sweep after this floor, not exactly ten minutes later.
 const DASHBOARD_REPORT_RETRY_DELAY_MS = 10 * 60 * 1000;
 
 export function dashboardReportRetryAt(
@@ -600,10 +598,6 @@ export async function markDashboardReportResult(
     .where(eq(schema.dashboardReportSubscriptions.id, sub.id));
 }
 
-/**
- * Persists the capture result before email delivery so a serverless cutoff
- * cannot erase the browser diagnostics after a fallback message is accepted.
- */
 export async function recordDashboardReportCaptureOutcome(
   sub: DashboardReportSubscription,
   outcome: DashboardReportCaptureOutcome,

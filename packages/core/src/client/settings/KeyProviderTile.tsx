@@ -1,8 +1,3 @@
-/**
- * <KeyProviderTile /> — one provider tile in the API keys empty state: a
- * logo well and short name, click to open that key's row.
- */
-
 import { mcpIntegrationLogo } from "../resources/mcp-integration-logos.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 
@@ -23,7 +18,6 @@ export function shortProviderName(label: string): string {
   return label;
 }
 
-/** Env-var prefix → logo id in the `LOGOS` map, longest/most-specific first. */
 const PREFIX_LOGO_IDS: Array<[string, string]> = [
   ["OPENAI_", "openai"],
   ["ANTHROPIC_", "anthropic"],

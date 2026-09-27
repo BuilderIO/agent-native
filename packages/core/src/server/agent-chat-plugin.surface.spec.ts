@@ -589,12 +589,6 @@ describe("hosted Builder handoff surface", () => {
   });
 });
 
-// A local `npx` Chat app registers `connect-builder` (it arrives with
-// `browserTools`), but its *name* used to reach the first-request tool list
-// only through `hostedBuilderHandoff`, which is empty whenever the environment
-// can toggle Code mode. So "connect Builder for me" in local dev found no tool
-// on the turn the user asked, while the composer and setup card kept offering
-// "Connect Builder.io" — the reported mismatch between the two surfaces.
 describe("connect setup initial tool names", () => {
   const setupEntry = {
     tool: { description: "Render a setup card.", parameters: {} },
@@ -633,18 +627,6 @@ describe("connect setup initial tool names", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
-// nothing about whether the value it returns actually reaches the run
-// manager — that wiring lives inside `createAgentChatPlugin`'s and
-// `createProductionAgentHandler`'s multi-thousand-line request-handler
-// closures, which have no cheap unit seam (same rationale as the
-// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
-// guards close that gap: they fail if a future call site forgets to spread
-// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
-// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
-// exactly the class of bug the run-manager's own no-progress-backstop tests
-// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
 describe("interactive agent run options — wiring guards", () => {
   it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
@@ -660,10 +642,6 @@ describe("interactive agent run options — wiring guards", () => {
       return source.slice(start, end);
     });
 
-    // Three interactive handlers are created today (prod, anonymous
-    // read-only, dev). If this count changes, a new call site was added or
-    // removed - update this guard alongside it, and confirm the new/changed
-    // site still includes both required options.
     expect(handlerCallSites).toHaveLength(3);
     for (const handlerBlock of handlerBlocks) {
       expect(handlerBlock).toContain(
@@ -680,30 +658,15 @@ describe("interactive agent run options — wiring guards", () => {
       encoding: "utf-8",
     });
 
-    // There is exactly one `startRun(...)` call in production-agent.ts — the
-    // interactive/production run start. Confirm it stays singular so the
-    // adjacency assertion below can't silently start matching a different,
-    // unrelated call site.
     expect(source.match(/\n {4}const startedRun = startRun\(\n/g)).toHaveLength(
       1,
     );
 
-    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
-    // (not hardcoded, not dropped) and live in the same options object as
-    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
-    // startRun's final argument.
     expect(source).toMatch(
       /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
     );
   });
 
-  // `/runs/active` is the only server surface the background-follow client can
-  // still read once a run is terminal, and its response object is field-picked
-  // by hand. The client owns the copy for terminal reasons that produce no error
-  // event, so without this field it has to guess who is reading a
-  // missing-credential failure — and guessed the owner, on a site whose visitors
-  // have no Builder account. No route test can see a hand-picked field, so this
-  // guard stands in for one.
   it("reports whether the deployment pays for its own AI on /runs/active", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
@@ -745,11 +708,6 @@ describe("background automation action surface — wiring guards", () => {
   });
 });
 
-// `frameworkTools` gating happens inside `createAgentChatPlugin`'s multi-
-// thousand-line closure, which has no cheap unit seam (same rationale as the
-// run-options guards above). `framework-tools.spec.ts` proves the filter and
-// resolver in isolation; these source guards prove they are actually wired at
-// the two points that matter, and that the UI's routes stay out of it.
 describe("framework tool gating — wiring guards", () => {
   const source = readFileSync(agentChatPluginSourceUrl, {
     encoding: "utf-8",
@@ -770,8 +728,6 @@ describe("framework tool gating — wiring guards", () => {
       "const frameworkTools = resolveFrameworkTools(options);",
     );
 
-    // Both agent-facing registries must be filtered. Missing either one leaves
-    // a disabled kit reachable from that surface.
     for (const set of ["templateScriptsAll", "discoveredActionsAll"]) {
       expect(source, set).toMatch(
         new RegExp(
@@ -799,8 +755,6 @@ describe("framework tool gating — wiring guards", () => {
   });
 
   it("leaves httpActions ungated so the UI keeps its routes", () => {
-    // Disabling `sharing` must not 404 a share dialog that is still on screen:
-    // the UI reaches these through client hooks, not the agent tool surface.
     const start = source.indexOf(
       "const httpActions: Record<string, ActionEntry> = {",
     );
@@ -814,8 +768,6 @@ describe("framework tool gating — wiring guards", () => {
   });
 
   it("reads the deprecated flags only through the resolver", () => {
-    // A second read of `options.databaseTools` / `options.extensionTools` would
-    // bypass the conflict check and split the app's tool surface in two.
     expect(source).not.toContain("options?.databaseTools");
     expect(source).not.toContain("options?.extensionTools");
   });
@@ -879,12 +831,6 @@ describe("agent teams prompt guidance", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Token-budget regression tests
-// These assert rough character-count budgets so prompt drift is caught early.
-// Update the snapshot when you intentionally change the prompt content.
-// ---------------------------------------------------------------------------
-
 describe("prompt token-budget regressions", () => {
   const full = buildFrameworkCore();
   const compact = buildFrameworkCoreCompact();
@@ -898,7 +844,6 @@ describe("prompt token-budget regressions", () => {
   });
 
   it("compact prompt is materially smaller than the full prompt", () => {
-    // compact should be at most 75 % of full — if it's bigger, dedup is broken
     expect(compact.length).toBeLessThan(full.length * 0.75);
   });
 
@@ -909,11 +854,6 @@ describe("prompt token-budget regressions", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Prompt-content invariants
-// Spot-check that shared rules survived the modularisation.
-// ---------------------------------------------------------------------------
 
 describe("prompt content invariants", () => {
   const full = buildFrameworkCore();
@@ -967,7 +907,6 @@ describe("prompt content invariants", () => {
       ["resources", ["`resources`", "agent_scratch"]],
       ["chat", ["`chat-history`"]],
       ["automation", ["`manage-jobs`", "`manage-progress`"]],
-      // Bold in the full prompt, backticked in the compact one — match both.
       ["workspaceApps", ["call-agent"]],
     ];
 
@@ -988,7 +927,6 @@ describe("prompt content invariants", () => {
   });
 
   it("keeps the surrounding prose intact when a group is dropped", () => {
-    // Dropping a clause must not leave a dangling list or an empty heading.
     const gated = buildFrameworkCore(undefined, {
       disabledFrameworkGroups: new Set<FrameworkToolGroup>([
         "chat",
@@ -1001,7 +939,6 @@ describe("prompt content invariants", () => {
     expect(gated).not.toMatch(/,\s*,/);
     expect(gated).not.toMatch(/for\s*,/);
     expect(gated).not.toMatch(/,\s*and\s*\./);
-    // The planning rule survives without its tool reference.
     expect(gated).toContain("**Plan and track multi-step work**");
   });
 
@@ -1066,11 +1003,6 @@ describe("prompt content invariants", () => {
       { extensionTools: true },
     );
 
-    // The 7-row routing table and worked examples were cut in favor of one
-    // boundary sentence (routing among render-inline-extension/create-extension/
-    // show-extension-inline/update-extension is already derivable from each
-    // tool's own description; the "can't reach native chrome" case is also
-    // restated in connect-builder's own tool description).
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       "they cannot inject UI into arbitrary native components",
     );
@@ -1090,9 +1022,6 @@ describe("prompt content invariants", () => {
       encoding: "utf-8",
     });
 
-    // The default-false decision now lives in `resolveFrameworkTools`, which
-    // folds the deprecated `extensionTools` flag into `frameworkTools`.
-    // `framework-tools.spec.ts` asserts that default behaviorally.
     expect(source).toContain(
       "const extensionToolsEnabled = frameworkTools.extensions;",
     );
@@ -1123,9 +1052,6 @@ describe("prompt content invariants", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("manage-progress");
       expect(prompt).toContain("never create single-step plans");
-      // The start/update/complete call sequence belongs to `manage-progress`'s
-      // own tool description, which the model reads before it can call the
-      // tool. Restating it here charges every turn for it.
       expect(prompt).not.toContain('action: "start"');
       expect(prompt).not.toContain('status: "succeeded"');
     }
@@ -1183,10 +1109,6 @@ describe("available action prompt rendering", () => {
   });
 
   it("keeps framework kits out of the default first-request tool set", () => {
-    // The kits reach this same registry through autoDiscoverActions, so the
-    // plain "all template actions" default used to promote ~45 framework
-    // schemas into every app's first request. They stay in availableTools and
-    // remain reachable through tool-search.
     const withFrameworkKits = {
       ...(actions as Record<string, unknown>),
       "share-resource": { frameworkGroup: "sharing" },
@@ -1199,7 +1121,6 @@ describe("available action prompt rendering", () => {
       ),
     ).toEqual(["common", "rare"]);
 
-    // An app that genuinely wants one on turn one still names it explicitly.
     expect(
       _agentChatPromptSectionsForTests.resolveInitialToolNames(
         withFrameworkKits,
@@ -1317,14 +1238,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
 
     const prompt = generateCorpusToolsPrompt(registry);
-    // "Available corpus-capable tools: ..." is the authoritative,
-    // registry-conditional line — this is the invariant
-    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
-    // to avoid teaching a tool as available when it isn't in the first
-    // request's active tool set. (The fixed prose below it separately
-    // explains `provider-corpus-job` / run-code usage unconditionally
-    // whenever the block renders at all — that static explanatory text is
-    // pre-existing and out of scope here.)
     const availabilityLine = prompt
       .split("\n")
       .find((line) => line.startsWith("Available corpus-capable tools:"));
@@ -1360,11 +1273,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
   });
 });
 
-// ---------------------------------------------------------------------------
-// Snapshot test — full assembled prompt at default config
-// Run `vitest --update` to regenerate after intentional changes.
-// ---------------------------------------------------------------------------
-
 describe("assembled prompt snapshots", () => {
   it("full prompt (default examples) matches snapshot", () => {
     const full = buildFrameworkCore();
@@ -1389,12 +1297,6 @@ describe("delegated tool surfaces in dev", () => {
     ).toBe(false);
   });
 
-  // The interactive surface routes template actions through bash in dev to
-  // dodge the degenerate empty-object tool call some models emit. A delegated
-  // caller (A2A, or `ask_app` over MCP) has nobody to retry for it: with no
-  // native action the sibling agent shells out, repeats the same command, and
-  // the run dies on the repetition guard minutes later. Both delegated
-  // surfaces therefore keep template actions native even in dev.
   it("keep template actions native so a sibling never has to shell out", () => {
     const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",

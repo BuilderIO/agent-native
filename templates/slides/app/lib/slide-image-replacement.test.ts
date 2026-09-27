@@ -633,8 +633,6 @@ describe("slide image replacement", () => {
     const slideRoot = doc.querySelector(".fmd-slide") as HTMLElement | null;
 
     expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
-    // Must not become a plain flex-flow sibling of the existing content
-    // (the slide is a flex column), or it visually squishes everything else.
     expect(img?.getAttribute("style")).toContain("position: absolute");
     expect(slideRoot?.getAttribute("style")).toContain("position: relative");
     expect(doc.querySelector("h1")).not.toBeNull();
@@ -677,7 +675,6 @@ describe("slide image replacement", () => {
 describe("updateLiveImagesUnderEdit", () => {
   const url = "https://cdn.test/uploaded.png";
 
-  /** DeckEditor's upload: the edit's latest draft, previews stripped, this one applied and swapped. */
   function uploadOnDraft(
     committed: string,
     preview: Parameters<typeof applyOptimisticImagePreview>[1],

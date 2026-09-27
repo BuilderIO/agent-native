@@ -155,8 +155,6 @@ describe("checkGoogleSignInCredential", () => {
 
     const result = await checkGoogleSignInCredential();
 
-    // The exact shape that hid the 2026-08-20 outage: sign-in works off
-    // client-a while every repair aimed at client-b changed nothing.
     expect(result.mismatchedPairs).toBe(true);
     expect(result.clientId).toBe("client-a");
   });
@@ -343,9 +341,6 @@ describe("probeGoogleRedirectUri", () => {
   });
 
   it("classifies a mismatched redirect URI and decodes the authError detail", async () => {
-    // "redirect_uri_mismatch" base64url-encoded, matching the shape of
-    // Google's opaque (protobuf, not JSON) authError param closely enough
-    // for the decoded text to remain readable.
     const authError = Buffer.from("redirect_uri_mismatch", "utf-8").toString(
       "base64url",
     );

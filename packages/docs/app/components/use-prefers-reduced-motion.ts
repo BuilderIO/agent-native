@@ -7,12 +7,6 @@ type MotionPreference = {
   autoplayStopped: boolean;
 };
 
-/**
- * Tracks `prefers-reduced-motion: reduce`. Starts `null` (unresolved — SSR
- * and the first client paint have no answer yet) so autoplay stays off until
- * the browser preference is known. A runtime change to `reduce` pauses and
- * stops autoplay for this page load.
- */
 export function usePrefersReducedMotion(
   videoRef: RefObject<HTMLVideoElement | null>,
 ): MotionPreference {

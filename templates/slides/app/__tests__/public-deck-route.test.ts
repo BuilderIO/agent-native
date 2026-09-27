@@ -16,10 +16,6 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
 vi.mock("@/components/ui/spinner", () => ({ Spinner: () => null }));
 
-// The presentation page renders impersonally on the server (SSR reads no
-// session so the public page stays CDN-cacheable), so the loader no longer
-// reads the request user — it only needs the app base path to build the
-// client-side redirect to the auth-guarded editor for restricted decks.
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
@@ -98,8 +94,6 @@ describe("public deck route", () => {
         ],
       },
     ]);
-    // SSR is impersonal: the deck is looked up by id alone, and visibility is
-    // checked in JS — no per-user access filter is applied server-side.
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "deck-1" });
   });
 

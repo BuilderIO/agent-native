@@ -16,8 +16,6 @@ function appSlugFromUrl(value: string | undefined): string | undefined {
     const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
       ? value
       : `https://${value}`;
-    // Beta deploys share the production app slug; the environment is its own
-    // dimension (deployment_environment).
     const hostname = new URL(raw).hostname.toLowerCase().replace(/^beta\./, "");
     if (hostname.endsWith(".agent-native.com")) {
       return normalizeTrackingSlug(
@@ -30,20 +28,11 @@ function appSlugFromUrl(value: string | undefined): string | undefined {
   }
 }
 
-/**
- * The app segment of the configured base path, when one is mounted.
- *
- * Workspace builds serve several apps from separate functions on one shared
- * host (e.g. beta.agent-workspace.builder.io) with APP_BASE_PATH=/<app>. On
- * those hosts the hostname's first label names the shared workspace, not any
- * one app, so it must lose to this before the hostname guess ever runs.
- */
 function baseSlugApp(): string | undefined {
   const segment = getConfiguredAppBasePath().split("/").filter(Boolean)[0];
   return normalizeTrackingSlug(segment);
 }
 
-/** Shared app/template dimensions for central observability tracking events. */
 export function trackingIdentityProperties(): Record<string, string> {
   const packageApp = normalizeTrackingSlug(process.env.npm_package_name);
   const urlApp =

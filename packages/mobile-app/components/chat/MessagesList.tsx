@@ -36,8 +36,6 @@ function buildRows(chat: AgentChatController): Row[] {
   ) {
     rows.push({ kind: "activity", label: chat.activity });
   } else if (chat.isStreaming) {
-    // No assistant output and no activity yet — mirror the web's pulsing
-    // "Thinking" placeholder until the first token or tool event lands.
     const last = chat.messages[chat.messages.length - 1];
     if (!last || last.role === "user") rows.push({ kind: "thinking" });
   }
@@ -73,10 +71,8 @@ export function MessagesList({
   onOpenConnections,
 }: {
   chat: AgentChatController;
-  /** Height of the floating composer + keyboard area to pad the scroll end. */
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
-  /** Opens the sign-in sheet when a run failed because the session expired. */
   onSignIn?: () => void;
   /** Opens provider settings when chat has no eligible AI credentials. */
   onOpenSettings?: () => void;
@@ -87,8 +83,6 @@ export function MessagesList({
   const [awayFromEnd, setAwayFromEnd] = useState(false);
   const rows = buildRows(chat);
   const lastMessageId = chat.messages.at(-1)?.id;
-  // Streaming turns animate in; opening an existing thread must not replay
-  // entry animations for the whole transcript.
   const animateFromIndex = useRef(chat.messages.length);
   if (!chat.isStreaming && !chat.historyLoading) {
     animateFromIndex.current = chat.messages.length;

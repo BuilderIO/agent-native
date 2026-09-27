@@ -32,7 +32,6 @@ export const ComposerContextSearchInput = forwardRef<
               defaultValue: "Back",
             })}
             onKeyDown={(event) => {
-              // Keep cmdk from activating the selected row on native button keys.
               if (event.key === "Enter" || event.key === " ")
                 event.stopPropagation();
             }}

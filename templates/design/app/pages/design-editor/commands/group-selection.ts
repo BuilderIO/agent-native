@@ -120,13 +120,6 @@ export function runGroupSelection({
   }
   const baseContent = getFreshActiveContent();
   const source = { kind: "design-file" as const, fileId: activeFile.id };
-  // Collect the DOM-node layer ids that belong to the active screen.
-  // Build a set of ids present in the active content so stale ids from
-  // other files (which can persist in selectedLayerIdsState after a
-  // cross-screen layers-panel selection) are excluded before wrapNodes
-  // runs against activeContent. Without this filter, cross-file ids
-  // cause wrapNodes to return "conflict" even for a valid same-file
-  // selection.
   const fileIds = new Set(files.map((f) => f.id));
   const baseProjection = buildCodeLayerProjection(baseContent, { source });
   const activeNodeIdSet = buildActiveFileNodeIdSet(baseProjection);
@@ -172,12 +165,6 @@ export function runGroupSelection({
     return;
   }
   const nextContent = patch.content;
-  // Figma-parity undo/redo selection restore: capture the ORIGINAL (ungrouped)
-  // selection before the write so undo can hand it back. Figma groups a
-  // single object too (see canGroup in DesignEditor.tsx), and undoing THAT
-  // must restore the one element that was selected, not clear selection —
-  // only an actual multi-select gesture has no single canonical element.
-  // See history.ts's YjsUndoSelectionSnapshot doc comment.
   const selectionBeforeGroup = {
     selectedElement:
       nodeIds.length === 1
@@ -220,15 +207,9 @@ export function runGroupSelection({
     undoStackTopBeforeGroup,
     selectionBeforeGroup,
   );
-  // Select the new wrapper node if the substrate reported its id.
   if (wrapperNode) {
     setSelectedLayerIdsState([wrapperNode.id]);
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
-    // Figma parity: redo re-selects the group this gesture produced, not
-    // the pre-group selection undo restores. The write lands on whichever
-    // of the two stacks is actually tracking it (Yjs in single-screen
-    // mode, the plain content-history stack in overview mode); both
-    // stamps are harmless no-ops on the stack that didn't receive it.
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
       undoStackTopBeforeGroup,

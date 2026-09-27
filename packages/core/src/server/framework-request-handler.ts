@@ -1,16 +1,3 @@
-/**
- * Framework request handler — registers framework routes on Nitro's h3 instance.
- *
- * Nitro 3 exposes its h3 app as `nitroApp.h3`. We register framework routes
- * directly on it as middleware (`nitroApp.h3["~middleware"]`), giving each
- * plugin a path-prefix-matched handler that runs before any file-based route.
- *
- * Plugins call `getH3App(nitroApp).use(path, handler)` exactly like h3 v1's
- * `app.use()` — the wrapper translates that into v2 middleware registration.
- *
- * Default plugins that the template doesn't provide are auto-mounted on the
- * first call to `getH3App()` per nitroApp instance.
- */
 import type { EventHandler, H3Event } from "h3";
 import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
@@ -132,22 +119,6 @@ function resolveMountMatch(
   };
 }
 
-/**
- * Translate a request under the PUBLIC framework prefix to the INTERNAL
- * pathname every mount is registered on, once per request.
- *
- * This is the only place the public namespace exists on the server. It runs
- * before route selection, before the readiness gates, before CSRF and before
- * any handler, so everything downstream sees `/_agent-native/...` exactly as
- * it does on a default deployment. The original public pathname is kept in
- * `event.context._frameworkPublicPathname` for the callers that need the URL
- * the browser actually used (origin checks, OAuth state); the query, method,
- * headers and body are untouched.
- *
- * When a custom prefix is configured, a request that names the INTERNAL
- * prefix is marked retired instead: the deployment declared one namespace,
- * and serving both would leave an undeclared second one reachable.
- */
 function translatePublicFrameworkRequest(event: H3Event): void {
   const eventAny = event as any;
   const context = (eventAny.context ??= {});
@@ -179,25 +150,11 @@ function translatePublicFrameworkRequest(event: H3Event): void {
 
 export { getPublicFrameworkPathname } from "./framework-request-context.js";
 
-/**
- * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
- * for registering path-prefix middleware.
- */
 export interface H3AppShim {
   use(path: string, handler: EventHandler): void;
   use(handler: EventHandler): void;
 }
 
-/**
- * Mark a default plugin slot as supplied by the app/template before the
- * framework default bootstrap runs.
- *
- * Bundled serverless functions often don't have the original
- * `server/plugins/*.ts` tree on disk at runtime, so filesystem route discovery
- * can falsely conclude a template plugin is missing. Explicit plugin factories
- * call this synchronously before awaiting bootstrap so the framework does not
- * auto-mount a generic default over the app's custom implementation.
- */
 export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
   if (!nitroApp || !stem) return;
   const existing = nitroApp[PROVIDED_PLUGIN_STEMS_KEY] as
@@ -208,12 +165,6 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
   nitroApp[PROVIDED_PLUGIN_STEMS_KEY] = provided;
 }
 
-/**
- * Mark routes that are mounted without waiting for unrelated default-plugin
- * bootstrap. BYOA auth uses this for its cacheable login document: waiting
- * for Better Auth or another DB-backed plugin turns an available login form
- * into a serverless 502 during a cold-start database outage.
- */
 export function markFrameworkRoutesReadyBeforeBootstrap(
   nitroApp: any,
   paths: readonly string[],
@@ -228,24 +179,12 @@ export function markFrameworkRoutesReadyBeforeBootstrap(
   nitroApp[EARLY_FRAMEWORK_PATHS_KEY] = existing;
 }
 
-/**
- * Get (or create) the shared H3 app wrapper for a nitroApp. Plugins use this
- * to register routes via `.use(path, handler)`.
- *
- * On the first call per nitroApp, we kick off auto-mounting any missing
- * default plugins. User-facing plugin factories (createAgentChatPlugin,
- * createAuthPlugin, etc.) await this bootstrap via `awaitBootstrap()` so the
- * default plugins finish registering middleware before requests arrive.
- */
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
-  // A malformed deployment value must fail here, at boot, not on the first
-  // request that happens to build a URL.
   getFrameworkRoutePrefix();
   ensureGlobalMiddlewareDispatch(nitroApp);
   installHttpResponseTelemetryHooks(nitroApp);
 
-  // Reuse the cached shim if we've wrapped this nitroApp before
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
   if (cached) return cached;
 
@@ -264,25 +203,8 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
-    // A real nitroApp instance exists, wiring its H3 app for real requests —
-    // the one cross-platform signal bare Node/Docker has for "this process is
-    // actually serving" (see db/server-runtime.js). A build never reaches
-    // this: it never constructs a real nitroApp.
     markServerRuntimeStarted();
-    // Parse now, decide later. An unknown slot name in `plugins.disabled` is
-    // an invalid deployment, not a plugin that failed to start, and the catch
-    // below would turn it into an app with every default route missing — so
-    // the value has to be read where it can still throw synchronously. The
-    // mount set is read again inside bootstrap: auto-mount can start before a
-    // server plugin has called `defineAppConfig()`, and this early read only
-    // sees the environment layer.
     getDisabledDefaultPlugins();
-    // Nitro invokes plugin factories in one registration turn, but an async
-    // plugin can reach this function after an import/await. Starting discovery
-    // immediately lets the first plugin auto-mount a default before a later
-    // custom plugin has marked its slot as provided. Defer only the discovery
-    // start; keep the promise published synchronously so request gates and
-    // plugin init can still await the same bootstrap operation.
     const bootstrap = Promise.resolve()
       .then(() => bootstrapDefaultPlugins(nitroApp))
       .catch((err) => {
@@ -296,23 +218,15 @@ export function getH3App(nitroApp: any): H3AppShim {
         });
         if (err instanceof AppConfigurationError) throw err;
       });
-    // The readiness gate is what observes this rejection, and it only runs on
-    // a request. Without a handler attached now, Node exits on the unhandled
-    // rejection before anything can report the configuration error.
     bootstrap.catch(() => {});
     nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrap;
 
-    // Readiness gate: Nitro v3 doesn't await async plugins, so routes
-    // registered inside an async plugin may not exist when the first
-    // request arrives. These middleware entries hold framework routes
-    // until default-plugin bootstrap and tracked plugin inits complete.
     const readinessGate = (async (event: H3Event) => {
       const eventAny = event as any;
       await awaitFrameworkRoutesReadyForRequest(
         nitroApp,
         eventAny.context?._mountedPathname ?? event.url?.pathname ?? "",
       );
-      // Fall through — the actual route handler runs next.
       return undefined;
     }) as EventHandler;
     registerMiddleware(nitroApp, FRAMEWORK_PREFIX, readinessGate, {
@@ -328,37 +242,10 @@ export function getH3App(nitroApp: any): H3AppShim {
       registerMiddleware(nitroApp, path, readinessGate, { prepend: true });
     }
 
-    // CSRF (see csrf.ts): registered here — synchronously, on the very
-    // first `getH3App()` call for this nitroApp — rather than inside
-    // createCoreRoutesPlugin's own async init chain. Real deployments mount
-    // core-routes and agent-chat as SEPARATE, independently-async-initialized
-    // Nitro plugin files with no explicit ordering between them; both
-    // eventually call `getH3App(nitroApp).use(...)` to register their own
-    // routes (CSRF, action routes) after their own async setup (DB reads,
-    // dynamic imports) resolves in unpredictable relative order. The
-    // readiness gate above only guarantees every tracked plugin has FINISHED
-    // registering by the time a gated request is released — it does NOT
-    // guarantee CSRF's registration call happens to `.push()` onto
-    // `~middleware` before an action route's does. If agent-chat's action
-    // route push happened to land first, that route would match and run
-    // before CSRF ever saw the request. Registering CSRF here instead makes
-    // it the first non-prepended middleware pushed onto the array for this
-    // nitroApp, full stop — every plugin's own route registrations reach
-    // `getH3App()` (and therefore run after this point) before they can
-    // register anything, regardless of which plugin's async chain resolves
-    // first.
     registerMiddleware(nitroApp, "", createCsrfMiddleware());
 
-    // Registered last so it lands at index 0 — ahead of the readiness gates
-    // and CSRF, both of which were unshifted/pushed above.
     registerRequestContextBoundary(nitroApp);
 
-    // Primary gate: Nitro bridges this `request` hook to h3's `config.onRequest`,
-    // which h3 awaits BEFORE `handler()` snapshots middleware and resolves the
-    // route. The middleware gate above runs too late on production dispatchers —
-    // its await finishes after the snapshot, so a route registered during async
-    // init is missing from the request and 404s. The middleware gate stays as a
-    // fallback for runtimes where `onRequest` isn't wired.
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
       translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
@@ -407,8 +294,6 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
   const middleware = (event: H3Event, next: () => unknown) => {
-    // The `request` hook above normally ran first; this is the fallback for
-    // runtimes where Nitro does not bridge it. Idempotent either way.
     translatePublicFrameworkRequest(event);
     if ((event as any).context?.[RETIRED_PATH_CONTEXT_KEY] !== undefined) {
       setResponseStatus(event, 404);
@@ -440,13 +325,6 @@ function registerRequestContextBoundary(nitroApp: any): void {
   markRequestBoundaryInstalled();
 }
 
-/**
- * Nitro 3 production builds generate a route dispatcher by overriding h3's
- * internal `~getMiddleware()` hook. Some generated dispatchers return only
- * route-rule middleware and skip the global `h3["~middleware"]` array that
- * `getH3App().use()` appends to. Wrap the dispatcher once so framework routes
- * registered at runtime are still part of request dispatch.
- */
 function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
   const h3 = nitroApp?.h3;
   if (!h3) return;
@@ -480,41 +358,18 @@ function ensureGlobalMiddlewareDispatch(nitroApp: any): void {
   h3[MIDDLEWARE_DISPATCHER_PATCHED_KEY] = wrappedGetMiddleware;
 }
 
-/**
- * Wait for the framework's default-plugin bootstrap to complete.
- *
- * Called by user-facing plugin factories (`createAgentChatPlugin`, etc.) at
- * the top of their plugin function, so that by the time the function returns
- * — and Nitro starts accepting requests — all default plugins have finished
- * registering their middleware.
- *
- * No-op when called from inside the bootstrap itself (avoids deadlock when a
- * default plugin happens to be running as part of bootstrap).
- */
 export async function awaitBootstrap(nitroApp: any): Promise<void> {
   if (!nitroApp || IN_BOOTSTRAP.has(nitroApp)) return;
-  // Trigger bootstrap if it hasn't been already (idempotent — getH3App
-  // creates the shim and kicks off bootstrap on first call).
   getH3App(nitroApp);
   const promise = nitroApp[BOOTSTRAP_PROMISE_KEY];
   if (promise) await promise;
 }
 
-/**
- * Wait until framework routes are safe to dispatch.
- *
- * Request-time gates must wait for both phases:
- *   1. default-plugin bootstrap, which discovers and starts missing plugins
- *   2. async plugin init promises, which register routes such as A2A cards
- */
 async function awaitFrameworkRoutesReadyForRequest(
   nitroApp: any,
   reqPath: string,
 ): Promise<boolean> {
   if (!nitroApp) return true;
-  // This route is mounted synchronously by core-routes before bootstrap. It
-  // must not wait on optional plugins or a database just because the browser
-  // asks for the SSR shell's empty speculation rules during a cold start.
   if (
     resolveMountMatch(reqPath, `${FRAMEWORK_PREFIX}/speculation-rules.json`)
   ) {
@@ -551,55 +406,23 @@ async function awaitFrameworkRoutesReadyForRequest(
   }
 }
 
-/**
- * Cap on how long a request may be held waiting for framework routes.
- *
- * Holding past the platform's own request wall is pure loss: the serverless
- * gateway kills the invocation and the client gets a bare 502/504 it cannot
- * act on. Releasing first lets the placeholder answer with a retryable 503.
- * Keep this BELOW the shortest deployment target's request wall (Netlify
- * synchronous functions cut off around 40s regardless of a higher configured
- * `timeout`).
- */
 function frameworkReadyDeadlineMs(): number {
   const raw = Number(process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
 }
 
-/**
- * Track an async plugin's initialization promise. Nitro v3 calls plugins
- * synchronously and doesn't await async return values, so routes registered
- * inside an async plugin may not be ready when the first request arrives.
- *
- * Call this from the TOP of any async plugin so that the readiness gate
- * (installed by getH3App) can hold framework requests until the plugin
- * finishes mounting its routes.
- */
 export function trackPluginInit(
   nitroApp: any,
   promise: Promise<void>,
   options: { paths?: string[]; excludedPaths?: string[] } = {},
 ): void {
   if (!nitroApp) return;
-  // Ensure the readiness gate exists even when the tracked plugin is the first
-  // framework code to run in a serverless isolate. Otherwise an immediate
-  // first request can fall through before the plugin registers its routes.
   getH3App(nitroApp);
-  // Attach a no-op catch so the promise doesn't surface as an unhandled
-  // rejection when Nitro v3 drops the async return value. The actual error
-  // is still observable when awaitPluginsReady() re-awaits the promise.
   const safe = promise.catch((err) => {
     console.error(
       "[agent-native] Plugin init failed:",
       (err as Error).message || err,
     );
-    // Record the failure so the readiness gate can return a retryable 503 for
-    // this plugin's routes instead of letting them fall through to a bare
-    // "Cannot find any route matching" 404. That bare 404 is what kept biting
-    // external MCP clients (pi/codex/claude) and the connect flow on cold /
-    // propagating instances whose async init rejected (e.g. DB not yet
-    // reachable): the route never registered, so the placeholder released into
-    // a 404 the client couldn't recover from. A 503 is at least retryable.
     const failures = (nitroApp[PLUGIN_FAILED_KEY] ??= new Map<
       string,
       string
@@ -655,16 +478,10 @@ function installPluginReadyPlaceholders(
           reqPath,
         );
         if (!ready) {
-          // Boot is still running and we are out of budget. Answer now, while
-          // the gateway is still listening, rather than being killed mid-wait.
           setResponseStatus(event, 503);
           setResponseHeader(event, "retry-after", "5");
           return { error: "agent-native routes are still initializing" };
         }
-        // If this plugin's async init failed, its real route was never
-        // registered. Return a retryable 503 instead of releasing into a bare
-        // 404 (external MCP clients can't recover from a 404; a 503 is at least
-        // a "try again" the client / next instance can act on).
         const failures = nitroApp[PLUGIN_FAILED_KEY] as
           | Map<string, string>
           | undefined;
@@ -730,10 +547,6 @@ function debugClientAbort(args: {
   );
 }
 
-/**
- * Await all tracked plugin initializations. Called by the readiness gate
- * middleware before dispatching framework routes.
- */
 export async function awaitPluginsReady(
   nitroApp: any,
   reqPath?: string,
@@ -766,18 +579,6 @@ export async function awaitPluginsReady(
   }
 }
 
-/**
- * Register a path-prefix middleware on Nitro's h3 instance.
- *
- * The middleware:
- *   - Returns `next()` (continues) if the request path doesn't match.
- *   - Otherwise dispatches to the handler. If the handler returns a value,
- *     it short-circuits the request. If it returns undefined, next() runs.
- *
- * Path matching emulates h3 v1's `app.use(path, ...)` behavior:
- *   - Exact-match prefix: `/foo` matches `/foo`, `/foo/bar`, but not `/foobar`
- *   - Empty path: middleware runs on every request
- */
 function registerMiddleware(
   nitroApp: any,
   path: string,
@@ -836,19 +637,12 @@ function registerMiddleware(
       if (!match) {
         return next();
       }
-      // Strip the mount prefix from event.url.pathname so handlers that
-      // dispatch sub-routes can read `event.path` (or `event.url.pathname`)
-      // and see the path RELATIVE to their mount point — matching h3 v1's
-      // `app.use(path, handler)` semantics.
       const eventAny = event as any;
       hadEventPath = "path" in eventAny;
       originalEventPath = eventAny.path;
       didStripPath = true;
       try {
         originalPathname = event.url.pathname;
-        // Save the full path in context so handlers that need the original URL
-        // (e.g. Better Auth, which extracts its own basePath prefix) can
-        // reconstruct a Request with the un-stripped URL.
         eventAny.context = eventAny.context ?? {};
         eventAny.context._mountedPathname = originalPathname;
         eventAny.context._mountPrefix = match.mountPath;
@@ -862,20 +656,11 @@ function registerMiddleware(
     try {
       const result = await handler(event);
       if (result === undefined) {
-        // Restore the original pathname BEFORE calling next() so downstream
-        // middleware sees the full URL — not the stripped mount-relative path.
-        // Matches h3 v2's own sub-app middleware pattern where the restore
-        // happens inside the next() callback, not after it returns.
         restoreOriginalPath();
         return next();
       }
       return result;
     } catch (err) {
-      // Log 500s to the server console so they're debuggable, and respond
-      // with JSON instead of the default HTML error page so clients can
-      // surface error messages. This only applies to routes mounted under
-      // the framework prefix (or middleware mounted at `/`, for which we
-      // still want visibility).
       const reqPath = originalPathname ?? event.url?.pathname ?? "";
       const e = err as any;
       const status =
@@ -894,11 +679,6 @@ function registerMiddleware(
         status,
         error: err,
       });
-      // Forward 5xx to the configured server error providers — Nitro's own
-      // `error` hook may not fire here because we convert the throw into a
-      // normal JSON response, and a console.error alone is invisible in
-      // deployed environments. 4xx are user-input errors (validation, auth)
-      // and aren't worth alerting on.
       if (status >= 500) {
         captureError(err, {
           route: reqPath,
@@ -921,12 +701,6 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
-        // Only surface the stack to clients when explicitly enabled.
-        // `NODE_ENV !== "production"` was unsafe — preview deploys and
-        // any host that forgets to set NODE_ENV=production leaked stack
-        // traces (file paths, dependency versions, internal route
-        // topology) to anonymous callers. Operators who want stacks in
-        // dev set `AGENT_NATIVE_DEBUG_ERRORS=1` explicitly.
         ...(status >= 500 &&
         process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" &&
         e?.stack
@@ -934,8 +708,6 @@ function registerMiddleware(
           : {}),
       };
     } finally {
-      // Restore the original pathname so downstream middleware sees the
-      // full URL.
       restoreOriginalPath();
     }
   };
@@ -947,16 +719,6 @@ function registerMiddleware(
   }
 }
 
-/**
- * Auto-mount any default framework plugins that the template doesn't provide.
- *
- * Runs once per nitroApp on the first `getH3App()` call. Uses route-discovery
- * to find which default plugin stems are missing from `server/plugins/`, then
- * dynamically imports and mounts them. If a workspace core is present in the
- * ancestor chain, plugin slots the workspace core exports are mounted from
- * there instead of from @agent-native/core — this is the middle layer of the
- * three-layer inheritance model (app local > workspace core > framework).
- */
 async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
   IN_BOOTSTRAP.add(nitroApp);
   try {
@@ -973,7 +735,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
 
-    // Lazy import to avoid circular dependency at module load time
     const serverModule = await import("./index.js");
     const terminalModule = await import("../terminal/terminal-plugin.js");
     const integrationsModule = await import("../integrations/plugin.js");
@@ -1001,10 +762,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       terminal: (terminalModule as any).defaultTerminalPlugin,
     };
 
-    // Workspace core layer: if the app is inside an enterprise monorepo with
-    // `agent-native.workspaceCore` configured, pull in any plugin slots the
-    // workspace core exports from its server entry. We dynamically import the
-    // workspace core package at runtime.
     let workspaceImpls: Record<
       string,
       ((nitroApp: any) => void | Promise<void>) | undefined
@@ -1033,11 +790,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
           }
         } catch (e) {
           const msg = (e as Error).message ?? "";
-          // Common cause: workspace-core's package.json points "./server"
-          // at a TS source file (the scaffold default), but Node can't
-          // resolve relative `.js` imports inside it without a TS loader.
-          // Tell the user to compile to dist/ rather than just dumping the
-          // raw resolution error.
           const tsLoadHint = /\.js' imported from .*\.ts/.test(msg)
             ? " — workspace-core src is TypeScript but isn't being compiled. " +
               "Run `pnpm --filter " +
@@ -1063,7 +815,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       );
 
     for (const stem of missing) {
-      // Prefer workspace-core impl over framework default when both exist.
       const impl = workspaceImpls[stem] ?? frameworkImpls[stem];
       if (typeof impl === "function") {
         try {
@@ -1077,9 +828,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             route: "default-plugin-bootstrap",
             tags: { phase: "default-plugin-bootstrap", plugin: stem },
           });
-          // A plugin that cannot start is optional; a plugin the deployment
-          // configured wrongly is not. Skipping it leaves the operator with
-          // routes that 404 and a deployment that reported success.
           if (e instanceof AppConfigurationError) throw e;
         }
       }
@@ -1089,25 +837,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
   }
 }
 
-/**
- * Load a workspace-core's `/server` entry, transparently handling TS source.
- *
- * The scaffolded workspace-core template ships TS sources without a build
- * step (exports point at `./src/server/index.ts`), so plain `await import()`
- * blows up the moment Node hits a relative `.js` import inside (the standard
- * TS ESM convention) — and even before that, Node may resolve the package
- * relative to the framework's own location rather than the user's monorepo.
- *
- * We try Node's plain `import()` first (fastest path when the user has
- * compiled to dist/) and fall through to jiti on any error. jiti is anchored
- * to a real file inside the workspace-core's directory, so its module
- * resolution starts in the right node_modules tree (handles pnpm hoisting
- * and linked workspaces) AND handles TS source files + `.js` → `.ts` ESM
- * extension remapping.
- *
- * Edge runtimes without `fs` won't be able to load jiti at all; the outer
- * try/catch silently falls through to framework defaults in that case.
- */
 export async function loadWorkspaceCoreServer(
   packageName: string,
   packageDir: string,
@@ -1123,17 +852,12 @@ export async function loadWorkspaceCoreServer(
     const { createJiti } = await import("jiti");
     const { pathToFileURL } = await import("node:url");
     const path = await import("node:path");
-    // Anchor jiti to a real file inside the workspace-core package so its
-    // module resolution starts in the right node_modules tree (handles pnpm
-    // hoisting and linked workspaces).
     const anchor = pathToFileURL(
       path.join(packageDir, "package.json"),
     ).toString();
     const jiti = createJiti(anchor, { interopDefault: true });
     return await jiti.import(`${packageName}/server`);
   } catch (jitiErr) {
-    // jiti also failed — rethrow the original Node error since it's usually
-    // more informative about *why* the package wasn't resolvable.
     throw firstErr ?? jitiErr;
   }
 }

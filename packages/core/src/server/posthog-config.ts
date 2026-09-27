@@ -1,17 +1,3 @@
-/**
- * Public PostHog config for the browser.
- *
- * PostHog project API keys are publishable — that is how `posthog-js` ships in
- * every customer's bundle — so this mirrors how the Sentry client DSN already
- * reaches the browser: env-derived, identical for every visitor, and therefore
- * safe inside the CDN-cached SSR shell (see `guard:ssr-cache-shell`).
- *
- * The browser sends exceptions straight to PostHog rather than relaying them
- * through `/_agent-native/track`: that route requires a resolved session by
- * design, so relaying would silently drop every signed-out crash — exactly the
- * class of failure that looks like "no errors" instead of "no reporting".
- */
-
 const POSTHOG_DEFAULT_HOST = "https://us.i.posthog.com";
 
 function firstNonEmpty(
@@ -30,13 +16,6 @@ export interface PublicPostHogConfig {
   posthogErrorTracking: boolean;
 }
 
-/**
- * Resolve the browser-facing PostHog config, or `undefined` when none is set.
- *
- * Note this deliberately does NOT fall back to `POSTHOG_API_KEY`: a
- * server-only personal/private key must never be inlined into the public HTML
- * shell. Operators opt into browser capture by setting a public key explicitly.
- */
 export function resolvePublicPostHogConfig(): PublicPostHogConfig | undefined {
   const posthogKey = firstNonEmpty(
     process.env.POSTHOG_PUBLIC_KEY,

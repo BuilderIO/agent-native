@@ -13,14 +13,6 @@ const MAX_OUTPUT_CHARS = 100_000;
 const DEFAULT_MAX_TOOL_CALLS = 32;
 const MAX_TOOL_CALLS = 128;
 
-/**
- * Create the bounded read-only orchestration tool.
- *
- * This deliberately has a separate registry entry from run-code. The latter
- * retains its existing workspace staging and background-execution contract;
- * this entry is for short fan-out, reduction, and aggregation over tools that
- * the host can prove are read-only for the supplied arguments.
- */
 export function createToolOrchestrationEntry(
   getActions: () => Record<string, ActionEntry>,
   options: { evaluator?: SandboxCodeEvaluator } = {},

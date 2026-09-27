@@ -234,13 +234,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
   });
 
-  /**
-   * A live-edit screen keeps its already-loaded iframe when the canvas
-   * remounts, so the replacement instance can see ordinary bridge traffic
-   * before the editor-chrome listener has attached. Runtime inserts must not
-   * flush on that traffic: the board→live drop would otherwise be posted into
-   * an empty document and disappear before the explicit ready handshake.
-   */
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -347,7 +340,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       posted.push(message);
     }) as Window["postMessage"];
 
-    // Queue the command while the canvas has never seen a ready handshake.
     await render({
       requestId: 1,
       transactionId: "move-1",
@@ -395,8 +387,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(0);
 
-    // Ordinary bridge traffic proves the document is reachable, but not that
-    // the editor-chrome message listener is attached yet.
     posted.length = 0;
     await act(async () => {
       window.dispatchEvent(
@@ -872,8 +862,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
           bridgeUrl={bridgeUrl}
           previewToken="ready-recovery-preview-token"
           liveEditCapability="ready-recovery-live-edit-capability"
-          // The editor supplies this only after insert ack while the source
-          // delete request is still awaiting its own ack.
           runtimeStructureTargetTransactionId="move-reload"
           onRuntimeStructureInsertRejected={onRuntimeStructureInsertRejected}
           zoom={100}
@@ -1181,13 +1169,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     ).toEqual([]);
   });
 
-  /**
-   * The recovery above is passive — it needs the frame to speak first. An idle
-   * live-edit frame never does, so an inspector style commit into a canvas
-   * that missed the ready handshake queued forever: the inspector showed the
-   * new value, the running app kept the old one, and nothing reported a
-   * failure. Queueing must now ASK the bridge whether it is there.
-   */
   it("probes the bridge when a style commit has to queue, and delivers it on the reply", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1314,7 +1295,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       probesAfterQueue,
     );
 
-    // The bridge answers the probe — that reply is the readiness proof.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -1400,15 +1380,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(typesOf("style-change")).toHaveLength(0);
   });
 
-  /**
-   * The probe above is only a recovery if it repeats. A frame that is
-   * mid-navigation (or has not attached its bridge listener yet) silently
-   * drops the first probe, and an otherwise-idle frame never speaks again —
-   * so a single fire-and-forget probe strands the queue permanently while
-   * every queued command still reports success. Undo of a live style edit is
-   * the visible case: handleUndo runs, the revert reports sent, and the
-   * running app never changes.
-   */
   it("keeps probing when the frame ignores the first probe, and delivers once it answers", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1486,7 +1457,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       }
     ).__designCanvasSendStyleForScreen!;
 
-    // An undo revert: empty value means "drop the inline override".
     await act(async () => {
       sendStyleChangeForScreen("screen-live", "#card", "borderRadius", "", {
         selectorCandidates: ["#card"],
@@ -1494,7 +1464,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
     expect(typesOf("style-change")).toHaveLength(0);
 
-    // The frame stays silent. The probe must repeat rather than give up.
     await vi.waitFor(
       () => {
         expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(

@@ -35,7 +35,6 @@ export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNa
   readonly isolateHistoryByScope?: boolean;
   readonly adapter?: Omit<CreateAgentKitProtocolAdapterOptions, "operations">;
   readonly operations?: CreateAgentKitProtocolAdapterOptions["operations"];
-  /** Override the framework feedback endpoint for a custom host mount. */
   readonly feedbackUrl?: string;
 }
 
@@ -414,11 +413,6 @@ function scopedThreadEndpoint(
   return query ? `${endpoint}?${query}` : endpoint;
 }
 
-/**
- * Creates the production AgentKit transport for Agent-Native applications.
- * It binds the portable protocol to durable Agent-Native threads, queue
- * persistence, approval continuation, and the built-in streaming endpoint.
- */
 export function createAgentNativeAgentKitTransport(
   options: CreateAgentNativeAgentKitTransportOptions = {},
 ): AgentKitProtocolAdapter {

@@ -42,9 +42,7 @@ function RunStatusDot({ status }: { status: string }) {
       ? "bg-emerald-500"
       : status === "error"
         ? "bg-destructive"
-        : // An interrupted run never reported an outcome, so it reads as
-          // unknown rather than as still making progress.
-          status === "interrupted"
+        : status === "interrupted"
           ? "bg-muted-foreground"
           : "bg-amber-500";
   return <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />;
