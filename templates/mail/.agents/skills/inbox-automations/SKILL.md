@@ -39,11 +39,12 @@ a duplicate. Update a rule with its `id`, revised `sentence`, and `mode` (and
 only hides its tab and never deletes its rule.
 
 For a direct request to add or change one rule, make one `manage-email-rules`
-create/update call and report its result. That path checks Jev access, saves the
-rule, and queues recent-mail application; do not call the backfill/status action
-or `trigger-automations` to finish the same request. A queued result is a
-successful save with work continuing in the background, not a reason to retry
-the rule mutation.
+create/update call and report its structured result. It saves the rule and
+queues recent-mail application before returning; model availability and
+matching run in the background. Do not call the backfill/status action or
+`trigger-automations` to finish the same request. A queued result is a saved
+rule with work continuing in the background, not a reason to retry the rule
+mutation.
 
 For an AI rule that marks matching mail important, use the
 `agent-native-important` label without archiving. For unwanted mail, pair the

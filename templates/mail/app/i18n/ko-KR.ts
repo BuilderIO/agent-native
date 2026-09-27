@@ -573,6 +573,7 @@ const messages = {
       settingsFailed: "AI 필터 설정을 저장하지 못했습니다.",
       automationRulesLoadFailed: "분류 규칙을 불러오지 못했습니다.",
       instructionFailed: "AI 필터 지침을 저장하지 못했습니다.",
+      autoArchiveMode: "자동 보관",
       skipInboxMode: "받은편지함 건너뛰기",
       spamMode: "스팸",
       tagMode: "태그",

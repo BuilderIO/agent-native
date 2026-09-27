@@ -85,13 +85,10 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.createAutomationRule).toHaveBeenCalledWith(
       ownerEmail,
       expect.objectContaining({ domain: "mail", kind: "ai-filter" }),
-      { deferJevAvailabilityCheck: true },
     );
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      ["rule-1"],
-      { alreadyAuthorized: true },
-    );
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
     expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: "rule-1",
@@ -106,14 +103,17 @@ describe("manage-email-rules chat action", () => {
     });
   });
 
-  it("keeps the non-agent action's Jev availability check inline", async () => {
+  it("routes a non-agent AI rule through shared rule creation", async () => {
     await createManageEmailRulesAction(false).run({
       action: "create",
       mode: "important",
       sentence: "Messages from my team lead",
     });
 
-    expect(mocks.createAutomationRule.mock.calls[0]).toHaveLength(2);
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({ kind: "ai-filter" }),
+    );
   });
 
   it("lists rule names and action effects with their mode classification", async () => {
@@ -171,11 +171,9 @@ describe("manage-email-rules chat action", () => {
       actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
     });
 
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      ["rule-1"],
-      { alreadyAuthorized: true },
-    );
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
     expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       appliedCounts: null,
@@ -216,13 +214,10 @@ describe("manage-email-rules chat action", () => {
         kind: "ai-filter",
         actions: [{ type: "archive" }],
       }),
-      { deferJevAvailabilityCheck: true },
     );
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      ["rule-1"],
-      { alreadyAuthorized: true },
-    );
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
     expect(result).toMatchObject({ mode: "archive", operation: "update" });
   });
 
@@ -251,11 +246,9 @@ describe("manage-email-rules chat action", () => {
       condition: "from the team about planning",
     });
 
-    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      ["rule-1"],
-      { alreadyAuthorized: true },
-    );
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
     expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       operation: "update",
@@ -331,7 +324,6 @@ describe("manage-email-rules chat action", () => {
         actions: [{ type: "label", labelName: "agent-native-important" }],
         kind: "ai-filter",
       }),
-      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({
       mode: "important",
@@ -360,7 +352,6 @@ describe("manage-email-rules chat action", () => {
         actions: [{ type: "label", labelName: "Receipts" }],
         kind: "ai-filter",
       }),
-      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
   });
@@ -382,7 +373,6 @@ describe("manage-email-rules chat action", () => {
         ],
         kind: "ai-filter",
       }),
-      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({
       mode: "filter",
@@ -435,7 +425,6 @@ describe("manage-email-rules chat action", () => {
           { type: "archive" },
         ],
       }),
-      { deferJevAvailabilityCheck: true },
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
   });

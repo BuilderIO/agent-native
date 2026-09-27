@@ -340,7 +340,7 @@ describe("tool-call result ledger", () => {
     );
   });
 
-  it("waits briefly for a late zombie ledger result before re-executing", async () => {
+  it("recovers a timed out write from its late zombie ledger result", async () => {
     readLedgerMock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ result: "late zombie result", artifacts: [] });
@@ -374,7 +374,8 @@ describe("tool-call result ledger", () => {
               toolCallId: "orig-late",
               toolName: "save-data",
               toolInput: '{"content":"slow"}',
-              content: "Interrupted before this tool returned a result.",
+              content:
+                "Error running save-data: Tool call timed out after 12 seconds",
             },
           ],
         },
@@ -515,11 +516,12 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.result).toContain("Already completed");
   });
 
-  it("executes normally when the ledger has no entry for the tool input", async () => {
+  it("does not retry an interrupted write when its result is missing from the ledger", async () => {
     readLedgerMock.mockResolvedValue(null);
 
     const action = makeWriteAction();
     (action.run as ReturnType<typeof vi.fn>).mockResolvedValue("fresh-result");
+    const events: any[] = [];
 
     await runAgentLoop({
       engine: singleToolEngine("save-data", { content: "different-payload" }),
@@ -562,12 +564,20 @@ describe("tool-call result ledger", () => {
         },
       ],
       actions: { "save-data": action },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
       threadId: "thread-resume-no-match",
     });
 
-    expect(action.run).toHaveBeenCalledOnce();
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("could not recover its result"),
+      }),
+    );
   });
 
   it("records a write tool rejected by a run abort as interrupted, not failed", async () => {

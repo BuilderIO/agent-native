@@ -578,6 +578,7 @@ const messages = {
       settingsFailed: "AI フィルターの設定を保存できませんでした。",
       automationRulesLoadFailed: "トリアージルールを読み込めませんでした。",
       instructionFailed: "AI フィルターの指示を保存できませんでした。",
+      autoArchiveMode: "自動アーカイブ",
       skipInboxMode: "受信トレイをスキップ",
       spamMode: "スパム",
       tagMode: "タグ",

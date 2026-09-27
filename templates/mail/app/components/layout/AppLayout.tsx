@@ -345,9 +345,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       suggestions={[
-        t("mail.aiFilter.chatSuggestionFilter"),
-        t("mail.aiFilter.chatSuggestionPriority"),
-        t("mail.aiFilter.chatSuggestionArchive"),
+        t("mail.sort.aiSetupImportantExample"),
+        t("mail.sort.aiSetupArchiveExample"),
+        t("mail.sort.aiSetupFilteredExample"),
       ]}
     >
       {content}
@@ -574,11 +574,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return [...tags.values()];
   }, [automations, labels]);
   const aiTagDisplayNames = useMemo(
-    () =>
-      new Map(
-        aiTags.map((tag) => [tag.id, labelAliases[tag.id]?.trim() || tag.name]),
-      ),
-    [aiTags, labelAliases],
+    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
+    [aiTags],
   );
   const hasFilteredRule = automations.some(
     (rule) =>
@@ -791,15 +788,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const dataTabs = useMemo<RenderedTab[]>(() => {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
+      const aiTagName = aiTagDisplayNames.get(tab.id);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
         filterId: tab.kind === "filter" ? tab.id : undefined,
         label:
-          tab.kind === "all"
-            ? t("mail.views.all")
-            : (aiTagDisplayNames.get(tab.id) ?? tab.name),
-        fullLabel: label?.name,
+          tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
+        fullLabel: aiTagName ?? label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,

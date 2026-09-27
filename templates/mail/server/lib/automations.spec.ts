@@ -109,11 +109,6 @@ const dbMock = vi.hoisted(() => {
   };
 });
 
-const jevMocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
-  isJevEnabled: vi.fn(),
-}));
-
 const settingsMocks = vi.hoisted(() => {
   const values = new Map<string, unknown>();
   const getUserSetting = vi.fn(async (_owner: string, key: string) =>
@@ -139,7 +134,8 @@ const providerMocks = vi.hoisted(() => ({
   readCachedLabels: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ op: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ op: "eq", column, value }),
   inArray: (column: unknown, values: unknown[]) => ({
@@ -158,11 +154,6 @@ vi.mock("@agent-native/core/action", () => ({
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
-}));
-
-vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: jevMocks.getJevContextCredentials,
-  isJevEnabled: jevMocks.isJevEnabled,
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -252,12 +243,6 @@ beforeEach(() => {
   settingsMocks.values.clear();
   settingsMocks.getUserSetting.mockClear();
   settingsMocks.mutateUserSetting.mockClear();
-  jevMocks.getJevContextCredentials.mockClear();
-  jevMocks.isJevEnabled.mockClear();
-  jevMocks.getJevContextCredentials.mockResolvedValue({
-    ownerEmail: "owner@example.test",
-  });
-  jevMocks.isJevEnabled.mockResolvedValue(true);
   providerMocks.getClientsWithErrors.mockResolvedValue({
     clients: [],
     errors: [],
@@ -267,21 +252,16 @@ beforeEach(() => {
 });
 
 describe("createAutomationRule AI tags", () => {
-  it("can defer Jev availability checks to queued rule processing", async () => {
-    const rule = await createAutomationRule(
-      "owner@example.test",
-      {
-        name: "AI important: team lead",
-        condition: "Messages from my team lead",
-        actions: [{ type: "label", labelName: "agent-native-important" }],
-        domain: "mail",
-        kind: "ai-filter",
-      },
-      { deferJevAvailabilityCheck: true },
-    );
+  it("saves an AI rule without synchronously resolving its model", async () => {
+    const created = await createAutomationRule("owner@example.test", {
+      name: "AI important: team lead",
+      condition: "Messages from my team lead",
+      actions: [{ type: "label", labelName: "agent-native-important" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
 
-    expect(rule.enabled).toBe(true);
-    expect(jevMocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(created.enabled).toBe(true);
     expect(dbMock.calls.insertValues).toHaveLength(1);
   });
 
@@ -634,73 +614,23 @@ describe("consolidateAutomationRules", () => {
     },
   );
 
-  it("requires Jev to edit an AI-filter rule", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
-    await expect(
-      updateAutomationRule("owner@example.test", "keep", {
-        condition: "Changed prompt",
-      }),
-    ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
-
-    expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-  });
-
-  it("can defer Jev availability checks for agent-managed edits", async () => {
-    await updateAutomationRule(
-      "owner@example.test",
-      "keep",
-      { condition: "Messages from the new team lead" },
-      { deferJevAvailabilityCheck: true },
-    );
-
-    expect(jevMocks.getJevContextCredentials).not.toHaveBeenCalled();
-    expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
-      condition: "Messages from the new team lead",
-    });
-  });
-
-  it.each([
-    ["kind", { kind: "automation" as const, condition: "Changed prompt" }],
-    ["domain", { domain: "calendar", condition: "Changed prompt" }],
-  ])(
-    "requires Jev before downgrading an AI-filter rule by %s",
-    async (_field, patch) => {
-      jevMocks.isJevEnabled.mockResolvedValue(false);
-
-      await expect(
-        updateAutomationRule("owner@example.test", "keep", patch),
-      ).rejects.toMatchObject({
-        errorCode: "jev_not_enabled",
-        statusCode: 403,
-      });
-
-      expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-    },
-  );
-
-  it("allows disabling an AI-filter rule when Jev is unavailable", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
+  it("updates an AI-filter rule without synchronously resolving its model", async () => {
     await updateAutomationRule("owner@example.test", "keep", {
-      enabled: false,
+      condition: "Changed prompt",
     });
 
-    expect(jevMocks.isJevEnabled).not.toHaveBeenCalled();
-    expect(dbMock.calls.rootUpdateValues).toEqual([
-      { enabled: 0, updatedAt: expect.any(Number) },
-    ]);
+    expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
+      condition: "Changed prompt",
+    });
   });
 
-  it("does not require Jev to edit a regular automation", async () => {
+  it("does not require a Mail AI model to edit a regular automation", async () => {
     dbMock.calls.rootRows[0].kind = "automation";
-    jevMocks.isJevEnabled.mockResolvedValue(false);
 
     await updateAutomationRule("owner@example.test", "keep", {
       condition: "Changed prompt",
     });
 
-    expect(jevMocks.isJevEnabled).not.toHaveBeenCalled();
     expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
       condition: "Changed prompt",
     });
@@ -733,22 +663,5 @@ describe("consolidateAutomationRules", () => {
     });
 
     expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-  });
-
-  it("requires Jev before consolidating AI-filter rules", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
-    await expect(
-      consolidateAutomationRules("owner@example.test", {
-        id: "keep",
-        duplicateIds: ["duplicate"],
-        expectedRules: expectedRules(),
-        name: "Updated",
-        condition: "Updated prompt",
-        actions: [{ type: "label", labelName: "agent-native-important" }],
-      }),
-    ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
-
-    expect(dbMock.db.transaction).not.toHaveBeenCalled();
   });
 });

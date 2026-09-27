@@ -573,6 +573,7 @@ const messages = {
       settingsFailed: "تعذّر حفظ إعدادات فلتر الذكاء الاصطناعي.",
       automationRulesLoadFailed: "تعذّر تحميل قواعد الفرز.",
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
+      autoArchiveMode: "أرشفة تلقائية",
       skipInboxMode: "تجاوز صندوق الوارد",
       spamMode: "مزعج",
       tagMode: "وسم",

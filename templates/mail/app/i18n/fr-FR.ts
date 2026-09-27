@@ -589,6 +589,7 @@ const messages = {
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
       automationRulesLoadFailed: "Impossible de charger les règles de tri.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      autoArchiveMode: "Archivage automatique",
       skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
       tagMode: "Tag",

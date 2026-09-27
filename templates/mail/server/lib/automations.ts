@@ -290,16 +290,12 @@ export async function createAutomationRule(
     kind?: "automation" | "ai-filter";
     enabled?: boolean;
   },
-  options: { deferJevAvailabilityCheck?: boolean } = {},
 ): Promise<AutomationRule> {
   const domain = input.domain ?? "mail";
   const kind = input.kind ?? "automation";
   let existingTagIds = new Set<string>();
   let hadFilteredRule = false;
   if (domain === "mail" && kind === "ai-filter") {
-    if (!options.deferJevAvailabilityCheck) {
-      await assertMailJevEnabled(ownerEmail);
-    }
     assertAiFilterActions(input.actions);
     const tagLabel = aiTagLabel(domain, kind, input.actions);
     const mode = aiFilterRuleMode({ actions: input.actions });
@@ -356,7 +352,6 @@ export async function updateAutomationRule(
     domain?: string;
     kind?: "automation" | "ai-filter";
   },
-  options: { deferJevAvailabilityCheck?: boolean } = {},
 ): Promise<AutomationRule> {
   const [existing] = await db
     .select()
@@ -364,21 +359,11 @@ export async function updateAutomationRule(
     .where(ownedRule(ownerEmail, id));
   if (!existing) throw new Error("Rule not found");
 
-  const existingIsMailAiFilter =
-    existing.domain === "mail" &&
-    (existing.kind ?? "automation") === "ai-filter";
   const nextDomain = patch.domain ?? existing.domain;
   const nextKind = patch.kind ?? existing.kind ?? "automation";
   const disableOnly =
     Object.keys(patch).length === 1 && patch.enabled === false;
   const nextIsMailAiFilter = nextDomain === "mail" && nextKind === "ai-filter";
-  if (
-    (existingIsMailAiFilter || nextIsMailAiFilter) &&
-    !disableOnly &&
-    !options.deferJevAvailabilityCheck
-  ) {
-    await assertMailJevEnabled(ownerEmail);
-  }
   const nextActions =
     patch.actions ?? (JSON.parse(existing.actions) as AutomationAction[]);
   if (nextIsMailAiFilter && !disableOnly) {
@@ -485,7 +470,6 @@ export async function consolidateAutomationRules(
     actions: AutomationAction[];
   },
 ): Promise<boolean> {
-  await assertMailJevEnabled(ownerEmail);
   assertAiFilterActions(input.actions);
   const ids = [input.id, ...input.duplicateIds];
   if (new Set(ids).size !== ids.length) return false;

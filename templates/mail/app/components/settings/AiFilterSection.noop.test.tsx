@@ -295,7 +295,7 @@ describe("AiFilterSection", () => {
     ).toBe("true");
   });
 
-  it("styles Filtered management as a row and shows rule sentences on two lines", () => {
+  it("uses a styled Filtered disclosure button and wraps rule sentences", () => {
     const condition =
       "Unsolicited promotional offers from senders I have never replied to";
     mocks.rules = [
@@ -312,12 +312,27 @@ describe("AiFilterSection", () => {
     ];
     renderSection();
 
-    const summary = screen
-      .getByText("mail.aiFilter.manageSettings")
-      .closest("summary");
-    expect(summary?.className).toContain("list-none");
-    expect(summary?.querySelector("svg")).not.toBeNull();
-    expect(screen.getByText(condition).className).toContain("line-clamp-2");
+    const disclosure = screen.getByRole("button", {
+      name: "mail.aiFilter.manageSettings",
+    });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure.getAttribute("aria-controls")).toBe(
+      "ai-filter-management-settings",
+    );
+    expect(document.querySelector("details, summary")).toBeNull();
+    expect(disclosure.querySelector("svg")).not.toBeNull();
+
+    const ruleSentence = screen.getByText(condition);
+    expect(ruleSentence.className).toContain("line-clamp-2");
+    expect(ruleSentence.className).not.toContain("truncate");
+
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document
+        .getElementById("ai-filter-management-settings")
+        ?.hasAttribute("hidden"),
+    ).toBe(false);
   });
 
   it.each([
@@ -329,7 +344,7 @@ describe("AiFilterSection", () => {
     renderSection();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
     );
     fireEvent.focus(
       screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }),

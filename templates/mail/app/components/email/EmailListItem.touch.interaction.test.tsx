@@ -107,12 +107,40 @@ describe("EmailListItem touch swipe interactions", () => {
   });
 
   it("hides scores while keeping importance feedback available", () => {
-    const { row } = renderRow({ onImportanceFeedback: vi.fn() });
+    const labelId = "Label_Important";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    const { row } = renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([[labelId, "agent-native-important"]]),
+      onImportanceFeedback: vi.fn(),
+    });
 
     expect(row.textContent).not.toMatch(/\b0\.\d+\b/);
+    expect(row.textContent).not.toContain("agent-native-important");
+    const marker = screen.getByText("mail.aiFilter.importantMode");
+    expect(marker.classList.contains("bg-muted")).toBe(true);
+    expect(marker.classList.contains("text-muted-foreground")).toBe(true);
     expect(
       screen.getByRole("button", { name: "mail.sort.priorityFeedbackLabel" }),
     ).toBeTruthy();
+  });
+
+  it("sizes the automated notifications label to its full text", () => {
+    const labelId = "label:automated-notifications";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([
+        [labelId, "[Superhuman]/AI/Automated_notifications"],
+      ]),
+    });
+
+    const label = screen.getByText("automated notifications");
+    expect(label.textContent).toBe("automated notifications");
+    expect((label as HTMLElement).style.maxWidth).toBe("max-content");
+    expect(label.classList.contains("shrink-0")).toBe(true);
   });
 
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {

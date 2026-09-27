@@ -584,6 +584,7 @@ const messages = {
       automationRulesLoadFailed:
         "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      autoArchiveMode: "Arquivar automaticamente",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
       tagMode: "Tag",

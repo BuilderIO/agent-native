@@ -464,6 +464,7 @@ export function AiFilterSection() {
   const [newRuleCondition, setNewRuleCondition] = useState("");
   const [newRuleTagName, setNewRuleTagName] = useState("");
   const [savingNewRule, setSavingNewRule] = useState(false);
+  const [manageSettingsOpen, setManageSettingsOpen] = useState(false);
   const [thresholdDraft, setThresholdDraft] = useState("92");
   const [setupAgainOpen, setSetupAgainOpen] = useState(false);
   const [queueingBackfillRuleId, setQueueingBackfillRuleId] = useState<
@@ -1036,12 +1037,24 @@ export function AiFilterSection() {
                       );
                     })}
                     {mode === "filtered" && (
-                      <details className="group border-t border-border/40">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                      <div className="border-t border-border/40">
+                        <button
+                          type="button"
+                          aria-expanded={manageSettingsOpen}
+                          aria-controls="ai-filter-management-settings"
+                          onClick={() => setManageSettingsOpen((open) => !open)}
+                          className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium text-foreground"
+                        >
                           {t("mail.aiFilter.manageSettings")}
-                          <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-                        </summary>
-                        <div className="space-y-4 border-t border-border/40 p-3">
+                          <IconChevronDown
+                            className={`size-4 shrink-0 text-muted-foreground transition-transform ${manageSettingsOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <div
+                          id="ai-filter-management-settings"
+                          hidden={!manageSettingsOpen}
+                          className="space-y-4 border-t border-border/40 p-3"
+                        >
                           <div className="flex items-center justify-between gap-4">
                             <span className="text-sm font-medium text-foreground">
                               {t("mail.aiFilter.autoFilterTitle")}
@@ -1146,7 +1159,7 @@ export function AiFilterSection() {
                             )}
                           </div>
                         </div>
-                      </details>
+                      </div>
                     )}
                   </div>
                 </section>

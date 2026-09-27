@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
+import { mailLabelMatches } from "@shared/gmail-labels";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -556,15 +558,32 @@ export const EmailListItem = memo(function EmailListItem({
         {displayLabels.length > 0 && (
           <div className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
-              const style = getLabelStyle(labelId);
               const labelName =
                 labelNames?.get(labelId) ??
                 labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-              const displayName = mailLabelDisplayName(labelName);
+              const isAiImportant = mailLabelMatches(
+                labelName,
+                AI_IMPORTANT_LABEL,
+              );
+              const style = isAiImportant
+                ? { bg: "bg-muted", text: "text-muted-foreground" }
+                : getLabelStyle(labelId);
+              const displayName = isAiImportant
+                ? t("mail.aiFilter.importantMode")
+                : mailLabelDisplayName(labelName);
+              const sizeToContent = displayName === "automated notifications";
               return (
                 <span
                   key={labelId}
-                  className={cn("label-badge", style.bg, style.text)}
+                  className={cn(
+                    "label-badge",
+                    sizeToContent && "shrink-0",
+                    style.bg,
+                    style.text,
+                  )}
+                  style={
+                    sizeToContent ? { maxWidth: "max-content" } : undefined
+                  }
                 >
                   {displayName}
                 </span>

@@ -556,6 +556,7 @@ const messages = {
       settingsFailed: "无法保存 AI 筛选设置。",
       automationRulesLoadFailed: "无法加载分流规则。",
       instructionFailed: "无法保存 AI 筛选指令。",
+      autoArchiveMode: "自动归档",
       skipInboxMode: "跳过收件箱",
       spamMode: "垃圾邮件",
       tagMode: "标签",

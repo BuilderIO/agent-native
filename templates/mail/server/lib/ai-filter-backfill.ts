@@ -42,7 +42,7 @@ import {
   evaluateAiFilterBackfillRules,
   type RuleMatch,
 } from "./automation-engine.js";
-import { assertMailJevEnabled, listAutomationRules } from "./automations.js";
+import { listAutomationRules } from "./automations.js";
 import {
   gmailBatchGetThreads,
   gmailGetThread,
@@ -339,10 +339,8 @@ function assertUniqueRuleIds(ruleIds?: string[]): void {
 export async function startMailAiFilterBackfill(
   ownerEmail: string,
   ruleIds?: string[],
-  options: { alreadyAuthorized?: boolean } = {},
 ): Promise<{ runId: string; status: "queued" }> {
   assertUniqueRuleIds(ruleIds);
-  if (!options.alreadyAuthorized) await assertMailJevEnabled(ownerEmail);
   const aiFilterState = await getAiFilterState(ownerEmail);
   if (!aiFilterState.enabled) {
     fail("Mail AI filtering is disabled. Enable it before applying rules.", {
@@ -387,7 +385,6 @@ export async function startMailAiFilterBackfill(
       },
     );
   }
-
   const validatedRules = eligible.map((rule) => {
     const parsed = automationActionSchema.array().safeParse(rule.actions);
     if (!parsed.success) {
@@ -1475,7 +1472,6 @@ async function processRunningBatch(
   state: BackfillState,
 ): Promise<void> {
   const ownerEmail = row.ownerEmail;
-  await assertMailJevEnabled(ownerEmail);
   if (!(await getAiFilterState(ownerEmail)).enabled)
     throw new Error("Mail AI filtering was disabled during this run.");
   const currentRules = await listAutomationRules(ownerEmail);

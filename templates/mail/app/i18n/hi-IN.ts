@@ -572,6 +572,7 @@ const messages = {
       settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
       automationRulesLoadFailed: "ट्रायेज नियम लोड नहीं हो सके।",
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
+      autoArchiveMode: "अपने आप संग्रहित करें",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
       tagMode: "टैग",

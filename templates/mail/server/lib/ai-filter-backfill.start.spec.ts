@@ -156,7 +156,6 @@ const mocks = vi.hoisted(() => ({
   emails: [] as Array<Record<string, any>>,
   getAiFilterState: vi.fn(),
   listAutomationRules: vi.fn(),
-  assertMailJevEnabled: vi.fn(),
   getClientsWithErrors: vi.fn(),
   readLocalEmails: vi.fn(),
   withLocalEmailMutationLock: vi.fn(),
@@ -209,7 +208,6 @@ vi.mock("./automation-engine.js", () => ({
   evaluateAiFilterBackfillRules: mocks.evaluateAiFilterBackfillRules,
 }));
 vi.mock("./automations.js", () => ({
-  assertMailJevEnabled: mocks.assertMailJevEnabled,
   listAutomationRules: mocks.listAutomationRules,
 }));
 vi.mock("./automation-actions.js", () => ({
@@ -379,7 +377,6 @@ describe("startMailAiFilterBackfill", () => {
       suggestionThreshold: 0.7,
       feedback: [],
     });
-    mocks.assertMailJevEnabled.mockResolvedValue(undefined);
     mocks.listAutomationRules.mockImplementation(async () => mocks.rules);
     mocks.getClientsWithErrors.mockResolvedValue({ clients: [], errors: [] });
     mocks.readLocalEmails.mockImplementation(async () =>
@@ -400,32 +397,12 @@ describe("startMailAiFilterBackfill", () => {
     mocks.ensureGmailLabel.mockResolvedValue("label-id");
   });
 
-  it("keeps direct starts behind the Jev entitlement check", async () => {
-    mocks.assertMailJevEnabled.mockRejectedValueOnce(
-      Object.assign(new Error("Jev is disabled."), {
-        errorCode: "jev_disabled",
-        statusCode: 403,
-      }),
-    );
-
-    await expect(startMailAiFilterBackfill(ownerEmail)).rejects.toMatchObject({
-      errorCode: "jev_disabled",
-      statusCode: 403,
-    });
-
-    expect(mocks.assertMailJevEnabled).toHaveBeenCalledWith(ownerEmail);
-    expect(database.rows).toHaveLength(0);
-  });
-
-  it("skips a duplicate entitlement check for an already authorized rule save", async () => {
+  it("queues without synchronously resolving model availability", async () => {
     mocks.rules = [rule("rule-a")];
 
-    const result = await startMailAiFilterBackfill(ownerEmail, ["rule-a"], {
-      alreadyAuthorized: true,
-    });
+    const result = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
 
     expect(result).toMatchObject({ status: "queued" });
-    expect(mocks.assertMailJevEnabled).not.toHaveBeenCalled();
     expect(database.rows).toHaveLength(1);
   });
 

@@ -554,6 +554,7 @@ const messages = {
       settingsFailed: "無法儲存 AI 篩選設定。",
       automationRulesLoadFailed: "無法載入分類規則。",
       instructionFailed: "無法儲存 AI 篩選指示。",
+      autoArchiveMode: "自動封存",
       skipInboxMode: "略過收件匣",
       spamMode: "垃圾郵件",
       tagMode: "標籤",

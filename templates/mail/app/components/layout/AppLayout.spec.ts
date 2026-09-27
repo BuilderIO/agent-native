@@ -119,15 +119,21 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("mergeOptimisticInboxTabCounts(");
     expect(source).toContain("return inboxTabs.map((tab) => {");
     expect(source).toContain("href: inboxTabHref(tab.id)");
-    expect(source).toContain("aiTagDisplayNames.get(tab.id) ?? tab.name");
+    expect(source).toContain("const aiTagName = aiTagDisplayNames.get(tab.id)");
+    expect(source).toContain(
+      "new Map(aiTags.map((tag) => [tag.id, tag.name]))",
+    );
+    expect(source).toContain("fullLabel: aiTagName ?? label?.name");
     expect(source).toContain("labelAliases[tag.id]?.trim() || tag.name");
-    expect(source).toContain("fullLabel: label?.name");
     expect(source).toContain(
       "label={labelAliases[tag.id]?.trim() || tag.name}",
     );
-    expect(source).toContain('t("mail.aiFilter.chatSuggestionFilter")');
-    expect(source).toContain('t("mail.aiFilter.chatSuggestionPriority")');
-    expect(source).toContain('t("mail.aiFilter.chatSuggestionArchive")');
+    expect(source).toContain('t("mail.sort.aiSetupImportantExample")');
+    expect(source).toContain('t("mail.sort.aiSetupArchiveExample")');
+    expect(source).toContain('t("mail.sort.aiSetupFilteredExample")');
+    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionFilter")');
+    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionPriority")');
+    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionArchive")');
     expect(source).toContain("hasFilteredRule || hasFilteredLabel");
     expect(source).toContain("allTabVisible={showAllTab}");
     expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
@@ -378,7 +384,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
 
-  it("keeps Filtered available from any connected account or an explicit pin", () => {
+  it("exposes Filtered as a system view when its rule, label, or pin exists", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
@@ -394,6 +400,12 @@ describe("AppLayout inbox tab bar", () => {
     );
     expect(source).toContain(
       "hasFilteredRule || hasFilteredLabel || hasFilteredPin",
+    );
+    expect(source).toContain(
+      'id: AI_FILTER_LABEL, labelKey: "mail.aiFilter.filteredMode"',
+    );
+    expect(source).toContain(
+      "return pinnedLabels .filter((id) => systemViews.some((v) => v.id === id))",
     );
   });
 

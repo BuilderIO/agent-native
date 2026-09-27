@@ -586,6 +586,7 @@ const messages = {
       automationRulesLoadFailed:
         "No se pudieron cargar las reglas de clasificación.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
+      autoArchiveMode: "Archivar automáticamente",
       skipInboxMode: "Omitir bandeja de entrada",
       spamMode: "Spam",
       tagMode: "Etiqueta",

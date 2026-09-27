@@ -575,6 +575,7 @@ const messages = {
       settingsFailed: "Could not save AI filter settings.",
       automationRulesLoadFailed: "Couldn’t load triage rules.",
       instructionFailed: "Could not save AI filter instruction.",
+      autoArchiveMode: "Auto-archive",
       skipInboxMode: "Skip inbox",
       spamMode: "Spam",
       tagMode: "Tag",
