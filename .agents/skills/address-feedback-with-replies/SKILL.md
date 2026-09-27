@@ -48,15 +48,16 @@ mistaken reply, delete that reply when safe; otherwise edit it to one brief
 New messages must pass the clear-bug gate before any external write.
 
 Use the disposition-specific reaction contract from `review-latest-feedback`:
-`✅` is only for verified **Fixed**, **Shipped**, or **Live verified**. Other
-terminal dispositions keep `👀` without `✅`. Never remove Slack reactions.
+add `👀` when claiming and `✅` only after a verified fix. Reactions are never
+removed; newer thread evidence determines the current disposition.
 
 Every eye enters the ledger; it marks a claimed report and remains after work
 is blocked or terminal. Follow `review-latest-feedback` for ownership: claim
 before code investigation and keep the eye while reporter input blocks work or
 when no safe fix exists. Before finishing, re-read each claim and record its
 reply or disposition. A reply or source change never means **Fixed**; add `✅`
-only for verified fixes. Preserve foreign eyes.
+only for verified fixes. Preserve foreign eyes; confirm current ownership from
+the thread or linked work, since an eye alone records a past claim.
 
 ## Prerequisites
 
@@ -260,7 +261,8 @@ non-repeating question only if one specific required detail still blocks it.
    audit the reply ledger: for every claimed parent, record the optional
    invoking-user reply timestamp, disposition, and eye state. Use the states in
    the contract above, with a reason; silent terminal states have no timestamp.
-   Record **Owned elsewhere** for a foreign eye without mutating it. Record
+   Record **Owned elsewhere** only when the latest thread update or linked work
+   confirms another active owner; preserve foreign eyes. Record
    out-of-scope and non-owning **Clustered** rows with our eye retained and no
    added reaction or reply. Do not create questions for out-of-scope items.
    If any participant replies after the post, re-read the entire thread again

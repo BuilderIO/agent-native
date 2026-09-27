@@ -21,6 +21,7 @@ out of scope. Do not exclude Design feedback just because it is visual or
 subjective. If another agent or owner is already handling a report, leave it
 with that owner. If a previous run mistakenly claimed an out-of-scope item,
 keep our `👀`, add no other reaction, and do not post a compensating reply.
+Never remove reactions; newer thread evidence determines its current status.
 
 ## Choose the fix altitude
 

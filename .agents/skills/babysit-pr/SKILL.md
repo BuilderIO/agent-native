@@ -207,7 +207,8 @@ verified **Live verified** result with `✅` (reply only when informative), or a
 non-fixed terminal ledger disposition with its existing `👀` before merge
 (`✅` only for **Fixed**, **Shipped**, or **Live verified**). An
 active/evidence-limited disposition or a reply without one of those outcomes
-blocks merge; the eye remains on every claimed item.
+blocks merge; the eye remains on every claimed item. Reactions are append-only;
+newer thread evidence controls the current disposition.
 Evidence-limited or active dispositions retain the workflow's eye; it remains
 after resolution. Silent terminal
 states need no reply. If a connector is unavailable, record it as unavailable

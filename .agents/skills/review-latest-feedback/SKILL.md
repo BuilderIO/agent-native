@@ -46,9 +46,10 @@ every actionable defect in that parent has a verified fix.
 
 ### Checkmark gate
 
-Use `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
-Phase 2's four bars. A read, claim, review, assignment, code change, test, or
-PR queue is not closure; other terminal states keep `👀` without `✅`.
+Add `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
+Phase 2's four bars. It records a verified fix at that time; newer thread
+evidence controls the current disposition. A read, claim, review, assignment,
+code change, test, or PR queue is not closure.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -65,14 +66,15 @@ Slack reply:
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Use `✅` only for
-  verified fixes; other terminal dispositions keep `👀` without `✅`.
+  **Clustered**, or **Abandoned - no answer in 4 days**. Add `✅` only for
+  verified fixes.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
-- **Foreign ownership:** **Owned elsewhere**; preserve their eye.
+- **Foreign ownership:** **Owned elsewhere** only when the latest thread update
+  or linked work confirms another active owner; an eye alone is claim history.
 
 After source merge, **Fixed** is terminal; track publication, beta, and live
 work separately. Link follow-ups with the original issue, target package/
@@ -80,8 +82,8 @@ release/runtime, owner, and verification command or URL. Do not rediscover or
 reopen closed fixes through open-issue scans. **Clustered** closes one row but
 retains it.
 
-Never delete a foreign eye; record **Owned elsewhere** and preserve it as a
-blocker when needed.
+Preserve foreign eyes. Do not treat them as an active-work lock without a
+current thread update or linked work confirming the other owner.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
 parent is older than 5 days. Use its oldest timestamp as the recap cursor.
@@ -98,14 +100,17 @@ Add `👀` to every intended item and read reactions back before investigation.
 Claim all actionable reports, including carried-over parents, without adding a
 second reaction.
 
-Keep existing reactions. If new evidence reopens a verified item, record its
-current disposition. Add `👀` when claiming and `✅` only after a verified fix.
+Reactions are append-only: add `👀` when claiming and `✅` only after a verified
+fix. Newer thread evidence can reopen a checked item; update its disposition
+without removing either reaction.
 
 Claiming only marks work; it does not investigate or reply. Search-discovered
 work gets the same eye-first read-back. Do not claim items that are already
 classified as out of scope. If an item is later found out of scope after being
-claimed, keep `👀`, record **Skipped**, and add no reaction or message. Preserve
-foreign eyes and stop on unverified reactions.
+claimed, keep `👀`, record **Skipped**, and add no reaction or message. New
+evidence or a current `:upvote:` can restore scope after any non-fixed terminal
+disposition; continue on the existing eye. Preserve foreign eyes and verify
+reaction ownership before any change.
 
 Give each claim a disposition and recap row; reply only with informative
 outcomes. Cluster fresh repeats for Phase 2.
@@ -146,12 +151,11 @@ Also search for the invoking identity's eye-marked parents before applying the
 disclosure filter:
 
 ```
-slack_search: hasmy::eyes: -hasmy::white_check_mark: in:<#CHANNEL>
+slack_search: hasmy::eyes: in:<#CHANNEL>
 ```
 
-The emoji-delimited modifiers are required. They scope the search to messages
-with the connected identity's eye and without its completion checkmark. Do not
-replace them with emoji text searches.
+This includes checked claims so newer thread evidence can reopen them. Do not
+replace the emoji-delimited modifier with an emoji text search.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
@@ -202,8 +206,8 @@ disclosure string, not a display name, and never omit it from a reply.
 ## Classification rules
 
 Phase 0 applies these from parent-level evidence to decide what to claim.
-Phase 2 re-applies them once the full thread is read. Never remove a reaction;
-keep `👀` on every claimed item.
+Phase 2 reapplies these rules after full-thread review; keep the eye and follow
+Phase 0's checkmark rule.
 
 Use the workspace's product feedback channel; here that is
 `#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
@@ -268,12 +272,11 @@ Run an unbounded reaction search across identities as well:
 slack_search: has:reaction in:<#CHANNEL>
 ```
 
-Read each matching parent and its reaction metadata. Use other valid workflow
-identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. The `hasmy::eyes: -hasmy::white_check_mark:` cursor optimizes
-the current identity's scan but is never the only cursor. Keep claimed items
-and their dispositions in the worklist; resume non-fixed terminal items only
-when new evidence changes the disposition.
+Read matching parents and reaction metadata. An eye from another identity is
+claim history; mark **Owned elsewhere** only when a recent thread update or
+linked work confirms active ownership. The `hasmy::eyes:` cursor finds all
+claims, not an active-work queue. Resume a terminal item when newer evidence
+changes its scope.
 
 Group repeat symptoms into one cluster with one owning investigation; the
 repeat gate in Phase 2 owns how they are worked.
