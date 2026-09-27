@@ -2919,6 +2919,51 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("keeps the projected chat UI result on the completed tool message", async () => {
+    const rawResult = JSON.stringify({
+      sent: true,
+      providerResponse: "internal",
+    });
+    const chatUIResult = {
+      messageId: "message-1",
+      recipient: "ana@example.test",
+    };
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "send-1",
+            tool: "send-email",
+            input: { to: "ana@example.test" },
+          },
+          {
+            type: "tool_done",
+            id: "send-1",
+            tool: "send-email",
+            result: rawResult,
+            chatUI: { renderer: "mail.email-sent" },
+            chatUIResult,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-chat-ui-result",
+      ),
+    );
+
+    expect(results.at(-1)?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "send-1",
+        result: rawResult,
+        chatUI: { renderer: "mail.email-sent" },
+        chatUIResult,
+      }),
+    );
+  });
+
   it("preserves an activity call id across repeated progress and tool completion", async () => {
     const results = await drain(
       readSSEStream(

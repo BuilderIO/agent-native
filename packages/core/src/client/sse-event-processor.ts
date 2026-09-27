@@ -55,6 +55,7 @@ export type ContentPart =
       artifacts?: ArtifactReceipt[];
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
+      chatUIResult?: unknown;
       activity?: boolean;
       repeatCount?: number;
       /**
@@ -1926,6 +1927,9 @@ export function processEvent(
         }
         if (ev.mcpApp) part.mcpApp = ev.mcpApp;
         if (ev.chatUI) part.chatUI = ev.chatUI;
+        if (ev.chatUIResult !== undefined) {
+          part.chatUIResult = ev.chatUIResult;
+        }
         if (part.activity !== true && part.isError !== true) {
           markCompletedToolAfterAssistantText(state, part.toolName);
         }
