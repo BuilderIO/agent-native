@@ -671,13 +671,15 @@ export async function listOutputReviews(opts: {
         .flatMap((message) => message.inlineApps)
         .map(inlineAppTitle)
         .find((value): value is string => Boolean(value));
-      const author = threadRows.get(key)?.ownerEmail;
-      const profile = author ? profiles.get(author.toLowerCase()) : undefined;
+      const thread = threadRows.get(key);
+      const authorEmail = thread?.ownerEmail;
+      const profile = authorEmail
+        ? profiles.get(authorEmail.toLowerCase())
+        : undefined;
       const authorName =
         profile && !isEmailDerivedName(profile.name, profile.email)
           ? profile.name.trim().split(/\s+/)[0]
           : undefined;
-      const thread = threadRows.get(key);
       const messageRunIds = new Set(
         messages.flatMap((message) => (message.runId ? [message.runId] : [])),
       );
@@ -719,6 +721,7 @@ export async function listOutputReviews(opts: {
           createdAt: run.createdAt,
         })),
         runCount: summary.runCount ?? 1,
+        ...(authorEmail ? { authorEmail } : {}),
         ...(authorName ? { authorName } : {}),
         ...(profile?.image ? { authorAvatar: profile.image } : {}),
         ...(title ? { inlineAppTitle: title } : {}),
