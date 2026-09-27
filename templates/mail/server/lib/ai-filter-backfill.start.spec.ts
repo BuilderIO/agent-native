@@ -829,7 +829,12 @@ describe("startMailAiFilterBackfill", () => {
     archiveRule.actions = [{ type: "archive" }];
     mocks.rules = [archiveRule];
     mocks.emails = [localEmail()];
-    database.rows.push(runningRow(mocks.rules));
+    const run = runningRow(mocks.rules);
+    const initialState = JSON.parse(run.stateJson);
+    initialState.retryCount = 5;
+    initialState.retryAfterAt = Date.now() - 1;
+    initialState.error = "stale worker error";
+    database.rows.push({ ...run, stateJson: JSON.stringify(initialState) });
 
     let requestedUndo = false;
     let writeCount = 0;
@@ -858,6 +863,10 @@ describe("startMailAiFilterBackfill", () => {
       JSON.parse(database.rows[0].stateJson).snapshots["local:thread-a"]
         .messages[0].afterArchived,
     ).toBe(true);
+    const checkpointed = JSON.parse(database.rows[0].stateJson);
+    expect(checkpointed.retryCount).toBe(0);
+    expect(checkpointed).not.toHaveProperty("retryAfterAt");
+    expect(checkpointed).not.toHaveProperty("error");
 
     const reply = {
       ...localEmail("new-reply"),
@@ -968,22 +977,35 @@ describe("startMailAiFilterBackfill", () => {
   });
 
   it("checkpoints an applied mutation while an undo request owns the run", async () => {
+    const undoState = { ...backfillState([]), retryCount: 0 };
     database.rows.push({
       ...runningRow([]),
       status: "undoing",
       claimId: "claimed-worker",
-      stateJson: "{}",
+      stateJson: JSON.stringify(undoState),
     });
+    const workerState: any = backfillState([]);
+    workerState.retryCount = 5;
+    workerState.retryAfterAt = Date.now() + 60_000;
+    workerState.error = "stale worker error";
+    workerState.snapshots["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [],
+    };
 
     await expect(
-      checkpointAppliedBackfillMutation("run-a", "claimed-worker", {
-        snapshot: "post-apply",
-      }),
+      checkpointAppliedBackfillMutation("run-a", "claimed-worker", workerState),
     ).resolves.toBe(false);
 
     expect(database.rows[0].status).toBe("undoing");
-    expect(JSON.parse(database.rows[0].stateJson)).toEqual({
-      snapshot: "post-apply",
-    });
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(saved.snapshots["local:thread-a"]).toEqual(
+      workerState.snapshots["local:thread-a"],
+    );
+    expect(saved.retryCount).toBe(0);
+    expect(saved).not.toHaveProperty("retryAfterAt");
+    expect(saved).not.toHaveProperty("error");
   });
 });

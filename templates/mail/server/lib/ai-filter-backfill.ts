@@ -1394,23 +1394,52 @@ async function saveRunState(
   return !!updated;
 }
 
+function preserveUndoRequestState(
+  state: BackfillState,
+  current: BackfillState,
+): void {
+  state.undoFailedKeys = current.undoFailedKeys;
+  state.retryCount = current.retryCount;
+  if (current.retryAfterAt === undefined) delete state.retryAfterAt;
+  else state.retryAfterAt = current.retryAfterAt;
+  if (current.error === undefined) delete state.error;
+  else state.error = current.error;
+}
+
 export async function checkpointAppliedBackfillMutation(
   id: string,
   claimId: string,
-  state: object,
+  state: BackfillState,
 ): Promise<boolean> {
-  const [updated] = await db
-    .update(schema.aiFilterBackfills)
-    .set({ stateJson: JSON.stringify(state), updatedAt: Date.now() })
-    .where(
-      and(
-        eq(schema.aiFilterBackfills.id, id),
-        eq(schema.aiFilterBackfills.claimId, claimId),
-        inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
-      ),
-    )
-    .returning({ status: schema.aiFilterBackfills.status });
-  return updated?.status === "running";
+  return db.transaction(async (tx: any) => {
+    const [current] = await tx
+      .select()
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, id),
+          eq(schema.aiFilterBackfills.claimId, claimId),
+          inArray(schema.aiFilterBackfills.status, ["running", "undoing"]),
+        ),
+      )
+      .for("update");
+    if (!current) return false;
+    if (current.status === "undoing")
+      preserveUndoRequestState(state, parseState(current.stateJson));
+
+    const [updated] = await tx
+      .update(schema.aiFilterBackfills)
+      .set({ stateJson: JSON.stringify(state), updatedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, id),
+          eq(schema.aiFilterBackfills.claimId, claimId),
+          eq(schema.aiFilterBackfills.status, current.status),
+        ),
+      )
+      .returning({ status: schema.aiFilterBackfills.status });
+    return updated?.status === "running";
+  });
 }
 
 function matchedForCandidate(
@@ -2104,13 +2133,7 @@ async function releaseRunningClaimForUndo(
       .for("update");
     if (!current) return;
 
-    const currentState = parseState(current.stateJson);
-    state.undoFailedKeys = currentState.undoFailedKeys;
-    state.retryCount = currentState.retryCount;
-    if (currentState.retryAfterAt === undefined) delete state.retryAfterAt;
-    else state.retryAfterAt = currentState.retryAfterAt;
-    if (currentState.error === undefined) delete state.error;
-    else state.error = currentState.error;
+    preserveUndoRequestState(state, parseState(current.stateJson));
     await tx
       .update(schema.aiFilterBackfills)
       .set({

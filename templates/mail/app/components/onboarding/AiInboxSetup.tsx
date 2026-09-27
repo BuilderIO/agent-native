@@ -472,8 +472,14 @@ export function AiInboxSetup({
       ),
     [rules],
   );
+  const setupSurfaceAllowed =
+    embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
+  const loadingSurfaceVisible =
+    setupSurfaceAllowed &&
+    forceOpen &&
+    (googleStatus.isLoading || (connected && jevAvailability.isLoading));
   const visible =
-    (embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview)) &&
+    setupSurfaceAllowed &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&
@@ -657,14 +663,11 @@ export function AiInboxSetup({
     customTagSelected &&
     (!customTagName.trim() || !customTagPrompt.trim());
 
-  if (
-    forceOpen &&
-    (googleStatus.isLoading || (connected && jevAvailability.isLoading))
-  ) {
+  if (loadingSurfaceVisible) {
     return (
       <SetupSurface
         embedded={embedded}
-        visible
+        visible={loadingSurfaceVisible}
         onClose={() => {
           onOpenChange?.(false);
           void complete();

@@ -208,13 +208,18 @@ describe("AiInboxSetup", () => {
   it("defers inbox setup while first-run onboarding owns the surface", () => {
     mocks.firstRunOnboardingGateOwnsSurface = true;
 
-    render(<AiInboxSetup forceOpen />);
+    const { container, rerender } = render(<AiInboxSetup forceOpen />);
 
     expect(
       screen.queryByRole("heading", {
         name: "mail.sort.aiSetupTagsHeadline",
       }),
     ).toBeNull();
+
+    mocks.googleStatus.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
   });
 
   it("keeps first-run preview inline without a duplicate setup modal", () => {
@@ -681,6 +686,13 @@ describe("AiInboxSetup", () => {
         name: "mail.sort.aiSetupTagsHeadline",
       }),
     ).toBeNull();
+  });
+
+  it("shows the Settings setup skeleton while Google status loads", () => {
+    mocks.googleStatus.isLoading = true;
+    const { container } = render(<AiInboxSetup forceOpen />);
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
   });
 
   it("keeps Settings setup visible while Jev availability loads", () => {

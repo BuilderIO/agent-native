@@ -1398,6 +1398,27 @@ describe("managed Gmail request context", () => {
       expect(context).toEqual(expectedContext);
     }
   });
+
+  it("preserves retryability on managed Gmail token failures", async () => {
+    vi.mocked(getMailProviderApiRuntime).mockReturnValue({
+      resolveOAuthAccessToken: vi.fn().mockRejectedValue(
+        Object.assign(new Error("temporary refresh failure"), {
+          retryable: true,
+        }),
+      ),
+    } as any);
+
+    await expect(getClientsWithErrors(ownerEmail)).resolves.toEqual({
+      clients: [],
+      errors: [
+        {
+          email: "workspace",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+  });
 });
 
 describe("getAuthStatus with unusable token records", () => {

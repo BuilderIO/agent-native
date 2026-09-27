@@ -78,7 +78,10 @@ type ManagedGmailClient = {
 
 type ManagedGmailResolution =
   | { ok: true; client: ManagedGmailClient | null }
-  | { ok: false; error: { email: "workspace"; error: string } };
+  | {
+      ok: false;
+      error: { email: "workspace"; error: string; retryable?: true };
+    };
 
 async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   if (!getCredentialContext()) return null;
@@ -128,6 +131,9 @@ async function resolveManagedGmailClientWithError(
           error instanceof Error
             ? error.message
             : "Workspace Gmail connection failed",
+        ...((error as { retryable?: unknown } | null)?.retryable === true
+          ? { retryable: true as const }
+          : {}),
       },
     };
   }
@@ -486,7 +492,7 @@ export async function getClientsWithErrors(
     accessToken: string;
     refreshToken: string;
   }> = [];
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; retryable?: true }> = [];
 
   const results = await Promise.all(
     accounts.map(async (account) => {
