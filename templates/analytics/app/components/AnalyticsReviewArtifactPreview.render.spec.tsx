@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
           chartType: "line",
         },
       ],
+      orgId: "customer-org",
     } as Record<string, unknown>,
     isLoading: false,
     isError: false,
@@ -111,6 +112,7 @@ describe("Analytics review artifact preview rendering", () => {
         <AnalyticsReviewArtifactPreview
           artifactId="dashboard-1"
           compact={false}
+          reviewOrgId="customer-org"
         />,
       );
     });
@@ -127,7 +129,11 @@ describe("Analytics review artifact preview rendering", () => {
     });
     expect(mocks.queries).toContainEqual({
       action: "query-observability-review-panel",
-      args: { dashboardId: "dashboard-1", panelId: "ga4-chart" },
+      args: {
+        dashboardId: "dashboard-1",
+        panelId: "ga4-chart",
+        reviewOrgId: "customer-org",
+      },
     });
   });
 
@@ -145,13 +151,18 @@ describe("Analytics review artifact preview rendering", () => {
           artifactId="analysis-1"
           artifactPath="/analyses/analysis-1"
           compact={false}
+          reviewOrgId="customer-org"
         />,
       );
     });
 
     expect(mocks.queries).toContainEqual({
       action: "get-analysis",
-      args: { id: "analysis-1", reviewPreview: true },
+      args: {
+        id: "analysis-1",
+        reviewPreview: true,
+        reviewOrgId: "customer-org",
+      },
     });
     expect(mocks.markdownContent).toBe("# Actual saved findings");
   });

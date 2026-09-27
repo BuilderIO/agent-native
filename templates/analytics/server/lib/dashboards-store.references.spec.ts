@@ -24,7 +24,14 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn(() => ({ kind: "access" })),
   assertAccess: vi.fn(),
-  resolveAccess: vi.fn(),
+  resolveAccess: vi.fn(async (_type, _id, context) => {
+    const row = state.rows.find(
+      (candidate) =>
+        candidate.ownerEmail === context?.userEmail &&
+        candidate.orgId === context?.orgId,
+    );
+    return row ? { resource: row, role: "owner" } : null;
+  }),
   roleSatisfies: vi.fn(() => false),
 }));
 vi.mock("drizzle-orm", () => ({
@@ -302,7 +309,7 @@ describe("Human Review artifact read scopes", () => {
     ).resolves.toBeNull();
   });
 
-  it("uses ID-only artifact reads for the scope authorized as the super organization", async () => {
+  it("scopes super-organization artifact reads to the selected customer", async () => {
     state.rows = [
       {
         id: "dashboard-1",
@@ -318,13 +325,28 @@ describe("Human Review artifact read scopes", () => {
     ];
     const dashboard = await getDashboardForReview("dashboard-1", {
       kind: "super-organization",
+      orgId: "org-customer",
     });
     expect(state.where).toEqual({
-      kind: "eq",
-      target: { name: "id" },
-      value: "dashboard-1",
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "dashboard-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
     });
     expect(dashboard?.orgId).toBe("org-customer");
+
+    state.rows[0] = { ...state.rows[0], orgId: "org-other" };
+    await expect(
+      getDashboardForReview("dashboard-1", {
+        kind: "super-organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
 
     state.rows = [
       {
@@ -346,14 +368,29 @@ describe("Human Review artifact read scopes", () => {
 
     const result = await getAnalysisForReview("analysis-1", {
       kind: "super-organization",
+      orgId: "org-customer",
     });
 
     expect(state.where).toEqual({
-      kind: "eq",
-      target: { name: "id" },
-      value: "analysis-1",
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "analysis-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
     });
     expect(result?.orgId).toBe("org-customer");
+
+    state.rows[0] = { ...state.rows[0], orgId: "org-other" };
+    await expect(
+      getAnalysisForReview("analysis-1", {
+        kind: "super-organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
   });
 });
 

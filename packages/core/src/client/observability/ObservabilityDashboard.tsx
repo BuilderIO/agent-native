@@ -1026,6 +1026,7 @@ function ReviewTab({
   renderArtifactPreview?: (
     artifact: OutputReviewListRow["artifacts"][number],
     compact: boolean,
+    reviewOrgId: string,
   ) => ReactNode;
 }) {
   const t = useT();
@@ -1743,7 +1744,11 @@ function ReviewTab({
                             `/dashboards/${artifact.artifactId}` ||
                             artifact.path ===
                               `/analyses/${artifact.artifactId}`)
-                            ? renderArtifactPreview?.(artifact, true)
+                            ? renderArtifactPreview?.(
+                                artifact,
+                                true,
+                                review.orgId,
+                              )
                             : undefined
                         }
                         artifactPreviewIsImage={Boolean(
@@ -1757,6 +1762,7 @@ function ReviewTab({
                             : undefined
                         }
                         artifactPreviewId={artifact?.artifactId}
+                        reviewOrgId={review.orgId}
                         artifactOnly
                         previewLabel={t("observability.reviewPreview")}
                         compact
@@ -2049,6 +2055,7 @@ function ReviewTab({
                                     ? renderArtifactPreview?.(
                                         selectedArtifact,
                                         false,
+                                        selectedReview.orgId,
                                       )
                                     : undefined
                                 }
@@ -2065,6 +2072,7 @@ function ReviewTab({
                                     : undefined
                                 }
                                 artifactPreviewId={selectedArtifact?.artifactId}
+                                reviewOrgId={selectedReview.orgId}
                                 artifactOnly
                                 inlineApp={activeDetail?.app ?? undefined}
                                 maxAppHeight={420}
@@ -2666,7 +2674,11 @@ function ReviewTab({
                     `/dashboards/${selectedArtifact.artifactId}` ||
                     selectedArtifact.path ===
                       `/analyses/${selectedArtifact.artifactId}`)
-                    ? renderArtifactPreview?.(selectedArtifact, false)
+                    ? renderArtifactPreview?.(
+                        selectedArtifact,
+                        false,
+                        selectedReview.orgId,
+                      )
                     : undefined
                 }
                 artifactPreviewIsImage={Boolean(
@@ -2680,6 +2692,7 @@ function ReviewTab({
                     : undefined
                 }
                 artifactPreviewId={selectedArtifact?.artifactId}
+                reviewOrgId={selectedReview.orgId}
                 artifactOnly
                 inlineApp={activeDetail?.app ?? undefined}
                 maxAppHeight={720}
@@ -2874,6 +2887,7 @@ export interface ObservabilityDashboardProps {
   renderArtifactPreview?: (
     artifact: OutputReviewListRow["artifacts"][number],
     compact: boolean,
+    reviewOrgId: string,
   ) => ReactNode;
 }
 

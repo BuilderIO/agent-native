@@ -36,6 +36,11 @@ export default defineAction({
       .describe(
         "Human Review only: read a saved dashboard for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
       ),
+    reviewOrgId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("The customer organization shown in this Human Review row."),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -81,11 +86,21 @@ export default defineAction({
         );
       }
       const superOrgId = getAppConfig().observability.superOrgId;
+      const isSuperOrg = superOrgId === orgId;
+      const targetOrgId = isSuperOrg ? args.reviewOrgId : orgId;
+      if (!targetOrgId) {
+        fail(
+          "A customer organization is required for this dashboard preview.",
+          {
+            statusCode: 400,
+          },
+        );
+      }
       dash = await getDashboardForReview(
         args.id,
-        superOrgId === orgId
-          ? { kind: "super-organization" }
-          : { kind: "organization", orgId },
+        isSuperOrg
+          ? { kind: "super-organization", orgId: targetOrgId }
+          : { kind: "organization", orgId: targetOrgId },
       );
     } else {
       dash = await getDashboard(args.id, ctx);

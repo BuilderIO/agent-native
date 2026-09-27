@@ -44,7 +44,7 @@ const { default: queryReviewPanel } =
 function dashboard() {
   return {
     kind: "sql",
-    orgId: "customer-org",
+    orgId: "org-a",
     config: {
       variables: { timeRange: "7d" },
       filters: [
@@ -118,20 +118,26 @@ describe("query-observability-review-panel access", () => {
         source: "bigquery",
         query: "SELECT * FROM orders WHERE customer = 'O''Brien'",
       },
-      { userEmail: "admin@example.com", orgId: "customer-org" },
+      { userEmail: "admin@example.com", orgId: "org-a" },
     );
   });
 
   it("uses the configured super-org scope and the artifact org's credentials", async () => {
     mocks.superOrgId = "org-a";
+    mocks.getDashboardForReview.mockResolvedValue({
+      ...dashboard(),
+      orgId: "customer-org",
+    });
 
     await queryReviewPanel.run({
       dashboardId: "dashboard-1",
       panelId: "panel-1",
+      reviewOrgId: "customer-org",
     });
 
     expect(mocks.getDashboardForReview).toHaveBeenCalledWith("dashboard-1", {
       kind: "super-organization",
+      orgId: "customer-org",
     });
     expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
       {
@@ -153,6 +159,19 @@ describe("query-observability-review-panel access", () => {
         credentialScope: "org",
       },
     );
+  });
+
+  it("uses GET for the query action and requires an org for super-org previews", async () => {
+    mocks.superOrgId = "org-a";
+
+    expect(queryReviewPanel.http).toEqual({ method: "GET" });
+    await expect(
+      queryReviewPanel.run({
+        dashboardId: "dashboard-1",
+        panelId: "panel-1",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mocks.getDashboardForReview).not.toHaveBeenCalled();
   });
 
   it("queries the same canonical SQL repair shown by get-sql-dashboard", async () => {
@@ -188,7 +207,7 @@ describe("query-observability-review-panel access", () => {
         source: "bigquery",
         query: "SELECT repaired FROM analytics_events",
       },
-      { userEmail: "admin@example.com", orgId: "customer-org" },
+      { userEmail: "admin@example.com", orgId: "org-a" },
     );
   });
 

@@ -27,12 +27,13 @@ export default defineAction({
     .object({
       dashboardId: z.string().min(1).max(200),
       panelId: z.string().min(1).max(200),
+      reviewOrgId: z.string().min(1).optional(),
     })
     .strict(),
-  http: { method: "POST" },
+  http: { method: "GET" },
   readOnly: true,
   agentTool: false,
-  run: async ({ dashboardId, panelId }) => {
+  run: async ({ dashboardId, panelId, reviewOrgId }) => {
     const email = getRequestUserEmail();
     const activeOrgId = getRequestOrgId();
     if (
@@ -50,8 +51,18 @@ export default defineAction({
 
     const scope =
       getAppConfig().observability.superOrgId === activeOrgId
-        ? { kind: "super-organization" as const }
+        ? reviewOrgId
+          ? {
+              kind: "super-organization" as const,
+              orgId: reviewOrgId,
+            }
+          : null
         : { kind: "organization" as const, orgId: activeOrgId };
+    if (!scope) {
+      fail("A customer organization is required for this dashboard preview.", {
+        statusCode: 400,
+      });
+    }
     const dashboard = await getDashboardForReview(dashboardId, scope);
     if (!dashboard || dashboard.kind !== "sql" || !dashboard.orgId) {
       fail("Dashboard not found.", { statusCode: 404 });

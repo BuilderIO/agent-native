@@ -43,20 +43,14 @@ const mockSelectChain = {
           })
         : undefined;
     const conditions = filter?.conditions ?? (filter ? [filter] : []);
-    const sameOrg = conditions?.some(
-      (condition) =>
-        condition.left === "org_id_col" && condition.right === currentOrgId,
-    );
+    const scopedOrg = conditions?.find(
+      (condition) => condition.left === "org_id_col",
+    )?.right;
     const sameDeck = conditions?.some(
       (condition) =>
         condition.left === "id_col" && condition.right === currentResource?.id,
     );
-    const superOrgRead =
-      !sameOrg &&
-      currentSuperOrgId === currentOrgId &&
-      currentResource?.orgId !== currentOrgId;
-    return sameDeck &&
-      ((sameOrg && currentResource?.orgId === currentOrgId) || superOrgRead)
+    return sameDeck && scopedOrg === currentResource?.orgId
       ? [currentResource]
       : [];
   }),
@@ -99,6 +93,7 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     decks: {
       id: "id_col",
+      ownerEmail: "owner_email_col",
       orgId: "org_id_col",
       data: "data_col",
       updatedAt: "ua_col",
@@ -220,6 +215,10 @@ describe("get-deck", () => {
     });
     expect(result.id).toBe("deck-1");
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockResolveAccess).toHaveBeenCalledWith("deck", "deck-1", {
+      userEmail: "Alice@Example.com",
+      orgId: "org-a",
+    });
   });
 
   it("rejects non-admin Human Review previews before reading a deck", async () => {
@@ -246,16 +245,41 @@ describe("get-deck", () => {
     mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
 
     const result = (await action.run(
-      { id: "deck-1", reviewPreview: true, compact: "false" },
+      {
+        id: "deck-1",
+        reviewPreview: true,
+        reviewOrgId: "org-customer",
+        compact: "false",
+      },
       { caller: "http" },
     )) as any;
 
     expect(mockSelectChain.where).toHaveBeenCalledWith({
-      left: "id_col",
-      right: "deck-1",
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { left: "org_id_col", right: "org-customer" },
+      ],
     });
     expect(result.id).toBe("deck-1");
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("hides another customer's deck from a super-org preview scope", async () => {
+    currentOrgId = "org-super";
+    currentSuperOrgId = "org-super";
+    currentResource!.orgId = "org-other";
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        {
+          id: "deck-1",
+          reviewPreview: true,
+          reviewOrgId: "org-customer",
+        },
+        { caller: "http" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it("includes readable linked design-system context", async () => {

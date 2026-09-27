@@ -405,6 +405,11 @@ describe("OutputPreview artifact reads", () => {
     expect(
       container.querySelectorAll("[data-review-slide-strip] button"),
     ).toHaveLength(2);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        "[data-review-slide-strip] button",
+      )?.title,
+    ).toBe("Intro");
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")?.srcdoc).toContain("Slide"),
     );

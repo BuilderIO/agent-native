@@ -110,17 +110,24 @@ export function AnalyticsReviewArtifactPreview({
   artifactId,
   artifactPath,
   compact,
+  reviewOrgId,
 }: {
   artifactId: string;
   artifactPath?: string;
   compact: boolean;
+  reviewOrgId: string;
 }) {
   return artifactPath?.startsWith("/analyses/") ? (
-    <AnalyticsReviewAnalysisPreview artifactId={artifactId} compact={compact} />
+    <AnalyticsReviewAnalysisPreview
+      artifactId={artifactId}
+      compact={compact}
+      reviewOrgId={reviewOrgId}
+    />
   ) : (
     <AnalyticsReviewDashboardPreview
       artifactId={artifactId}
       compact={compact}
+      reviewOrgId={reviewOrgId}
     />
   );
 }
@@ -128,14 +135,21 @@ export function AnalyticsReviewArtifactPreview({
 function AnalyticsReviewDashboardPreview({
   artifactId,
   compact,
+  reviewOrgId,
 }: {
   artifactId: string;
   compact: boolean;
+  reviewOrgId: string;
 }) {
   const t = useT();
   const { data, isLoading, isError } = useActionQuery<Record<string, unknown>>(
     "get-sql-dashboard",
-    { id: artifactId, includeConfig: true, reviewPreview: true },
+    {
+      id: artifactId,
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId,
+    },
     { staleTime: 5 * 60_000 },
   );
   const panels = reviewDashboardPanels(data);
@@ -181,6 +195,7 @@ function AnalyticsReviewDashboardPreview({
         <ReviewDashboardPanel
           key={panel.id}
           artifactId={artifactId}
+          reviewOrgId={reviewOrgId}
           panel={panel}
           variables={vars}
           compact={compact}
@@ -192,11 +207,13 @@ function AnalyticsReviewDashboardPreview({
 
 function ReviewDashboardPanel({
   artifactId,
+  reviewOrgId,
   panel,
   variables,
   compact,
 }: {
   artifactId: string;
+  reviewOrgId: string;
   panel: SqlPanel;
   variables: Record<string, string>;
   compact: boolean;
@@ -227,7 +244,7 @@ function ReviewDashboardPanel({
 
   const query = useActionQuery<Record<string, unknown>>(
     "query-observability-review-panel",
-    { dashboardId: artifactId, panelId: panel.id },
+    { dashboardId: artifactId, panelId: panel.id, reviewOrgId },
     { enabled: nearViewport, staleTime: 5 * 60_000 },
   );
   const data = query.data;
@@ -304,14 +321,16 @@ function ReviewDashboardPanel({
 function AnalyticsReviewAnalysisPreview({
   artifactId,
   compact,
+  reviewOrgId,
 }: {
   artifactId: string;
   compact: boolean;
+  reviewOrgId: string;
 }) {
   const t = useT();
   const { data, isLoading, isError } = useActionQuery<Record<string, unknown>>(
     "get-analysis",
-    { id: artifactId, reviewPreview: true },
+    { id: artifactId, reviewPreview: true, reviewOrgId },
     { staleTime: 5 * 60_000 },
   );
   if (isLoading) {

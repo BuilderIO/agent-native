@@ -301,11 +301,12 @@ describe("get-sql-dashboard seed fallback", () => {
     await getSqlDashboard.run({
       id: "customer-dashboard",
       reviewPreview: true,
+      reviewOrgId: "org-b",
     });
 
     expect(mocks.getDashboardForReview).toHaveBeenCalledWith(
       "customer-dashboard",
-      { kind: "super-organization" },
+      { kind: "super-organization", orgId: "org-b" },
     );
   });
 });

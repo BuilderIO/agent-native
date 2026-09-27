@@ -74,10 +74,12 @@ describe("get-analysis Human Review access", () => {
     const result = await getAnalysis.run({
       id: "analysis-1",
       reviewPreview: true,
+      reviewOrgId: "org-b",
     });
 
     expect(mocks.getAnalysisForReview).toHaveBeenCalledWith("analysis-1", {
       kind: "super-organization",
+      orgId: "org-b",
     });
     expect(result).toMatchObject({ id: "analysis-1", orgId: "org-b" });
     expect(mocks.getAnalysis).not.toHaveBeenCalled();

@@ -142,7 +142,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: async () => ({ role: "owner" }),
   resolveAccess: async (...args: unknown[]) => {
     state.accessCalls.push(args);
-    return state.accessResult;
+    const access = state.accessResult as {
+      resource: Record<string, unknown>;
+      role: string;
+    } | null;
+    return access
+      ? { ...access, resource: state.dashboardRow ?? access.resource }
+      : null;
   },
   roleSatisfies: (role: string, minimum: string) => {
     const ranks: Record<string, number> = {
@@ -278,7 +284,13 @@ describe("dashboard views", () => {
       canManage: false,
     });
     expect(otherOrgResult).toBeNull();
-    expect(state.accessCalls).toEqual([]);
+    expect(state.accessCalls).toEqual([
+      [
+        "dashboard",
+        "dashboard-a",
+        { userEmail: "alice@example.com", orgId: "org-a" },
+      ],
+    ]);
     expect(state.dashboardRow?.orgId).toBe("org-a");
   });
 
