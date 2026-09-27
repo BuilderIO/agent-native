@@ -75,7 +75,7 @@ const loadMultiTabAssistantChat = () =>
     default: m.MultiTabAssistantChat,
   }));
 const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { buildSettingsRoute } from "../navigation/index.js";
 import {
@@ -125,6 +125,7 @@ import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { SETTINGS_SECTION_STATE_KEY } from "./settings/shell/routing.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { RouterSidebarLink } from "./ui/AppSidebar.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
@@ -621,7 +622,7 @@ export function resolveAgentPanelFullViewAction(
 
 // Hosts without a Settings route pass no agentPageHref, so it doubles as the
 // signal that an Integrations page exists to link to. Both paths are
-// router-local; <Link> adds the app base path.
+// router-local; RouterSidebarLink adds the app base path.
 export function resolveAgentPanelIntegrationsHref(
   agentPageHref: string | undefined,
   currentPath?: string,
@@ -1633,21 +1634,21 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
-                <Link
+                <RouterSidebarLink
                   to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
                   <IconArrowsMaximize size={14} className="shrink-0" />
                   {t("agentPanel.openFullView")}
-                </Link>
+                </RouterSidebarLink>
               </DropdownMenuItem>
             ) : null}
             {integrationsHref ? (
               <DropdownMenuItem asChild>
-                <Link to={integrationsHref}>
+                <RouterSidebarLink to={integrationsHref}>
                   <IconPlugConnected size={14} className="shrink-0" />
                   {t("agentPanel.integrations")}
-                </Link>
+                </RouterSidebarLink>
               </DropdownMenuItem>
             ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||

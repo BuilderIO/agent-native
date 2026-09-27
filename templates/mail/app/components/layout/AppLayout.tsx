@@ -17,6 +17,7 @@ import {
   AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
+  RouterSidebarLink,
 } from "@agent-native/core/client/ui";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
@@ -1475,7 +1476,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
                   const link = (
-                    <Link
+                    <RouterSidebarLink
                       to={tab.href}
                       aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
@@ -1509,7 +1510,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           {count}
                         </span>
                       )}
-                    </Link>
+                    </RouterSidebarLink>
                   );
                   return (
                     <div
@@ -1917,7 +1918,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     return (
                       <Tooltip key={item.id}>
                         <TooltipTrigger asChild>
-                          <Link
+                          <RouterSidebarLink
                             to={item.href}
                             aria-label={item.label}
                             className={cn(
@@ -1930,7 +1931,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             {item.count && item.count > 0 ? (
                               <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
                             ) : null}
-                          </Link>
+                          </RouterSidebarLink>
                         </TooltipTrigger>
                         <TooltipContent side="right">
                           {item.label}

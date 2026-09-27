@@ -10,6 +10,8 @@ import {
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
 import {
+  getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
@@ -31,6 +33,8 @@ export type AgentRunOwnerContext = {
   anonymous: boolean;
   /** Present only when this owner was resolved from a Better Auth session. */
   authUserId?: string;
+  /** Earliest auth-resolution time, carried through later org-context lookups. */
+  identityAuthenticatedAtMs?: number;
   name?: string;
   /**
    * Trusted org binding for a cookieless durable worker. Presence matters:
@@ -196,9 +200,16 @@ export async function resolveAgentRunOwnerContext(
   const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
+    const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(
+      event,
+      session.email,
+    );
     return seedAgentRunOwnerContext(event, {
       owner: session.email,
       anonymous: false,
+      ...(identityAuthenticatedAtMs !== undefined
+        ? { identityAuthenticatedAtMs }
+        : {}),
       ...(session.authUserId ? { authUserId: session.authUserId } : {}),
       name: session.name,
     });
@@ -277,6 +288,10 @@ export async function resolveAgentRunRequestContext(options: {
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
   const browserTabId = readBrowserTabIdHeader(options.event);
+  const identitySessionToken = getRequestIdentitySessionToken(
+    options.event,
+    options.ownerContext.owner,
+  );
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
@@ -289,6 +304,13 @@ export async function resolveAgentRunRequestContext(options: {
     ...(options.ownerContext.authUserId
       ? { authUserId: options.ownerContext.authUserId }
       : {}),
+    ...(options.ownerContext.identityAuthenticatedAtMs !== undefined
+      ? {
+          identityAuthenticatedAtMs:
+            options.ownerContext.identityAuthenticatedAtMs,
+        }
+      : {}),
+    ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
     timezone,

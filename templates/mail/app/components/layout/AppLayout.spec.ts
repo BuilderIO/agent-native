@@ -20,6 +20,17 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses the stable router link for tooltip-wrapped tabs", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain("RouterSidebarLink,");
+    expect(source).toContain("const link = ( <RouterSidebarLink");
+    expect(source).toContain(
+      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
+    );
+    expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+  });
+
   it("keeps the tab scrollport within the space before its settings cog", () => {
     const source = appLayoutSource();
 
