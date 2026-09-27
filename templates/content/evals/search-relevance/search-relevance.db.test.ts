@@ -1,6 +1,5 @@
-// Deterministic relevance eval for the `search-documents` action. Phase 1.1
-// of the search overhaul plan: this file, corpus.ts, cases.ts, and
-// baseline.json exist so every later change to the search engine (a
+// Deterministic relevance eval for the `search-documents` action. This file,
+// corpus.ts, cases.ts, and baseline.json exist so every later change to the search engine (a
 // maintained full-text index, typo correction, semantic search) is judged
 // against the same fixed corpus and the same judged queries. See
 // README.md for how to run and update this eval.
@@ -68,7 +67,7 @@ beforeAll(async () => {
         id: SPACE_IDS[space],
         name:
           space === "personal"
-            ? "Alice's personal space"
+            ? "Personal space"
             : space === "org"
               ? "Meridian Analytics workspace"
               : "Cobalt Metrics workspace",

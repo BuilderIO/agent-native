@@ -7,8 +7,7 @@ engine's internals, so every future change behind that action — a
 maintained full-text index, typo correction, semantic search — is judged
 against the same fixed baseline.
 
-This is phase 1.1 of the search overhaul plan: it records where the
-current substring-matching engine stands today. It does not change search
+It records where the current substring-matching engine stands today. It does not change search
 behavior.
 
 ## Files
