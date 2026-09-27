@@ -54,6 +54,7 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
@@ -61,6 +62,7 @@ import {
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
+  MentionItem,
   Reference,
   SkillResult,
   SlashCommand,
@@ -214,8 +216,17 @@ export interface PromptComposerProps {
   onModelSelectorOpenChange?: (open: boolean) => void;
   /** Enable server-backed model/provider status checks. Defaults on, except for a selected local runtime. */
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  mentionPopoverDensity?: "default" | "stacked";
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
   /** Called whenever the composer resolves a model, engine, or effort choice. */
@@ -641,7 +652,16 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = true,
   onTextChange,
+  mentionItems,
+  mentionPopoverDensity,
+  includeDefaultMentionSearch,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
   onAttachmentsChange,
   onModelSelectionChange,
   onConnectProvider,
@@ -723,15 +743,16 @@ function PromptComposerInner({
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    resolvedModelStatusChecksEnabled,
+    requireAgentEngine && resolvedModelStatusChecksEnabled,
   );
-  const engineState = resolvedModelStatusChecksEnabled
+  const engineStatusChecksEnabled =
+    requireAgentEngine && resolvedModelStatusChecksEnabled;
+  const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
-  const missingApiKey =
-    resolvedModelStatusChecksEnabled && engineState === "missing";
+  const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
   const engineStatusUnresolved =
-    resolvedModelStatusChecksEnabled &&
+    engineStatusChecksEnabled &&
     (engineState === "unknown" || engineState === "unavailable");
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
@@ -928,6 +949,14 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
+          mentionItems={mentionItems}
+          mentionPopoverDensity={mentionPopoverDensity}
+          includeDefaultMentionSearch={includeDefaultMentionSearch}
+          onReferencesChange={onReferencesChange}
+          onEscape={onEscape}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSelectionChange={onSelectionChange}
           draftScope={draftScope}
           selectedModel={composerModel}
           selectedEngine={composerEngine}

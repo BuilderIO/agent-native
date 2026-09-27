@@ -23,12 +23,27 @@ function createRoot(container: Parameters<typeof createReactRoot>[0]) {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  richEditor,
+  richEditorValue,
+  setRichEditorValue,
+} from "./comment-composer-test-utils";
+import {
   CommentsSidebar,
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", async (original) => ({
@@ -110,25 +125,25 @@ describe("new comment real mutation observer lifetime", () => {
           }),
         );
         await settle();
-        await act(async () => {
-          const input = container.querySelector("textarea")!;
-          Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            "value",
-          )!.set!.call(input, "Survive observer remount");
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
+        await setRichEditorValue(
+          richEditor(container)!,
+          "Survive observer remount",
+        );
         await act(async () =>
           [...container.querySelectorAll("button")]
-            .find((node) => node.textContent === "comments.submit")!
+            .find(
+              (node) => node.getAttribute("aria-label") === "comments.submit",
+            )!
             .click(),
         );
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(container.querySelector("textarea")!.value).toBe("");
+        expect(richEditorValue(richEditor(container)!)).toBe("");
         expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
         await show("desktop");
         await settle();
-        expect(container.querySelector("textarea")!.disabled).toBe(true);
+        expect(richEditor(container)!.getAttribute("contenteditable")).toBe(
+          "false",
+        );
         await act(async () =>
           respond(
             new Response(
@@ -147,11 +162,13 @@ describe("new comment real mutation observer lifetime", () => {
         await settle();
         if (outcome === "success") {
           expect(completed).toHaveBeenCalledWith("created-thread");
-          expect(container.querySelector("textarea")).toBeNull();
+          expect(richEditor(container)).toBeNull();
         } else {
           expect(completed).not.toHaveBeenCalled();
-          expect(container.querySelector("textarea")!.disabled).toBe(false);
-          expect(container.querySelector("textarea")!.value).toBe(
+          expect(richEditor(container)!.getAttribute("contenteditable")).toBe(
+            "true",
+          );
+          expect(richEditorValue(richEditor(container)!)).toBe(
             "Survive observer remount",
           );
         }
@@ -257,19 +274,13 @@ describe("reply real mutation observer lifetime", () => {
           await new Promise((resolve) => setTimeout(resolve, 75));
         });
       const input = () =>
-        container.querySelector<HTMLTextAreaElement>(
-          "[data-comment-reply-composer] textarea",
+        container.querySelector<HTMLElement>(
+          "[data-comment-reply-composer] .ProseMirror",
         )!;
       try {
         await show("mobile");
         await act(async () => replies.setOpenReply(thread.threadId));
-        await act(async () => {
-          Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            "value",
-          )!.set!.call(input(), "Submitted reply");
-          input().dispatchEvent(new Event("input", { bubbles: true }));
-        });
+        await setRichEditorValue(input(), "Submitted reply");
         expect(store.drafts.get("reply:document-one:reply-root")?.text).toBe(
           "Submitted reply",
         );
@@ -281,7 +292,7 @@ describe("reply real mutation observer lifetime", () => {
             .click(),
         );
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(input().value).toBe("");
+        expect(richEditorValue(input())).toBe("");
         expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
         const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
         expect(body).toMatchObject({
@@ -317,7 +328,7 @@ describe("reply real mutation observer lifetime", () => {
             ? ""
             : "Submitted reply";
         expect(replies.get(thread.threadId).text).toBe(expected);
-        expect(input().value).toBe(expected);
+        expect(richEditorValue(input())).toBe(expected);
         expect(fetch).toHaveBeenCalledTimes(1);
         if (outcome === "success" && !newerDraft) {
           expect(store.drafts.has("reply:document-one:reply-root")).toBe(false);
