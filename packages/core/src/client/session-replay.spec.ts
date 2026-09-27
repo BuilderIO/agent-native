@@ -1874,6 +1874,91 @@ describe("session replay", () => {
     );
   });
 
+  it("redacts configured query parameters in preserved resource URLs", async () => {
+    const { fetchMock } = installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+
+    recordOptions.emit({
+      type: 2,
+      data: {
+        node: {
+          type: 0,
+          childNodes: [
+            {
+              type: 2,
+              id: 1,
+              tagName: "img",
+              attributes: {
+                src: "https://cdn.example.test/mail.png?token=signed-image&q=sender%40example.test",
+                srcset:
+                  "https://cdn.example.test/mail-2x.png?token=signed-2x&q=sender%40example.test 2x",
+              },
+            },
+            {
+              type: 2,
+              id: 2,
+              tagName: "link",
+              attributes: {
+                rel: "stylesheet",
+                href: "https://cdn.example.test/mail.css?token=signed-style&q=sender%40example.test",
+              },
+            },
+          ],
+        },
+      },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const snapshot = await parseReplayUpload(
+      fetchMock.mock.calls[0][1] as RequestInit,
+    );
+    const [image, stylesheet] = snapshot.events[0].data.node.childNodes;
+    expect(image.attributes.src).toBe(
+      "https://cdn.example.test/mail.png?token=signed-image&q=%3Credacted%3E",
+    );
+    expect(image.attributes.srcset).toBe(
+      "https://cdn.example.test/mail-2x.png?token=signed-2x&q=%3Credacted%3E 2x",
+    );
+    expect(stylesheet.attributes.href).toBe(
+      "https://cdn.example.test/mail.css?token=signed-style&q=%3Credacted%3E",
+    );
+
+    recordOptions.emit({
+      type: 3,
+      data: {
+        source: 0,
+        attributes: [
+          {
+            id: 1,
+            attributes: {
+              src: "https://cdn.example.test/next.png?token=rotated&q=private",
+            },
+          },
+        ],
+      },
+    });
+    await flushSessionReplay("test");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const mutation = await parseReplayUpload(
+      fetchMock.mock.calls[1][1] as RequestInit,
+    );
+    expect(mutation.events[0].data.attributes[0].attributes.src).toBe(
+      "https://cdn.example.test/next.png?token=rotated&q=%3Credacted%3E",
+    );
+  });
+
   it("does not force keepalive for oversized cross-origin replay batches", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     let recordOptions: any;

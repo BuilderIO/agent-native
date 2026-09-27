@@ -1122,6 +1122,31 @@ function replayPreservedResourceAttributes(
   }
 }
 
+function scrubPreservedResourceUrl(
+  value: string,
+  sensitiveQueryParams: readonly string[],
+): string {
+  if (sensitiveQueryParams.length === 0) return value;
+  const sensitive = new Set(
+    sensitiveQueryParams.map((param) => param.toLowerCase()),
+  );
+  // Preserve signed resource parameters while redacting app-specific secrets, including srcset URLs.
+  return value.replace(
+    /([?&#])([^=&#,\s]+)=([^&#,\s]*)/g,
+    (match, separator: string, key: string) => {
+      let decodedKey: string;
+      try {
+        decodedKey = decodeURIComponent(key.replace(/\+/g, " "));
+      } catch {
+        return match;
+      }
+      return sensitive.has(decodedKey.toLowerCase())
+        ? `${separator}${key}=%3Credacted%3E`
+        : match;
+    },
+  );
+}
+
 function createReplayScrubReplacer(
   resourceNodes: Map<number, ReplayResourceNode>,
   sensitiveQueryParams: readonly string[],
@@ -1175,7 +1200,7 @@ function createReplayScrubReplacer(
       typeof this === "object" &&
       preservedAttributes.get(this)?.has(key.toLowerCase())
     ) {
-      return value;
+      return scrubPreservedResourceUrl(value, sensitiveQueryParams);
     }
     return typeof value === "string"
       ? scrubStringValue(key, value, sensitiveQueryParams)

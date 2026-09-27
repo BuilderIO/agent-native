@@ -1392,7 +1392,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           style={{ backgroundColor: tab.color }}
                         />
                       )}
-                      {tab.label}
+                      <span data-an-mask={tab.isSystemView ? undefined : ""}>
+                        {tab.label}
+                      </span>
                       {count !== undefined && count > 0 && (
                         <span
                           className={cn(
@@ -1420,7 +1422,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       {tab.tooltip ? (
                         <Tooltip>
                           <TooltipTrigger asChild>{link}</TooltipTrigger>
-                          <TooltipContent>{tab.tooltip}</TooltipContent>
+                          <TooltipContent data-an-block>
+                            {tab.tooltip}
+                          </TooltipContent>
                         </Tooltip>
                       ) : (
                         link
@@ -2004,6 +2008,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                       />
                                     )}
                                     <span
+                                      data-an-block
                                       className="truncate"
                                       title={tab.fullLabel ?? tab.label}
                                     >
@@ -2557,12 +2562,14 @@ function StandardLayout({ children }: AppLayoutProps) {
 function CheckboxRow({
   checked,
   label,
+  maskLabel = false,
   color,
   indent = 0,
   onToggle,
 }: {
   checked: boolean;
   label: string;
+  maskLabel?: boolean;
   color?: string;
   indent?: number;
   onToggle: () => void;
@@ -2583,7 +2590,10 @@ function CheckboxRow({
           <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />
         )}
       </span>
-      <span className="flex items-center gap-1.5 text-[13px] text-foreground/80">
+      <span
+        data-an-mask={maskLabel ? "" : undefined}
+        className="flex items-center gap-1.5 text-[13px] text-foreground/80"
+      >
         {color && (
           <span
             className="h-2 w-2 rounded-full shrink-0"
@@ -2760,6 +2770,7 @@ function TabSettingsPopover({
                   key={tag.id}
                   checked={pinnedLabels.includes(tag.id)}
                   label={labelAliases[tag.id] || tag.name}
+                  maskLabel
                   color={labels.find((label) => label.id === tag.id)?.color}
                   onToggle={() => onToggle(tag.id)}
                 />
@@ -2800,6 +2811,7 @@ function TabSettingsPopover({
                   key={filter.id}
                   checked
                   label={filter.name}
+                  maskLabel
                   onToggle={() => onRemoveFilter(filter.id)}
                 />
               ))}
@@ -2822,6 +2834,7 @@ function TabSettingsPopover({
                   key={cat.id}
                   checked={pinnedLabels.includes(cat.id)}
                   label={cat.name}
+                  maskLabel
                   onToggle={() => onToggle(cat.id)}
                 />
               ))}
@@ -2860,6 +2873,7 @@ function TabSettingsPopover({
                           }
                         >
                           <input
+                            data-an-block
                             autoFocus
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
@@ -2884,6 +2898,7 @@ function TabSettingsPopover({
                         <CheckboxRow
                           checked={isPinned}
                           label={displayName}
+                          maskLabel
                           color={label.color}
                           indent={depth * 12}
                           onToggle={() => onToggle(label.id)}
