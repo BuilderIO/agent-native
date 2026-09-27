@@ -15,6 +15,7 @@ import {
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
+  readFirstRunOnboardingCookieState,
 } from "./first-run-status.js";
 
 const seenOnboardingEvents = new Set<string>();
@@ -238,7 +239,13 @@ export function useOnboarding(
 
   // The first-run surface is the page itself; everywhere else the summary only
   // feeds setup hints, so it waits until startup reads have had the server.
-  const deferUntilStartup = !preview && !initialFirstRun;
+  // An unreadable first-run cookie is the one case where the startup gate cannot
+  // own that surface and the sidebar fallback may, so that read stays prompt.
+  const [firstRunCookieUnreadable] = useState(
+    () => readFirstRunOnboardingCookieState() === "unreadable",
+  );
+  const deferUntilStartup =
+    !preview && !initialFirstRun && !firstRunCookieUnreadable;
 
   useEffect(() => {
     mountedRef.current = true;

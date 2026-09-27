@@ -83,12 +83,36 @@ export const ACTIVE_ORG_SETTING_KEY = "active-org-id";
 export type ActiveOrgSetting = { orgId: string | null } | null;
 
 /**
+ * Rotated by every request that changes its caller's `active-org-id`, and part
+ * of the cache key below. A browser that switched organizations carries the new
+ * value on its next request, so every instance misses and reads the switch,
+ * while an instance that still holds the previous answer serves it only to
+ * requests that never saw the switch. The value selects a cache entry and
+ * nothing else: a forged one can only cause a miss.
+ */
+export const ORG_SELECTION_COOKIE = "an_org_selection";
+const ORG_SELECTION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+export function orgSelectionFromCookieHeader(
+  header: string | null | undefined,
+): string {
+  for (const part of header?.split(";") ?? []) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() !== ORG_SELECTION_COOKIE) continue;
+    const value = part.slice(separator + 1).trim();
+    return ORG_SELECTION_PATTERN.test(value) ? value : "";
+  }
+  return "";
+}
+
+/**
  * The `active-org-id` preference, held across requests for the same TTL as
- * the memberships it selects from. It only chooses among memberships, so a
- * stale value can never select an org the caller no longer belongs to; on
- * another instance it can keep the previous selection for up to the TTL after
- * a switch. `user-settings` invalidates it on every write to the key, and the
- * generation check stops a read that raced a write from caching the old value.
+ * the memberships it selects from, keyed by email and org selection. It only
+ * chooses among memberships, so a stale value can never select an org the
+ * caller no longer belongs to. `user-settings` invalidates this instance's
+ * entries on every write to the key, and the generation check stops a read
+ * that raced a write from caching the old value here.
  */
 const processActiveOrgSettings = createTtlCache<ActiveOrgSetting>({
   ttlMs: MEMBER_ORGS_TTL_MS,
@@ -98,9 +122,10 @@ let activeOrgSettingGeneration = 0;
 
 export async function cachedActiveOrgSetting(
   email: string,
+  orgSelection: string,
   load: () => Promise<ActiveOrgSetting>,
 ): Promise<ActiveOrgSetting> {
-  const key = email.trim().toLowerCase();
+  const key = `${orgSelection}:${email.trim().toLowerCase()}`;
   const hit = processActiveOrgSettings.get(key);
   if (hit !== undefined) return hit;
   const generation = activeOrgSettingGeneration;

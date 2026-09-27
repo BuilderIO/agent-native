@@ -731,6 +731,58 @@ describe("useSession", () => {
     expect(container.textContent).toBe("returned@example.com");
   });
 
+  describe("a focus inside the answer's lifetime", () => {
+    async function focusThenExpire(options: { focusedAtExpiry: boolean }) {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-a", email: "before@example.com" }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "after@example.com" }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+
+      try {
+        await renderConsumers(["first"]);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        vi.spyOn(Date, "now").mockReturnValue(now + 10_000);
+        await act(async () => {
+          window.dispatchEvent(new Event("focus"));
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        hasFocus.mockReturnValue(options.focusedAtExpiry);
+        vi.spyOn(Date, "now").mockReturnValue(now + 30_000);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        return fetchMock;
+      } finally {
+        delete (document as { visibilityState?: string }).visibilityState;
+      }
+    }
+
+    it("re-reads the answer when it expires while the tab still has focus", async () => {
+      const fetchMock = await focusThenExpire({ focusedAtExpiry: true });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toBe("after@example.com");
+    });
+
+    it("leaves a tab that lost focus to its next focus instead", async () => {
+      const fetchMock = await focusThenExpire({ focusedAtExpiry: false });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(container.textContent).toBe("before@example.com");
+    });
+  });
+
   it("joins the read in flight when focus arrives before the first answer", async () => {
     let respond!: (response: Response) => void;
     const fetchMock = vi.fn(

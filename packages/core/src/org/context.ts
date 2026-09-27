@@ -1,12 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
-import type { H3Event } from "h3";
+import { setCookie, type H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
-import { getSession } from "../server/auth.js";
+import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
   getRequestContext,
@@ -23,6 +23,8 @@ import {
   cachedActiveOrgSetting,
   cachedMemberships,
   invalidateMemberOrgCaches,
+  ORG_SELECTION_COOKIE,
+  orgSelectionFromCookieHeader,
   requestMemberOrgIds,
   type ActiveOrgSetting,
 } from "./request-org-cache.js";
@@ -194,14 +196,34 @@ function loadActiveOrgSettingForEvent(
   const normalizedEmail = email.toLowerCase();
   let promise = cache.get(normalizedEmail);
   if (!promise) {
-    promise = cachedActiveOrgSetting(email, async () =>
-      parseActiveOrgSetting(
-        await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
-      ),
+    promise = cachedActiveOrgSetting(
+      email,
+      orgSelectionFromCookieHeader(event.req?.headers?.get("cookie")),
+      async () =>
+        parseActiveOrgSetting(
+          await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+        ),
     );
     cache.set(normalizedEmail, promise);
   }
   return promise;
+}
+
+/**
+ * Point this caller's later requests at a fresh `active-org-id` read on every
+ * instance. Call after the caller's own preference was written in this request.
+ */
+export function markActiveOrgSelectionChanged(event: H3Event): void {
+  setCookie(
+    event,
+    ORG_SELECTION_COOKIE,
+    randomBytes(18).toString("base64url"),
+    {
+      ...crossSiteCookieAttrs(event),
+      httpOnly: true,
+      path: "/",
+    },
+  );
 }
 
 function loadMembershipsForEvent(
@@ -397,7 +419,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
           )));
 
       if (shouldActivate) {
-        await setActiveOrgId(email, joinedOrgId, "joined domain-matched org");
+        await setActiveOrgId(
+          email,
+          joinedOrgId,
+          "joined domain-matched org",
+          event,
+        );
         const active = memberships.find((m) => m.orgId === joinedOrgId);
         if (active) {
           return {
@@ -598,6 +625,8 @@ export async function createOrganization(
     id?: string;
     identityAuthority?: string;
     identityId?: string;
+    /** The creating caller's request; see `setActiveOrgId`. */
+    event?: H3Event;
   } = {},
 ): Promise<{
   id: string;
@@ -638,7 +667,12 @@ export async function createOrganization(
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
-  await setActiveOrgId(email, id, `created organization "${trimmedName}"`);
+  await setActiveOrgId(
+    email,
+    id,
+    `created organization "${trimmedName}"`,
+    options.event,
+  );
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }

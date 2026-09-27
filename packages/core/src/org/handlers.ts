@@ -520,7 +520,11 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const { id, name: createdName, role } = await createOrganization(name, email);
+  const {
+    id,
+    name: createdName,
+    role,
+  } = await createOrganization(name, email, "owner", { event });
   await syncFederatedOrgBestEffort(event, {
     email,
     orgId: id,
@@ -962,7 +966,7 @@ export const acceptInvitationHandler = defineEventHandler(
           event,
         });
       }
-      await setActiveOrgId(email, invOrgId, "accepted invitation");
+      await setActiveOrgId(email, invOrgId, "accepted invitation", event);
       return {
         orgId: invOrgId,
         orgName,
@@ -1053,7 +1057,7 @@ export const acceptInvitationHandler = defineEventHandler(
       });
     }
 
-    await setActiveOrgId(email, invOrgId, "accepted invitation");
+    await setActiveOrgId(email, invOrgId, "accepted invitation", event);
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -1502,7 +1506,12 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
         )
       : null;
 
-  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+  await setActiveOrgId(
+    ctx.email,
+    nextOrgId,
+    "deleted active organization",
+    event,
+  );
 
   return { success: true, orgId: ctx.orgId, nextOrgId };
 });
@@ -1515,7 +1524,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await setActiveOrgId(email, null, "cleared active organization");
+    await setActiveOrgId(email, null, "cleared active organization", event);
     return { orgId: null, orgName: null, role: null };
   }
 
@@ -1537,7 +1546,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await setActiveOrgId(email, orgId, "user switched organization");
+  await setActiveOrgId(email, orgId, "user switched organization", event);
 
   const row = membership.rows[0] as any;
   return {
@@ -1613,7 +1622,12 @@ export const joinByDomainHandler = defineEventHandler(
     });
     invalidateMemberOrgCaches();
 
-    await setActiveOrgId(email, orgId, "joined domain-matched organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "joined domain-matched organization",
+      event,
+    );
 
     return {
       orgId,

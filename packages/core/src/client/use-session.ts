@@ -41,6 +41,7 @@ let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionGeneration = 0;
 let sessionInvalidationListenersInstalled = false;
+let staleSessionRecheck: ReturnType<typeof setTimeout> | undefined;
 const sessionInvalidationSubscribers = new Set<() => void>();
 let signingOut = false;
 
@@ -122,6 +123,8 @@ function resetSessionCache(): void {
   cachedSession = undefined;
   cachedSessionAt = 0;
   sessionRequest = undefined;
+  clearTimeout(staleSessionRecheck);
+  staleSessionRecheck = undefined;
 }
 
 function notifySessionSubscribers(): void {
@@ -134,19 +137,42 @@ function invalidateSessionCache(): void {
   notifySessionSubscribers();
 }
 
-/**
- * Focus and visibility say only that the answer may be stale; logout, a peer
- * tab's invalidation, and a 401 each invalidate explicitly. A signed-in answer
- * inside its lifetime therefore stands, which keeps a hard load to one session
- * read. A signed-out answer is re-read, because signing in elsewhere is what
- * focus reports. A read already in flight is shared rather than aborted, so
- * analytics refreshing on the same focus event does not cost a second request.
- */
-function revalidateStaleSession(): void {
-  if (hasFreshSessionCache() && cachedSession) return;
+function rereadSession(): void {
   resetSessionCache();
   expireClientStatusResult(SESSION_STATUS_PATH);
   notifySessionSubscribers();
+}
+
+/**
+ * Focus and visibility say only that the answer may be stale; logout, a peer
+ * tab's invalidation, and a 401 each invalidate explicitly. A signed-in answer
+ * inside its lifetime therefore stands for now, which keeps a hard load to one
+ * session read, and is re-read when it expires if the tab still has focus. That
+ * bounds how long a tab can show an identity changed somewhere that sends
+ * neither a broadcast nor a 401. A signed-out answer is re-read at once,
+ * because signing in elsewhere is what focus reports. A read already in flight
+ * is shared rather than aborted, so analytics refreshing on the same focus
+ * event does not cost a second request.
+ */
+function revalidateStaleSession(): void {
+  if (!hasFreshSessionCache() || !cachedSession) {
+    rereadSession();
+    return;
+  }
+  if (staleSessionRecheck !== undefined) return;
+  const answeredAt = cachedSessionAt;
+  staleSessionRecheck = setTimeout(
+    () => {
+      staleSessionRecheck = undefined;
+      // Already re-read since this focus: that answer is its own recheck.
+      if (cachedSessionAt !== answeredAt) return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) {
+        return;
+      }
+      rereadSession();
+    },
+    Math.max(0, answeredAt + SESSION_CACHE_TTL_MS - Date.now()),
+  );
 }
 
 function installSessionInvalidationListeners(): void {

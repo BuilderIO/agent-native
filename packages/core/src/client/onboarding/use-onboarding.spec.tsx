@@ -666,6 +666,19 @@ describe("useOnboarding — one summary for every mounted consumer", () => {
     expect(results.get("panel")?.steps[0]?.complete).toBe(true);
   });
 
+  it("stays prompt where the first-run cookie is unreadable, so the sidebar fallback can own first run", async () => {
+    vi.spyOn(document, "cookie", "get").mockImplementation(() => {
+      throw new DOMException("cookies are blocked", "SecurityError");
+    });
+    await act(async () => {
+      root.render(<Consumers labels={["sidebar-fallback"]} />);
+    });
+    await advance(600);
+
+    expect(summaryCalls).toBe(1);
+    expect(results.get("sidebar-fallback")?.loading).toBe(false);
+  });
+
   it("keeps the first-run surface on the paint-aligned read", async () => {
     function FirstRun() {
       results.set("first-run", useOnboarding({ initialFirstRun: true }));

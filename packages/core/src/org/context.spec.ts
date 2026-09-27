@@ -14,6 +14,7 @@ vi.mock("../db/client.js", async (importOriginal) => ({
 }));
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
+  crossSiteCookieAttrs: () => ({ sameSite: "lax", secure: false }),
 }));
 vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
@@ -26,6 +27,7 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
 }));
 
+import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
@@ -37,10 +39,12 @@ import {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   isSoleOrgDomain,
+  markActiveOrgSelectionChanged,
   resolveOrgByDomain,
 } from "./context.js";
 import {
   __resetProcessMemberOrgCacheForTests,
+  invalidateActiveOrgSettingCache,
   invalidateMemberOrgCaches,
 } from "./request-org-cache.js";
 
@@ -53,8 +57,18 @@ beforeEach(() => {
   __resetDomainMatchCacheForTests();
 });
 
-function makeEvent() {
-  return { context: {} } as any;
+function makeEvent(cookie?: string) {
+  return {
+    context: {},
+    req: { headers: new Headers(cookie ? { cookie } : {}) },
+    res: { headers: new Headers() },
+  } as any;
+}
+
+function selectionCookieFrom(event: any): string {
+  const [cookie] = event.res.headers.getSetCookie();
+  expect(cookie).toMatch(/^an_org_selection=[\w-]{16,64}; .*HttpOnly/);
+  return cookie.split(";")[0];
 }
 
 let EVENT: ReturnType<typeof makeEvent>;
@@ -666,6 +680,85 @@ describe("getOrgContext", () => {
         rows: [{ orgId: "org-a", role: "owner", orgName: "Org A" }],
       });
       expect((await getOrgContext(makeEvent())).orgId).toBe("org-a");
+      expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("an org switch across instances", () => {
+    let now = 5_000_000;
+
+    beforeEach(() => {
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockGetSession.mockResolvedValue({ email: "switcher@example.com" });
+      mockExecute.mockResolvedValue({
+        rows: [
+          { orgId: "org-a", role: "owner", orgName: "Org A" },
+          { orgId: "org-b", role: "member", orgName: "Org B" },
+        ],
+      });
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("resolves the new org, including for a write, on an instance still caching the old one", async () => {
+      mockGetUserSetting.mockResolvedValue({ orgId: "org-a" });
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-a");
+
+      // The switch lands on another instance: `putUserSetting` is mocked, so
+      // this instance's cache is never told about the write.
+      const switchEvent = makeEvent();
+      mockGetUserSetting.mockResolvedValue({ orgId: "org-b" });
+      await setActiveOrgId(
+        "switcher@example.com",
+        "org-b",
+        "user switched organization",
+        switchEvent,
+      );
+      const switched = selectionCookieFrom(switchEvent);
+
+      // An org-scoped key save resolves its scope through getOrgContext.
+      expect((await getOrgContext(makeEvent(switched))).orgId).toBe("org-b");
+
+      // A client that never saw the switch keeps the cached answer for at
+      // most the TTL.
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-a");
+      now += 15_001;
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-b");
+    });
+
+    it("does not let a read from before the switch answer requests made after it", async () => {
+      let releaseRead!: (value: { orgId: string }) => void;
+      mockGetUserSetting.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseRead = resolve;
+          }),
+      );
+      const beforeSwitch = getOrgContext(makeEvent());
+      await vi.waitFor(() => expect(mockGetUserSetting).toHaveBeenCalled());
+
+      // The switch lands on this instance while that read is in flight.
+      const switchEvent = makeEvent();
+      mockGetUserSetting.mockResolvedValue({ orgId: "org-b" });
+      invalidateActiveOrgSettingCache();
+      markActiveOrgSelectionChanged(switchEvent);
+      const switched = selectionCookieFrom(switchEvent);
+
+      releaseRead({ orgId: "org-a" });
+      expect((await beforeSwitch).orgId).toBe("org-a");
+
+      expect((await getOrgContext(makeEvent(switched))).orgId).toBe("org-b");
+      expect((await getOrgContext(makeEvent())).orgId).toBe("org-b");
+    });
+
+    it("ignores a malformed selection cookie instead of keying on it", async () => {
+      mockGetUserSetting.mockResolvedValue({ orgId: "org-a" });
+      await getOrgContext(makeEvent("an_org_selection=short"));
+      await getOrgContext(makeEvent());
+
       expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
     });
   });

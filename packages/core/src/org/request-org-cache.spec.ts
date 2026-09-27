@@ -21,6 +21,7 @@ import {
   __resetProcessMemberOrgCacheForTests,
   cachedActiveOrgSetting,
   invalidateActiveOrgSettingCache,
+  orgSelectionFromCookieHeader,
 } from "./request-org-cache.js";
 
 function memberRowQueries() {
@@ -161,12 +162,12 @@ describe("cross-request active-org preference cache", () => {
   it("reuses a read, including an absent preference, until the TTL passes", async () => {
     const load = vi.fn(async () => null);
 
-    await cachedActiveOrgSetting("Alice@Builder.IO", load);
-    await cachedActiveOrgSetting("alice@builder.io", load);
+    await cachedActiveOrgSetting("Alice@Builder.IO", "", load);
+    await cachedActiveOrgSetting("alice@builder.io", "", load);
     expect(load).toHaveBeenCalledTimes(1);
 
     now += 15_001;
-    await cachedActiveOrgSetting("alice@builder.io", load);
+    await cachedActiveOrgSetting("alice@builder.io", "", load);
     expect(load).toHaveBeenCalledTimes(2);
   });
 
@@ -177,13 +178,13 @@ describe("cross-request active-org preference cache", () => {
       .mockResolvedValueOnce({ orgId: "org-after" });
 
     await expect(
-      cachedActiveOrgSetting("alice@builder.io", load),
+      cachedActiveOrgSetting("alice@builder.io", "", load),
     ).resolves.toEqual({
       orgId: "org-before",
     });
     invalidateActiveOrgSettingCache();
     await expect(
-      cachedActiveOrgSetting("alice@builder.io", load),
+      cachedActiveOrgSetting("alice@builder.io", "", load),
     ).resolves.toEqual({
       orgId: "org-after",
     });
@@ -193,6 +194,7 @@ describe("cross-request active-org preference cache", () => {
     let finishRead!: (value: { orgId: string }) => void;
     const racing = cachedActiveOrgSetting(
       "alice@builder.io",
+      "",
       () =>
         new Promise((resolve) => {
           finishRead = resolve;
@@ -204,23 +206,51 @@ describe("cross-request active-org preference cache", () => {
 
     const load = vi.fn(async () => ({ orgId: "org-after-switch" }));
     await expect(
-      cachedActiveOrgSetting("alice@builder.io", load),
+      cachedActiveOrgSetting("alice@builder.io", "", load),
     ).resolves.toEqual({
       orgId: "org-after-switch",
     });
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps each org selection's answer apart", async () => {
+    const before = vi.fn(async () => ({ orgId: "org-before-switch" }));
+    const after = vi.fn(async () => ({ orgId: "org-after-switch" }));
+    const switched = "rotated-selection-0123456789";
+
+    await cachedActiveOrgSetting("alice@builder.io", "", before);
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", switched, after),
+    ).resolves.toEqual({ orgId: "org-after-switch" });
+    await expect(
+      cachedActiveOrgSetting("alice@builder.io", switched, before),
+    ).resolves.toEqual({ orgId: "org-after-switch" });
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the selection only from a well-formed cookie", () => {
+    expect(
+      orgSelectionFromCookieHeader(
+        "an_session=abc; an_org_selection=rotated-selection-0123456789",
+      ),
+    ).toBe("rotated-selection-0123456789");
+    expect(orgSelectionFromCookieHeader("an_org_selection=short")).toBe("");
+    expect(
+      orgSelectionFromCookieHeader("an_org_selection=has:a:colon:0123456789"),
+    ).toBe("");
+    expect(orgSelectionFromCookieHeader(null)).toBe("");
+  });
+
   it("never caches a failed read", async () => {
     const failure = new Error("settings unreadable");
     await expect(
-      cachedActiveOrgSetting("alice@builder.io", async () => {
+      cachedActiveOrgSetting("alice@builder.io", "", async () => {
         throw failure;
       }),
     ).rejects.toBe(failure);
 
     const load = vi.fn(async () => ({ orgId: "org1" }));
-    await cachedActiveOrgSetting("alice@builder.io", load);
+    await cachedActiveOrgSetting("alice@builder.io", "", load);
     expect(load).toHaveBeenCalledTimes(1);
   });
 });

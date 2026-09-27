@@ -413,9 +413,9 @@ describe("user-settings", () => {
     async function cachedPreferenceReads(write: () => Promise<unknown>) {
       __resetProcessMemberOrgCacheForTests();
       const load = vi.fn(async () => ({ orgId: "org-1" }));
-      await cachedActiveOrgSetting("alice@test.com", load);
+      await cachedActiveOrgSetting("alice@test.com", "", load);
       await write();
-      await cachedActiveOrgSetting("alice@test.com", load);
+      await cachedActiveOrgSetting("alice@test.com", "", load);
       return load.mock.calls.length;
     }
 
