@@ -922,6 +922,28 @@ describe("tryCallActionKeepalive", () => {
     );
   });
 
+  it("uses PUT for full-deck keepalive actions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive(
+      "save-deck",
+      {
+        deckId: "deck-1",
+        deck: { id: "deck-1", slides: [] },
+      },
+      { method: "PUT" },
+    );
+
+    expect(attempt.accepted).toBe(true);
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/save-deck",
+      expect.objectContaining({ method: "PUT", keepalive: true }),
+    );
+  });
+
   it("holds the aggregate reservation until the response body completes", async () => {
     let resolveFirst: ((response: Response) => void) | undefined;
     const fetchMock = vi

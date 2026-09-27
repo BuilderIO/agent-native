@@ -57,11 +57,13 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
 });
 
 describe("resized", () => {
-  it("recognizes a one-pixel growth so outside pixels can be attributed to the edit", () => {
+  it("ignores subpixel noise but recognizes a change beyond one pixel", () => {
     const before = { ...rect, height: 138 };
     expect(resized(before, before)).toBe(false);
-    expect(resized(before, { ...before, height: 139 })).toBe(true);
-    expect(resized(before, { ...before, width: 101 })).toBe(true);
+    expect(resized(before, { ...before, height: 138.5 })).toBe(false);
+    expect(resized(before, { ...before, height: 139 })).toBe(false);
+    expect(resized(before, { ...before, height: 139.01 })).toBe(true);
+    expect(resized(before, { ...before, width: 101.01 })).toBe(true);
     expect(resized(null, rect)).toBe(false);
   });
 });

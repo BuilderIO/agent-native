@@ -8,6 +8,8 @@ import {
 import {
   callAction,
   callActionWithRetry,
+  tryCallActionKeepalive,
+  type KeepaliveActionCallResult,
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -512,26 +514,16 @@ function deckPayload(deck: Deck): Record<string, unknown> {
   return { ...deck };
 }
 
-async function sendKeepaliveAction(
-  url: string,
-  method: "POST" | "PUT",
-  body: Record<string, unknown>,
-  signal?: AbortSignal,
-): Promise<void> {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-Frontend": "1",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-    keepalive: true,
-    signal,
-  });
-  if (!response.ok) {
-    throw new Error(`Action request failed with status ${response.status}`);
+function requireKeepaliveAction<TResult>(
+  actionName: string,
+  attempt: KeepaliveActionCallResult<TResult>,
+): Promise<TResult> {
+  if (!attempt.accepted) {
+    throw new Error(
+      `Keepalive ${actionName} was not started (${attempt.reason}; ${attempt.bodyBytes} bytes)`,
+    );
   }
+  return attempt.completion;
 }
 
 async function persistDeckOps(
@@ -541,30 +533,35 @@ async function persistDeckOps(
   options?: { keepalive?: boolean },
 ): Promise<unknown[]> {
   if (options?.keepalive) {
-    const actionsBase = agentNativePath("/_agent-native/actions");
     if (ops[0].op === "full-replace") {
       const deck = ops[0].deck;
-      await sendKeepaliveAction(
-        `${actionsBase}/save-deck`,
-        "PUT",
-        { deckId, deck: deckPayload(deck) },
-        signal,
+      await requireKeepaliveAction(
+        "save-deck",
+        tryCallActionKeepalive<unknown>(
+          "save-deck",
+          { deckId, deck: deckPayload(deck) },
+          { method: "PUT", signal },
+        ),
       );
       const trailingOps = ops.slice(1) as PatchDeckOp[];
       if (trailingOps.length > 0) {
-        await sendKeepaliveAction(
-          `${actionsBase}/patch-deck`,
-          "POST",
-          { deckId, operations: trailingOps },
-          signal,
+        await requireKeepaliveAction(
+          "patch-deck",
+          tryCallActionKeepalive<unknown>(
+            "patch-deck",
+            { deckId, operations: trailingOps },
+            { signal },
+          ),
         );
       }
     } else {
-      await sendKeepaliveAction(
-        `${actionsBase}/patch-deck`,
-        "POST",
-        { deckId, operations: ops as PatchDeckOp[] },
-        signal,
+      await requireKeepaliveAction(
+        "patch-deck",
+        tryCallActionKeepalive<unknown>(
+          "patch-deck",
+          { deckId, operations: ops as PatchDeckOp[] },
+          { signal },
+        ),
       );
     }
     return [];
@@ -730,9 +727,17 @@ function drainPendingDeckOps(
       !inFlightKeepaliveSaves.has(deckId) &&
       activeOps?.length
     ) {
+      const queuedOps = pendingOpsQueue.get(deckId) ?? [];
+      const replacementIndex = queuedOps.findIndex(
+        (op) => op.op === "full-replace",
+      );
+      const keepaliveOps =
+        replacementIndex >= 0
+          ? queuedOps.slice(replacementIndex)
+          : [...activeOps, ...queuedOps];
       const keepaliveSave = persistDeckOps(
         deckId,
-        activeOps,
+        keepaliveOps,
         controller?.signal,
         { keepalive: true },
       ).then(
@@ -741,15 +746,17 @@ function drainPendingDeckOps(
           if (!controller?.signal.aborted) {
             console.error(`Failed to keepalive save deck ${deckId}:`, err);
           }
+          throw err;
         },
       );
       inFlightKeepaliveSaves.set(deckId, keepaliveSave);
-      void keepaliveSave.then(() => {
+      const clearKeepaliveSave = () => {
         if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
           inFlightKeepaliveSaves.delete(deckId);
           notifySaveListeners();
         }
-      });
+      };
+      void keepaliveSave.then(clearKeepaliveSave, clearKeepaliveSave);
     }
     notifySaveListeners();
     return active;
@@ -859,7 +866,7 @@ function drainPendingDeckOps(
               requestedFlush ? { keepalive: true } : undefined,
             );
           const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
-          if (keepaliveSave) void keepaliveSave.then(flush);
+          if (keepaliveSave) void keepaliveSave.then(flush, flush);
           else flush();
         }
       }

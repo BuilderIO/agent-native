@@ -102,11 +102,16 @@ export function padRect(r: Rect, pad = 4): Rect {
   };
 }
 
-/** Unknown rects cannot waive the outside-pixel check. */
-export const resized = (a: Rect | null, b: Rect | null) =>
-  !!a && !!b && (a.width !== b.width || a.height !== b.height);
-
 // ---------------------------------------------------------------- styles ---
+
+const GEOMETRY_TOLERANCE = 1;
+
+/** Unknown rects and subpixel noise cannot waive the outside-pixel check. */
+export const resized = (a: Rect | null, b: Rect | null) =>
+  !!a &&
+  !!b &&
+  (Math.abs(a.width - b.width) > GEOMETRY_TOLERANCE ||
+    Math.abs(a.height - b.height) > GEOMETRY_TOLERANCE);
 
 export interface StyleDelta {
   key: string;
@@ -124,8 +129,6 @@ export interface StyleDiff {
   missing: Array<{ key: string; inside: boolean }>;
   added: Array<{ key: string; inside: boolean }>;
 }
-
-const GEOMETRY_TOLERANCE = 1;
 
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);

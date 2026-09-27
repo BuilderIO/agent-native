@@ -502,6 +502,61 @@ describe("DeckContext deck creation persistence", () => {
     await result.current.flushDeckSave("flush-active-deck");
   });
 
+  it("does not start an over-budget keepalive duplicate", async () => {
+    window.history.pushState({}, "", "/deck/flush-large-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "flush-large-deck",
+      title: "Flush large deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "flush-large-deck",
+        "slide-1",
+        { content: `<p>${"x".repeat(50_000)}</p>` },
+        { persistence: "immediate" },
+      );
+      flushPendingSaves();
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+    expect(hasUnsavedDeckChanges("flush-large-deck")).toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("flush-large-deck");
+    expect(hasUnsavedDeckChanges("flush-large-deck")).toBe(false);
+  });
+
   it("keeps an unload flush behind the active save chain", async () => {
     window.history.pushState({}, "", "/deck/flush-order-deck");
     const {
@@ -566,6 +621,11 @@ describe("DeckContext deck creation persistence", () => {
           op: "patch-slide",
           slideId: "slide-1",
           fields: { content: "<h1>First</h1>" },
+        },
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<h1>Latest</h1>" },
         },
       ],
     });
