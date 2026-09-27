@@ -1410,12 +1410,12 @@ export function Layout({
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
-    { enabled: chatFirstMode },
+    { enabled: isChatRoute },
   );
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
     "list_apps",
     {},
-    { enabled: chatFirstMode },
+    { enabled: isChatRoute },
   );
   const chatFirstWorkspaceApps = useMemo(
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),

@@ -24,6 +24,11 @@ const messages = {
     retry: "Retry",
     search: "Search",
   },
+  chatHome: {
+    description:
+      "Explore permitted account context, follow-up work, and evidence across Native SQL and connected records.",
+    placeholder: "Ask about your CRM",
+  },
   commandMenu: {
     placeholder: "Search records, lists, and commands…",
     groupRecords: "Records",

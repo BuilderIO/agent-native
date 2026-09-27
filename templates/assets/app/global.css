@@ -100,8 +100,7 @@
   text-align: center;
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .assets-create-chat-intro {
   display: grid;
   justify-items: center;
@@ -111,8 +110,7 @@
   text-align: center;
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
   justify-content: safe center;
 }
 
@@ -245,24 +243,21 @@
   }
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-area {
   width: 100%;
   max-width: min(750px, 100%);
   padding: 0;
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-root {
   min-height: 7.875rem;
   border-color: hsl(var(--border));
@@ -271,8 +266,7 @@
   box-shadow: none;
 }
 
-.assets-create-chat-panel
-  .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+.assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agent-composer-prosemirror {
   min-height: 5.0625rem;
   font-size: 1rem;
@@ -280,14 +274,12 @@
 }
 
 @media (max-width: 767px) {
-  .assets-create-chat-panel
-    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
     padding: 1rem;
     padding-bottom: 5rem;
   }
 
-  .assets-create-chat-panel
-    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .assets-create-chat-intro {
     width: 100%;
     margin-bottom: 0.875rem;
@@ -297,14 +289,12 @@
     font-size: 1.75rem;
   }
 
-  .assets-create-chat-panel
-    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-area {
     width: 100%;
   }
 
-  .assets-create-chat-panel
-    .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
+  .assets-create-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .agent-composer-root {
     min-height: 6.75rem;
   }

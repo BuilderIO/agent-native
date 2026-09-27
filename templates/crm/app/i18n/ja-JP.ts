@@ -24,6 +24,11 @@ const messages = {
     retry: "再試行",
     search: "検索",
   },
+  chatHome: {
+    description:
+      "Native SQL と接続済みレコード全体で、アクセス可能なアカウント情報、フォローアップ業務、根拠を確認できます。",
+    placeholder: "CRMについて質問する",
+  },
   commandMenu: {
     placeholder: "レコード、リスト、コマンドを検索…",
     groupRecords: "レコード",

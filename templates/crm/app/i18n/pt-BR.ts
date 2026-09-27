@@ -24,6 +24,11 @@ const messages = {
     retry: "Tentar novamente",
     search: "Buscar",
   },
+  chatHome: {
+    description:
+      "Explore o contexto permitido das contas, tarefas de acompanhamento e evidências no Native SQL e nos registros conectados.",
+    placeholder: "Pergunte sobre seu CRM",
+  },
   commandMenu: {
     placeholder: "Busque registros, listas e comandos…",
     groupRecords: "Registros",

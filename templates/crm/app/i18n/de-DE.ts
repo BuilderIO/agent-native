@@ -24,6 +24,11 @@ const messages = {
     retry: "Erneut versuchen",
     search: "Suchen",
   },
+  chatHome: {
+    description:
+      "Erkunde den zulässigen Kontokontext, Folgeaufgaben und Belege in Native SQL und verbundenen Datensätzen.",
+    placeholder: "Frage zu deinem CRM",
+  },
   commandMenu: {
     placeholder: "Datensätze, Listen und Befehle suchen…",
     groupRecords: "Datensätze",

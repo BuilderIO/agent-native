@@ -24,6 +24,11 @@ const messages = {
     retry: "Réessayer",
     search: "Rechercher",
   },
+  chatHome: {
+    description:
+      "Explorez le contexte autorisé des comptes, les suivis et les éléments de preuve dans Native SQL et les fiches connectées.",
+    placeholder: "Posez une question sur votre CRM",
+  },
   commandMenu: {
     placeholder: "Rechercher des enregistrements, listes et commandes…",
     groupRecords: "Enregistrements",

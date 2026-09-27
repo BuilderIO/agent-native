@@ -23,6 +23,11 @@ const messages = {
     retry: "إعادة المحاولة",
     search: "بحث",
   },
+  chatHome: {
+    description:
+      "استكشف سياق الحسابات المسموح به، وأعمال المتابعة، والأدلة عبر Native SQL والسجلات المتصلة.",
+    placeholder: "اسأل عن CRM الخاص بك",
+  },
   commandMenu: {
     placeholder: "ابحث في السجلات والقوائم والأوامر…",
     groupRecords: "السجلات",

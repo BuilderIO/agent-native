@@ -23,6 +23,11 @@ const messages = {
     retry: "फिर से कोशिश करें",
     search: "खोजें",
   },
+  chatHome: {
+    description:
+      "Native SQL और जुड़े हुए रिकॉर्ड में अनुमत खाता संदर्भ, फ़ॉलो-अप कार्य और साक्ष्य देखें।",
+    placeholder: "अपने CRM के बारे में पूछें",
+  },
   commandMenu: {
     placeholder: "रिकॉर्ड, सूचियाँ और कमांड खोजें…",
     groupRecords: "रिकॉर्ड",

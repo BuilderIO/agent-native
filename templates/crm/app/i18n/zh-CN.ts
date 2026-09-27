@@ -23,6 +23,11 @@ const messages = {
     retry: "重试",
     search: "搜索",
   },
+  chatHome: {
+    description:
+      "查看 Native SQL 和已连接记录中的授权账户背景、跟进工作和证据。",
+    placeholder: "询问你的 CRM",
+  },
   commandMenu: {
     placeholder: "搜索记录、列表和命令…",
     groupRecords: "记录",

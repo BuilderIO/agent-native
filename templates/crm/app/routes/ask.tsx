@@ -2,6 +2,7 @@ import {
   AgentChatHome,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";
@@ -11,6 +12,7 @@ export function meta() {
 }
 
 export default function AskCrmRoute() {
+  const t = useT();
   useEffect(() => {
     const onChatRunning = (event: Event) => {
       if ((event as CustomEvent<{ isRunning?: boolean }>).detail?.isRunning)
@@ -32,18 +34,15 @@ export default function AskCrmRoute() {
       showTabBar={false}
       dynamicSuggestions={false}
       suggestions={[]}
-      emptyStateText="Ask CRM"
+      emptyStateText={t("navigation.askCrm")}
       emptyStateDisplay="hidden"
       centerComposerWhenEmpty
       composerLayoutVariant="hero"
-      composerPlaceholder="Ask about your CRM"
+      composerPlaceholder={t("chatHome.placeholder")}
       homeIntroSlot={
         <div className="crm-chat-intro">
-          <h1>Ask CRM</h1>
-          <p>
-            Explore permitted account context, follow-up work, and evidence
-            across Native SQL and connected records.
-          </p>
+          <h1>{t("navigation.askCrm")}</h1>
+          <p>{t("chatHome.description")}</p>
         </div>
       }
     />

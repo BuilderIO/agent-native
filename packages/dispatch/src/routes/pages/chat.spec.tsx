@@ -12,6 +12,8 @@ const clientState = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
   openWorkspaceApp: vi.fn(),
   workspaceApps: [{ id: "content", name: "Content" }],
+  workspaceAppsError: null as unknown,
+  retryWorkspaceApps: vi.fn(),
   agents: [] as Array<{
     id: string;
     name: string;
@@ -63,9 +65,9 @@ vi.mock("../../components/layout/Layout", () => ({
   useDispatchWorkspaceAppLauncher: () => ({
     apps: clientState.workspaceApps,
     isLoading: false,
-    error: undefined,
+    error: clientState.workspaceAppsError,
     openApp: clientState.openWorkspaceApp,
-    retry: vi.fn(),
+    retry: clientState.retryWorkspaceApps,
   }),
 }));
 
@@ -86,7 +88,8 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { defaultValue?: string }) =>
-    values?.defaultValue ?? key,
+    values?.defaultValue ??
+    (key === "dispatch.pages.chatFirstWorkspaceApps" ? "Workspace apps" : key),
 }));
 
 describe("Dispatch ChatRoute", () => {
@@ -100,6 +103,8 @@ describe("Dispatch ChatRoute", () => {
     clientState.activeRunId = null;
     clientState.agents = [];
     clientState.openWorkspaceApp.mockReset();
+    clientState.retryWorkspaceApps.mockReset();
+    clientState.workspaceAppsError = null;
     clientState.workspaceApps = [{ id: "content", name: "Content" }];
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -163,6 +168,31 @@ describe("Dispatch ChatRoute", () => {
       id: "content",
       name: "Content",
     });
+  });
+
+  it("keeps loaded apps visible and offers retry after a partial list failure", async () => {
+    clientState.workspaceAppsError = new Error("grant app list unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <ChatRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Content");
+    expect(container.textContent).toContain("dispatch.pages.dataLoadFailed");
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("dispatch.pages.tryAgain"),
+    );
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(clientState.retryWorkspaceApps).toHaveBeenCalledOnce();
   });
 
   it("starts bottom-pinned when an Overview prompt is transitioning in", async () => {
