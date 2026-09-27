@@ -123,15 +123,42 @@ describe("default onboarding steps", () => {
       kind: "builder-cli-auth",
       payload: { scope: "llm" },
     });
-    expect(step.methods[1]).toMatchObject({
-      kind: "form",
-      payload: {
-        saveTo: "scoped-secrets",
-        fields: expect.arrayContaining([
-          expect.objectContaining({ key: "S3_PUBLIC_BASE_URL" }),
-        ]),
-      },
-    });
+    // The custom path renders the shared storage form, not a generic key form.
+    expect(step.methods[1]).toMatchObject({ kind: "file-storage" });
+    expect(step.methods[1]).not.toHaveProperty("payload");
+  });
+
+  it("explains the host email variables instead of saving keys", async () => {
+    const step = await loadDefaultStep("email");
+
+    expect(step.required).toBe(false);
+    expect(step.methods).toEqual([
+      expect.objectContaining({
+        id: "host-variables",
+        kind: "link",
+        payload: expect.objectContaining({ external: true }),
+      }),
+    ]);
+    expect(step.methods.some((method) => method.kind === "form")).toBe(false);
+    expect(step.description).toContain("RESEND_API_KEY");
+    expect(step.description).toContain("EMAIL_FROM");
+    await expect(step.isAvailable?.()).resolves.toBe(true);
+  });
+
+  it("drops the email step when the deployment provides email", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test_example");
+
+    const step = await loadDefaultStep("email");
+
+    await expect(step.isAvailable?.()).resolves.toBe(false);
+  });
+
+  it("keeps the email step while the host's SendGrid setup lacks a sender", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "SG.test-example");
+
+    const step = await loadDefaultStep("email");
+
+    await expect(step.isAvailable?.()).resolves.toBe(true);
   });
 
   it("completes GitHub repository setup from local token env when allowed", async () => {

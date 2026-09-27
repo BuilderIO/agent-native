@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
+      aiSetupSkipSetup: "Omitir configuración de la bandeja",
       aiSetupImportantHeadline: "Qué es importante",
       aiSetupSkipInboxHeadline: "Qué puede saltarse la bandeja de entrada",
       aiSetupTagsHeadline: "Elige tus pestañas",
@@ -453,6 +454,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecta tu cuenta de Google",
+      connectionNotConfigured:
+        "La conexión de Gmail no está configurada para esta aplicación. Pide a tu administrador que la habilite o salta este paso por ahora.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -835,8 +838,6 @@ const messages = {
     slackPostEndpoint: "Endpoint POST de Slack",
     slackPostEndpointHelp:
       "Úsalo en Slack Event Subscriptions. Un GET desde el navegador puede mostrar Not Found.",
-    teamDescription:
-      "Configura un equipo para compartir automatizaciones y ajustes de correo con tus compañeros.",
     title: "Configuracion",
     general: "General",
     generalDescription: "Idioma y preferencias de cuenta para Mail.",
@@ -862,12 +863,19 @@ const messages = {
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
+    rules: "Reglas",
+    rulesModel: "Modelo de reglas",
+    rulesModelDescription: "Compara el correo entrante con tus reglas.",
+    slackDraftRequests: "Solicitudes de borradores",
+    slackDraftQueue: "Poner en cola borradores desde Slack",
+    slackDraftQueueDescription:
+      "Tus compañeros mencionan al agente en Slack para pedir un borrador de correo. Los borradores esperan revisión en tu cola de borradores.",
+    openDraftQueue: "Abrir cola de borradores",
     aiFilter: "Clasificación con IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
     slack: "Slack",
-    team: "Equipo",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

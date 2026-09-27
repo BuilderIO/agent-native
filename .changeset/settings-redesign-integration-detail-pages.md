@@ -1,0 +1,5 @@
+---
+"@agent-native/core": patch
+---
+
+With the `settings-redesign` flag on, each catalog integration opens its own Settings page at `/settings/integrations/<id>` instead of a full-screen dialog. The page keeps the Settings sidebar, shows "Integrations › {logo} {name}" in the header with its Connect, Add access token, or Set up action, and has the brand-tinted example prompts (clicking one asks the agent), what it does and what the agent can see, a callout when a provider or admin has to act first, and Connection and Information groups. Connecting stays on the page: OAuth opens in a popup, a token in a dialog, and provider setup in the connect dialog. Browser Back and the breadcrumb return to Integrations, a reload of the page works, and an unknown id shows a not-found state under the breadcrumb. Old Integrations links for a channel go to its Channels page. Channels rows and pages now show each service's brand logo, and channel pages gain the prompts hero, Developer and Category rows, and a copyable webhook URL; Slack's page is the app's Slack settings plus Agent in Slack, with Set up on its row. Builder.io's page shows its logo in the breadcrumb.

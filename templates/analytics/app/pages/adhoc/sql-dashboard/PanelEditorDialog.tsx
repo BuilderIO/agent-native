@@ -439,7 +439,7 @@ function PanelEditorContent({
               setForm((f) => ({ ...f, chartType: v }))
             }
           >
-            <SelectTrigger id="panel-chart-type" className="h-9 text-sm">
+            <SelectTrigger id="panel-chart-type" className="text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -461,7 +461,7 @@ function PanelEditorContent({
                 setForm((f) => ({ ...f, source: v }))
               }
             >
-              <SelectTrigger id="panel-source" className="h-9 text-sm">
+              <SelectTrigger id="panel-source" className="text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -520,7 +520,7 @@ function PanelEditorContent({
                 }))
               }
             >
-              <SelectTrigger id="panel-extension-mode" className="h-9 text-sm">
+              <SelectTrigger id="panel-extension-mode" className="text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -545,7 +545,7 @@ function PanelEditorContent({
                   setForm((current) => ({ ...current, extensionId }))
                 }
               >
-                <SelectTrigger id="panel-extension" className="h-9 text-sm">
+                <SelectTrigger id="panel-extension" className="text-sm">
                   <SelectValue
                     placeholder={
                       extensionsLoading
@@ -607,7 +607,7 @@ function PanelEditorContent({
               value={selectedProgramId || undefined}
               onValueChange={(v) => setSelectedProgramId(v)}
             >
-              <SelectTrigger id="panel-program" className="h-9 text-sm">
+              <SelectTrigger id="panel-program" className="text-sm">
                 <SelectValue
                   placeholder={
                     programsLoading

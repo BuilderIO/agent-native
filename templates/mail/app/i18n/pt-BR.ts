@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
+      aiSetupSkipSetup: "Pular configuração da caixa de entrada",
       aiSetupImportantHeadline: "O que é importante",
       aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
       aiSetupTagsHeadline: "Escolha suas abas",
@@ -451,6 +452,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Conecte sua conta Google",
+      connectionNotConfigured:
+        "A conexão do Gmail não está configurada para este app. Peça ao administrador para ativá-la ou pule esta etapa por enquanto.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -837,8 +840,6 @@ const messages = {
     slackPostEndpoint: "Endpoint POST do Slack",
     slackPostEndpointHelp:
       "Use em Slack Event Subscriptions. Um GET do navegador pode mostrar Not Found.",
-    teamDescription:
-      "Configure uma equipe para compartilhar automações e configurações de email com colegas.",
     title: "Configuracoes",
     general: "Geral",
     generalDescription: "Idioma e preferencias de nivel de conta para Mail.",
@@ -864,12 +865,19 @@ const messages = {
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
+    rules: "Regras",
+    rulesModel: "Modelo das regras",
+    rulesModelDescription: "Compara os e-mails recebidos com suas regras.",
+    slackDraftRequests: "Pedidos de rascunho",
+    slackDraftQueue: "Enfileirar rascunhos do Slack",
+    slackDraftQueueDescription:
+      "Colegas mencionam o agente no Slack para pedir um rascunho de e-mail. Os rascunhos aguardam revisão na sua fila de rascunhos.",
+    openDraftQueue: "Abrir fila de rascunhos",
     aiFilter: "Triagem com IA",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
     slack: "Slack",
-    team: "Equipe",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },

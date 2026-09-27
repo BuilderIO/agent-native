@@ -3,6 +3,20 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-27
+
+### Improved
+
+- The Connect AI setup card now has even spacing above and below the composer.
+
+### Fixed
+
+- Fixed deck edits that could be overwritten during unload
+- Pagehide saves include queued edits and stay within the keepalive budget
+- Text edits are preserved when leaving or reloading a deck, and link drops no longer navigate away.
+- Text selection and bullet edits stay in their intended line and row
+- The deck list stays available when a deck preview cannot be generated.
+
 ## 2026-09-26
 
 ### Added
@@ -25,6 +39,9 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Clicking or double-clicking slide text near a box's edge now puts the caret or selection where you clicked, and pressing Enter in a styled bullet keeps its color and weight on the new bullet
+- Reverted text edits no longer change slide spacing
+- Slides keep their fit while text is edited and avoid saving changes that are erased.
 - Exports and Present are disabled when a deck has no slides
 - File uploads ask for storage only when requested, and chat stays disabled until an AI provider is connected.
 - Home suggestions and file imports handle provider failures more clearly.

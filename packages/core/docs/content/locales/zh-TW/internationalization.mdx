@@ -94,9 +94,10 @@ function Greeting({ name }: { name: string }) {
 使用 `useFormatters()` 來處理日期、數字、相對時間和清單。不要把區域
 設定敏感的日期或數字格式放進翻譯字串裡。
 
-把 `<LanguagePicker />` 放在應用程式讓使用者變更語言的位置。標準
-設定頁面的做法，包括 `openAgentSettings()` 適合放在哪裡，請參閱
-[Toolkit: Settings](/docs/toolkit-settings)。
+Settings 已在 Account › Preferences 中提供 **Interface language** 列，在那裡的變更會套用到所有應用程式，
+因此應用程式自己的 Settings 頁面不再新增第二個選擇器。`settings-redesign` 旗標關閉時，把選擇器放在
+含分頁的頁面的 General 分頁中。在應用程式其他讓使用者變更語言的位置（例如頁首捷徑）放置
+`<LanguagePicker />`。Settings 頁面的約定請參閱 [Toolkit: Settings](/docs/toolkit-settings)。
 
 ## Actions 與持久性
 
@@ -142,5 +143,5 @@ pnpm guard:i18n-catalogs
 ## 下一步是什麼
 
 - [**總覽**](/docs/client-overview#app-shell) — i18n 所依賴的 `AppProviders` 包裝器與其他瀏覽器掛鉤
-- [**Toolkit: Settings**](/docs/toolkit-settings) — 把 `<LanguagePicker>` 放到標準設定頁面上
+- [**Toolkit: Settings**](/docs/toolkit-settings) — Settings 頁面的約定，其中 Account › Preferences 負責介面語言
 - [**開始使用**](/docs/getting-started) — 在一個已經內建本機化目錄的範本上建置你的第一個應用程式

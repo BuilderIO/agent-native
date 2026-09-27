@@ -1,19 +1,21 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsGroup,
   SettingsRow,
+  SettingsShellSkeleton,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   IconAdjustments,
   IconDeviceFloppy,
@@ -25,9 +27,10 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { EmptyActionState } from "@/components/brain/Surface";
+import { useBrainSettingsAreas } from "@/components/settings/BrainSettingsAreas";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,6 +61,7 @@ import {
   defaultSettings,
 } from "@/lib/brain";
 import {
+  brainSettingsRedirect,
   createSettingsSectionIds,
   resolveSettingsSection,
   withSettingsSection,
@@ -540,10 +544,35 @@ function SafetyEvidenceSettings({
 }
 
 export default function SettingsRoute() {
+  const flag = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  if (flag.status === "loading") return <SettingsShellSkeleton />;
+  return flag.enabled ? <BrainSettingsShell /> : <LegacyBrainSettings />;
+}
+
+/**
+ * Brain › General with its areas as tabs. Every row saves as it changes, so
+ * there is no page-level Save.
+ */
+function BrainSettingsShell() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const appAreas = useBrainSettingsAreas();
+  const [searchParams] = useSearchParams();
+  const redirect = brainSettingsRedirect(searchParams.get("section"));
+  if (redirect) return <Navigate to={redirect} replace />;
+  return (
+    <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
+      appAreas={appAreas}
+      whatsNewMarkdown={changelog}
+    />
+  );
+}
+
+function LegacyBrainSettings() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeSection, setActiveSection] = useState("integrations");
+  const [activeSection, setActiveSection] = useState("general");
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -710,7 +739,6 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         account={<AccountSettingsCard />}
-        teamLabel={t("team.title")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
         value={activeSection}
@@ -859,14 +887,6 @@ export default function SettingsRoute() {
                 />
               ) : null}
             </aside>
-          </div>
-        }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("team.createOrgDescription")}
-            />
           </div>
         }
         whatsNew={

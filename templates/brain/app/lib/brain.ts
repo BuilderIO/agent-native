@@ -5,7 +5,6 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
-  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
@@ -402,7 +401,7 @@ export interface BrainHealthResponse {
     };
     embeddings: {
       readiness: {
-        status: "ready" | "not-configured" | "unavailable";
+        status: "ready" | "not-configured" | "ambiguous" | "unavailable";
         ready: boolean;
         configuredProviders: string[];
         unavailableProviders: string[];
@@ -1063,12 +1062,6 @@ export const navItems: Array<{
     label: "Knowledge",
     href: "/knowledge",
     icon: IconBook2,
-  },
-  {
-    view: "settings",
-    label: "Settings",
-    href: "/settings",
-    icon: IconSettings,
   },
 ];
 

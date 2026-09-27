@@ -1244,7 +1244,7 @@ export default function BookingLinksPage({
               type="button"
               size="sm"
               onClick={handleCreate}
-              className="h-8 gap-2"
+              className="gap-2"
             >
               <IconPlus className="h-4 w-4" />
               {t("bookingLinks.newBookingLink")}
@@ -1297,9 +1297,9 @@ export default function BookingLinksPage({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-sm"
                   onClick={() => void copyPreviewUrl(draft.slug)}
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  className={cn("", BRAND_ICON_LINK_CLASS)}
                   aria-label={t("bookingLinks.copyBookingLink")}
                 >
                   <IconCopy className="h-4 w-4" />
@@ -1312,8 +1312,8 @@ export default function BookingLinksPage({
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  size="icon-sm"
+                  className={cn("", BRAND_ICON_LINK_CLASS)}
                   aria-label={t("bookingLinks.openBookingLink")}
                 >
                   <a
@@ -1334,7 +1334,6 @@ export default function BookingLinksPage({
               size="sm"
               onClick={() => void handleSaveRef.current()}
               disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-              className="h-8 px-3"
             >
               {updateBookingLink.isPending
                 ? t("common.saving")
@@ -1574,7 +1573,6 @@ export default function BookingLinksPage({
                           }
                         }}
                         placeholder={t("bookingLinks.minutes")}
-                        className="h-9"
                       />
                       <Button
                         type="button"
@@ -1609,8 +1607,8 @@ export default function BookingLinksPage({
                         <Button
                           asChild
                           variant="ghost"
-                          size="icon"
-                          className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                          size="icon-sm"
+                          className={cn("", BRAND_ICON_LINK_CLASS)}
                           aria-label={t("bookingLinks.openBookingPageNewTab")}
                         >
                           <a
@@ -2007,7 +2005,7 @@ export default function BookingLinksPage({
                                 asChild
                                 variant="outline"
                                 size="icon"
-                                className="h-9 w-9 rounded-full"
+                                className="rounded-full"
                                 aria-label={t("bookingLinks.openBookingLink")}
                               >
                                 <a
@@ -2175,7 +2173,7 @@ export default function BookingLinksPage({
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                  className="px-2 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeDaySlot(key, slotIndex)}
                                 >
                                   <IconTrash className="mr-1.5 h-3.5 w-3.5" />
@@ -2188,7 +2186,7 @@ export default function BookingLinksPage({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2"
+                            className="px-2"
                             onClick={() => addDaySlot(key)}
                           >
                             <IconPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -3005,12 +3003,13 @@ function BookingPreview({
                   {t("bookingLinks.name")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-name"
                   value={previewForm.name}
                   onChange={(event) =>
                     updatePreviewForm({ name: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -3019,13 +3018,14 @@ function BookingPreview({
                   {t("bookingLinks.email")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-email"
                   type="email"
                   value={previewForm.email}
                   onChange={(event) =>
                     updatePreviewForm({ email: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -3112,7 +3112,7 @@ function BookingPreview({
               type="button"
               variant="outline"
               size="sm"
-              className="mt-4 h-8 text-xs"
+              className="mt-4 text-xs"
               onClick={resetPreviewFlow}
             >
               {t("bookingLinks.tryAgain")}
@@ -3163,7 +3163,7 @@ function PreviewCustomFieldInput({
           {optionalLabel}
         </Label>
         <Select value={strValue} onValueChange={onChange}>
-          <SelectTrigger id={id} className="h-8 text-xs">
+          <SelectTrigger size="sm" id={id} className="text-xs">
             <span
               className={cn("truncate", !strValue && "text-muted-foreground")}
             >
@@ -3209,6 +3209,7 @@ function PreviewCustomFieldInput({
         {optionalLabel}
       </Label>
       <Input
+        size="sm"
         id={id}
         type={
           field.type === "url"
@@ -3222,7 +3223,7 @@ function PreviewCustomFieldInput({
         value={strValue}
         onChange={(event) => onChange(event.target.value)}
         placeholder={field.placeholder}
-        className="h-8 text-xs"
+        className="text-xs"
       />
     </div>
   );

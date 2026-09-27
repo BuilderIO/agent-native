@@ -21,8 +21,11 @@ const mocks = vi.hoisted(() => ({
     enabled: boolean;
   }>,
   rulesLoading: false,
+  firstRunOnboardingGateOwnsSurface: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
+  settingsPending: false,
+  canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
   backfillStatus: {
     data: undefined as
@@ -65,15 +68,22 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   googleStatus: {
-    data: { accounts: [{ email: "mail-test@example.test" }] } as
-      | { accounts: { email: string }[] }
-      | undefined,
+    data: {
+      accounts: [{ email: "mail-test@example.test" }],
+      configured: true,
+    } as { accounts: { email: string }[]; configured?: boolean } | undefined,
     isLoading: false,
+    isError: false,
   },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => mocks.jevAvailability,
+}));
+
+vi.mock("@agent-native/core/client/onboarding", () => ({
+  useFirstRunOnboardingGateOwnsSurface: () =>
+    mocks.firstRunOnboardingGateOwnsSurface,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -97,6 +107,14 @@ vi.mock("@/components/settings/JevConnectionPrompt", () => ({
       </button>
     </div>
   ),
+}));
+
+vi.mock("@/components/GoogleConnectBanner", () => ({
+  GoogleConnectBanner: () => <div data-testid="gmail-connect" />,
+}));
+
+vi.mock("@/lib/google-oauth-setup", () => ({
+  shouldOfferGoogleOAuthSetup: () => mocks.canOfferGoogleOAuthSetup,
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
@@ -132,7 +150,10 @@ vi.mock("@/hooks/use-ai-filter", () => ({
 
 vi.mock("@/hooks/use-emails", () => ({
   useSettings: () => ({ data: { aiSetupCompleted: false } }),
-  useUpdateSettings: () => ({ mutateAsync: mocks.updateSettings }),
+  useUpdateSettings: () => ({
+    mutateAsync: mocks.updateSettings,
+    isPending: mocks.settingsPending,
+  }),
 }));
 
 vi.mock("@/hooks/use-google-auth", () => ({
@@ -151,6 +172,7 @@ describe("AiInboxSetup", () => {
     let id = 0;
     mocks.automations = [];
     mocks.rulesLoading = false;
+    mocks.firstRunOnboardingGateOwnsSurface = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -158,6 +180,8 @@ describe("AiInboxSetup", () => {
     }));
     mocks.startBackfill.mockResolvedValue({ runId: "run-1", status: "queued" });
     mocks.updateSettings.mockResolvedValue(undefined);
+    mocks.settingsPending = false;
+    mocks.canOfferGoogleOAuthSetup = false;
     mocks.backfillStatus.data = undefined;
     mocks.backfillStatus.isLoading = false;
     mocks.backfillStatus.isFetching = false;
@@ -167,13 +191,48 @@ describe("AiInboxSetup", () => {
     mocks.jevAvailability.isError = false;
     mocks.googleStatus.data = {
       accounts: [{ email: "mail-test@example.test" }],
+      configured: true,
     };
     mocks.googleStatus.isLoading = false;
+    mocks.googleStatus.isError = false;
   });
 
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("defers inbox setup while first-run onboarding owns the surface", () => {
+    mocks.firstRunOnboardingGateOwnsSurface = true;
+
+    render(<AiInboxSetup forceOpen />);
+
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+  });
+
+  it("requires text or an explicit skip on the importance step", () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "mail.sort.aiSetupContinue",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    );
+
+    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
   });
 
   it("starts with a real inbox decision and a one-line importance example", async () => {
@@ -200,6 +259,127 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("runs inline in first-run onboarding and skips without changing mail", async () => {
+    const onComplete = vi.fn();
+    const onSkipSetup = vi.fn();
+    render(
+      <AiInboxSetup
+        forceOpen
+        embedded
+        onComplete={onComplete}
+        onSkipSetup={onSkipSetup}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    expect(onSkipSetup).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("offers the shared Gmail setup when first-run has no connected account", async () => {
+    const onSkipSetup = vi.fn();
+    mocks.googleStatus.data = { accounts: [], configured: true };
+
+    render(
+      <AiInboxSetup
+        forceOpen
+        embedded
+        onComplete={vi.fn()}
+        onSkipSetup={onSkipSetup}
+      />,
+    );
+
+    expect(screen.getByTestId("gmail-connect")).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    expect(onSkipSetup).toHaveBeenCalledOnce();
+  });
+
+  it("explains when Gmail setup is unavailable and persists Skip", async () => {
+    const onSkipSetup = vi.fn();
+    mocks.googleStatus.data = { accounts: [], configured: false };
+
+    render(
+      <AiInboxSetup
+        forceOpen
+        embedded
+        onComplete={vi.fn()}
+        onSkipSetup={onSkipSetup}
+      />,
+    );
+
+    expect(
+      screen.getByText("mail.googleConnect.connectionNotConfigured"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith({
+        aiSetupCompleted: true,
+      }),
+    );
+    expect(onSkipSetup).toHaveBeenCalledOnce();
+  });
+
+  it("disables first-run Skip while rules are saving", async () => {
+    const onSkipSetup = vi.fn();
+    let finishBackfill: ((result: { runId: string }) => void) | undefined;
+    mocks.startBackfill.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishBackfill = resolve;
+        }),
+    );
+    render(<AiInboxSetup forceOpen embedded onSkipSetup={onSkipSetup} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    const skipButton = screen.getByRole("button", {
+      name: "mail.sort.aiSetupSkipSetup",
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(skipButton.disabled).toBe(true));
+    fireEvent.click(skipButton);
+    expect(onSkipSetup).not.toHaveBeenCalled();
+
+    finishBackfill?.({ runId: "run-1" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "mail.sort.aiSetupSkipSetup" }),
+      ).toBeNull(),
+    );
+  });
+
   it("uses the shared Skip inbox label on the cleanup step", () => {
     render(<AiInboxSetup forceOpen />);
 
@@ -207,7 +387,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
@@ -221,7 +401,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     const archiveInput = screen.getByRole("textbox", {
@@ -272,7 +452,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
 
     const [archiveSwitch, spamSwitch] = screen.getAllByRole("switch");
@@ -339,7 +519,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const archiveInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.skipInboxMode",
@@ -365,7 +545,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const reopenedArchiveInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.skipInboxMode",
@@ -453,6 +633,18 @@ describe("AiInboxSetup", () => {
     ).not.toBeNull();
   });
 
+  it("shows a skeleton in first-run while Jev availability loads", () => {
+    mocks.jevAvailability.isLoading = true;
+    const { container } = render(<AiInboxSetup forceOpen embedded />);
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+  });
+
   it("advances through setup before completing from the final step", async () => {
     const onOpenChange = vi.fn();
     mocks.jevAvailability.data = undefined;
@@ -505,7 +697,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     const sortInbox = screen.getByRole("button", {
       name: "mail.sort.aiSetupSortInbox",
@@ -566,7 +758,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -617,7 +809,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -736,7 +928,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -942,8 +1134,8 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupContinue",
+      screen.getByRole("button", {
+        name: "mail.sort.aiSetupSkip",
       }),
     );
     fireEvent.click(
@@ -992,8 +1184,8 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "mail.sort.aiSetupContinue",
+      screen.getByRole("button", {
+        name: "mail.sort.aiSetupSkip",
       }),
     );
     fireEvent.click(
@@ -1033,7 +1225,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
@@ -1056,7 +1248,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),

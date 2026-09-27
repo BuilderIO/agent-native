@@ -102,10 +102,14 @@ Utilice `useFormatters()` para fechas, números, tiempo relativo y listas. No
 coloque el formato de fecha o número sensible a la configuración regional
 dentro de las cadenas de traducción.
 
-Coloque `<LanguagePicker />` en cualquier lugar donde la aplicación permita
-a un usuario cambiar su idioma. Consulte [Kit de configuración](/docs/toolkit-settings)
-para conocer el patrón estándar de la página de configuración, incluido
-dónde encaja `openAgentSettings()`.
+Configuración ya tiene una fila **Interface language** en Account › Preferences,
+y un cambio allí se aplica en todas las aplicaciones, así que las páginas de
+configuración propias de una aplicación no añaden un segundo selector. Con la
+marca `settings-redesign` desactivada, pon el selector en la pestaña General de la
+página con pestañas. Coloque `<LanguagePicker />` en cualquier otro lugar donde la
+aplicación permita a un usuario cambiar su idioma, como un atajo en la cabecera.
+Consulte [Kit de configuración](/docs/toolkit-settings) para conocer el contrato de
+la página de configuración.
 
 ## Acciones y persistencia
 
@@ -155,5 +159,5 @@ proveedores.
 ## Qué sigue
 
 - [**Resumen**](/docs/client-overview#app-shell) — el wrapper `AppProviders` y otros hooks de navegador sobre los que se construye la internacionalización
-- [**Kit de configuración**](/docs/toolkit-settings) — coloca `<LanguagePicker>` en la página de configuración estándar
+- [**Kit de configuración**](/docs/toolkit-settings) — el contrato de la página de configuración, donde Account › Preferences gestiona el idioma de la interfaz
 - [**Primeros pasos**](/docs/getting-started) — crea tu primera aplicación sobre una plantilla que ya incluye catálogos localizados

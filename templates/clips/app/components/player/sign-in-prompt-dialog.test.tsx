@@ -64,10 +64,10 @@ describe("SignInPromptDialog", () => {
     );
     expect(document.body.textContent).not.toContain("Welcome");
     expect(document.body.textContent).not.toContain("signInPrompt.description");
-    expect(links[0]?.className).toContain("h-11");
-    expect(links[0]?.className).toContain("px-8");
-    expect(links[1]?.className).toContain("h-11");
-    expect(links[1]?.className).toContain("px-8");
+    expect(links[0]?.className).toContain("h-10");
+    expect(links[0]?.className).toContain("px-6");
+    expect(links[1]?.className).toContain("h-10");
+    expect(links[1]?.className).toContain("px-6");
   });
 
   it("uses the modal callback instead of navigating for account creation", () => {

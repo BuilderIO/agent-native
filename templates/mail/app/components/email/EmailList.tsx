@@ -10,6 +10,7 @@ import {
   type MailSortMode,
 } from "@shared/ai-priority";
 import { mailLabelsInclude } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
@@ -2258,7 +2259,9 @@ export function EmailList({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() =>
-                      navigate("/settings?section=ai-filter#importance-rules")
+                      navigate(
+                        `${mailSettingsRoute("ai-filter")}#importance-rules`,
+                      )
                     }
                     aria-label={t("mail.sort.priorityEditRules")}
                     title={t("mail.sort.priorityEditRules")}
@@ -2672,6 +2675,16 @@ export function EmailList({
               >
                 <EmailListItem
                   email={thread.latestMessage}
+                  importanceScore={
+                    view === "inbox" && currentSortMode === "priority"
+                      ? cachedPriorityScores.get(
+                          aiPriorityEmailKey(
+                            thread.latestMessage.accountEmail,
+                            thread.latestMessage.id,
+                          ),
+                        )
+                      : undefined
+                  }
                   labelNames={labelNames}
                   thread={thread}
                   isSelected={thread.latestMessage.id === threadId}

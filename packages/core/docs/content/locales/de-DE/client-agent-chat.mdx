@@ -235,9 +235,11 @@ Wenn der aktuelle Bildschirm zu nichts passt, was die Heuristik erkennt, und nic
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-Verwenden Sie `openAgentSettings()`, wenn eine App-Einstellungsseite oder eine Setup-Karte
-die kanonische Seite `/settings` öffnen soll. Übergeben Sie eine Abschnitts-Id wie `"llm"`, `"secrets"`,
-`"automations"`, `"voice"` oder `"limits"`, um einen bestimmten Abschnitt zu öffnen.
+Verwenden Sie `openAgentSettings()`, wenn eine Setup-Karte oder eine Chat-Oberfläche
+die Einstellungen öffnen soll. Übergeben Sie eine Abschnitts-Id wie `"llm"`, `"secrets"`,
+`"automations"`, `"voice"` oder `"limits"`; die Weiterleitungstabelle der Einstellungen
+öffnet die zuständige Seite (Model, API keys, Automations, Preferences oder die
+Limits-Zeile auf Model).
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -246,6 +248,9 @@ openAgentSettings("secrets");
 ```
 
 Bevorzugen Sie diesen Helfer gegenüber dem direkten Versand von `agent-panel:open-settings`.
+Um eine Seite über ihre Id zu öffnen, rufen Sie `openSettingsPage("integrations")` auf
+oder verlinken Sie mit `buildSettingsRoute(page, sub?)`; siehe
+[Settings Kit](/docs/toolkit-settings#links).
 
 ## Agent-Chat-Kontextstatus {#agent-chat-context-state}
 

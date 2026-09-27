@@ -1,15 +1,12 @@
 import { getAppConfig } from "../app-config/index.js";
 import type { OnboardingCapability, OnboardingAppProfile } from "./types.js";
-
-const LLM_CAPABILITY: OnboardingCapability = {
-  id: "llm",
-  label: "AI model",
-  required: true,
-  builderIncluded: true,
-  keySummary: "Connect your own AI model",
-  keySummaryKey: "agentChat.onboarding.capability.llm.keySummary",
-  why: "The agent uses a language model to understand requests and produce answers.",
-};
+import {
+  DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
+  EMBEDDINGS_CAPABILITY,
+  LLM_CAPABILITY,
+  WORKSPACE_SERVICES,
+  workspaceServiceForCapability,
+} from "./workspace-services.js";
 
 const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   id: "system-one",
@@ -19,52 +16,6 @@ const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   builderIncluded: true,
   keySummary: "Jev decision model key",
   why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request. Use Builder-managed access when available, or add a direct JEV_API_KEY.",
-};
-
-const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
-  id: "design-system-intelligence",
-  label: "Design system intelligence",
-  required: false,
-  builderIncluded: true,
-  keySummary: "Builder Design System Intelligence",
-  why: "Uses your brand and design-system guidance to keep generated work on brand.",
-};
-
-const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
-  id: "file-storage",
-  label: "File uploads and storage",
-  required: false,
-  suggested: true,
-  builderIncluded: true,
-  keySummary: "File uploads and storage",
-  keySummaryKey: "agentChat.onboarding.capability.fileStorage.keySummary",
-  why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
-};
-
-const VOICE_INPUT_CAPABILITY: OnboardingCapability = {
-  id: "voice-input",
-  label: "Voice input",
-  required: false,
-  suggested: true,
-  builderIncluded: true,
-  keySummary: "Voice input",
-  labelKey: "agentChat.onboarding.capability.voiceInput.label",
-  keySummaryKey: "agentChat.onboarding.capability.voiceInput.keySummary",
-  whyKey: "agentChat.onboarding.capability.voiceInput.why",
-  why: "Voice input turns spoken requests into text; typing always works without it.",
-};
-
-const EMBEDDINGS_CAPABILITY: OnboardingCapability = {
-  id: "embeddings",
-  label: "Embeddings",
-  required: false,
-  suggested: true,
-  builderIncluded: true,
-  keySummary: "Embeddings",
-  labelKey: "agentChat.onboarding.capability.embeddings.label",
-  keySummaryKey: "agentChat.onboarding.capability.embeddings.keySummary",
-  whyKey: "agentChat.onboarding.capability.embeddings.why",
-  why: "Embeddings improve semantic search. Keyword search still works without them.",
 };
 
 const PROFILES: Record<string, OnboardingAppProfile> = {
@@ -112,7 +63,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Video generation",
         required: false,
         suggested: true,
-        builderIncluded: false,
+        builderIncluded: true,
         keySummary: "Gemini API key",
         labelKey: "agentChat.onboarding.capability.assetsVideoGeneration.label",
         keySummaryKey:
@@ -455,58 +406,48 @@ export function resolveOnboardingAppId(explicit?: string): string {
   );
 }
 
+/**
+ * The app's setup profile: the shared workspace services first (see
+ * `WORKSPACE_SERVICES`), each tagged with its `service` id, then the app's
+ * own capabilities. A profile that declares a
+ * service's capability tailors its copy and can raise it to required or
+ * recommended, never lower it.
+ */
 export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
   const resolvedId = resolveOnboardingAppId(appId);
   const profile = PROFILES[resolvedId] ?? FALLBACK_PROFILE;
+  const services = WORKSPACE_SERVICES.flatMap((service) => {
+    const declared = profile.capabilities.find((capability) =>
+      service.capabilityIds.includes(capability.id),
+    );
+    if (!declared && !service.everyApp) return [];
+    const base = declared ?? service.capability;
+    const required = Boolean(declared?.required || service.capability.required);
+    const suggested =
+      !required && Boolean(declared?.suggested || service.capability.suggested);
+    return [
+      {
+        ...base,
+        required,
+        suggested,
+        service: service.id,
+        ...(service.kind === "builder-only" ? { builderOnly: true } : {}),
+      },
+    ];
+  });
   const appCapabilities = profile.capabilities.filter(
-    (capability) =>
-      capability.id !== "llm" &&
-      capability.id !== FILE_UPLOAD_STORAGE_CAPABILITY.id &&
-      capability.id !== "video-storage" &&
-      capability.id !== VOICE_INPUT_CAPABILITY.id &&
-      capability.id !== EMBEDDINGS_CAPABILITY.id,
+    (capability) => !workspaceServiceForCapability(capability.id),
   );
-  const configuredLlm = profile.capabilities.find(
-    (capability) => capability.id === "llm",
-  );
-  const configuredStorage = profile.capabilities.find(
-    (capability) =>
-      capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id ||
-      capability.id === "video-storage",
-  );
-  const configuredVoiceInput = profile.capabilities.find(
-    (capability) => capability.id === VOICE_INPUT_CAPABILITY.id,
-  );
-  const configuredEmbeddings = profile.capabilities.find(
-    (capability) => capability.id === EMBEDDINGS_CAPABILITY.id,
-  );
-  const storageRequired = resolvedId === "clips";
-  const capabilities = [
-    {
-      ...(configuredLlm ?? LLM_CAPABILITY),
-      required: true,
-      suggested: false,
-    },
-    { ...SYSTEM_ONE_CAPABILITY },
-    {
-      ...(configuredStorage ?? FILE_UPLOAD_STORAGE_CAPABILITY),
-      required: storageRequired,
-      suggested: !storageRequired,
-    },
-    {
-      ...(configuredVoiceInput ?? VOICE_INPUT_CAPABILITY),
-      required: false,
-      suggested: true,
-    },
-    {
-      ...(configuredEmbeddings ?? EMBEDDINGS_CAPABILITY),
-      required: false,
-      suggested: true,
-    },
-    ...appCapabilities.map((capability) => ({ ...capability })),
-  ];
   return {
     ...profile,
-    capabilities,
+    capabilities: [
+      // Jev is part of the model setup, so it follows the AI model.
+      ...services.flatMap((capability) =>
+        capability.service === "model"
+          ? [capability, { ...SYSTEM_ONE_CAPABILITY }]
+          : [capability],
+      ),
+      ...appCapabilities.map((capability) => ({ ...capability })),
+    ],
   };
 }

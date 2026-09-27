@@ -75,15 +75,15 @@ description: "الإملاء الصوتي في مؤلف دردشة الوكيل 
 
 ## تمكين الموفرين {#enabling-providers}
 
-Builder هو المسار الأسهل: قم بتوصيل Builder.io (free tier available) من الإعدادات وسيصبح الموفر الافتراضي Builder Gemini Flash-Lite. بالنسبة لموفري BYOK، أضف المفتاح المطابق في الإعدادات → مفاتيح API.
+Builder هو المسار الأسهل: قم بتوصيل Builder.io (free tier available) من **Settings → Connections → Integrations** وسيصبح الموفر الافتراضي Builder Gemini Flash-Lite. بالنسبة لموفري BYOK، أضف مفتاح Gemini أو Groq أو OpenAI المطابق.
 
 ### لكل مستخدم (موصى به لـ SaaS)
 
-يقوم المستخدم بتعيين المفتاح الخاص به عبر إعدادات الشريط الجانبي للوكيل UI. يتم تخزينه باعتباره سرًا مشفرًا على مستوى المستخدم (عبر `readAppSecret`). يدفع كل مستخدم مقابل النسخ الخاص به؛ تكلفة صفر للمضيف.
+يضيف المستخدم مفتاحه الخاص ضمن **Personal providers** في **Settings → Agent → Model**. يتم تخزينه باعتباره سرًا مشفرًا على مستوى المستخدم (عبر `readAppSecret`). يدفع كل مستخدم مقابل النسخ الخاص به؛ تكلفة صفر للمضيف.
 
 ### مشتركة (للأدوات الداخلية)
 
-قم بتعيين `GEMINI_API_KEY` أو `GROQ_API_KEY` أو `OPENAI_API_KEY` كمتغير بيئة أو في الجدول `settings`. يقوم النسخ النصي لكل مستخدم بالنقر على المفتاح المشترك.
+قم بتعيين `GEMINI_API_KEY` أو `GROQ_API_KEY` أو `OPENAI_API_KEY` كمتغير بيئة، أو اطلب من المالك أو المسؤول إضافته للمؤسسة ضمن **Organization providers** في **Settings → Agent → Model**. يحدد صف **Voice input** في **Settings → Organization → Infrastructure** الموفر الذي يجيب أولًا. يستخدم النسخ النصي لكل مستخدم المفتاح المشترك.
 
 <Callout id="doc-block-t7bxdh" tone="info">
 

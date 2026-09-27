@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
       aiSetupSave: "सेटअप सहेजें",
       aiSetupSkip: "अभी छोड़ें",
+      aiSetupSkipSetup: "इनबॉक्स सेटअप छोड़ें",
       aiSetupImportantHeadline: "क्या ज़रूरी है",
       aiSetupSkipInboxHeadline: "क्या इनबॉक्स को छोड़ सकता है",
       aiSetupTagsHeadline: "अपने टैब चुनें",
@@ -445,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",
+      connectionNotConfigured:
+        "इस ऐप के लिए Gmail कनेक्शन कॉन्फ़िगर नहीं है। इसे चालू करने के लिए अपने व्यवस्थापक से कहें या अभी यह चरण छोड़ दें।",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -808,8 +811,6 @@ const messages = {
     slackPostEndpoint: "Slack POST एंडपॉइंट",
     slackPostEndpointHelp:
       "Slack Event Subscriptions में उपयोग करें। Browser GET Not Found दिखा सकता है।",
-    teamDescription:
-      "सहकर्मियों के साथ email automations और settings share करने के लिए team setup करें।",
     title: "सेटिंग्स",
     general: "सामान्य",
     generalDescription: "Mail की भाषा और account-level preferences.",
@@ -834,12 +835,19 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
+    rules: "नियम",
+    rulesModel: "नियमों का मॉडल",
+    rulesModelDescription: "आने वाले मेल को आपके नियमों से मिलाता है।",
+    slackDraftRequests: "ड्राफ़्ट अनुरोध",
+    slackDraftQueue: "Slack से ड्राफ़्ट कतार में जोड़ें",
+    slackDraftQueueDescription:
+      "साथी ईमेल ड्राफ़्ट का अनुरोध करने के लिए Slack में एजेंट का उल्लेख करते हैं। ड्राफ़्ट समीक्षा के लिए आपकी ड्राफ़्ट कतार में रहते हैं।",
+    openDraftQueue: "ड्राफ़्ट कतार खोलें",
     aiFilter: "AI ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "टीम",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

@@ -421,8 +421,8 @@ export function FormBuilderPage() {
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className="size-10 shrink-0 active:scale-[0.96]"
+                  size="icon-lg"
+                  className="shrink-0 active:scale-[0.96]"
                   aria-label={t("builder.backToForms")}
                 >
                   <Link to="/forms">
@@ -638,8 +638,8 @@ export function FormBuilderPage() {
               <Button
                 asChild
                 variant="ghost"
-                size="icon"
-                className="size-10 shrink-0 active:scale-[0.96]"
+                size="icon-lg"
+                className="shrink-0 active:scale-[0.96]"
                 aria-label={t("builder.backToForms")}
               >
                 <Link to="/forms">
@@ -657,6 +657,7 @@ export function FormBuilderPage() {
             {localTitle || " "}
           </span>
           <Input
+            size="sm"
             value={localTitle}
             onChange={(e) => {
               setLocalTitle(e.target.value);
@@ -665,7 +666,7 @@ export function FormBuilderPage() {
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
             style={{ width: titleInputWidth }}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
+            className="text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
           />
           <Badge
             variant="outline"
@@ -686,8 +687,8 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
                   <a
@@ -716,8 +717,8 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
                   aria-label={t("builder.copyPublicFormLink")}
                 >
@@ -811,8 +812,8 @@ export function FormBuilderPage() {
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
                       <IconDotsVertical className="h-4 w-4" />
@@ -1253,8 +1254,8 @@ function BuilderContent({
                     </span>
                     <Button
                       variant="secondary"
-                      size="icon"
-                      className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="active:scale-[0.96] motion-reduce:active:scale-100"
                       onClick={onSubmitAgent}
                       disabled={
                         !agentPrompt.trim() ||
@@ -1466,11 +1467,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           <div className="relative">
             <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
+              size="sm"
               type="search"
               placeholder={t("builder.results.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 ps-7 text-xs w-44 sm:w-56"
+              className="ps-7 text-xs w-44 sm:w-56"
             />
           </div>
           <Button
@@ -1686,9 +1688,10 @@ function SettingsEditor({
           {t("builder.settings.submitButtonText")}
         </Label>
         <Input
+          size="sm"
           value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
-          className="h-8 text-sm"
+          className="text-sm"
         />
       </div>
 
@@ -1717,7 +1720,7 @@ function SettingsEditor({
             update({ completionMode: value as FormCompletionMode })
           }
         >
-          <SelectTrigger className="h-8 text-sm">
+          <SelectTrigger size="sm" className="text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1741,10 +1744,11 @@ function SettingsEditor({
         <div className="space-y-2">
           <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
           <Input
+            size="sm"
             value={settings.redirectUrl || ""}
             onChange={(e) => update({ redirectUrl: e.target.value })}
             placeholder="https://..."
-            className="h-8 text-sm"
+            className="text-sm"
           />
         </div>
       )}
@@ -1755,6 +1759,7 @@ function SettingsEditor({
             {t("builder.settings.completionRefreshSeconds")}
           </Label>
           <Input
+            size="sm"
             type="number"
             min={MIN_FORM_COMPLETION_REFRESH_SECONDS}
             max={MAX_FORM_COMPLETION_REFRESH_SECONDS}
@@ -1770,7 +1775,7 @@ function SettingsEditor({
                   value === "" ? undefined : Number(value),
               });
             }}
-            className="h-8 text-sm"
+            className="text-sm"
           />
         </div>
       )}
@@ -2062,8 +2067,8 @@ function IntegrationsEditor({
               />
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
+                size="icon-lg"
+                className="shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => removeIntegration(integration.id)}
               >
                 <IconTrash className="h-4 w-4" />
@@ -2081,7 +2086,7 @@ function IntegrationsEditor({
                     name: e.target.value,
                   })
                 }
-                className="h-9 text-sm font-medium"
+                className="text-sm font-medium"
               />
             </div>
 
@@ -2095,7 +2100,7 @@ function IntegrationsEditor({
                   updateIntegration(integration.id, { url: e.target.value })
                 }
                 placeholder={meta.placeholder}
-                className="h-9 text-sm font-mono"
+                className="text-sm font-mono"
               />
             </div>
 

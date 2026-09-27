@@ -105,7 +105,8 @@ export function FirstRunOnboardingStartupGate({
   }, [shouldResolve]);
 
   const ownsSurface = decision === "eligible";
-  const hideApp = decision !== "ineligible";
+  const gateOwnsSurface = decision !== "ineligible";
+  const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}
@@ -122,7 +123,7 @@ export function FirstRunOnboardingStartupGate({
   );
 
   return (
-    <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
+    <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
       {decision === "pending" && (
         <FirstRunOnboardingStartupLoading fallback={fallback} />
