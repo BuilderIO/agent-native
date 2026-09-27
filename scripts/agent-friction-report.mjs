@@ -79,6 +79,8 @@ const BETA_ROUTINE_CORRECTION_RE =
 const BETA_ENDORSE_SKIP_RE =
   /\b(?:don['’]?t|do not)\s+(?:need\s+(?:to\s+)?)?(?:skip|stop|avoid|omit)\b|\bno need\s+to\s+(?:skip|stop|avoid|omit)\b/i;
 const BETA_REFERENTIAL_RE = /\b(?:it|they|them|those|these|that|this)\b/i;
+const BETA_PREDICATE_OVERUSE_RE =
+  /\b(?:is|are|was|were)\s+(?:too many|too much|extensive|excessive|overkill|unnecessary|needlessly|not needed)\b/i;
 const BETA_OVERVERIFICATION_RE = {
   test(text) {
     let previousBetaChecks = false;
@@ -90,9 +92,10 @@ const BETA_OVERVERIFICATION_RE = {
 
       if (
         previousBetaChecks &&
-        BETA_REFERENTIAL_RE.test(clause) &&
-        BETA_OVERUSE_RE.test(clause) &&
-        (previousBetaRoutine || BETA_REPETITION_RE.test(clause))
+        ((BETA_REFERENTIAL_RE.test(clause) &&
+          BETA_OVERUSE_RE.test(clause) &&
+          (previousBetaRoutine || BETA_REPETITION_RE.test(clause))) ||
+          (previousBetaRoutine && BETA_PREDICATE_OVERUSE_RE.test(clause)))
       ) {
         return true;
       }
@@ -135,10 +138,12 @@ const BETA_OVERVERIFICATION_REGEX_CASES = [
   [true, "Beta E2E runs on every PR. Running them on every PR is overkill."],
   [true, "All threads are testing beta right now, and it's extensive."],
   [true, "Beta checks happen on every PR, and they're excessive."],
+  [true, "Beta checks happen on every PR and are excessive."],
   [false, "Don't skip beta E2E checks for every task."],
   [false, "You don't need to skip beta checks."],
   [false, "You don't need to skip beta checks on every PR."],
   [false, "You don't stop beta tests on every PR."],
+  [false, "Don't stop testing beta on every PR."],
   [false, "Don't run production tests but always run beta E2E for every page."],
   [false, "Don't run production tests and always run beta E2E for every page."],
   [
