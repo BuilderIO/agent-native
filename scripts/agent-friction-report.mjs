@@ -58,6 +58,9 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const BETA_PUBLISHER_RUN_INTERFERENCE_RE =
+  /\b(?:don['’]?t|do not|never|stop)\b(?=[^.!?\n]{0,140}\b(?:cancel|re-?dispatch|pin)\b)[^.!?\n]{0,140}\b(?:cancel|re-?dispatch|pin)\b[^.!?\n]{0,100}\bbeta\b[^.!?\n]{0,60}\bpublisher\b/i;
+
 const WORKTREE_PERMISSION_CORRECTION_RE =
   /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
 const WORKTREE_BRANCH_CONTEXT_RE =
@@ -663,6 +666,19 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
+  [
+    true,
+    "Please don't cancel beta publisher runs again, including stale queued ones.",
+  ],
+  [
+    true,
+    "Never cancel, re-dispatch, or pin duplicate beta publisher runs because concurrency coalesces them.",
+  ],
+  [false, "Don't cancel the beta deploy preview while its smoke test runs."],
+  [false, "The beta publisher completed successfully."],
+];
+
 const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [true, "Codex couldn't renew the PR lease and then stopped working."],
   [true, "Codex couldn't renew the PR lease, so it stopped."],
@@ -1032,6 +1048,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BETA_PUBLISHER_RUN_INTERFERENCE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
       ([expected, message]) =>
         BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
@@ -1081,7 +1103,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1238,6 +1260,12 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/ship + .agents/skills/ship-and-monitor (2026-08-20)",
     re: /\b(?:netlify\s+lock|(?:remove|clear|unlock).*\b(?:netlify|production)\s+lock|\b(?:main|merge|merged)\b[^.!?]{0,70}\b(?:auto[- ]?deploy|deploys?|go(?:es)? live)\b[^.!?]{0,50}\bproduction\b|\bproduction\b[^.!?]{0,70}\b(?:manual|not auto|doesn['’]t auto|isn['’]t auto)|\bbeta\b[^.!?]{0,70}\bproduction\b[^.!?]{0,40}\b(?:split|manual|not automatic)\b)/i,
+  },
+  {
+    key: "beta-publisher-run-interference",
+    label: "Had to stop manual beta publisher run interference",
+    fixedBy: ".agents/skills/ship-and-monitor (2026-09-26)",
+    re: BETA_PUBLISHER_RUN_INTERFERENCE_RE,
   },
   {
     key: "no-progress",
