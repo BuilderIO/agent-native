@@ -168,10 +168,12 @@ export default function Settings() {
                 <ObservabilityDashboard
                   routeBasePath={observabilityBasePath}
                   showHumanReview
-                  renderArtifactPreview={(artifact, compact) => (
+                  renderArtifactPreview={(artifact, compact, reviewOrgId) => (
                     <AnalyticsReviewArtifactPreview
                       artifactId={artifact.artifactId}
+                      artifactPath={artifact.path}
                       compact={compact}
+                      reviewOrgId={reviewOrgId}
                     />
                   )}
                 />

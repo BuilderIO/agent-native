@@ -180,6 +180,33 @@ describe("SqlChart refresh feedback", () => {
     ).toBeNull();
   });
 
+  it("renders a review result override without querying the active org", async () => {
+    const panel = {
+      id: "customer-orders",
+      title: "Customer orders",
+      sql: "SELECT total FROM orders",
+      source: "bigquery" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    mocks.query.data = { rows: [{ total: 1 }] };
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel}
+          loadData={false}
+          resultOverride={{ rows: [{ total: 42 }] }}
+          showLoadingWhenDisabled={false}
+        />,
+      );
+    });
+
+    expect(mocks.queryEnabled).toBe(false);
+    expect(container.textContent).toContain("42");
+    expect(container.textContent).not.toContain("1");
+  });
+
   it("does not show a loading skeleton when disabled without cached data", async () => {
     const panel = {
       id: "signups",

@@ -29,9 +29,19 @@ export function tryRequestCredentialContext(): CredentialContext | null {
  */
 export function credentialCacheScope(
   credentialKey = "credential cache",
+  context?: CredentialContext,
 ): string {
-  const ctx = requireRequestCredentialContext(credentialKey);
-  return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
+  const ctx = context ?? requireRequestCredentialContext(credentialKey);
+  if (ctx.credentialScope === "org" && !ctx.orgId) {
+    throw new Error("Org-only credential caches require an organization.");
+  }
+  const owner =
+    ctx.credentialScope === "org"
+      ? `o:${ctx.orgId}`
+      : ctx.orgId
+        ? `o:${ctx.orgId}:u:${ctx.userEmail}`
+        : `u:${ctx.userEmail}`;
+  return `${owner}:${ctx.credentialScope ?? "default"}`;
 }
 
 export function scopedCredentialCacheKey(
