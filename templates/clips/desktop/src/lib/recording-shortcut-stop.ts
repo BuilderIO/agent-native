@@ -1,6 +1,9 @@
 import { emit, listen } from "@tauri-apps/api/event";
 
 const STOP_FALLBACK_TIMEOUT_MS = 250;
+const pendingStops = new Map<string, (handled: boolean) => void>();
+let acknowledgementListenerCount = 0;
+let acknowledgementListenerReady = false;
 
 type StopOutcome =
   | { type: "pill" }
@@ -14,37 +17,42 @@ async function stopDirectly(): Promise<StopOutcome> {
   return { type: "direct", reason: "pill-did-not-acknowledge" };
 }
 
+export async function listenForRecordingShortcutStopAcks() {
+  const unlisten = await listen<string>("clips:tray-stop-ack", (event) => {
+    pendingStops.get(event.payload)?.(true);
+  });
+  acknowledgementListenerCount += 1;
+  acknowledgementListenerReady = acknowledgementListenerCount > 0;
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    acknowledgementListenerCount -= 1;
+    acknowledgementListenerReady = acknowledgementListenerCount > 0;
+    unlisten();
+    if (!acknowledgementListenerReady) {
+      for (const finish of pendingStops.values()) finish(false);
+    }
+  };
+}
+
 export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
+  if (!acknowledgementListenerReady) return stopDirectly();
+
   const requestId = crypto.randomUUID();
   const pillHandledRequest = new Promise<boolean>((resolve) => {
     let settled = false;
-    let unlisten: (() => void) | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const finish = (handled: boolean) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
-      unlisten?.();
+      pendingStops.delete(requestId);
       resolve(handled);
     };
 
     timeout = setTimeout(() => finish(false), STOP_FALLBACK_TIMEOUT_MS);
-    void listen<string>("clips:tray-stop-ack", (event) => {
-      if (event.payload === requestId) finish(true);
-    })
-      .then((stopListening) => {
-        unlisten = stopListening;
-        if (settled) {
-          stopListening();
-        }
-      })
-      .catch((error) => {
-        console.error(
-          "[clips-tray] stop acknowledgement listener failed:",
-          error,
-        );
-        finish(false);
-      });
+    pendingStops.set(requestId, finish);
     void emit("clips:tray-stop-request", { requestId }).catch((error) => {
       console.error("[clips-tray] stop request event failed:", error);
       finish(false);

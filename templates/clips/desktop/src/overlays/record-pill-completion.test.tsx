@@ -264,9 +264,11 @@ describe("completion card actions", () => {
       });
     });
     await act(async () => button("Open restart confirmation").click());
-    const { requestRecordingShortcutStop } =
+    const { listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
       await import("../lib/recording-shortcut-stop");
+    const unlistenAcks = await listenForRecordingShortcutStopAcks();
     await act(async () => requestRecordingShortcutStop());
+    unlistenAcks();
     expect(tauriEvents.emit).toHaveBeenCalledWith(
       "clips:tray-stop-ack",
       expect.any(String),

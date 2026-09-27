@@ -7,7 +7,12 @@ const { emit, listen } = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/event", () => ({ emit, listen }));
 
-import { requestRecordingShortcutStop } from "./recording-shortcut-stop";
+import {
+  listenForRecordingShortcutStopAcks,
+  requestRecordingShortcutStop,
+} from "./recording-shortcut-stop";
+
+let unlistenAcks: (() => void) | undefined;
 
 describe("requestRecordingShortcutStop", () => {
   beforeEach(() => {
@@ -17,20 +22,27 @@ describe("requestRecordingShortcutStop", () => {
   });
 
   afterEach(() => {
+    unlistenAcks?.();
+    unlistenAcks = undefined;
     vi.useRealTimers();
   });
 
   it("routes through the pill when its listener acknowledges the request", async () => {
+    let acknowledge!: (event: { payload: string }) => void;
     listen.mockImplementation(async (_event, onAck) => {
-      emit.mockImplementation(async (event, payload) => {
-        if (event === "clips:tray-stop-request") {
-          onAck({ payload: payload.requestId });
-        }
-      });
+      acknowledge = onAck;
       return vi.fn();
     });
+    unlistenAcks = await listenForRecordingShortcutStopAcks();
+    emit.mockImplementation(async (event, payload) => {
+      if (event === "clips:tray-stop-request") {
+        acknowledge({ payload: payload.requestId });
+      }
+    });
 
-    await requestRecordingShortcutStop();
+    await expect(requestRecordingShortcutStop()).resolves.toEqual({
+      type: "pill",
+    });
 
     expect(emit).toHaveBeenCalledExactlyOnceWith(
       "clips:tray-stop-request",
@@ -38,52 +50,20 @@ describe("requestRecordingShortcutStop", () => {
     );
   });
 
-  it("sends the tray request before slow listener registration and falls back by 250ms", async () => {
-    let registerListener!: (unlisten: () => void) => void;
-    listen.mockImplementation(
-      () =>
-        new Promise<() => void>((resolve) => {
-          registerListener = resolve;
-        }),
-    );
+  it("stops directly if an ack listener is not ready", async () => {
+    listen.mockImplementation(() => new Promise<() => void>(() => {}));
+    void listenForRecordingShortcutStopAcks();
 
-    const stopRequest = requestRecordingShortcutStop();
-    await vi.advanceTimersByTimeAsync(150);
-    expect(emit).toHaveBeenCalledExactlyOnceWith(
-      "clips:tray-stop-request",
-      expect.objectContaining({ requestId: expect.any(String) }),
-    );
-
-    registerListener(vi.fn());
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(99);
-    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(1);
-    await stopRequest;
-
-    expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
-  });
-
-  it("stops directly when listener registration never completes", async () => {
-    listen.mockImplementation(() => new Promise(() => {}));
-
-    const stopRequest = requestRecordingShortcutStop();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(emit).toHaveBeenCalledExactlyOnceWith(
-      "clips:tray-stop-request",
-      expect.objectContaining({ requestId: expect.any(String) }),
-    );
-    await vi.advanceTimersByTimeAsync(249);
-    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(1);
-    await stopRequest;
-
-    expect(emit).toHaveBeenCalledTimes(2);
-    expect(emit).toHaveBeenNthCalledWith(2, "clips:recorder-stop");
+    await expect(requestRecordingShortcutStop()).resolves.toEqual({
+      type: "direct",
+      reason: "pill-did-not-acknowledge",
+    });
+    expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
   });
 
   it("stops directly when the pill does not acknowledge the request", async () => {
     listen.mockResolvedValue(vi.fn());
+    unlistenAcks = await listenForRecordingShortcutStopAcks();
 
     const stopRequest = requestRecordingShortcutStop();
     await vi.advanceTimersByTimeAsync(0);

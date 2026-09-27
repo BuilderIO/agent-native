@@ -181,7 +181,10 @@ import {
   RECORDING_SESSION_EXPIRED,
   isStorageSetupFailureMessage,
 } from "./lib/recording-request";
-import { requestRecordingShortcutStop } from "./lib/recording-shortcut-stop";
+import {
+  listenForRecordingShortcutStopAcks,
+  requestRecordingShortcutStop,
+} from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -3645,31 +3648,35 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listen("clips:record-shortcut", () => {
-      recordShortcutHandlerRef.current();
-    })
-      .then((u) => {
+    let unlistenAcks: (() => void) | undefined;
+    let unlistenShortcut: (() => void) | undefined;
+    void (async () => {
+      try {
+        unlistenAcks = await listenForRecordingShortcutStopAcks();
+      } catch (error) {
+        console.error("[clips] stop acknowledgement listener failed:", error);
+      }
+      if (cancelled) {
+        unlistenAcks?.();
+        return;
+      }
+      try {
+        const unlisten = await listen("clips:record-shortcut", () => {
+          recordShortcutHandlerRef.current();
+        });
         if (cancelled) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
+          unlisten();
           return;
         }
-        unlisten = u;
-      })
-      .catch(() => {});
+        unlistenShortcut = unlisten;
+      } catch (error) {
+        console.error("[clips] record shortcut listener failed:", error);
+      }
+    })();
     return () => {
       cancelled = true;
-      if (unlisten) {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      }
+      unlistenShortcut?.();
+      unlistenAcks?.();
     };
   }, []);
 
