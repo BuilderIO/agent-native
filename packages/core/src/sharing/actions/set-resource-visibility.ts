@@ -12,6 +12,7 @@ import {
   resolveRegisteredAccessContext,
 } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -29,6 +30,19 @@ export default defineAction({
     resourceId: z.string(),
     visibility: z.enum(["private", "org", "public"]),
   }),
+  needsApproval: async (args) => {
+    if (args.visibility !== "public") return false;
+    const reg = requireShareableResource(args.resourceType);
+    if (reg.allowPublic === false) return false;
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+      undefined,
+      { skipResourceBody: true },
+    );
+    return access.resource.visibility !== "public";
+  },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
     if (args.visibility === "public" && reg.allowPublic === false) {
@@ -41,6 +55,7 @@ export default defineAction({
       args.resourceId,
       "admin",
     );
+    const visibilityChanged = access.resource?.visibility !== args.visibility;
     const db = reg.getDb() as any;
     const update: Record<string, unknown> = { visibility: args.visibility };
     const rawAccess = currentAccess();
@@ -65,6 +80,7 @@ export default defineAction({
         update.orgId = currentOrgId;
       }
     }
+    const resourceChanged = visibilityChanged || update.orgId !== undefined;
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
       args.resourceId,
@@ -90,7 +106,7 @@ export default defineAction({
       args.resourceId,
       beforeExtensionTargets,
     );
-    if (access.resource?.visibility !== args.visibility) {
+    if (visibilityChanged) {
       const app = getAppConfig().app.slug ?? "unknown";
       track(
         "share_visibility_change",
@@ -105,6 +121,19 @@ export default defineAction({
         { userId: rawAccess.userEmail ?? undefined },
       );
     }
-    return { ok: true, visibility: args.visibility };
+    return {
+      ok: true,
+      visibility: args.visibility,
+      ...(resourceChanged
+        ? {
+            change: resourceSharingChange(
+              reg,
+              access.resource,
+              "updated",
+              args.visibility,
+            ).change,
+          }
+        : {}),
+    };
   },
 });

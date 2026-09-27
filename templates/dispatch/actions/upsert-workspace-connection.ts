@@ -1,4 +1,10 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { defineAction } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
@@ -7,6 +13,7 @@ import { isOrgMember } from "@agent-native/core/org";
 import { track } from "@agent-native/core/tracking";
 import {
   assertWorkspaceUserGroupIds,
+  getWorkspaceConnection,
   normalizeWorkspaceConnectionAllowedUsers,
   upsertWorkspaceConnection,
   type WorkspaceConnectionStatus,
@@ -63,6 +70,45 @@ function normalizeCredentialRefs(
     });
 }
 
+function connectionChanged(
+  before: Awaited<ReturnType<typeof getWorkspaceConnection>>,
+  after: NonNullable<Awaited<ReturnType<typeof getWorkspaceConnection>>>,
+): boolean {
+  if (!before) return true;
+  return (
+    before.provider !== after.provider ||
+    before.label !== after.label ||
+    before.accountId !== after.accountId ||
+    before.accountLabel !== after.accountLabel ||
+    before.status !== after.status ||
+    !isDeepStrictEqual(before.scopes, after.scopes) ||
+    !isDeepStrictEqual(before.config, after.config) ||
+    !isDeepStrictEqual(before.allowedApps, after.allowedApps) ||
+    !isDeepStrictEqual(before.allowedUsers, after.allowedUsers) ||
+    !isDeepStrictEqual(before.allowedUserGroups, after.allowedUserGroups) ||
+    !isDeepStrictEqual(before.credentialRefs, after.credentialRefs) ||
+    before.lastCheckedAt !== after.lastCheckedAt ||
+    before.lastError !== after.lastError
+  );
+}
+
+function connectionChange(
+  verb: "created" | "updated",
+  connection: NonNullable<Awaited<ReturnType<typeof getWorkspaceConnection>>>,
+) {
+  return {
+    change: {
+      verb,
+      kind: "workspace-connection",
+      title: connection.label.slice(0, 180),
+      ...(connection.accountLabel
+        ? { detail: connection.accountLabel.slice(0, 500) }
+        : {}),
+      url: "/integrations",
+    },
+  };
+}
+
 export async function assertWorkspaceConnectionAllowedUsers(
   allowedUsers: string[] | undefined,
   orgId: string | null | undefined,
@@ -102,6 +148,11 @@ export async function assertWorkspaceConnectionAllowedUserGroups(
 export default defineAction({
   description:
     "Create or update a shared workspace integration connection and its app access list.",
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   schema: z.object({
     id: z.string().optional().describe("Existing connection ID to update."),
     provider: z
@@ -171,6 +222,9 @@ export default defineAction({
       ctx?.orgId,
     );
 
+    const before = args.id?.trim()
+      ? await getWorkspaceConnection(args.id.trim())
+      : null;
     const result = await upsertWorkspaceConnection({
       ...args,
       status: args.status as WorkspaceConnectionStatus,
@@ -191,6 +245,10 @@ export default defineAction({
         ctx,
       );
     }
-    return result;
+    if (!connectionChanged(before, result)) return result;
+    return {
+      ...result,
+      ...connectionChange(before ? "updated" : "created", result),
+    };
   },
 });

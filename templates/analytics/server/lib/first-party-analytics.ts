@@ -1246,7 +1246,7 @@ export async function queryFirstPartyAnalytics(
   }
   const scoped = scopedAnalyticsSql(sql, scope);
   const scopedSql = scoped.sql;
-  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
   const timeoutMs = Math.max(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
@@ -1276,8 +1276,14 @@ export async function queryFirstPartyAnalytics(
           error,
         );
       });
-      const rows = result.rows as Record<string, unknown>[];
-      return { rows, schema: inferSchema(rows) };
+      const resultRows = result.rows as Record<string, unknown>[];
+      const truncated = resultRows.length > MAX_QUERY_ROWS;
+      const rows = truncated ? resultRows.slice(0, MAX_QUERY_ROWS) : resultRows;
+      return {
+        rows,
+        schema: inferSchema(rows),
+        ...(truncated ? { truncated: true } : {}),
+      };
     } catch (error) {
       void recordFirstPartyAnalyticsQueryPressure(scope, {
         durationMs: Date.now() - startedAt,

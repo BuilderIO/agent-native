@@ -359,7 +359,7 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.change(
-      screen.getByRole("textbox", {
+      await screen.findByRole("textbox", {
         name: "mail.sort.aiSetupImportantHeadline",
       }),
       { target: { value: "Keep project decisions visible" } },
@@ -368,7 +368,9 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      await screen.findByRole("button", {
+        name: "mail.sort.aiSetupSortInbox",
+      }),
     );
 
     const skipButton = screen.getByRole("button", {
