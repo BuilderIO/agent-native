@@ -31,7 +31,8 @@ export function credentialCacheScope(
   credentialKey = "credential cache",
 ): string {
   const ctx = requireRequestCredentialContext(credentialKey);
-  return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
+  const owner = ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
+  return `${owner}:${ctx.credentialScope ?? "default"}`;
 }
 
 export function scopedCredentialCacheKey(
