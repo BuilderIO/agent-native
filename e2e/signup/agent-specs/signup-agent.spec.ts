@@ -522,6 +522,9 @@ for (const target of targets) {
             `GET ${pathname} returned HTTP ${response.status()}`,
           ).toBe(true);
         }
+        await expect(
+          postLinkPage.getByRole("heading", { name: /API keys/i }),
+        ).toBeVisible({ timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
         await expect
           .poll(
             () =>
