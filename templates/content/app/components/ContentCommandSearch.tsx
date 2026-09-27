@@ -422,7 +422,9 @@ export function SearchPage({
   // index, no debounce and no network wait (SO-01).
   const instantMatches = useMemo(
     () =>
-      rankTitlesByQuery(titleIndex, liveQuery)
+      rankTitlesByQuery(titleIndex, liveQuery, {
+        limit: INSTANT_RESULT_LIMIT,
+      })
         .slice(0, INSTANT_RESULT_LIMIT)
         .map((result) => result.candidate),
     [titleIndex, liveQuery],

@@ -1,6 +1,5 @@
 import {
   parseSearchQuery,
-  type ParsedSearchQuery,
   type SearchQueryGroup,
   type SearchQueryTerm,
 } from "./search-query.js";
@@ -34,6 +33,10 @@ export interface TitleSearchCandidate {
 export interface NormalizedTitleCandidate<T extends TitleSearchCandidate> {
   candidate: T;
   normalizedTitle: string;
+  /** Title words as code-point arrays, for the typo tier. */
+  words: string[][];
+  /** Parsed `updatedAt`, or NaN when unparseable. */
+  updatedAtMs: number;
 }
 
 export interface TitleRankResult<T extends TitleSearchCandidate> {
@@ -43,6 +46,7 @@ export interface TitleRankResult<T extends TitleSearchCandidate> {
 }
 
 const FUZZY_MIN_QUERY_LENGTH = 4;
+const WORD_SEPARATOR = /[^\p{L}\p{N}]+/u;
 
 /** Mirrors `regexp_replace(lower(trim(coalesce(title, ''))), '\s+', ' ', 'g')`. */
 export function normalizeSearchTitle(title: string): string {
@@ -56,10 +60,18 @@ export function normalizeSearchTitle(title: string): string {
 export function buildTitleSearchIndex<T extends TitleSearchCandidate>(
   items: readonly T[],
 ): NormalizedTitleCandidate<T>[] {
-  return items.map((candidate) => ({
-    candidate,
-    normalizedTitle: normalizeSearchTitle(candidate.title),
-  }));
+  return items.map((candidate) => {
+    const normalizedTitle = normalizeSearchTitle(candidate.title);
+    return {
+      candidate,
+      normalizedTitle,
+      words: normalizedTitle
+        .split(WORD_SEPARATOR)
+        .filter(Boolean)
+        .map((word) => Array.from(word)),
+      updatedAtMs: Date.parse(candidate.updatedAt),
+    };
+  });
 }
 
 function escapeRegExp(value: string): string {
@@ -70,17 +82,23 @@ function termNeedle(term: SearchQueryTerm): string {
   return normalizeSearchTitle(term.text);
 }
 
-function titleContainsNeedle(normalizedTitle: string, needle: string): boolean {
-  return needle.length > 0 && normalizedTitle.includes(needle);
+interface CompiledNeedle {
+  needle: string;
+  wordPrefix: RegExp | null;
 }
 
-function titleHasWordPrefix(normalizedTitle: string, needle: string): boolean {
-  if (!needle) return false;
-  const pattern = new RegExp(
-    `(^|[^\\p{L}\\p{N}_])${escapeRegExp(needle)}`,
-    "u",
-  );
-  return pattern.test(normalizedTitle);
+function compileNeedle(term: SearchQueryTerm): CompiledNeedle {
+  const needle = termNeedle(term);
+  return {
+    needle,
+    wordPrefix: needle
+      ? new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(needle)}`, "u")
+      : null,
+  };
+}
+
+function titleContainsNeedle(normalizedTitle: string, needle: string): boolean {
+  return needle.length > 0 && normalizedTitle.includes(needle);
 }
 
 // Mirrors the server's `simpleQueries` in _document-search-ranking.ts: a
@@ -131,22 +149,25 @@ function editDistanceWithin(a: string[], b: string[], max: number): number {
  * null means no match.
  */
 function typoTolerantWordScore(
-  normalizedTitle: string,
-  needle: string,
+  words: readonly string[][],
+  needleChars: readonly string[],
 ): number | null {
-  if (!needle) return null;
-  const needleChars = Array.from(needle);
   const maxDistance = needleChars.length >= 8 ? 2 : 1;
   let best: number | null = null;
-  for (const word of normalizedTitle.split(/[^\p{L}\p{N}]+/u)) {
-    if (!word) continue;
-    const wordChars = Array.from(word);
+  for (const wordChars of words) {
+    // A word shorter than the needle by more than the allowed distance can't
+    // match in either form; skip the edit-distance work entirely.
+    if (wordChars.length + maxDistance < needleChars.length) continue;
     const forms =
       wordChars.length > needleChars.length
         ? [wordChars, wordChars.slice(0, needleChars.length)]
         : [wordChars];
     forms.forEach((form, formIndex) => {
-      const distance = editDistanceWithin(needleChars, form, maxDistance);
+      const distance = editDistanceWithin(
+        needleChars as string[],
+        form,
+        maxDistance,
+      );
       if (distance > maxDistance) return;
       const score =
         (maxDistance - distance + 1) * 10 + (formIndex === 0 ? 1 : 0);
@@ -156,62 +177,74 @@ function typoTolerantWordScore(
   return best;
 }
 
-interface SingleTitleOutcome {
-  tier: TitleMatchTier;
-  fuzzyScore: number;
+interface CompiledQuery {
+  negatives: string[];
+  groups: CompiledNeedle[][];
+  simpleQueries: string[];
+  fuzzyNeedleChars: string[] | null;
 }
 
-function rankSingleTitle(
+function compileQuery(rawQuery: string): CompiledQuery | null {
+  const parsed = parseSearchQuery(rawQuery);
+  if (parsed.empty) return null;
+  // Fuzzy is a typo-tolerant fallback for a single mistyped word, not a
+  // relaxation of an explicit phrase, OR-group, or multi-term AND — those
+  // already state precisely what must appear, and fuzzy-matching their
+  // scattered letters would quietly violate that.
+  const soleTerm =
+    parsed.groups.length === 1 && parsed.groups[0]!.terms.length === 1
+      ? parsed.groups[0]!.terms[0]!
+      : null;
+  const fuzzyNeedle = soleTerm && !soleTerm.phrase ? termNeedle(soleTerm) : "";
+  const fuzzyNeedleChars = Array.from(fuzzyNeedle);
+  return {
+    negatives: parsed.negatives.map(termNeedle),
+    groups: parsed.groups.map((group) => group.terms.map(compileNeedle)),
+    simpleQueries: computeSimpleQueries(parsed.groups)
+      .map(normalizeSearchTitle)
+      .filter(Boolean),
+    fuzzyNeedleChars:
+      fuzzyNeedleChars.length >= FUZZY_MIN_QUERY_LENGTH
+        ? fuzzyNeedleChars
+        : null,
+  };
+}
+
+/** Exact, prefix, word-prefix and substring tiers; null when none apply. */
+function rankSharedTiers(
   normalizedTitle: string,
-  parsed: ParsedSearchQuery,
-  fuzzy: { allowed: boolean; needle: string },
-): SingleTitleOutcome | null {
-  for (const negative of parsed.negatives) {
-    if (titleContainsNeedle(normalizedTitle, termNeedle(negative))) return null;
+  query: CompiledQuery,
+): TitleMatchTier | null {
+  if (query.groups.length === 0) {
+    // Negatives-only query: everything not excluded matches, at a stable
+    // single tier (mirrors the server falling through to matchTier 0 for this
+    // shape rather than excluding the row).
+    return TITLE_MATCH_TIER.substring;
   }
-
-  if (parsed.groups.length === 0) {
-    // Negatives-only query: everything not excluded above matches, at a
-    // stable single tier (mirrors the server falling through to matchTier 0
-    // for this shape rather than excluding the row).
-    return { tier: TITLE_MATCH_TIER.substring, fuzzyScore: 0 };
-  }
-
-  const allSubstrings = parsed.groups.every((group) =>
-    group.terms.some((term) =>
-      titleContainsNeedle(normalizedTitle, termNeedle(term)),
-    ),
+  const allSubstrings = query.groups.every((group) =>
+    group.some((term) => titleContainsNeedle(normalizedTitle, term.needle)),
   );
-
-  if (!allSubstrings) {
-    if (fuzzy.allowed && fuzzy.needle) {
-      const score = typoTolerantWordScore(normalizedTitle, fuzzy.needle);
-      if (score !== null)
-        return { tier: TITLE_MATCH_TIER.fuzzy, fuzzyScore: score };
-    }
-    return null;
+  if (!allSubstrings) return null;
+  if (query.simpleQueries.some((simple) => normalizedTitle === simple)) {
+    return TITLE_MATCH_TIER.exact;
   }
-
-  const simpleQueries = computeSimpleQueries(parsed.groups)
-    .map(normalizeSearchTitle)
-    .filter(Boolean);
-  if (simpleQueries.some((query) => normalizedTitle === query)) {
-    return { tier: TITLE_MATCH_TIER.exact, fuzzyScore: 0 };
+  if (
+    query.simpleQueries.some((simple) => normalizedTitle.startsWith(simple))
+  ) {
+    return TITLE_MATCH_TIER.prefix;
   }
-  if (simpleQueries.some((query) => normalizedTitle.startsWith(query))) {
-    return { tier: TITLE_MATCH_TIER.prefix, fuzzyScore: 0 };
-  }
-
-  const allWordPrefixes = parsed.groups.every((group) =>
-    group.terms.some((term) =>
-      titleHasWordPrefix(normalizedTitle, termNeedle(term)),
-    ),
+  const allWordPrefixes = query.groups.every((group) =>
+    group.some((term) => term.wordPrefix?.test(normalizedTitle) ?? false),
   );
-  if (allWordPrefixes) {
-    return { tier: TITLE_MATCH_TIER.wordPrefix, fuzzyScore: 0 };
-  }
+  return allWordPrefixes
+    ? TITLE_MATCH_TIER.wordPrefix
+    : TITLE_MATCH_TIER.substring;
+}
 
-  return { tier: TITLE_MATCH_TIER.substring, fuzzyScore: 0 };
+function isExcluded(normalizedTitle: string, query: CompiledQuery): boolean {
+  return query.negatives.some((negative) =>
+    titleContainsNeedle(normalizedTitle, negative),
+  );
 }
 
 // Tie-breaks below the shared tiers must match the server's own
@@ -219,18 +252,18 @@ function rankSingleTitle(
 // so that when the server lane answers, its order and the browser lane's
 // order for the same tier agree and the top result never appears to move.
 function compareTitleRankResults<T extends TitleSearchCandidate>(
-  a: TitleRankResult<T>,
-  b: TitleRankResult<T>,
+  a: TitleRankResult<T> & { updatedAtMs: number },
+  b: TitleRankResult<T> & { updatedAtMs: number },
 ): number {
   if (b.tier !== a.tier) return b.tier - a.tier;
   if (a.tier === TITLE_MATCH_TIER.fuzzy && b.fuzzyScore !== a.fuzzyScore) {
     return b.fuzzyScore - a.fuzzyScore;
   }
-  const aTime = Date.parse(a.candidate.updatedAt);
-  const bTime = Date.parse(b.candidate.updatedAt);
-  const aValid = Number.isFinite(aTime);
-  const bValid = Number.isFinite(bTime);
-  if (aValid && bValid && aTime !== bTime) return bTime - aTime;
+  const aValid = Number.isFinite(a.updatedAtMs);
+  const bValid = Number.isFinite(b.updatedAtMs);
+  if (aValid && bValid && a.updatedAtMs !== b.updatedAtMs) {
+    return b.updatedAtMs - a.updatedAtMs;
+  }
   if (aValid !== bValid) return aValid ? -1 : 1;
   if (a.candidate.id < b.candidate.id) return -1;
   if (a.candidate.id > b.candidate.id) return 1;
@@ -241,39 +274,56 @@ function compareTitleRankResults<T extends TitleSearchCandidate>(
  * Ranks a precomputed title index against a raw query string. Rebuild the
  * index once per document-list change (`buildTitleSearchIndex`); call this on
  * every keystroke — it only does cheap string operations, not renormalizing.
+ *
+ * Pass `limit` when only the first results are shown: typo matches always
+ * rank below every shared-tier match, so when shared tiers alone fill the
+ * limit the typo pass is skipped.
  */
 export function rankTitlesByQuery<T extends TitleSearchCandidate>(
   index: readonly NormalizedTitleCandidate<T>[],
   rawQuery: string,
+  options: { limit?: number } = {},
 ): TitleRankResult<T>[] {
-  const parsed = parseSearchQuery(rawQuery);
-  if (parsed.empty) return [];
+  const query = compileQuery(rawQuery);
+  if (!query) return [];
 
-  // Fuzzy is a typo-tolerant fallback for a single mistyped word, not a
-  // relaxation of an explicit phrase, OR-group, or multi-term AND — those
-  // already state precisely what must appear, and fuzzy-matching their
-  // scattered letters would quietly violate that.
-  const soleTerm =
-    parsed.groups.length === 1 && parsed.groups[0]!.terms.length === 1
-      ? parsed.groups[0]!.terms[0]!
-      : null;
-  const fuzzyNeedle = soleTerm && !soleTerm.phrase ? termNeedle(soleTerm) : "";
-  const fuzzy = {
-    allowed: Array.from(fuzzyNeedle).length >= FUZZY_MIN_QUERY_LENGTH,
-    needle: fuzzyNeedle,
-  };
-
-  const results: TitleRankResult<T>[] = [];
+  type Ranked = TitleRankResult<T> & { updatedAtMs: number };
+  const results: Ranked[] = [];
+  const typoCandidates: NormalizedTitleCandidate<T>[] = [];
   for (const entry of index) {
-    const outcome = rankSingleTitle(entry.normalizedTitle, parsed, fuzzy);
-    if (outcome) {
+    if (isExcluded(entry.normalizedTitle, query)) continue;
+    const tier = rankSharedTiers(entry.normalizedTitle, query);
+    if (tier !== null) {
       results.push({
         candidate: entry.candidate,
-        tier: outcome.tier,
-        fuzzyScore: outcome.fuzzyScore,
+        tier,
+        fuzzyScore: 0,
+        updatedAtMs: entry.updatedAtMs,
       });
+    } else if (query.fuzzyNeedleChars) {
+      typoCandidates.push(entry);
     }
   }
-  results.sort((a, b) => compareTitleRankResults(a, b));
-  return results;
+
+  const limit = options.limit ?? Number.POSITIVE_INFINITY;
+  if (query.fuzzyNeedleChars && results.length < limit) {
+    for (const entry of typoCandidates) {
+      const score = typoTolerantWordScore(entry.words, query.fuzzyNeedleChars);
+      if (score !== null) {
+        results.push({
+          candidate: entry.candidate,
+          tier: TITLE_MATCH_TIER.fuzzy,
+          fuzzyScore: score,
+          updatedAtMs: entry.updatedAtMs,
+        });
+      }
+    }
+  }
+
+  results.sort(compareTitleRankResults);
+  return results.map(({ candidate, tier, fuzzyScore }) => ({
+    candidate,
+    tier,
+    fuzzyScore,
+  }));
 }
