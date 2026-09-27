@@ -24,6 +24,10 @@ const FINDINGS_PATH = join(
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+const SECRETS_ENDPOINTS = new Set([
+  "/_agent-native/secrets",
+  "/_agent-native/secrets/adhoc",
+]);
 
 type PostLinkState = "onboarding" | "app" | "unresolved";
 
@@ -161,6 +165,7 @@ function agentTargets(): SignupTarget[] {
 function trackNetwork(page: Page, origin: string) {
   const networkEvents: string[] = [];
   const pendingRequests = new Map<string, number>();
+  const secretsRequestStarts = new WeakMap<object, number>();
   const isDiagnosticRequest = (url: string): boolean => {
     try {
       const parsed = new URL(url);
@@ -168,7 +173,7 @@ function trackNetwork(page: Page, origin: string) {
         parsed.origin === origin &&
         (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
           parsed.pathname.startsWith("/_agent-native/actions/") ||
-          parsed.pathname === "/_agent-native/secrets" ||
+          SECRETS_ENDPOINTS.has(parsed.pathname) ||
           parsed.pathname === "/_agent-native/auth/session" ||
           parsed.pathname === "/_agent-native/org/me" ||
           parsed.pathname === "/ask" ||
@@ -179,38 +184,56 @@ function trackNetwork(page: Page, origin: string) {
     }
   };
   page.on("request", (request) => {
-    if (isDiagnosticRequest(request.url())) {
-      pendingRequests.set(request.url(), Date.now());
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    const startedAt = Date.now();
+    pendingRequests.set(url, startedAt);
+    if (SECRETS_ENDPOINTS.has(new URL(url).pathname)) {
+      secretsRequestStarts.set(request, startedAt);
     }
   });
   page.on("response", (response) => {
     if (!isDiagnosticRequest(response.url())) return;
-    const startedAt = pendingRequests.get(response.url());
-    if (new URL(response.url()).pathname !== "/_agent-native/secrets") {
+    const url = response.url();
+    const pathname = new URL(url).pathname;
+    const startedAt = SECRETS_ENDPOINTS.has(pathname)
+      ? secretsRequestStarts.get(response.request())
+      : pendingRequests.get(url);
+    if (!SECRETS_ENDPOINTS.has(pathname)) {
       pendingRequests.delete(response.url());
     }
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-    networkEvents.push(
-      `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
-    );
+    networkEvents.push(`${response.status()} ${pathname} ${elapsed}`);
   });
   page.on("requestfinished", (request) => {
     const url = request.url();
     if (!isDiagnosticRequest(url)) return;
     const pathname = new URL(url).pathname;
-    if (pathname !== "/_agent-native/secrets") return;
-    const startedAt = pendingRequests.get(url);
-    pendingRequests.delete(url);
+    if (!SECRETS_ENDPOINTS.has(pathname)) return;
+    const startedAt = secretsRequestStarts.get(request);
+    if (pendingRequests.get(url) === startedAt) pendingRequests.delete(url);
     const elapsed =
       startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
     networkEvents.push(`FINISHED ${pathname} ${elapsed}`);
   });
   page.on("requestfailed", (request) => {
     if (!isDiagnosticRequest(request.url())) return;
-    pendingRequests.delete(request.url());
+    const url = request.url();
+    const pathname = new URL(url).pathname;
+    if (SECRETS_ENDPOINTS.has(pathname)) {
+      const startedAt = secretsRequestStarts.get(request);
+      if (pendingRequests.get(url) === startedAt) pendingRequests.delete(url);
+      const elapsed =
+        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+      networkEvents.push(
+        `FAILED ${pathname} ${elapsed} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+      return;
+    }
+    pendingRequests.delete(url);
     networkEvents.push(
-      `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
+      `FAILED ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
     );
   });
   return { networkEvents, pendingRequests };
@@ -481,26 +504,35 @@ for (const target of targets) {
 
     if (target.app === "design") {
       await test.step("open API keys after signup", async () => {
-        const secretsResponse = postLinkPage.waitForResponse(
-          (response) =>
-            new URL(response.url()).pathname === "/_agent-native/secrets" &&
-            response.request().method() === "GET",
-          { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+        const secretsResponses = Promise.all(
+          [...SECRETS_ENDPOINTS].map((pathname) =>
+            postLinkPage.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === pathname &&
+                response.request().method() === "GET",
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            ),
+          ),
         );
         await postLinkPage.goto(`${target.origin}/settings/keys`, {
           waitUntil: "domcontentloaded",
         });
-        const response = await secretsResponse;
-        expect(
-          response.ok(),
-          `GET /_agent-native/secrets returned HTTP ${response.status()}`,
-        ).toBe(true);
-        await postLinkPage
-          .getByText(/No keys yet/i)
-          .waitFor({
-            state: "visible",
-            timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
-          });
+        const responses = await secretsResponses;
+        for (const [index, response] of responses.entries()) {
+          const pathname = [...SECRETS_ENDPOINTS][index];
+          expect(
+            response.ok(),
+            `GET ${pathname} returned HTTP ${response.status()}`,
+          ).toBe(true);
+        }
+        await postLinkPage.getByText(/No keys yet/i).waitFor({
+          state: "visible",
+          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+        });
+        await postLinkPage.getByText(/No keys added yet/i).waitFor({
+          state: "visible",
+          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+        });
         steps.push(
           await capture(
             postLinkPage,
