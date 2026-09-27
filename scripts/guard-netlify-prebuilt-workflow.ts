@@ -145,11 +145,10 @@ export function validateReusableCallerPermissions(
     }
     if (
       asRecord(job.with)?.target === "preview" &&
-      asRecord(job.with)?.deploy === true &&
       permissions?.["pull-requests"] !== "read"
     ) {
       issues.push(
-        `${path} ${jobName} preview caller must grant pull-requests: read for the trusted PR recheck`,
+        `${path} ${jobName} preview caller must grant pull-requests: read to the reusable workflow`,
       );
     }
   }
@@ -435,12 +434,13 @@ export function validateNetlifyPrPreviewWorkflow(
   if (
     asRecord(build?.secrets) ||
     buildPermissions?.contents !== "read" ||
+    buildPermissions?.["pull-requests"] !== "read" ||
     Object.keys(buildPermissions ?? {}).some(
-      (permission) => permission !== "contents",
+      (permission) => !["contents", "pull-requests"].includes(permission),
     )
   ) {
     issues.push(
-      `${pullRequestPath} PR build job must not receive deployment secrets`,
+      `${pullRequestPath} PR build job must use only contents and pull-requests read access and receive no deployment secrets`,
     );
   }
   if (

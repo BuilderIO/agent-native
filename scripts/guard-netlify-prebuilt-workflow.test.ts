@@ -196,6 +196,10 @@ describe("Netlify PR preview workflow guard", () => {
       (previewJobs.build.with as Workflow).source_ref,
       "${{ needs.authorize.outputs.source_ref }}",
     );
+    assert.deepEqual(previewJobs.build.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
     assert.equal(
       (previewDeploy.with as Workflow).pull_request_number,
       "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}",
