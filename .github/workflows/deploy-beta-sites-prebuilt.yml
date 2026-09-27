@@ -1,9 +1,5 @@
 name: Deploy Agent-Native beta sites from GitHub
 
-# GitHub Actions is the sole automatic beta publisher. It builds once and
-# uploads prebuilt artifacts to the independent Netlify beta sites; Netlify
-# Git-connected auto-builds are disabled to prevent stale queued builds from
-# overwriting a newer result.
 on:
   push:
     branches: [main]
@@ -120,7 +116,6 @@ jobs:
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
-      # Leave shared runner capacity for PR CI while the beta fleet builds.
       max-parallel: 8
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
@@ -140,9 +135,6 @@ jobs:
 
   confirm-current-source:
     name: Confirm beta source is current
-    # build is a fail-fast:false matrix; one site's failed build must not skip
-    # every other site's deploy. That site's own deploy job still fails
-    # (artifact download finds nothing), which is the isolated outcome we want.
     if: >-
       ${{ always() && !cancelled() &&
       needs.resolve-source.result == 'success' &&

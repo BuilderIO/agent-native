@@ -97,8 +97,6 @@ describe("public docs redirects", () => {
 });
 
 describe("netlify redirect rules", () => {
-  // `:splat` carries the child path's own trailing slash, so appending one
-  // turns `/templates/calendar/` into `/apps/calendar//`.
   it("never appends a slash directly after a splat", () => {
     const toml = readFileSync(
       new URL("../netlify.toml", import.meta.url),

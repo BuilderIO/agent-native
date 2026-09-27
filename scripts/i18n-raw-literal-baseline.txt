@@ -40,11 +40,11 @@ templates/crm/app/components/crm/WorkOverview.tsx|Recently active
 templates/crm/app/components/crm/WorkOverview.tsx|Saved views
 templates/crm/app/components/crm/WorkOverview.tsx|Signals worth deciding on.
 templates/crm/app/components/crm/WorkOverview.tsx|Today’s work
-templates/crm/app/routes/home.tsx|My work
-templates/crm/app/routes/home.tsx|My work · CRM
 templates/crm/app/routes/accounts.tsx|Accounts · CRM
 templates/crm/app/routes/ask.tsx|Ask CRM
 templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence across Native SQL and connected records.
+templates/crm/app/routes/home.tsx|My work
+templates/crm/app/routes/home.tsx|My work · CRM
 templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
 templates/crm/app/routes/people.tsx|People · CRM
 templates/crm/app/routes/settings.tsx|CRM settings
@@ -93,7 +93,6 @@ templates/design/app/components/design/code-workbench/search/SearchView.tsx|Whol
 templates/design/app/components/design/code-workbench/search/search-engine.ts|Invalid pattern
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
-templates/design/app/components/design/code-workbench/workspace/types.ts|` or `localhost:
 templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/design-editor/commands/confirm-make-real.ts|Migration failed

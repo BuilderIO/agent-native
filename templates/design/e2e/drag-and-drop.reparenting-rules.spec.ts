@@ -3,8 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   setBaseURL,
   newDesign,
+  indexHtml,
   node,
   openEditor,
+  postAction,
   selectViaTree,
 } from "./drag-and-drop.shared";
 
@@ -15,6 +17,168 @@ test.beforeEach(async ({}, testInfo) => {
 });
 
 test.describe("reparenting rules", () => {
+  test("dragging a flow child out of a frame stacks it above that frame and persists after reload", async ({
+    page,
+  }) => {
+    const designId = await newDesign(
+      page,
+      `<!doctype html><html><body style="margin:0;min-height:700px">
+        <main data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:40px;top:40px;width:700px;height:400px;background:#eee">
+          <section data-an-primitive="frame" data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:0;top:0;display:flex;flex-direction:row;width:180px;height:140px;background:#ccc">
+            <div data-agent-native-node-id="dragme" data-agent-native-layer-name="Dragged layer" style="width:80px;height:60px;background:#6366f1">Dragged layer</div>
+          </section>
+          <div data-agent-native-node-id="candidate" data-agent-native-layer-name="Candidate" style="position:absolute;left:220px;top:20px;width:100px;height:100px;background:#9ca3af">Candidate</div>
+          <div data-agent-native-node-id="overlap" data-agent-native-layer-name="Later layer" style="position:absolute;left:340px;top:20px;width:120px;height:100px;background:#ef4444">Later layer</div>
+        </main>
+      </body></html>`,
+    );
+
+    const persistedStructure = async () => {
+      const html = await indexHtml(page, designId);
+      return page.evaluate((source) => {
+        const document = new DOMParser().parseFromString(source, "text/html");
+        const element = (id: string) =>
+          document.querySelector<HTMLElement>(
+            `[data-agent-native-node-id="${id}"]`,
+          );
+        const outer = element("outer");
+        const dragged = element("dragme");
+        return {
+          parent: dragged?.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          order: Array.from(outer?.children ?? []).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        };
+      }, html);
+    };
+
+    try {
+      await openEditor(page, designId);
+      await page.evaluate(() => {
+        const host = window as Window & {
+          __g4DragStates?: Array<{
+            active?: boolean;
+            preview?: {
+              phase?: string;
+              sourceId?: string;
+              anchorId?: string;
+              placement?: string;
+              insert?: boolean;
+            };
+          }>;
+        };
+        host.__g4DragStates = [];
+        window.addEventListener(
+          "message",
+          (event: MessageEvent) => {
+            if (event.data?.type !== "agent-native:editor-drag-state") return;
+            host.__g4DragStates?.push(event.data);
+          },
+          true,
+        );
+      });
+      await expect.poll(persistedStructure).toEqual({
+        parent: "nested",
+        order: ["nested", "candidate", "overlap"],
+      });
+
+      const dragged = node(page, "dragme");
+      const nested = node(page, "nested");
+      const candidate = node(page, "candidate");
+      const outer = node(page, "outer");
+      const [draggedBox, nestedBox, candidateBox, outerBox] = await Promise.all(
+        [
+          dragged.boundingBox(),
+          nested.boundingBox(),
+          candidate.boundingBox(),
+          outer.boundingBox(),
+        ],
+      );
+      if (!draggedBox || !nestedBox || !candidateBox || !outerBox) {
+        throw new Error("G4 fixture nodes need rendered bounds before drag");
+      }
+
+      const start = {
+        x: draggedBox.x + draggedBox.width / 2,
+        y: draggedBox.y + draggedBox.height / 2,
+      };
+      const release = {
+        x: outerBox.x + outerBox.width - 20,
+        y: outerBox.y + outerBox.height / 2,
+      };
+      const crossedPath = {
+        x: candidateBox.x + candidateBox.width / 2,
+        y: candidateBox.y + candidateBox.height / 2,
+      };
+      expect(
+        crossedPath.x < nestedBox.x ||
+          crossedPath.x > nestedBox.x + nestedBox.width,
+      ).toBe(true);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(crossedPath.x, crossedPath.y, { steps: 8 });
+      await page.mouse.move(start.x, start.y, { steps: 8 });
+      await page.mouse.move(release.x, release.y, { steps: 12 });
+
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const host = window as Window & {
+              __g4DragStates?: Array<{
+                active?: boolean;
+                preview?: {
+                  phase?: string;
+                  sourceId?: string;
+                  anchorId?: string;
+                  placement?: string;
+                  insert?: boolean;
+                };
+              }>;
+            };
+            const previews = host.__g4DragStates?.filter(
+              (state) => state.preview?.phase === "preview",
+            );
+            return previews?.[previews.length - 1] ?? null;
+          }),
+        )
+        .toMatchObject({
+          active: true,
+          preview: {
+            phase: "preview",
+            sourceId: "dragme",
+            anchorId: "nested",
+            placement: "after",
+            insert: true,
+          },
+        });
+      // Reparenting commits on mouseup; the source tree remains stable while
+      // the pointer leaves and re-enters the frame during the held gesture.
+      await expect.poll(persistedStructure).toEqual({
+        parent: "nested",
+        order: ["nested", "candidate", "overlap"],
+      });
+      await page.mouse.up();
+
+      await expect.poll(persistedStructure).toEqual({
+        parent: "outer",
+        order: ["nested", "dragme", "candidate", "overlap"],
+      });
+
+      await openEditor(page, designId);
+      await expect.poll(persistedStructure).toEqual({
+        parent: "outer",
+        order: ["nested", "dragme", "candidate", "overlap"],
+      });
+    } finally {
+      await postAction(page, "delete-design", { id: designId }).catch(
+        () => undefined,
+      );
+    }
+  });
+
   test("an object smaller than a frame becomes its child when dropped in", async ({
     page,
   }) => {
@@ -78,8 +242,6 @@ test.describe("reparenting rules", () => {
           return !!row && !!chip && row.contains(chip);
         });
 
-    // The control drag mutates the document, so the Space drag needs its own
-    // pristine design rather than the one the control already reparented.
     const controlId = await newDesign(page);
     await openEditor(page, controlId);
     await selectViaTree(page, "Chip 1");
@@ -104,8 +266,6 @@ test.describe("reparenting rules", () => {
     chip = (await node(page, "chip-1").boundingBox())!;
     outside = (await node(page, "frame-a").boundingBox())!;
 
-    // The retain-parent flag is set by a keydown listener on the IFRAME
-    // document; page.keyboard sends to the host, where it only pans.
     const previewBody = page
       .locator("iframe[data-design-preview-iframe]")
       .first()

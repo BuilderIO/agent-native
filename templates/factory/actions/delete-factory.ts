@@ -65,8 +65,6 @@ export default defineAction({
 
     const db = getDb();
     try {
-      // Remove schedules before SQL so no new run can start; restore both if
-      // either step fails so a partial cleanup cannot disable a surviving Factory.
       await removeFactoryAutomationResources(
         orgId,
         factoryId,

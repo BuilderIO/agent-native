@@ -1,19 +1,3 @@
-/**
- * Resolve the human-readable Builder *space* a private key is scoped to.
- *
- * There is no public-key path to a space's display name; it comes from the
- * Builder Admin GraphQL API (`https://builder.io/api/v2/admin`) authenticated
- * with the private `bpk-…` key we already hold at user scope. A `bpk-` key is
- * space-scoped, so today this resolves the single connected space — but the
- * function returns a *list* so the multi-space drill-down can grow additively
- * (multiple credentials → multiple spaces) without a restructure.
- *
- * The exact `settings` field holding the display name is undocumented, so the
- * parser is deliberately defensive: it requests the whole `settings` JSON blob
- * and pulls the first plausible name/id field. Callers fall back to the generic
- * `orgName` when this returns nothing.
- */
-
 import { createHash } from "node:crypto";
 
 export interface BuilderSpaceSummary {
@@ -31,19 +15,12 @@ interface SpaceCacheEntry {
   spaces: BuilderSpaceSummary[];
 }
 
-// The admin API is polled indirectly via the Builder status route, which the
-// client refetches often. Cache per key so a poll storm hits Builder once.
-// A resolved name is cached for a while; an empty/failed lookup is cached only
-// briefly so a transient Builder hiccup recovers without hammering the API.
 const SPACE_CACHE_TTL_MS = 5 * 60 * 1000;
 const SPACE_NEGATIVE_TTL_MS = 60 * 1000;
 const SPACE_CACHE_MAX_ENTRIES = 100;
-// Hard cap on the admin call — the status route must never block on Builder.
 const ADMIN_FETCH_TIMEOUT_MS = 4000;
 const spaceCache = new Map<string, SpaceCacheEntry>();
 
-// `query { settings }` selects the whole JSONObject scalar, so we don't have to
-// know the sub-field names up front — we parse the returned blob below.
 const BUILDER_SPACE_SETTINGS_QUERY =
   "query AgentNativeSpaceSettings { settings }";
 
@@ -99,12 +76,6 @@ export function parseSpacesFromSettings(
   return [{ id, name }];
 }
 
-/**
- * Synchronously read the cached space list for a key, or null if there's no
- * fresh entry. The status route uses this to stay non-blocking — it returns
- * whatever is cached now and kicks `listBuilderSpaces` in the background to
- * populate the cache for the next poll.
- */
 export function getCachedBuilderSpaces(
   privateKey: string,
 ): BuilderSpaceSummary[] | null {
@@ -114,10 +85,6 @@ export function getCachedBuilderSpaces(
   return null;
 }
 
-/**
- * List the Builder spaces reachable with this private key. Best-effort: returns
- * `[]` on any network/auth/parse failure (caller should fall back to orgName).
- */
 export async function listBuilderSpaces(
   privateKey: string,
   options?: { fetchImpl?: typeof fetch; signal?: AbortSignal },
@@ -131,8 +98,6 @@ export async function listBuilderSpaces(
   }
 
   const fetchImpl = options?.fetchImpl ?? fetch;
-  // Cap the admin call ourselves so a stalled Builder can't hang the status
-  // route. If the caller passed its own signal, respect it instead.
   const timeoutController = options?.signal ? null : new AbortController();
   const timeout = timeoutController
     ? setTimeout(() => timeoutController.abort(), ADMIN_FETCH_TIMEOUT_MS)
@@ -159,8 +124,6 @@ export async function listBuilderSpaces(
     if (timeout) clearTimeout(timeout);
   }
 
-  // Cache a resolved name for the full TTL; cache an empty/failed lookup only
-  // briefly so a transient Builder hiccup recovers without per-poll hammering.
   setCachedSpaces(key, {
     expiresAt:
       Date.now() +
@@ -170,7 +133,6 @@ export async function listBuilderSpaces(
   return spaces;
 }
 
-/** Test/maintenance hook — drop cached space lookups. */
 export function clearBuilderSpaceCache() {
   spaceCache.clear();
 }

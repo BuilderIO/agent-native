@@ -13,8 +13,6 @@ export default defineConfig({
     wgslVitePlugin(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
     }),
   ],

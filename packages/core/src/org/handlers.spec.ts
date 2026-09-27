@@ -504,10 +504,6 @@ describe("org handlers", () => {
   });
 
   it("registers invite_sent telemetry with the event's waitUntil", async () => {
-    // Regression test for the P1 finding on PR #5765: the fire-and-forget
-    // `invite_sent` import had no lifecycle hook, so a serverless runtime
-    // could freeze the function before it ever emitted. Fails before the
-    // fix (no waitUntil wiring existed) and passes after.
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const waitUntil = vi.fn();
     const event = {
@@ -604,10 +600,6 @@ describe("org handlers", () => {
       return true;
     });
 
-    // A `waitUntil`-carrying event, so we can assert the handler forwards it
-    // to `trackInviteAccepted` instead of discarding the telemetry promise
-    // (PR #5765 review: fire-and-forget telemetry can be dropped mid-flight
-    // on a serverless runtime).
     const event = {
       ...makeEvent("/_agent-native/org/invitations/invite-1/accept"),
       waitUntil: vi.fn(),
@@ -932,13 +924,13 @@ describe("org handlers", () => {
   describe("deleteOrgHandler", () => {
     it("deletes invitations, settings, members, and the org, then repoints active-org-id", async () => {
       mockExecute
-        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 }) // SELECT name
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 }) // DELETE org_invitations
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 }) // DELETE app_secrets
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 }) // DELETE settings
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 }) // DELETE org_members
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 }) // DELETE organizations
-        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 }); // SELECT next org
+        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "  example  " }),
@@ -990,7 +982,7 @@ describe("org handlers", () => {
         .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 }); // no other membership
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "Example" }),
@@ -1083,10 +1075,6 @@ describe("org handlers", () => {
     });
   });
 
-  // `cachedMemberships` holds a JOIN of org_members and organizations for 15s
-  // across requests. Anything that edits a column inside that projection —
-  // `role`, `name`, `allowed_domain` — must evict it, or the process keeps
-  // authorizing and rendering from the pre-write snapshot until the TTL lapses.
   describe("membership cache invalidation", () => {
     function seedCachedMemberships() {
       const load = vi.fn(async () => [{ orgId: "org-1", role: "admin" }]);

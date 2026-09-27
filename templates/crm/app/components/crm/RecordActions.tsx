@@ -152,7 +152,6 @@ function DuplicateReviewDialog({ recordId }: { recordId: string }) {
   );
 }
 
-/** The prepared upstream handoff returned by `apply-crm-proposals`. */
 interface PreparedHandoff {
   providerLabel: string;
   recordUrl: string | null;
@@ -213,9 +212,6 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
           ? { expectedRemoteRevision: record.remoteRevision }
           : {}),
       });
-      // A provider edit is a handoff, not a write: keep the dialog open and
-      // show the exact diff plus the upstream link instead of a success toast
-      // that would imply the connected CRM already changed.
       if (target === "provider") {
         setHandoff(
           await prepare.mutateAsync({ proposalId: result.mutationId }),

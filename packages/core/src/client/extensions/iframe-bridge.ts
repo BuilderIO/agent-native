@@ -30,19 +30,6 @@ const BLOCKED_HEADERS = new Set([
 
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
-/**
- * Path allowlist for the extension postMessage bridge.
- *
- * Extensions can only call paths under `/_agent-native/*` (the framework's own
- * namespace). Template-defined `/api/*` routes are intentionally rejected:
- * those routes are written by app authors who may not consistently apply the
- * `accessFilter`/`assertAccess` access scoping helpers. A shared/org extension
- * running with the viewer's session should not be able to reach surfaces
- * outside the framework's own well-audited namespace.
- *
- * If a template needs a extension to reach a custom route, expose it via an
- * action (`defineAction` auto-mounts under `/_agent-native/actions/<name>`).
- */
 export function isAllowedExtensionPath(
   path: string,
   extensionId: string,
@@ -169,14 +156,9 @@ export type ExtensionBridgeRole =
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
 export interface BridgePolicyContext {
-  /** Extension id currently owning the iframe. Used for narrow helper-specific exceptions. */
   extensionId?: string;
-  /** Resolved role of the viewer on this extension. */
   role: ExtensionBridgeRole;
-  /** True when viewer is the extension's owner_email — equivalent to role "owner"
-   *  but cheaper to plumb through from the render binding. */
   isAuthor: boolean;
-  /** Database-backed extensions use role gates; local-file extensions use manifest gates. */
   source?: "database" | "local-files";
   permissions?: {
     appActions?: string[];
@@ -188,19 +170,9 @@ export interface BridgePolicyContext {
 
 export interface BridgePolicyResult {
   ok: boolean;
-  /** Human-readable error to send back to the iframe when ok=false. */
   error?: string;
 }
 
-/**
- * Decide whether the iframe is allowed to proxy this request given the
- * viewer's role on the extension. Authors (and owner/admin/editor in general)
- * keep the full bridge surface; commenters and viewers get a strictly
- * read-only subset because extensions have no comment-specific bridge APIs.
- *
- * Called BEFORE the request leaves the parent — so a denial is local-only
- * and never reveals server state to the iframe.
- */
 export function checkBridgePolicy(
   path: string,
   method: string,
@@ -210,24 +182,16 @@ export function checkBridgePolicy(
     return checkLocalFileBridgePolicy(path, method, ctx);
   }
 
-  // Authors and the highest non-owner roles get the unrestricted bridge.
   if (ctx.isAuthor || ctx.role === "owner" || ctx.role === "admin") {
     return { ok: true };
   }
 
-  // Editors get write access EXCEPT for the helper-specific destructive
-  // operations the server still gates (the SQL blocklist + per-action
-  // toolCallable flag, see audit H5).
   if (ctx.role === "editor") {
     return { ok: true };
   }
 
-  // From here on: role === "commenter" or "viewer". Lock down everything
-  // beyond reads; extensions have no comment-specific bridge APIs.
   const upperMethod = method.toUpperCase();
 
-  // SQL is denied for viewers entirely (defense-in-depth: dev mode bypasses
-  // the production scoping shim).
   if (path === "/_agent-native/extensions/sql/query") {
     return {
       ok: false,
@@ -241,16 +205,10 @@ export function checkBridgePolicy(
     };
   }
 
-  // Actions are allowed for viewers; action-routes enforces each action's
-  // `toolCallable` opt-out server-side. This keeps read-oriented widgets like
-  // inbox stats usable when shared while still blocking sensitive actions such
-  // as share/unshare through their per-action flags.
   if (path.startsWith("/_agent-native/actions/")) {
     return { ok: true };
   }
 
-  // Extension-data writes/deletes are denied; reads (GET/HEAD) are allowed.
-  // Match /_agent-native/extensions/data/<extensionId>/<collection>[/<itemId>].
   if (path.startsWith("/_agent-native/extensions/data/")) {
     if (READ_METHODS.has(upperMethod)) return { ok: true };
     return {
@@ -259,13 +217,6 @@ export function checkBridgePolicy(
     };
   }
 
-  // extensionFetch — outbound proxy. POSTed JSON body carries the upstream method.
-  // The bridge can only see the path here, not the upstream method, so we
-  // restrict by REQUEST method (POST to /proxy carries the actual upstream
-  // method as { method: 'GET' | ... } in body). For viewers we pre-flight-
-  // deny the proxy unless a future code path emits a GET to /proxy/preview.
-  // In practice, extensionFetch always POSTs to /proxy, so a viewer's extensionFetch
-  // is denied entirely. Adapt this if /proxy gains a GET preview surface.
   if (path === "/_agent-native/extensions/proxy") {
     return {
       ok: false,
@@ -273,7 +224,6 @@ export function checkBridgePolicy(
     };
   }
 
-  // application-state — viewers can read but not write.
   if (path.startsWith("/_agent-native/application-state/")) {
     if (READ_METHODS.has(upperMethod)) return { ok: true };
     if (
@@ -288,7 +238,6 @@ export function checkBridgePolicy(
     };
   }
 
-  // Generic appFetch — reads only for viewers.
   if (READ_METHODS.has(upperMethod)) return { ok: true };
   return {
     ok: false,

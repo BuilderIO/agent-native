@@ -34,7 +34,6 @@ export default defineEventHandler(async (event) => {
 
   const filename = getRouterParam(event, "filename") ?? "";
 
-  // Reject path traversal attempts
   if (
     !filename ||
     filename.includes("/") ||
@@ -48,7 +47,6 @@ export default defineEventHandler(async (event) => {
   const exportsDir = path.resolve(tenantExportDir(session.email));
   const filepath = path.resolve(exportsDir, filename);
 
-  // Double-check resolved path stays inside exportsDir
   if (!filepath.startsWith(exportsDir + path.sep)) {
     setResponseStatus(event, 403);
     return { error: "Forbidden" };

@@ -168,8 +168,6 @@ describe("session replay event normalization", () => {
     const serializedBeforeNormalization = JSON.stringify(events);
     const normalized = normalizeReplayEvents(events);
     expect(normalized).toEqual(events);
-    // Structural tripwire: playback normalization may filter and stable-sort,
-    // but it must never rewrite a byte of valid rrweb event data.
     expect(JSON.stringify(normalized)).toBe(serializedBeforeNormalization);
     expect(JSON.stringify(events)).toBe(serializedBeforeNormalization);
     expect(normalized[0]).toBe(events[0]);
@@ -228,12 +226,6 @@ describe("session replay event normalization", () => {
   });
 
   it("keeps an initial malformed-looking Meta viewport exactly as recorded", () => {
-    // Regression tripwire: this shape used to be misidentified as an
-    // "impossible" legacy recording and rewritten to 1,397x873. There was
-    // never a stored recording with corrupt geometry — the 2026-07 ultra-wide
-    // replay bugs were caused by demo mode's view-time fetch redaction (see
-    // packages/core/src/demo/fetch-interceptor.ts). Player geometry must stay
-    // fully raw, no matter how wide or unusual the aspect ratio looks.
     const events = [
       { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
       { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
@@ -246,10 +238,6 @@ describe("session replay event normalization", () => {
   });
 
   it("never clamps or rewrites raw display dimensions, only fills in missing ones", () => {
-    // Regression tripwire against reintroducing a viewport "recovery"
-    // heuristic. 3189x885 was the exact shape a deleted `clampReplayDisplayDimensions`
-    // used to rewrite to 1416x885; it must now pass through untouched, same
-    // as every other real or unusual aspect ratio.
     expect(
       resolveReplayDisplayDimensions({ width: 3189, height: 885 }),
     ).toEqual({ width: 3189, height: 885 });
@@ -262,7 +250,6 @@ describe("session replay event normalization", () => {
     expect(
       resolveReplayDisplayDimensions({ width: 1440, height: 900 }),
     ).toEqual({ width: 1440, height: 900 });
-    // Only missing/invalid dimensions fall back to the default player size.
     expect(resolveReplayDisplayDimensions(null)).toEqual({
       width: 1024,
       height: 640,
@@ -296,7 +283,6 @@ describe("session replay event normalization", () => {
         },
       ]),
     ).toEqual({ width: 1280, height: 800 });
-    // Raw Meta dimensions are kept as-is for CSS fit-to-stage only.
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },

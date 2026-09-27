@@ -1,3 +1,15 @@
+## 0.4.5
+
+### Patch Changes
+
+- a91535c: Keep alert dialogs centered above full-app overlays.
+
+## 0.4.4
+
+### Patch Changes
+
+- 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
+
 ## 0.4.3
 
 ### Patch Changes

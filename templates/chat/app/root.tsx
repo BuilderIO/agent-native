@@ -123,7 +123,11 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        chatStorageKey="chat"
+      >
         <CommandMenu.Group heading={t("root.commandActions")}>
           {isChatThread ? (
             <CommandMenu.Item
@@ -167,23 +171,11 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
-      <AppProviders
-        queryClient={queryClient}
-        isPublicPath={isMarketingPath}
-        i18n={{ catalog: i18nCatalog }}
-      >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <>
-            <DbSyncSetup />
-            <AppContent />
-          </>
-        )}
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <DbSyncSetup />
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

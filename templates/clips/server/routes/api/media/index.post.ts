@@ -1,16 +1,3 @@
-/**
- * Generic media upload — used for brand logos and any other ad-hoc image
- * uploads the app needs. The video upload path lives under /api/uploads/
- * because it's chunked; this route is a one-shot file POST.
- *
- * POST /api/media?organizationId=<id>&filename=<name>
- *   Body: raw file bytes (Content-Type header determines the MIME type)
- *   Response: { reference, filename, mimeType, size }
- *
- * Max size: 5 MB (logos). Storage uses private blob storage; SQL stores only
- * the returned opaque reference, never the image bytes.
- */
-
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
@@ -31,7 +18,7 @@ import { requireOrganizationAccess } from "../../../lib/recordings.js";
 const MAX_BYTES = 5 * 1024 * 1024;
 
 const STORAGE_SETUP_REQUIRED_REASON =
-  "File storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage in Settings → File uploads, then retry.";
+  "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
 function randId(): string {
   const chars =

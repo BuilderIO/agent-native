@@ -1,21 +1,3 @@
-/**
- * DesignEditor.portableStyleSnapshot.spec.ts
- *
- * Regression coverage for the cross-screen "portable style snapshot bakes
- * editor-internal CSS custom properties into persisted user HTML" bug: a
- * cross-screen/canvas move used to bake the FULL bridge-captured style dump
- * — including editor chrome variables like --design-editor-accent-color and
- * --agent-native-editor-chrome-scale-x — verbatim onto the moved node's
- * inline style attribute, leaking editor-internal state into exports and
- * freezing dimensions that should reflow.
- *
- * isEditorInternalCssVar is the pure, DOM-independent piece of that fix
- * (applyPortableStyles/applyPortableStyleSnapshotToHtml themselves require a
- * DOMParser/jsdom environment this template's vitest config doesn't provide
- * — see vitest.config.ts, no `environment: "jsdom"` and no jsdom dependency
- * — so this file pins the filtering predicate directly, which is where the
- * actual bug/fix lives).
- */
 import { describe, expect, it } from "vitest";
 
 import { isEditorInternalCssVar } from "./design-editor/portable-style";

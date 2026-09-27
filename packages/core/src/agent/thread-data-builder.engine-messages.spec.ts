@@ -155,13 +155,6 @@ describe("threadDataToEngineMessages", () => {
   });
 });
 
-/**
- * A resumed run rebuilt from thread_data as prose alone tells the model what it
- * SAID but not what it DID: every tool call and every result is gone, so the
- * next chunk re-runs work already committed and cannot see its output. The
- * calls and results are in thread_data the whole time — this asserts a resume
- * actually replays them.
- */
 describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
   const repoWithTools = {
     messages: [
@@ -226,8 +219,6 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
       toolName: "get-extension",
       content: '{"visibility":"private"}',
     });
-    // Every replayed result carries the input string the Builder gateway
-    // requires on tool_result blocks.
     expect(results.content[0]).toMatchObject({
       toolInput: '{"id":"ext-1"}',
     });
@@ -304,8 +295,6 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
   });
 
   it("spends the tool-payload budget on the newest turns and says so on the rest", () => {
-    // Each turn's result alone is a third of the total budget, so only the
-    // newest few can keep their tool detail.
     const turns = Array.from({ length: 8 }, (_, i) => ({
       message: {
         id: `a${i}`,
@@ -328,12 +317,9 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
     );
 
     const serialized = JSON.stringify(messages);
-    // Every turn's prose survives — that is the invariant the budget may not break.
     for (let i = 0; i < 8; i++) {
       expect(serialized).toContain(`turn ${i} conclusion`);
     }
-    // The newest turn keeps its evidence; the oldest does not, and is not
-    // allowed to read like a turn that never called a tool.
     expect(serialized).toContain("call_7");
     expect(serialized).not.toContain("call_0");
     const oldest = messages[0];
@@ -342,7 +328,6 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
     expect(oldest.content[0].text).toContain("turn 0 conclusion");
     expect(oldest.content[0].text).toContain("elided from replayed history");
 
-    // The replay stays bounded rather than growing with the thread.
     const toolPayload = messages
       .flatMap((m) => m.content)
       .filter((p) => p.type === "tool-result")
@@ -368,8 +353,6 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
       },
       { includeToolCalls: true },
     );
-    // An unpaired id-less call cannot be replayed as valid tool_use; the prose
-    // still survives.
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toEqual([
       { type: "text", text: "Did a thing." },
@@ -443,7 +426,6 @@ describe("recoverThreadHistoryForRequest", () => {
       "user",
       "assistant",
     ]);
-    // Oldest-first, ending on the most recent message.
     expect(recovered[3].content[0].text).toContain("19");
   });
 
@@ -456,8 +438,6 @@ describe("recoverThreadHistoryForRequest", () => {
   });
 
   it("never returns empty for a non-empty thread, even under a tiny budget", () => {
-    // Recovering one turn beats recovering none: an empty history is what the
-    // client already sent, and it reads downstream as a fresh conversation.
     const recovered = recoverThreadHistoryForRequest(thread(6, 5_000), {
       maxChars: 10,
     });

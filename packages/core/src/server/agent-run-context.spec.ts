@@ -26,6 +26,7 @@ import {
 } from "./agent-run-context.js";
 import {
   getRequestContext,
+  markRequestIdentityAuthenticatedAtMs,
   getRequestOrgId,
   getRequestRunContext,
   getRequestTimezone,
@@ -58,11 +59,14 @@ describe("server/agent-run-context", () => {
 
   it("resolves and caches a signed-in owner from the session", async () => {
     const event = makeEvent();
-    getSessionMock.mockResolvedValue({
-      email: "alice@example.com",
-      authUserId: "ba-user-1",
-      name: "Alice",
-      orgId: "org-session",
+    getSessionMock.mockImplementation(async (event) => {
+      markRequestIdentityAuthenticatedAtMs(event, "alice@example.com", 1_234);
+      return {
+        email: "alice@example.com",
+        authUserId: "ba-user-1",
+        name: "Alice",
+        orgId: "org-session",
+      };
     });
 
     const owner = await resolveAgentRunOwnerContext(event);
@@ -73,6 +77,7 @@ describe("server/agent-run-context", () => {
       authUserId: "ba-user-1",
       name: "Alice",
       anonymous: false,
+      identityAuthenticatedAtMs: 1_234,
     });
     expect(cached).toBe(owner);
     expect(getSessionMock).toHaveBeenCalledTimes(1);
@@ -186,12 +191,15 @@ describe("server/agent-run-context", () => {
           authUserId: "ba-user-1",
           name: "Alice",
           anonymous: false,
+          identityAuthenticatedAtMs: 1_234,
         },
         isBackgroundWorker: true,
       },
       async () => ({
         userEmail: getRequestUserEmail(),
         authUserId: getRequestContext()?.authUserId,
+        identityAuthenticatedAtMs:
+          getRequestContext()?.identityAuthenticatedAtMs,
         userName: getRequestUserName(),
         orgId: getRequestOrgId(),
         timezone: getRequestTimezone(),
@@ -203,6 +211,7 @@ describe("server/agent-run-context", () => {
     expect(seen).toEqual({
       userEmail: "alice@example.com",
       authUserId: "ba-user-1",
+      identityAuthenticatedAtMs: 1_234,
       userName: "Alice",
       orgId: "org-session",
       timezone: "America/Los_Angeles",

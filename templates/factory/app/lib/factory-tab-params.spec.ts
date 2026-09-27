@@ -41,9 +41,6 @@ describe("retainFactoryTabParams", () => {
     );
     const next = retainFactoryTabParams(current, "audit");
     expect(next.get("tab")).toBe("audit");
-    // Only the Automations tab owns this param now; the last selection is
-    // remembered per factory in localStorage instead of riding along in the
-    // URL on every other tab (see AutomationsView's persistedLastAutomationId).
     expect(next.get("automationId")).toBeNull();
   });
 

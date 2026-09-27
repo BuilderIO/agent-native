@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -16,6 +17,29 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => children,
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
+
+vi.mock("@/components/ui/popover", async () => {
+  const { createPortal } = await import("react-dom");
+  return {
+    Popover: ({ children }: { children: React.ReactNode }) => children,
+    PopoverTrigger: ({ children }: { children: React.ReactNode }) => children,
+    PopoverContent: ({
+      children,
+      className,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      onClick?: React.MouseEventHandler<HTMLDivElement>;
+    }) =>
+      createPortal(
+        <div className={className} onClick={onClick}>
+          {children}
+        </div>,
+        document.body,
+      ),
+  };
+});
 
 import { EmailListItem } from "./EmailListItem";
 
@@ -60,7 +84,7 @@ function renderRow(
     onHover: vi.fn(),
     ...overrides,
   };
-  render(<EmailListItem {...props} />);
+  render(<EmailListItem {...props} />, { wrapper: MemoryRouter });
   return {
     row: screen.getByRole("row"),
     props,
@@ -103,6 +127,42 @@ describe("EmailListItem touch swipe interactions", () => {
       screen.getByLabelText("mail.sort.priorityFeedbackLabel"),
     ).toBeTruthy();
     expect(screen.queryByLabelText("mail.actions.moveToTrash")).toBeNull();
+  });
+
+  it.each([
+    ["button", "mail.aiFilter.importantMode", "important"],
+    ["button", "mail.aiFilter.notImportantMode", "not-important"],
+    ["link", "mail.sort.priorityEditRules", undefined],
+  ] as const)(
+    "keeps the row closed when the score popover's %s is selected",
+    (role, name, decision) => {
+      const onImportanceFeedback = vi.fn();
+      const { props } = renderRow({
+        importanceScore: 0.91,
+        onImportanceFeedback,
+      });
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "mail.sort.priority 0.91" }),
+      );
+      const control = screen.getByRole(role, { name });
+      fireEvent.click(control);
+
+      expect(props.onSelect).not.toHaveBeenCalled();
+      if (decision) expect(onImportanceFeedback).toHaveBeenCalledWith(decision);
+    },
+  );
+
+  it("keeps both score feedback labels on one line", () => {
+    renderRow({ importanceScore: 0.91 });
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.priority 0.91" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "mail.aiFilter.notImportantMode" })
+        .className,
+    ).toContain("whitespace-nowrap");
   });
 
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {

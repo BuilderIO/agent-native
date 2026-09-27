@@ -12,11 +12,6 @@ import type { RecapCopy } from "./transactional-email-store.js";
 
 const CLIPS_BRAND_NAME = "Clips";
 const CLIPS_SENDER_NAME = "Agent-Native Clips";
-/**
- * Yields `clips@agent-native.com` on first-party deployments and is ignored
- * where the configured sender is someone else's verified address, so a
- * self-hosted install keeps sending from an address its provider accepts.
- */
 const CLIPS_SENDER_SLUG = "clips";
 const UNIDENTIFIED_AGENT_NAME = "An AI agent";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
@@ -39,9 +34,7 @@ export type ClipsTransactionalEmailInput =
   | (TransactionalEmailBase & {
       kind: "unviewed-reminder";
       recordingId: string;
-      /** Set when the clip is a meeting recording, which has no video to play. */
       meetingId?: string | null;
-      /** Public meeting pages render signed-out; private ones need the app. */
       meetingIsPublic?: boolean;
       title?: string | null;
       senderEmail?: string | null;
@@ -52,7 +45,6 @@ export type ClipsTransactionalEmailInput =
       kind: "first-agent-view";
       recordingId: string;
       title?: string | null;
-      /** Absent when the reading agent could not be identified by product. */
       agentName?: string | null;
     })
   | (TransactionalEmailBase & {
@@ -190,11 +182,6 @@ function clipUrl(
   return appUrlForPath(`/r/${encodeURIComponent(recordingId)}`, options);
 }
 
-/**
- * The best page this recipient can open. `/r/` is the signed-in app route, and
- * a meeting recording has no video for the clip player to resolve; the public
- * meeting page in turn renders signed-out only when the meeting is public.
- */
 function recipientUrl(
   recordingId: string,
   meetingId: string | null | undefined,
@@ -318,18 +305,10 @@ export interface RecapCopySource {
     humanViews: number;
     completedPct: number;
     dropOffMs: number | null;
-    /** A null `agentLabel` is an agent we could not identify by product. */
     agentBreakdown: { agentLabel: string | null; sessions: number }[];
   };
 }
 
-/**
- * Builds every recap module from the metrics themselves.
- *
- * Deliberately not agent-written: a recap that waited on the owner opening
- * Clips would silently never arrive for the owners least likely to open it.
- * Each module is mechanical, so nothing is lost by composing it here.
- */
 export function composeRecapCopy(recap: RecapCopySource): RecapCopy {
   const views = countLabel(recap.humanViews, "time", "times");
   const reads = countLabel(recap.agentSessions, "agent", "agents");
@@ -381,11 +360,6 @@ function formatRecordedDate(recordedAt: string): string {
       });
 }
 
-/**
- * Email clients resolve neither CSS custom properties nor external
- * stylesheets, so the recap card inlines the same literal palette that
- * `renderEmail` already draws the surrounding card with.
- */
 const CARD_BG = "#0a0a0c"; // guard:allow-raw-color — inlined for email clients
 const CARD_BORDER = "#3f3f46"; // guard:allow-raw-color — inlined for email clients
 const CARD_DIVIDER = "#27272a"; // guard:allow-raw-color — inlined for email clients
@@ -477,8 +451,6 @@ export function renderClipsTransactionalEmail(
       const sender =
         singleLine(input.senderName) ||
         normalizeEmailDisplayName(input.senderEmail, "Someone");
-      // A meeting recording has no video, and its page shows written notes
-      // rather than the transcript unless the owner opted the transcript in.
       const copy = input.meetingId
         ? {
             subject: `Still need to read the notes from “${title}”?`,

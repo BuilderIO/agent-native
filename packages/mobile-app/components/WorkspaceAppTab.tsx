@@ -9,14 +9,11 @@ import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 export default function WorkspaceAppTab({
   appId,
-  // Every workspace tab shares the parent app's default identity session.
-  // Clips is the intentional exception because it has its own owner-scoped key.
   captureSessionToken = true,
 }: {
   appId: string;
   captureSessionToken?: boolean;
 }) {
-  // The tab bar floats over the screen, so the webview has to end above it.
   const { contentInset } = useTabBarLayout();
   const app = TEMPLATE_APPS.find((candidate) => candidate.id === appId);
 

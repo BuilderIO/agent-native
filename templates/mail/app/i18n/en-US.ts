@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "Set up your AI inbox",
       aiSetupTagLabel: "Create an AI tag",
       aiSetupImportanceLabel: "Important mail",
-      aiSetupSpamLabel: "Spam and unwanted mail",
+      aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Skip inbox",
       aiSetupSave: "Save setup",
       aiSetupSkip: "Skip for now",
@@ -60,7 +60,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Messages that need a reply or have a deadline, including comments from people on GitHub. Skip bot comments.",
       aiSetupArchiveSpamPrompt:
-        "Auto-archive: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
+        "Skip inbox: GitHub notifications where a bot posted a comment or an automated status update.\nSpam: Clearly promotional or unwanted messages I did not ask for.",
       aiSetupCustomTag: "Custom",
       aiSetupDone: "Done",
       aiSetupRunAgain: "Run setup again",
@@ -70,6 +70,25 @@ const messages = {
       aiSetupPromptTravel: "Travel confirmations and reservations I need",
       aiSetupTagFinance: "Finance",
       aiSetupPromptFinance: "Bills and account statements I need",
+      aiSetupArchiveExample:
+        "Bot and CI notifications from GitHub, Vercel, and Dependabot",
+      aiSetupFilteredExample:
+        "Cold sales outreach and recruiters I haven't replied to",
+      aiSetupSortingHeadline: "Sorting your inbox",
+      aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
+      aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupSortingFailed:
+        "Could not sort your inbox. Your rules are saved; try again.",
+      aiSetupUndoComplete:
+        "Restored {{count}} messages to their previous state.",
+      aiSetupRuleCount: "{{count}} matched",
+      aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
+      aiSetupChatTip: "You can refine or add rules anytime in chat.",
+      aiSetupChatPrompt: "Prioritize emails from my boss…",
+      aiSetupNoRules: "No rules were selected.",
+      aiSetupPartialFailure: "{{count}} messages could not be updated.",
+      aiSetupSortInbox: "Sort my inbox",
+      aiSetupImportantExample: "Anything from my manager, Priya…",
       priorityFeedbackLabel: "Importance feedback",
       priorityScoreHigh: "High importance",
       priorityScoreMedium: "Medium importance",
@@ -538,6 +557,8 @@ const messages = {
         "Adds the agent-native-filtered label and archives the conversation. You can undo it anytime.",
       learningNote:
         "Keeps the message in Inbox and teaches the filter not to repeat the mistake.",
+      learningProgress:
+        "Confirmed {{count}} of {{required}} examples. Recent mail will be checked after {{required}} are confirmed.",
       rememberLabel: "Remember for future mail (optional)",
       correctLabel: "What should it learn? (optional)",
       rememberPlaceholder:
@@ -551,11 +572,37 @@ const messages = {
       keptToast: "Kept {{count}} conversation(s) in Inbox.",
       actionFailed: "Could not update the AI filter.",
       settingsFailed: "Could not save AI filter settings.",
+      automationRulesLoadFailed: "Couldn’t load triage rules.",
       instructionFailed: "Could not save AI filter instruction.",
       skipInboxMode: "Skip inbox",
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "AI tags",
+      ruleHelpLabel: "Explain {{mode}} rules",
+      aiTagRuleHelp:
+        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+      importantRuleHelp:
+        "Write a natural-language prompt. Jev marks matching mail as Important.",
+      skipInboxRuleHelp:
+        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+      spamRuleHelp:
+        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
+      filteredMode: "Filtered",
+      manageSettings: "Manage",
+      askJev: "Ask Jev",
+      askJevPrompt:
+        "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
+      composerPlaceholder: "Ask Jev to organize your inbox…",
+      ruleBackfillStarting: "Applying this rule to recent mail…",
+      ruleBackfillProgress:
+        "Applying to recent mail: {{processed}} of {{total}}",
+      ruleBackfillMatches: "{{count}} recent messages matched",
+      ruleBackfillNoMatches: "No recent messages matched this rule.",
+      ruleBackfillFailed: "Could not apply this rule to recent mail.",
+      ruleBackfillPartialFailure: "{{count}} messages could not be updated.",
+      ruleBackfillUndoing: "Restoring recent mail…",
+      ruleBackfillUndoComplete: "{{count}} messages restored",
+      ruleBackfillReview: "Review matches",
       importantMode: "Important",
       notImportantMode: "Not important",
       importantLabel: "AI Important",
@@ -594,7 +641,7 @@ const messages = {
       promptRulesCleared: "Triage rules removed.",
       tagTabsHelp: "Each tag becomes an inbox tab",
       addTag: "Add tag",
-      triageTitle: "Triage",
+      triageTitle: "AI triage",
       connectJev: "Connect Jev",
       connectJevToRunTriage: "Connect Jev to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
@@ -782,7 +829,7 @@ const messages = {
     deleteSnippetDescription:
       'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
-    aiFilter: "Triage",
+    aiFilter: "AI triage",
     gmailFilters: "Gmail Filters",
     aliases: "Aliases",
     tracking: "Tracking",

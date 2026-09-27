@@ -19,8 +19,6 @@ function fetchJson<T>(url: string): Promise<T> {
   });
 }
 
-// ─── Overview ──────────────────────────────────────────────────────────
-
 export interface ObservabilityOverview {
   totalRuns: number;
   totalCostCents: number;
@@ -39,8 +37,6 @@ export function useObservabilityOverview(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
-// ─── Traces ────────────────────────────────────────────────────────────
 
 export interface TraceSummary {
   runId: string;
@@ -91,18 +87,18 @@ export function useOutputReviews(
   return query;
 }
 
-export function useOutputReviewApp(runId: string | null) {
+export function useOutputReviewApp(runId: string | null, orgId?: string) {
   return useActionQuery<AgentMcpAppPayload | null>(
     "get-observability-review-app",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }
 
-export function useOutputReviewDetail(runId: string | null) {
+export function useOutputReviewDetail(runId: string | null, orgId?: string) {
   return useActionQuery<OutputReviewDetail>(
     "get-observability-review-detail",
-    { runId: runId ?? "" },
+    { runId: runId ?? "", ...(orgId ? { orgId } : {}) },
     { enabled: runId !== null, gcTime: 0 },
   );
 }
@@ -152,8 +148,6 @@ export function useTraceDetail(runId: string | null) {
     enabled: !!runId,
   });
 }
-
-// ─── Feedback ──────────────────────────────────────────────────────────
 
 export interface FeedbackEntry {
   id: string;
@@ -253,8 +247,6 @@ export function useSaveReviewFeedback() {
   >("save-observability-review-feedback");
 }
 
-// ─── Satisfaction ──────────────────────────────────────────────────────
-
 export interface SatisfactionScore {
   id: string;
   threadId: string;
@@ -276,8 +268,6 @@ export function useSatisfaction(sinceDays = 7) {
   });
 }
 
-// ─── Evals ─────────────────────────────────────────────────────────────
-
 export interface EvalStats {
   totalEvals: number;
   avgScore: number;
@@ -292,8 +282,6 @@ export function useEvalStats(sinceDays = 7) {
     refetchInterval: 30_000,
   });
 }
-
-// ─── Experiments ───────────────────────────────────────────────────────
 
 export interface Experiment {
   id: string;

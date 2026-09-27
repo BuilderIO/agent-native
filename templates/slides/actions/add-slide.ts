@@ -40,9 +40,6 @@ import {
   nextDeckRevision,
 } from "./_deck-write.js";
 import { assertNoRenderArtifactsInNewSlide } from "./_render-artifacts.js";
-// Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
-// and the browser's patch-deck all serialise against the SAME lock — writes to
-// different slides of the same deck can never clobber each other.
 import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -150,10 +147,6 @@ export default defineAction({
       .preprocess((value) => {
         if (typeof value !== "string") return value;
         const trimmed = value.trim();
-        // "start"/"end" are the words an agent reaches for first ("end" used
-        // to fail validation as NaN). Resolve them into the numeric domain so
-        // the insert below keeps one representation; it already clamps an
-        // index past the last slide to an append.
         if (trimmed.toLowerCase() === "start") return 0;
         if (trimmed.toLowerCase() === "end") return Number.MAX_SAFE_INTEGER;
         return trimmed === "" ? value : Number(trimmed);
@@ -232,10 +225,6 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
 
-      // Reachable only in the narrow window where access resolved and the row
-      // was deleted before this select. A wrong deck id never gets here:
-      // assertAccess throws Forbidden first, on purpose, so a non-member
-      // cannot probe a deck id for existence. Do not delete this as dead.
       if (!rows.length) {
         fail(`Deck ${deckId} not found`, {
           errorCode: "deck_not_found",
@@ -534,18 +523,12 @@ export default defineAction({
         );
       });
 
-      // Best-effort agent presence: light the agent up on the newly-added slide
-      // in open editors and drop a lingering "AI edited" highlight for it. Uses
-      // the NEW slide's id. Never blocks or fails the write.
       touchAgentSlidePresence({
         deckId,
         slideId: newSlideId,
         label: slideLabelFor(newSlide, insertIndex),
       });
 
-      // Broadcast to any open editors so the new slide appears immediately.
-      // A broadcast failure must not turn the already-committed write into an
-      // action failure that callers may retry.
       let notificationErrorType: string | undefined;
       try {
         const agentChangeId = deckVersionChangeGroupFromAction(ctx);

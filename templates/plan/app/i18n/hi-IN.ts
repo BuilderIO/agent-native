@@ -654,6 +654,7 @@ const messages = {
       createAccount: "खाता बनाएं",
       signIn: "लॉग इन करें",
       haveAccount: "मेरा पहले से ही खाता है",
+      storageStatusUnavailable: "फ़ाइल संग्रहण की जाँच नहीं हो सकी।",
       retry: "पुनः प्रयास करें",
       sendFeedback: "फ़ीडबैक भेजें",
       feedbackPlaceholder: "इस प्लान त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",

@@ -49,11 +49,9 @@ const DISPATCH_DESCRIPTION =
 const DISPATCH_COLOR = "#14B8A6";
 const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
-// target apps can take a long time to cold-boot, so we give a large timeout here
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-// Leave response headroom for the hosted MCP transport after the inline wait.
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
@@ -77,7 +75,6 @@ export interface DispatchMcpAccessibleApp {
   name: string;
   description: string;
   url: string;
-  /** Canonical browser entry point when `url` is a deep A2A/agent link. */
   homeUrl?: string;
   color: string;
   granted: boolean;
@@ -751,9 +748,6 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       granted: true,
     });
   }
-  // The hosted Dispatch database is separate from the shared Workspace
-  // database. Overlay the live mounted registry so custom apps remain
-  // discoverable without copying a stale app list into Dispatch configuration.
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
     candidatesById.set(app.id, {

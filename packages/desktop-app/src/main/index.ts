@@ -361,17 +361,6 @@ const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
   reclaimFreshDeadOwner: false,
 };
 
-// ---------- stdout/stderr pipe resilience ----------
-// The main process logs spawned dev-server / code-agent child output via
-// console.log/console.error from `child.stdout.on("data", …)` handlers. When
-// a child server dies or restarts (frequent during local dev / HMR), the
-// stdout pipe's read end closes and the very next console write throws
-// `write EPIPE`. With no `error` listener on the std streams Node turns that
-// into an uncaught exception, which Electron surfaces as a fatal main-process
-// crash dialog. Swallow EPIPE / destroyed-stream errors on the std streams
-// (and, as a narrow safety net, the same code on uncaughtException) so a
-// closed log pipe can never take the app down. Any other error is left to
-// crash exactly as before.
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
     if (err?.code === "EPIPE" || err?.code === "ERR_STREAM_DESTROYED") return;
@@ -416,13 +405,6 @@ function isDesktopSsoEnabled(): boolean {
   return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
 }
 
-// ---------- User-Agent marker ----------
-// Tag every request from this Electron app so the server can distinguish
-// Agent-Native desktop from other Electron-based webviews (Builder.io's
-// Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
-// would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
-// stranding users in non-Agent-Native Electron contexts on a "Connected!
-// Open Agent-Native" screen whose deep link can't fire.
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
@@ -431,8 +413,6 @@ const desktopReleaseChannelMarker =
     ? ` AgentNativeDesktopNightly/${app.getVersion()}`
     : "";
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}${desktopReleaseChannelMarker}`;
-// ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
-// Register before app is ready so macOS associates the scheme with this app.
 
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 const DESKTOP_DEEP_LINK_PROTOCOLS = new Set([
@@ -586,9 +566,7 @@ export interface CodeAgentTranscriptSubscription {
   watcher?: fs.FSWatcher;
   flushTimer?: NodeJS.Timeout;
   reason?: string;
-  /** Byte offset into the primary event JSONL file for incremental tailing. */
   fileOffset?: number;
-  /** Absolute path of the primary event file being tailed. */
   tailedFilePath?: string;
 }
 
@@ -624,12 +602,6 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   }
 }
 
-// Windows/Linux: a cold start (the app was not already running) delivers the
-// deep link as a plain argv entry instead of firing 'open-url' (macOS-only)
-// or 'second-instance' (only reached by an already-running primary
-// instance), so nothing else observes it before the window loads. Queue it
-// into pendingDeepLink the same way the macOS open-url cold-start path below
-// does, for app.whenReady() to drain into handleDeepLink().
 function capturePendingDeepLinkFromArgv(argv: string[]): void {
   const deepLink = argv.find(isDeepLinkArg);
   if (deepLink) {
@@ -638,16 +610,8 @@ function capturePendingDeepLinkFromArgv(argv: string[]): void {
 }
 
 if (IS_DEV) {
-  // electron-vite kills the main process and relaunches it on every rebuild
-  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
-  // dev:lazy:desktop rewrites bundled output). A single-instance lock would
-  // make the relaunched instance race the still-dying one for the lock, lose,
-  // and app.quit() — leaving the killed instance's dead Dock tile behind.
-  // Skip the lock in dev; keep the deep-link handler for parity.
   app.on("second-instance", handleSecondInstance);
   capturePendingDeepLinkFromArgv(process.argv);
-  // Quit immediately when electron-vite SIGTERMs us so the old process and its
-  // Dock tile vanish at once, before the relaunched instance paints its window.
   const exitNow = () => app.exit(0);
   process.on("SIGTERM", exitNow);
   process.on("SIGINT", exitNow);
@@ -934,8 +898,6 @@ function resolveDesktopIdentityApp(
       origin = configuredOrigin;
     }
   } else {
-    // A known canonical id with a changed origin is never treated as a custom
-    // app. This prevents an edited first-party entry from inheriting trust.
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
@@ -1306,7 +1268,6 @@ async function injectSessionAndReload(
   if (sess && origin) {
     const primaryCookieName = getCookieNameForApp(target.appId);
     targets.push({ session: sess, origin, cookieName: primaryCookieName });
-    // Older deployed apps may still look for the unsuffixed legacy cookie.
     if (primaryCookieName !== "an_session") {
       targets.push({ session: sess, origin, cookieName: "an_session" });
     }
@@ -1378,7 +1339,6 @@ function reloadAllWebviews() {
   }
 }
 
-// macOS: deep links arrive via open-url (both when app is running and on cold launch)
 app.on("open-url", (event, url) => {
   event.preventDefault();
   if (isDesktopDeepLinkUrl(url)) {
@@ -1392,16 +1352,12 @@ app.on("open-url", (event, url) => {
   queueOrHandleDeepLink(url);
 });
 
-// --------------- Run completion / attention notifications ---------------
-
-/** True when the main window is hidden or unfocused. */
 function isWindowUnfocused(): boolean {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
   if (!win) return true;
   return !win.isFocused() || win.isMinimized() || !win.isVisible();
 }
 
-/** Attention-needed run count (approval-needed + recently-finished while away). */
 const runAttentionRunIds = new Set<string>();
 
 function updateDockBadge(): void {
@@ -1441,23 +1397,17 @@ function showCodeAgentRunNotification(
   });
   notification.on("click", () => {
     focusMainWindow();
-    // Clear this run from attention set when user clicks
     runAttentionRunIds.delete(runId);
     updateDockBadge();
   });
   notification.show();
 }
 
-// Clear badge whenever the main window gains focus.
 app.on("browser-window-focus", () => {
   runAttentionRunIds.clear();
   updateDockBadge();
 });
 
-// ---------- IPC: Auto-updates ----------
-// See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
-// update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
-// (imported above) are also used by the application menu below.
 async function closeDesktopComputerMcpBridge(): Promise<void> {
   const initialization = desktopComputerMcpBridgeInitialization;
   if (initialization) {
@@ -1566,13 +1516,6 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   return true;
 });
 
-// ---------- Hosted origin warmup ----------
-// The hosted apps run on serverless functions, and their first request after
-// an idle period pays a container cold start. Measured against production:
-// /_agent-native/auth/session takes 4-7s cold and 0.17s warm, it is sent
-// `no-store`, and the app's whole first render blocks on it — which is most
-// of the ~12s a cold tab click used to cost. Paying it in the background,
-// before the user clicks, is what makes the click feel instant.
 const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
 const WARM_ORIGIN_TIMEOUT_MS = 12_000;
 const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
@@ -1621,9 +1564,6 @@ async function warmDesktopAppOrigin(
 
 function warmDesktopAppOrigins(): void {
   if (appIsQuitting) return;
-  // A pass already targeting the old lane cannot serve a lane that changed
-  // underneath it, so coalesce the request and recompute once it settles
-  // rather than dropping it.
   if (originWarmupInFlight) {
     originWarmupRerunRequested = true;
     return;
@@ -1643,10 +1583,6 @@ function warmDesktopAppOrigins(): void {
   if (targets.length === 0) return;
 
   originWarmupInFlight = (async () => {
-    // The signed-in transition fires while runModernIdentityFanout is still
-    // running its unawaited serial child-session loop. Warming every origin
-    // underneath that reintroduces exactly the concurrent hosted-origin
-    // session work it serializes to avoid, so wait it out first.
     for (
       let waited = 0;
       waited < WARM_ORIGIN_FANOUT_WAIT_MS &&
@@ -1659,19 +1595,11 @@ function warmDesktopAppOrigins(): void {
       );
     }
     if (desktopIdentityBroker?.hasPendingAppSessionWork()) {
-      // Still minting after the cap. Overlapping it is the exact hazard this
-      // wait exists for, so abandon this pass. A single bounded retry is
-      // scheduled rather than re-arming immediately, which would spin the
-      // wait in a loop for as long as the work stays stuck.
       scheduleWarmupRetry();
       return;
     }
     for (const target of targets) {
       if (appIsQuitting) break;
-      // Serial on purpose. runModernIdentityFanout already documents that
-      // parallel child session work against the hosted origins turns a valid
-      // parent session into a batch of opaque 500s; a warmup must not be the
-      // thing that reintroduces it.
       await warmDesktopAppOrigin(target.origin, target.session);
     }
   })()
@@ -1707,9 +1635,6 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
       eligible: false,
     } satisfies DesktopEnvironmentLaneState;
   }
-  // The broker is otherwise created lazily by the first webview status
-  // request, which lands after the shell has already resolved a lane — a
-  // persisted Builder session would load production once before switching.
   if (isDesktopSsoEnabled()) {
     const broker = ensureDesktopIdentityBroker();
     await broker?.refreshStatus(resolveDesktopIdentityAuthority());
@@ -1725,9 +1650,6 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
     return resolveDesktopEnvironmentLaneState();
   }
   AppStore.saveDesktopAppPreferences({ desktopEnvironmentLane: preference });
-  // The focus handler will not fire: the window is already focused and the
-  // renderer just reloads in place, so the newly selected lane would stay
-  // cold until something else happened to trigger a warmup.
   warmDesktopAppOrigins();
   return resolveDesktopEnvironmentLaneState();
 });
@@ -1848,9 +1770,6 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     userAgent: app.userAgentFallback,
     isAvailable: isDesktopIdentityAvailable,
-    // Parent Google verification runs in the isolated identity window so its
-    // browser-bound OAuth state remains in the same cookie partition. Magic
-    // links may still complete through the system browser exchange path.
     resolveApp: (appId) =>
       resolveDesktopIdentityApp(appId, {
         allowDisabled: appId === "dispatch",
@@ -1911,10 +1830,7 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
 
-    // macOS: hidden title bar with traffic lights positioned above the chat rail
-    // Windows/Linux: fully frameless, custom controls in renderer
     titleBarStyle: "hidden",
-    // Traffic lights in the far top-left of the chat-first workbench
     ...(isMac && { trafficLightPosition: { x: 14, y: 12 } }),
 
     backgroundColor: "#111111",
@@ -1941,7 +1857,6 @@ function createWindow(): BrowserWindow {
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
-  // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
   win.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
@@ -1975,21 +1890,14 @@ function createWindow(): BrowserWindow {
     },
   );
   win.webContents.on("did-finish-load", () => {
-    // A reloaded renderer has no status yet, so the dedup cache must not
-    // suppress the next send as an unchanged repeat.
     lastDesktopAppRuntimeStatus.clear();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
 
-  // In dev, load from the Vite dev server; in prod, load built files
   loadDesktopRenderer(win);
-  // DevTools will be opened for the active webview via Cmd+Shift+I
 
   mainWindow = win;
-  // Coming back to the window is the strongest available signal that a tab
-  // click is imminent, and it costs nothing while the app is in the
-  // background. The TTL keeps repeated focus events from re-warming.
   win.on("focus", () => {
     warmDesktopAppOrigins();
   });
@@ -2002,8 +1910,6 @@ function createWindow(): BrowserWindow {
 
   return win;
 }
-
-// ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
 let chatFirstPreviewAppId: string | null = null;
@@ -2235,7 +2141,6 @@ function getActiveWebviewContents(options: { trackedOnly?: boolean } = {}) {
 
   if (options.trackedOnly) return activeTarget;
 
-  // Fall back to the currently focused guest, then to the active app by URL.
   return (
     activeTarget ||
     webviewContents.find((wc) => wc.isFocused()) ||
@@ -2416,9 +2321,6 @@ function registerDesktopShortcutBindings() {
       continue;
     }
 
-    // Stored settings can predate the reserved-key validation applied when a
-    // shortcut is created. Never let an old binding take over a native app
-    // command such as macOS's Command+H hide action.
     const normalized = normalizeDesktopShortcutAccelerator(binding.accelerator);
     if (!normalized.accelerator) {
       registrations.set(binding.id, {
@@ -2528,10 +2430,6 @@ function toggleWebviewDevTools() {
   }
 }
 
-// Electron's built-in zoomIn/zoomOut/resetZoom menu roles act on the focused
-// webContents, which is the shell renderer (the chrome around the apps), not
-// the webview guest where the actual app content lives. So the user sees no
-// effect. Apply zoom directly to the active webview's webContents instead.
 const ZOOM_STEP = 0.5;
 const ZOOM_MIN = -3;
 const ZOOM_MAX = 3;
@@ -2632,10 +2530,6 @@ function isTrustedPermissionRequest(
   );
   if (!appConfig) return false;
 
-  // In dev mode, first-party templates load through the frame
-  // (http://localhost:FRAME_PORT), so the actual document origin differs from
-  // the resolved app base origin (dev port or template gateway). Trust the
-  // frame origin only in dev; production loads the real app URL directly.
   const appOrigin = getAppOrigin(appConfig);
   const frameOrigin =
     appConfig.mode === "dev" ? `http://localhost:${FRAME_PORT}` : null;
@@ -4598,8 +4492,6 @@ function reclaimTerminalCodeAgentWorktree(
     return { status: "reclaimed" };
   }
 
-  // Older runs predate the registry. Keep their worktrees recoverable for the
-  // same retention window and only remove them after checking for dirty files.
   if (!runId) return { status: "reclaimed" };
   const cleanupAfter = firstStringValue(worktree.cleanupAfter);
   if (!cleanupAfter) {
@@ -5205,9 +5097,6 @@ function normalizeCodeAgentTranscriptEvent(
   if (fallback.source && metadata.source === undefined) {
     metadata.source = fallback.source;
   }
-  // Prefer the structured signal the executor stamps on credential-gap
-  // events; carry it through so the renderer can detect the condition
-  // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
   const signal = row.signal === "credential-gap" ? "credential-gap" : undefined;
 
   return {
@@ -5287,12 +5176,6 @@ interface TailedJsonlResult {
   nextOffset: number;
 }
 
-/**
- * Reads only the bytes appended to a JSONL file since the last read.
- * Returns the new events and the updated file offset for the next call.
- * Falls back to a full read when offset is 0 (first call) or the file
- * was truncated (file size < offset).
- */
 function tailJsonlCodeAgentTranscriptEvents(
   filePath: string,
   runId: string,
@@ -5302,12 +5185,10 @@ function tailJsonlCodeAgentTranscriptEvents(
   try {
     const stat = fs.statSync(filePath);
     const fileSize = stat.size;
-    // File was truncated or rotated — fall back to full read.
     if (fileSize < offset) {
       const events = readJsonlCodeAgentTranscriptEvents(filePath, runId);
       return { events, nextOffset: fileSize };
     }
-    // Nothing new.
     if (fileSize === offset) return { events: [], nextOffset: offset };
     const byteCount = fileSize - offset;
     const buf = Buffer.allocUnsafe(byteCount);
@@ -5320,12 +5201,7 @@ function tailJsonlCodeAgentTranscriptEvents(
     const chunk = buf.toString("utf-8");
     const createdAt = new Date().toISOString();
     const events: CodeAgentTranscriptEvent[] = [];
-    // We may have a partial line at the end (write in progress). Only process
-    // complete lines; save the remainder for the next tail call by adjusting
-    // the returned offset backward.
     const lines = chunk.split(/\r?\n/);
-    // If the chunk doesn't end with a newline, the last element is an
-    // incomplete line — don't parse it, and walk the offset back.
     const hasTrailingNewline = chunk.endsWith("\n") || chunk.endsWith("\r\n");
     const completeLines = hasTrailingNewline ? lines : lines.slice(0, -1);
     const incompleteByteCount = hasTrailingNewline
@@ -5352,7 +5228,6 @@ function tailJsonlCodeAgentTranscriptEvents(
       nextOffset: fileSize - incompleteByteCount,
     };
   } catch {
-    // On any error fall back to nothing — next full flush will reconcile.
     return { events: [], nextOffset: offset };
   }
 }
@@ -5545,8 +5420,6 @@ function flushCodeAgentTranscriptSubscription(
 ): void {
   subscription.flushTimer = undefined;
 
-  // Fast path: use byte-offset tailing on the primary event file.
-  // This avoids re-reading the entire JSONL file on every watch event.
   if (subscription.tailedFilePath && subscription.fileOffset !== undefined) {
     const { events: tailedEvents, nextOffset } =
       tailJsonlCodeAgentTranscriptEvents(
@@ -5555,7 +5428,6 @@ function flushCodeAgentTranscriptSubscription(
         subscription.fileOffset,
       );
     subscription.fileOffset = nextOffset;
-    // Deduplicate against known keys (handles rare duplicates or inline events).
     const newEvents = tailedEvents.filter((event) => {
       const key = codeAgentTranscriptEventKey(event);
       if (subscription.knownEventKeys.has(key)) return false;
@@ -5574,8 +5446,6 @@ function flushCodeAgentTranscriptSubscription(
     return;
   }
 
-  // Fallback path: full re-read (used when no primary file is established,
-  // e.g. run records with inline events only).
   const result = readAllCodeAgentTranscript({ runId: subscription.runId });
   const nextKnownEventKeys = new Set<string>();
   const events: CodeAgentTranscriptEvent[] = [];
@@ -5942,11 +5812,6 @@ interface DesktopCodeAgentMcpEnvironment {
     | { state: "unavailable"; error: string };
 }
 
-/**
- * Give each local coding run the same workspace app MCP servers shown in its
- * rail, while retaining local/plugin config. Remote settings credentials stay
- * server-side until a capability broker can deliver them to this process.
- */
 async function desktopCodeAgentMcpEnvironment(
   cwd: string,
   options: { includeWorkspaceApps?: boolean } = {},
@@ -6297,7 +6162,6 @@ async function spawnCodeAgentRunner(
           },
         });
       });
-      // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
       reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
@@ -6497,7 +6361,6 @@ function spawnCodeAgentApprovalRunner(
           },
         });
       });
-      // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
       reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
@@ -8829,9 +8692,6 @@ async function createDesktopAppFromPrompt(
     targetPath: folder.path,
     port,
   });
-  // The target is intentionally empty until the coding agent runs the
-  // scaffold command. Start the runner from the framework workspace so the
-  // local Codex/Claude CLIs can initialize before they write into the target.
   const appCreationCwd = resolveRepositoryRoot(appsRoot);
   const runResult = await createCodeAgentRun({
     goalId: "task",
@@ -8991,9 +8851,6 @@ async function prepareDesktopAppForLocalCodeChange(
     port,
     existingLocalApp,
   });
-  // The template CLI creates into its current directory. Running from the
-  // configured apps root keeps the generated checkout beside the path saved
-  // in AppStore, even when Desktop itself is launched outside the repository.
   const appCreationCwd = appsRoot;
   const runResult = await createCodeAgentRun({
     goalId: "task",
@@ -9050,13 +8907,6 @@ async function prepareDesktopAppForLocalCodeChange(
 
 const lastDesktopAppRuntimeStatus = new Map<string, string>();
 
-/**
- * This is a state, not an event stream: a managed dev server emits a stdout
- * chunk per HMR update and per transform, and each one re-sends the identical
- * "running / Preview updated." status. Forwarding every one floods the renderer
- * with IPC and re-renders for a status that has not changed. Send only on an
- * actual transition.
- */
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const signature = `${status.state} ${status.message ?? ""}`;
@@ -9927,11 +9777,6 @@ function setContentFilesGrant(folder: string): {
   return { grant, grants: Object.values(grants) };
 }
 
-/**
- * Trusted Desktop seam for an agent host that has already obtained an exact
- * local folder reference. It creates no shared path record and requires a
- * human-facing working-copy name.
- */
 export function attachTemporaryContentFilesWorkingCopy(
   folder: string,
   name: string,
@@ -10354,9 +10199,6 @@ async function writeContentSourceFile(
       );
     }
     try {
-      // A hard link publishes the fully written inode only if the destination
-      // is still absent. If another editor recreates the path after our claim,
-      // EEXIST fails closed instead of replacing its newer file.
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
@@ -10379,9 +10221,6 @@ async function writeContentSourceFile(
 }
 
 async function waitForContentFileHandlesToClose(filePath: string) {
-  // macOS keeps an editor's existing descriptor attached to the inode after
-  // the path is claimed. Wait for that descriptor to close before publishing;
-  // otherwise a late write to the claimed inode could be discarded as stale.
   if (process.platform !== "darwin") return false;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const handles = spawnSync("lsof", ["-t", "--", filePath], {
@@ -11744,9 +11583,6 @@ function ensureCodeAgentLlmProvider(): {
   }
   if (hasRuntimeCodeAgentLlmProvider()) return { ok: true };
 
-  // Provider credentials saved in Desktop settings are intentionally kept out
-  // of the main process environment. Check the same effective environment
-  // that the runner receives before reporting a missing provider.
   const providerEnv = AppStore.getCodeAgentProviderProcessEnv(process.env);
   if (hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)) return { ok: true };
 
@@ -11799,8 +11635,6 @@ function runCliAsync(command: string, args: string[]): Promise<CliRun> {
       { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
       (error, stdout, stderr) => {
         const errno = error as NodeJS.ErrnoException | null;
-        // A non-zero exit is an answer ("not logged in"), not a probe failure —
-        // only a failure to run the binary at all is reported as `error`.
         const spawnFailed = Boolean(errno && typeof errno.code === "string");
         resolve({
           status: errno
@@ -11909,7 +11743,6 @@ function readConfiguredCodexModel(): string | undefined {
         ?.trim();
       if (model) return model;
     } catch (error) {
-      // Try the next known Codex config location.
       if (error instanceof Error) continue;
       throw error;
     }
@@ -12669,8 +12502,6 @@ async function controlCodeAgentRun(
   };
 }
 
-// ---------- IPC: Clipboard + Agent-Native Code (background code agents) ----------
-// See main/ipc/code-agents.ts.
 registerCodeAgentsIpc({
   isObject,
   firstStringValue,
@@ -12728,10 +12559,6 @@ registerQuickPromptIpc({
   createCodeAgentRun,
   sendOpenRequestToRenderer,
 });
-
-// ---------- Native context menus ----------
-// Electron does not provide Chromium's standard right-click menu by default,
-// so add the useful browser/editing actions for both the shell and app webviews.
 
 const contextMenuContents = new WeakSet<Electron.WebContents>();
 
@@ -12950,12 +12777,8 @@ function installContextMenu(contents: Electron.WebContents) {
   });
 }
 
-// ---------- IPC: Window controls ----------
-// See main/ipc/window.ts.
 registerWindowIpc();
 
-// ---------- IPC: App config management ----------
-// See main/ipc/apps.ts.
 registerAppsIpc({
   getManagedDesktopAppIds: () => Array.from(managedDesktopAppProcesses.keys()),
   stopManagedDesktopApp,
@@ -12981,9 +12804,6 @@ registerAppsIpc({
       return Promise.resolve(result);
     }
     return loadDesktopWorkspaceApps({
-      // Workspace inventory is authorized by the parent identity session.
-      // The child Dispatch partition is populated only after its webview is
-      // opened, so using it here makes a fresh signed-in shell look logged out.
       identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
       dispatchOrigin,
     }).then((result) => {
@@ -13003,7 +12823,6 @@ registerChatFirstMcpIpc({
   codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
-// See main/ipc/plan-files.ts.
 registerPlanFilesIpc({
   requirePlanFilesWebviewAccess,
   normalizePlanFilesRequestPlanId,
@@ -13016,7 +12835,6 @@ registerPlanFilesIpc({
   clearPlanFilesGrant,
 });
 
-// See main/ipc/content-files.ts.
 registerContentFilesIpc({
   requireContentFilesWebviewAccess,
   getContentFilesGrants,
@@ -13035,19 +12853,13 @@ registerContentFilesIpc({
   unsubscribeContentFilesChanges,
 });
 
-// ---------- IPC: Local app-launch shortcuts ----------
-// See main/ipc/shortcuts.ts.
 registerShortcutsIpc({
   getDesktopShortcutSettings,
   registerDesktopShortcutBindings,
 });
 
-// ---------- IPC: Inter-app message relay ----------
-// Routes messages from one app to all renderer windows so webviews can forward
-// them. See main/ipc/inter-app.ts.
 registerInterAppIpc();
 
-// ---------- OAuth handling ----------
 const oauthPopupAttemptWindows = createOAuthPopupAttemptWindows<
   Electron.WebContents,
   BrowserWindow
@@ -13081,7 +12893,6 @@ ipcMain.on(
 interface OAuthProvider {
   name: string;
   matches: (url: URL, context?: OAuthMatchContext) => boolean;
-  /** Substrings to look for in the navigation URL to detect callback arrival. */
   callbackPathFragments: string[];
 }
 
@@ -13146,18 +12957,12 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
       const host = u.hostname.toLowerCase();
       const isLocalhost =
         host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-      // (a) The localhost 302 starter the in-app button opens.
       if (
         isLocalhost &&
         u.pathname.endsWith("/_agent-native/builder/connect")
       ) {
         return true;
       }
-      // (b) The resolved Builder CLI-auth URL. Gate on `/cli-auth` so
-      // ordinary builder.io links (docs, marketing, etc.) opened from a
-      // webview don't get hijacked into the OAuth popup — they'd load
-      // fine but never hit the callback and the popup would just sit
-      // open on a docs page.
       return isBuilderAppHost(host) && u.pathname.startsWith("/cli-auth");
     },
     callbackPathFragments: ["/_agent-native/builder/callback"],
@@ -13526,12 +13331,6 @@ function openOAuthWindow(
   rememberOAuthStateFromNavigation(provider, url, injectionTarget);
   const mainWin = BrowserWindow.getAllWindows()[0];
 
-  // Critical: the popup MUST share the source webview's session so the
-  // OAuth callback hits the server with the user's auth cookies. Without
-  // this, the callback runs in Electron's default session (no cookies),
-  // sees `local@localhost`, and saves tokens under the connected account's
-  // email instead of the actual signed-in user — turning the "connect"
-  // flow into an infinite redirect loop in dev mode.
   const oauthWin = new BrowserWindow({
     width: 500,
     height: 700,
@@ -13556,16 +13355,6 @@ function openOAuthWindow(
 
   void oauthWin.loadURL(url);
 
-  // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
-  // Firebase, and Firebase signs the user into Google via `window.open()`.
-  // Electron's default is to silently block window.open, which manifests
-  // inside the popup as `FirebaseError: Firebase: Unable to establish a
-  // connection with the popup. It may have been blocked by the browser.
-  // (auth/popup-blocked)` — the user sees a brief blank screen, the popup
-  // closes, and the parent OAuth window never gets the auth result. By
-  // returning `action: "allow"` here we let Electron spawn a child window
-  // that shares the same session (so Firebase's postMessage handshake to
-  // window.opener still works) and inherits the OAuth window as parent.
   oauthWin.webContents.setWindowOpenHandler(({ url: childUrl }) => {
     try {
       const parsed = new URL(childUrl);
@@ -13596,12 +13385,6 @@ function openOAuthWindow(
     };
   });
 
-  // Close once we've reached the OAuth callback URL. Matching on path
-  // fragment works for both Google (callback on localhost /api/google/*)
-  // and Builder (callback on localhost /_agent-native/builder/callback).
-  // The Builder callback HTML also calls window.close() itself; this
-  // close-path is the Electron-side safety net if the page's script
-  // hasn't fired yet (or doesn't, e.g. on future callback redesigns).
   const popupCloser = createOAuthPopupCloser(oauthWin);
   const scheduleClose = () => popupCloser.scheduleCloseAfterFinishLoad();
 
@@ -13609,8 +13392,6 @@ function openOAuthWindow(
     try {
       const parsed = new URL(navUrl);
       rememberOAuthStateFromNavigation(provider, navUrl, injectionTarget);
-      // Detect the OAuth callback (works for both /api/google/callback and
-      // /_agent-native/google/callback).
       if (
         provider.callbackPathFragments.some((fragment) =>
           parsed.pathname.includes(fragment),
@@ -13618,7 +13399,6 @@ function openOAuthWindow(
       ) {
         scheduleClose();
       }
-      // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
         void handleDeepLink(navUrl);
         scheduleClose();
@@ -13631,8 +13411,6 @@ function openOAuthWindow(
   oauthWin.webContents.on("did-navigate", onNavigate);
   oauthWin.webContents.on("did-redirect-navigation", onNavigate);
 
-  // Intercept deep link navigations that would fail to load — handle the
-  // deep link and close the popup instead of showing a blank error page.
   oauthWin.webContents.on(
     "will-navigate",
     (event: Electron.Event, navUrl: string) => {
@@ -13644,10 +13422,6 @@ function openOAuthWindow(
     },
   );
 
-  // A genuine load failure (DNS, connection refused, timeout, etc.) means
-  // nothing else is going to load in this popup — close it directly instead
-  // of waiting for a did-finish-load that will never fire, which otherwise
-  // strands the user on a permanently blank popup after clicking "Allow".
   oauthWin.webContents.on("did-fail-load", (_event, errorCode) => {
     popupCloser.onLoadFailed(errorCode);
   });
@@ -13679,9 +13453,6 @@ function installWebviewReloadGuard(contents: Electron.WebContents) {
   if (webviewReloadGuardHandlers.has(contents)) return;
   webviewReloadGuardHandlers.add(contents);
 
-  // Stale React Router chunks can ask the page to reload after a deploy.
-  // In the desktop shell, block that renderer-initiated refresh and let the
-  // user choose when to manually refresh the app.
   contents.on(
     "console-message",
     (_event, _level, message: string | undefined) => {
@@ -13696,8 +13467,6 @@ function installWebviewReloadGuard(contents: Electron.WebContents) {
     try {
       const current = new URL(contents.getURL());
       const next = new URL(url);
-      // Allow the targeted route navigation used by the app-side recovery
-      // handler. Only suppress a reload that points at the exact current URL.
       if (current.origin !== next.origin || current.href !== next.href) return;
     } catch {
       return;
@@ -13800,8 +13569,6 @@ async function navigateMcpOAuthInDispatchWebview(
         return;
       }
 
-      // Keep the target gate active until the failed provider/callback page is
-      // replaced, so the restored integrations UI can safely start another flow.
       void restoreMcpOAuthNavigationTarget(target, origin, normalizedReturnPath)
         .catch((restoreError: unknown) => {
           console.warn("[main] failed to restore MCP OAuth webview", {
@@ -14012,14 +13779,6 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
   installWebviewNavigationListeners(contents, handleNavigation);
 }
 
-// ---------- Webview popup handling ----------
-// React 19 sets <webview allowpopups={true}> as a DOM property, not an HTML
-// attribute. Electron only reads the attribute, so popups are silently
-// blocked. The renderer now creates <webview> via document.createElement and
-// sets the attribute imperatively, but setWindowOpenHandler must also be
-// registered via did-attach-webview (the web-contents-created path alone
-// doesn't reliably catch webviews created this way).
-
 app.on("web-contents-created", (_event, contents) => {
   installContextMenu(contents);
   installSentryWebContentsInstrumentation(contents, {
@@ -14057,14 +13816,11 @@ app.on("web-contents-created", (_event, contents) => {
     return handleWindowOpenForContents(contents, url);
   });
 
-  // Forward keyboard shortcuts from focused webview guests to the shell
-  // renderer so they work even when a webview has keyboard focus.
   contents.on("before-input-event", (event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
     if (key === "i" && (input.alt || input.shift)) {
       event.preventDefault();
       toggleWebviewDevTools();
@@ -14074,22 +13830,18 @@ app.on("web-contents-created", (_event, contents) => {
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) return;
 
-    // Cmd+W — close tab (dedicated channel for backwards compat)
     if (key === "w") {
       event.preventDefault();
       win.webContents.send("shortcut:close-tab");
       return;
     }
 
-    // Cmd+R reloads the guest that received the key instead of asking the
-    // shell renderer to rediscover the active tab.
     if (key === "r" && !input.alt) {
       event.preventDefault();
       reloadWebviewContents(contents);
       return;
     }
 
-    // Cmd+Option+Up/Down — previous/next app
     if (input.alt && (key === "arrowup" || key === "arrowdown")) {
       event.preventDefault();
       win.webContents.send("shortcut:keydown", {
@@ -14101,7 +13853,6 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Ctrl+Option+X: switch to code tab
     if (
       input.control &&
       input.alt &&
@@ -14123,7 +13874,6 @@ app.on("web-contents-created", (_event, contents) => {
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
-    // Forward other Cmd+ shortcuts: F, L, T, Shift+T, \
     const isShortcut =
       key === "f" || key === "l" || key === "t" || isAgentSidebarToggleShortcut;
 
@@ -14138,8 +13888,6 @@ app.on("web-contents-created", (_event, contents) => {
     }
   });
 });
-
-// ---------- App lifecycle ----------
 
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
@@ -14230,8 +13978,6 @@ function installApplicationMenu() {
         : []),
       { role: "services" as const },
       { type: "separator" as const },
-      // Keep Cmd+H explicit because the custom menu replaces Electron's
-      // default app menu, whose implicit hide accelerator is easy to lose.
       { role: "hide" as const, accelerator: "Command+H" },
       { role: "hideOthers" as const },
       { role: "unhide" as const },
@@ -14266,8 +14012,6 @@ function installApplicationMenu() {
         ],
   };
 
-  // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
-  // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac ? [appMenu] : []),
     { role: "fileMenu" as const },
@@ -14318,12 +14062,6 @@ const MAC_SCREEN_RECORDING_SETTINGS_URL =
 
 let screenCapturePromptOpen = false;
 
-/**
- * Recovery path for a capture request macOS refused. An app that has never
- * asked for screen recording is absent from System Settings entirely, so users
- * hunt for an entry they cannot find — `getSources` forces the request that
- * registers this app in the list before we point them at it.
- */
 async function handleBlockedScreenCapture() {
   if (process.platform !== "darwin" || screenCapturePromptOpen) return;
   screenCapturePromptOpen = true;
@@ -14398,8 +14136,6 @@ function configurePermissionHandlers(
     });
     sess.setDisplayMediaRequestHandler(
       (_request, callback) => {
-        // Only reached when Electron cannot provide the system picker. Log as a
-        // warning because it means native screen selection did not engage.
         console.warn(
           "[display-capture] system picker did not engage — denying capture request",
         );
@@ -14407,7 +14143,6 @@ function configurePermissionHandlers(
         void handleBlockedScreenCapture();
       },
       {
-        // Uses the OS-native screen picker (macOS 15+ / ScreenCaptureKit).
         useSystemPicker: process.platform === "darwin",
       },
     );
@@ -14416,23 +14151,16 @@ function configurePermissionHandlers(
 
 void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
-    // Create the optional broker without blocking startup. The first eligible
-    // app asks it to refresh status, which keeps a slow identity authority
-    // from delaying the shell before the user opens an app.
     ensureDesktopIdentityBroker();
   }
 
   desktopCodeAgentScheduler.start();
-  // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     const deepLink = pendingDeepLink;
     pendingDeepLink = null;
     void handleDeepLink(deepLink);
   }
 
-  // Webviews now run in per-app persisted partitions (persist:app-<id>), so
-  // webRequest handlers must be attached to each partitioned session, not
-  // just session.defaultSession.
   const configuredSessions = new WeakSet<Electron.Session>();
   const sessionTargetAppIds = new WeakMap<Electron.Session, string | null>();
   function configureWebviewSession(
@@ -14478,11 +14206,6 @@ void app.whenReady().then(async () => {
       });
     }
 
-    // Intercept OAuth callbacks on the frame port and redirect to the app's server.
-    // Google redirects to localhost:3334/api/google/... but the frame doesn't
-    // serve API routes — the actual app server runs on a different port.
-    // Each partition is bound to a specific app, so route to that app's port
-    // rather than falling back to a hardcoded mail/calendar preference.
     sess.webRequest.onBeforeRequest(
       {
         urls: [
@@ -14617,13 +14340,8 @@ void app.whenReady().then(async () => {
     );
   }
 
-  // Also configure session.defaultSession so the OAuth BrowserWindow (which
-  // is not a webview and uses defaultSession) gets the redirect handler.
-  // With no specific targetAppId, the handler falls back to mail/calendar.
   configureWebviewSession(session.defaultSession, null);
 
-  // Pre-configure each known app's partition so handlers are ready before
-  // the first request fires. Each partition knows its own app id.
   let initialApps: AppConfig[] = [];
   try {
     initialApps = loadAppsForAuthContext();
@@ -14637,9 +14355,6 @@ void app.whenReady().then(async () => {
     configureWebviewSession(sess, appConfig.id);
   }
 
-  // Catch any webview sessions we didn't pre-configure (e.g. custom apps
-  // added at runtime) when their web contents are created. Derive the app
-  // id from the webview URL's ?app= param or exact configured origin.
   function resolveDesktopWebviewAppId(
     contents: Electron.WebContents,
   ): string | null {
@@ -14767,8 +14482,6 @@ void app.whenReady().then(async () => {
     wc.on("did-navigate-in-page", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
-    // Capture renderer console messages to the log file so they survive
-    // across sessions without DevTools needing to be open.
     captureWebviewLogs(wc, id ?? "webview");
   });
 
@@ -14782,35 +14495,29 @@ void app.whenReady().then(async () => {
 
   const win = createWindow();
   registerQuickPromptShortcut();
-  // Pairing details persist, but background access is opt-in per launch.
-  // A read-only status check must never spawn a process or unlock Keychain.
   remoteConnectorEnabled = false;
   if (AppStore.loadRemoteConnectorSettings().enabled) {
     AppStore.saveRemoteConnectorSettings({ enabled: false });
   }
 
-  // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
     if (forwardDesktopNavigationShortcut(_event, input)) return;
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
     if (key === "i" && (input.alt || input.shift)) {
       _event.preventDefault();
       toggleWebviewDevTools();
       return;
     }
 
-    // Cmd+R — refresh active webview, not the shell
     if (key === "r" && !input.alt) {
       _event.preventDefault();
       reloadActiveWebview();
       return;
     }
 
-    // Cmd+F — search inside the active webview, not the shell
     if (key === "f") {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
@@ -14821,7 +14528,6 @@ void app.whenReady().then(async () => {
       return;
     }
 
-    // Cmd+L — copy the active webview URL.
     if (key === "l") {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
@@ -14832,7 +14538,6 @@ void app.whenReady().then(async () => {
       return;
     }
 
-    // Cmd+\\ — toggle the agent sidebar for the active webview
     if (isDesktopChatToggleShortcut(input)) {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
@@ -14843,14 +14548,12 @@ void app.whenReady().then(async () => {
       return;
     }
 
-    // Cmd+W — close tab instead of window
     if (key === "w") {
       _event.preventDefault();
       win.webContents.send("shortcut:close-tab");
     }
   });
 
-  // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {
     if (isQuickPromptActive()) return;
     if (BrowserWindow.getAllWindows().length === 0) {

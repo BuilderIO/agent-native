@@ -1,6 +1,3 @@
-/**
- * Thin content re-export of staged dataset deletion, pre-bound to appId="content".
- */
 import { createDeleteStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

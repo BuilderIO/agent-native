@@ -13,11 +13,6 @@ import {
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
-/**
- * Finalizes Builder DSI indexing from upload tokens produced by the
- * browser-streamed resumable upload. The file bytes were streamed straight to
- * storage; this endpoint only forwards the opaque tokens.
- */
 export const indexDesignSystemSources = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {

@@ -1,23 +1,9 @@
-/**
- * A blocked CDN request leaves a screen rendering as unstyled default HTML with
- * nothing in its own markup to explain it. Rewriting at render time rather than
- * at generation time also repairs every design already stored.
- *
- * Export keeps the CDN on purpose: a downloaded file runs outside this app.
- */
-
 import tailwindRuntimeUrl from "@tailwindcss/browser?url";
 import alpineRuntimeUrl from "alpinejs/dist/cdn.min.js?url";
 import { parse } from "parse5";
 
 import { ensureGroupRuntime } from "../../../../shared/group-runtime";
 
-/**
- * Only the major version this app vendors may be substituted. Swapping v3's Play
- * CDN for the v4 runtime looks equivalent and is not: v4 resolves spacing and
- * radius through theme variables a v3 document never defines, so `px-8` computes
- * to 0 and `rounded-full` to garbage.
- */
 function substitutable(src: string, pinned: RegExp, vendored: RegExp): boolean {
   const version = pinned.exec(src);
   return !version || vendored.test(version[1] ?? "");
@@ -28,21 +14,12 @@ function tailwindReplacement(src: string): boolean {
   return substitutable(src, /@tailwindcss\/browser@(\d+)/i, /^4$/);
 }
 
-/**
- * Core Alpine only. `@alpinejs/persist`, `/focus`, `/mask` and friends all carry
- * "alpinejs" in their URL, and swapping one for the core bundle drops the plugin
- * entirely while loading Alpine a second time.
- */
 function alpineReplacement(src: string): boolean {
   if (/@alpinejs\//i.test(src)) return false;
   if (!/(^|[/@])alpinejs(@|\/|$)/i.test(src)) return false;
   return substitutable(src, /alpinejs@(\d+)/i, /^3$/);
 }
 
-/**
- * Absolute, because a srcdoc document resolves relative URLs against the parent
- * document rather than against the app root it was composed for.
- */
 function absolute(url: string): string {
   if (/^[a-z]+:\/\//i.test(url)) return url;
   if (typeof window === "undefined") return url;
@@ -62,12 +39,6 @@ interface SrcSpan {
   replacement: string;
 }
 
-/**
- * Spans come from the parser, never from a source-wide regex: a runtime URL
- * written inside a `<script>` body, an HTML comment, or another element's
- * attribute is user content, and rewriting it makes the preview diverge from
- * the stored and exported document.
- */
 function runtimeSrcSpans(
   html: string,
   urls: { tailwind: string; alpine: string },

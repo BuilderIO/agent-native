@@ -1,9 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { organizationLogoUrl } from "@/lib/organization-logo";
 
 export type RecordingVisibility = "private" | "org" | "public";
@@ -54,7 +56,22 @@ async function uploadLogo(file: File, organizationId: string): Promise<string> {
     headers: { "Content-Type": file.type || "application/octet-stream" },
   });
   if (!res.ok) {
-    throw new Error(`Upload failed (${res.status})`);
+    const responseText = await res.text();
+    let errorMessage: string | undefined;
+    try {
+      const body: unknown = JSON.parse(responseText);
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        errorMessage = body.error;
+      }
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    throw new Error(errorMessage ?? `Upload failed (${res.status})`);
   }
   const json = (await res.json()) as { reference?: string };
   if (!json.reference) throw new Error("Upload returned no reference");
@@ -70,6 +87,16 @@ export function BrandingEditor({
   disabled,
 }: BrandingEditorProps) {
   const t = useT();
+  const {
+    data: storageData,
+    isError: storageStatusError,
+    refetch: refreshStorageStatus,
+  } = useVideoStorageStatus();
+  const storageConfigured =
+    storageData?.configured === true && !storageStatusError;
+  const logoUploadInputRef = useRef<HTMLInputElement>(null);
+  const pendingLogoFileRef = useRef<File | null>(null);
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
   const [name, setName] = useState(initialName);
   const [brandColor, setBrandColor] = useState(initialBrandColor);
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(
@@ -81,6 +108,23 @@ export function BrandingEditor({
   const [dragging, setDragging] = useState(false);
   const [uploadPreviewUrl, setUploadPreviewUrl] = useState<string | null>(null);
 
+  const promptForStorage = useCallback(async () => {
+    if (storageData?.configured === false && !storageStatusError) {
+      setFileStoragePromptOpen(true);
+      return;
+    }
+    try {
+      const result = await refreshStorageStatus();
+      if (result.isError || typeof result.data?.configured !== "boolean") {
+        setFileStoragePromptOpen(true);
+      } else if (!result.data.configured) {
+        setFileStoragePromptOpen(true);
+      }
+    } catch {
+      setFileStoragePromptOpen(true);
+    }
+  }, [refreshStorageStatus, storageData?.configured, storageStatusError, t]);
+
   useEffect(
     () => () => {
       if (uploadPreviewUrl) URL.revokeObjectURL(uploadPreviewUrl);
@@ -88,9 +132,6 @@ export function BrandingEditor({
     [uploadPreviewUrl],
   );
 
-  // The last-saved values the Save button compares against to show the
-  // dirty state. Re-seeded after every successful save so the button
-  // returns to neutral instead of staying "dirty" against the original props.
   const [savedState, setSavedState] = useState({
     name: initialName,
     brandColor: initialBrandColor,
@@ -126,26 +167,75 @@ export function BrandingEditor({
     }
   >("set-organization-branding");
 
-  async function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("brandingEditor.uploadImageFile"));
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error(t("brandingEditor.uploadImageFile"));
+        return;
+      }
+      if (!storageConfigured) {
+        pendingLogoFileRef.current = file;
+        await promptForStorage();
+        return;
+      }
+      pendingLogoFileRef.current = null;
+      setUploadPreviewUrl(URL.createObjectURL(file));
+      try {
+        setUploading(true);
+        const reference = await uploadLogo(file, organizationId);
+        setBrandLogoUrl(reference);
+        toast.success(t("brandingEditor.logoUploaded"));
+      } catch (err) {
+        setUploadPreviewUrl(null);
+        const storageSetupRequired =
+          err instanceof Error &&
+          err.message.includes("No object storage is connected");
+        if (storageSetupRequired) {
+          const result = await refreshStorageStatus();
+          if (result.isError || typeof result.data?.configured !== "boolean") {
+            toast.error(t("recordingPage.tryAgainMoment"));
+          } else if (!result.data.configured) {
+            pendingLogoFileRef.current = file;
+            setFileStoragePromptOpen(true);
+          } else {
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("brandingEditor.uploadFailed"),
+            );
+          }
+          return;
+        }
+        toast.error(
+          err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
+        );
+      } finally {
+        setUploading(false);
+      }
+    },
+    [
+      organizationId,
+      promptForStorage,
+      refreshStorageStatus,
+      storageConfigured,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    if (!storageConfigured) {
+      if (storageData?.configured === false && pendingLogoFileRef.current) {
+        setFileStoragePromptOpen(true);
+      }
       return;
     }
-    setUploadPreviewUrl(URL.createObjectURL(file));
-    try {
-      setUploading(true);
-      const reference = await uploadLogo(file, organizationId);
-      setBrandLogoUrl(reference);
-      toast.success(t("brandingEditor.logoUploaded"));
-    } catch (err) {
-      setUploadPreviewUrl(null);
-      toast.error(
-        err instanceof Error ? err.message : t("brandingEditor.uploadFailed"),
-      );
-    } finally {
-      setUploading(false);
+    setFileStoragePromptOpen(false);
+    const pending = pendingLogoFileRef.current;
+    if (pending) {
+      pendingLogoFileRef.current = null;
+      void handleFile(pending);
     }
-  }
+  }, [handleFile, storageConfigured, storageData?.configured]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -179,6 +269,17 @@ export function BrandingEditor({
         </CardTitle>
       </CardHeader>
       <CardContent>
+        <FileStorageSetupPopover
+          open={fileStoragePromptOpen}
+          onOpenChange={setFileStoragePromptOpen}
+          onConnected={() => void refreshStorageStatus()}
+          {...(!storageData || storageStatusError
+            ? {
+                status: "unavailable" as const,
+                onRetry: () => void refreshStorageStatus(),
+              }
+            : { status: "missing" as const })}
+        />
         <form onSubmit={handleSave} className="space-y-5">
           <div className="space-y-1.5">
             <Label htmlFor="ws-name">
@@ -236,14 +337,14 @@ export function BrandingEditor({
               }`}
               onDragOver={(e) => {
                 e.preventDefault();
-                setDragging(true);
+                if (!disabled) setDragging(true);
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={(e) => {
                 e.preventDefault();
                 setDragging(false);
                 const file = e.dataTransfer.files?.[0];
-                if (file) void handleFile(file);
+                if (file && !disabled) void handleFile(file);
               }}
             >
               <div
@@ -269,20 +370,30 @@ export function BrandingEditor({
                     : t("brandingEditor.dropHere")}
                 </div>
                 <div className="flex items-center gap-2 mt-2">
-                  <Label
-                    htmlFor="logo-upload"
-                    className="inline-flex items-center rounded-md border border-input bg-background px-3 py-1.5 text-sm cursor-pointer hover:bg-accent"
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={disabled || uploading}
+                    onClick={() => {
+                      if (!storageConfigured) {
+                        void promptForStorage();
+                        return;
+                      }
+                      logoUploadInputRef.current?.click();
+                    }}
                   >
                     {uploading
                       ? t("brandingEditor.uploading")
                       : t("brandingEditor.chooseFile")}
-                  </Label>
+                  </Button>
                   <input
+                    ref={logoUploadInputRef}
                     id="logo-upload"
                     type="file"
                     accept="image/*"
                     className="sr-only"
-                    disabled={disabled || uploading}
+                    disabled={disabled || uploading || !storageConfigured}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) void handleFile(file);

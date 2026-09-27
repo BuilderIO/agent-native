@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "Configure sua caixa de entrada com IA",
       aiSetupTagLabel: "Criar uma etiqueta de IA",
       aiSetupImportanceLabel: "Emails importantes",
-      aiSetupSpamLabel: "Spam e emails indesejados",
+      aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
@@ -60,7 +60,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Mensagens que precisam de resposta ou têm prazo, incluindo comentários de pessoas no GitHub. Ignore comentários de bots.",
       aiSetupArchiveSpamPrompt:
-        "Arquivar automaticamente: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
+        "Pular caixa de entrada: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Concluir",
       aiSetupRunAgain: "Executar configuração novamente",
@@ -71,6 +71,27 @@ const messages = {
       aiSetupPromptTravel: "Confirmações e reservas de viagem de que preciso",
       aiSetupTagFinance: "Finanças",
       aiSetupPromptFinance: "Contas e extratos de que preciso",
+      aiSetupArchiveExample:
+        "Notificações de bots e CI do GitHub, Vercel e Dependabot",
+      aiSetupFilteredExample:
+        "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
+      aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupSortingProgress:
+        "Organizando e-mails recentes: {{processed}} de {{total}}",
+      aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
+      aiSetupSortingFailed:
+        "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
+      aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",
+      aiSetupRuleCount: "{{count}} correspondências",
+      aiSetupNoMatches:
+        "Nenhuma mensagem dos últimos 14 dias corresponde a estas regras.",
+      aiSetupChatTip:
+        "Você pode ajustar ou adicionar regras pelo chat quando quiser.",
+      aiSetupChatPrompt: "Priorize e-mails do meu chefe…",
+      aiSetupNoRules: "Nenhuma regra foi selecionada.",
+      aiSetupPartialFailure: "Não foi possível atualizar {{count}} mensagens.",
+      aiSetupSortInbox: "Organizar minha caixa de entrada",
+      aiSetupImportantExample: "Tudo da minha gerente, Priya…",
       priorityFeedbackLabel: "Feedback de importância",
       priorityScoreHigh: "Alta importância",
       priorityScoreMedium: "Média importância",
@@ -542,6 +563,8 @@ const messages = {
         "Adiciona a etiqueta agent-native-filtered e arquiva a conversa. Você pode desfazer a qualquer momento.",
       learningNote:
         "Mantém a mensagem na Caixa de entrada e ensina o filtro a não repetir o erro.",
+      learningProgress:
+        "{{count}} de {{required}} exemplos confirmados. Os e-mails recentes serão verificados quando todos os {{required}} forem confirmados.",
       rememberLabel: "Lembrar para emails futuros (opcional)",
       correctLabel: "O que ele deve aprender? (opcional)",
       rememberPlaceholder:
@@ -557,11 +580,41 @@ const messages = {
       actionFailed: "Não foi possível atualizar o filtro de IA.",
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
+      automationRulesLoadFailed:
+        "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
       skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "Tags de IA",
+      ruleHelpLabel: "Explicar regras de {{mode}}",
+      aiTagRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona esta tag aos e-mails correspondentes.",
+      importantRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev marca como importantes os e-mails correspondentes.",
+      skipInboxRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
+      spamRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona a etiqueta agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
+      filteredMode: "Filtrado",
+      manageSettings: "Gerenciar",
+      askJev: "Perguntar ao Jev",
+      askJevPrompt:
+        "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
+      composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
+      ruleBackfillProgress:
+        "Aplicando aos e-mails recentes: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensagens recentes correspondem",
+      ruleBackfillNoMatches:
+        "Nenhuma mensagem recente corresponde a esta regra.",
+      ruleBackfillFailed:
+        "Não foi possível aplicar esta regra aos e-mails recentes.",
+      ruleBackfillPartialFailure:
+        "Não foi possível atualizar {{count}} mensagens.",
+      ruleBackfillUndoing: "Restaurando e-mails recentes…",
+      ruleBackfillUndoComplete: "{{count}} mensagens restauradas",
+      ruleBackfillReview: "Revisar correspondências",
       importantMode: "Importante",
       notImportantMode: "Não importante",
       importantLabel: "Importante por IA",
@@ -603,7 +656,7 @@ const messages = {
       promptRulesCleared: "Regras de triagem removidas.",
       tagTabsHelp: "Cada tag se torna uma aba da caixa de entrada",
       addTag: "Adicionar tag",
-      triageTitle: "Triagem",
+      triageTitle: "Triagem com IA",
       connectJev: "Conectar Jev",
       connectJevToRunTriage: "Conecte o Jev para executar a triagem",
       freeBuilderOrApiKey:
@@ -802,7 +855,7 @@ const messages = {
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
-    aiFilter: "Triagem",
+    aiFilter: "Triagem com IA",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",

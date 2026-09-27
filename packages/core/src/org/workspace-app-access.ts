@@ -61,6 +61,54 @@ function normalizedEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function workspaceManifestDispatchState(
+  appsJson: string | undefined,
+): "missing" | "dispatch" | "no-dispatch" {
+  if (appsJson === undefined) return "missing";
+  if (!appsJson.trim()) {
+    throw new Error("AGENT_NATIVE_WORKSPACE_APPS_JSON must not be empty.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(appsJson);
+  } catch (error) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+      { cause: error },
+    );
+  }
+
+  const apps = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && "apps" in parsed
+      ? (parsed as { apps?: unknown }).apps
+      : null;
+  if (
+    !Array.isArray(apps) ||
+    apps.length === 0 ||
+    apps.some(
+      (app) =>
+        !app ||
+        typeof app !== "object" ||
+        typeof (app as { id?: unknown }).id !== "string" ||
+        !(app as { id: string }).id.trim(),
+    )
+  ) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
+    );
+  }
+
+  const hasDispatch = apps.some((app) => {
+    const entry = app as { id: string; isDispatch?: unknown };
+    return (
+      entry.id.trim().toLowerCase() === "dispatch" || entry.isDispatch === true
+    );
+  });
+  return hasDispatch ? "dispatch" : "no-dispatch";
+}
+
 export function isStandaloneDispatchRuntime(): boolean {
   const app = getAppConfig().app;
   const isDispatch = [
@@ -77,6 +125,10 @@ function configuredWorkspaceDirectory(): string | null {
   const workspace = getAppConfig().workspace;
   const orgDirectoryUrl = workspace.orgDirectoryUrl?.trim();
   if (orgDirectoryUrl) return orgDirectoryUrl;
+
+  if (workspaceManifestDispatchState(workspace.appsJson) === "no-dispatch") {
+    return null;
+  }
 
   const gatewayUrl = workspace.gatewayUrl?.trim();
   if (!gatewayUrl) return null;
@@ -146,12 +198,6 @@ function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {
   return value === false || value === 0 || value === "false" || value === "0";
 }
 
-/**
- * Hosted app databases are not the authority for workspace-app rows. Ask the
- * Dispatch registry action, which resolves the ACL against its shared store,
- * so an app-scoped database cannot accidentally turn a missing local row into
- * access. A configured registry is fail-closed on every network/auth error.
- */
 async function hostedWorkspaceAppAccess(
   appId: string,
   context: WorkspaceAppAccessContext,
@@ -523,8 +569,6 @@ async function isDispatchWorkspaceAppAccessAllowed(
 
   try {
     const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
-    // Standalone Dispatch hosts can carry an org id before enabling the org
-    // schema. Preserve their authenticated-only access until that schema exists.
     return Boolean(
       member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
     );
@@ -540,11 +584,6 @@ async function isDispatchWorkspaceAppAccessAllowed(
   }
 }
 
-/**
- * Enforce the workspace-app ACL before a hosted app's authenticated API
- * surface is reached. The app shell remains cacheable and anonymous; this
- * check protects the session-backed APIs/actions that make the app useful.
- */
 export async function isWorkspaceAppAccessAllowed(
   appId: string,
   context: WorkspaceAppAccessContext,
@@ -558,9 +597,6 @@ export async function isWorkspaceAppAccessAllowed(
     return isDispatchWorkspaceAppAccessAllowed(context, email);
   }
 
-  // A local disable is an explicit organization decision and must win over
-  // the hosted registry response. Missing local rows preserve the registry
-  // path for hosted deployments that do not mirror workspace_apps locally.
   if (configuredWorkspaceDirectory()) {
     const locallyEnabled = await localOrganizationAppEnabled(
       normalizedAppId,
@@ -579,9 +615,6 @@ export async function isWorkspaceAppAccessAllowed(
   }
   if (hostedAccess !== null) return hostedAccess;
 
-  // Standalone/local deployments have no Dispatch registry URL. Keep the
-  // direct lookup for that mode, but never let missing or malformed ACL state
-  // grant access.
   try {
     const db = getDbExec();
     const appResult = await db.execute({
@@ -624,8 +657,6 @@ export async function isWorkspaceAppAccessAllowed(
     }
     const memberRole = member.role;
     if (canClaimCallerOrg) {
-      // Fresh workspaces register apps before their first organization exists.
-      // Claim once so a missing org never becomes cross-organization access.
       if (
         !(await claimWorkspaceAppOrganization(
           db,
@@ -670,8 +701,6 @@ export async function isWorkspaceAppAccessAllowed(
       .filter(Boolean);
     return workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
   } catch (error) {
-    // Missing migrations, missing rows, and every other DB failure deny
-    // protected app access until the authoritative ACL is available.
     console.error("[workspace-app-access] access check failed", error);
     return false;
   }

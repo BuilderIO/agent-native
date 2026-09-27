@@ -16,12 +16,10 @@ export async function ensureTable(): Promise<void> {
 )`;
 
       {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_configs", createSql);
         return;
       }
     })().catch((err) => {
-      // Don't cache the rejection — let the next caller retry a fresh init.
       _initPromise = undefined;
       throw err;
     });
@@ -29,11 +27,6 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-/**
- * Bumped on every in-process config write. Pollers that back off while their
- * integration is disabled watch this so enabling one takes effect on the next
- * tick instead of at the end of their backoff window.
- */
 let _configWriteEpoch = 0;
 
 export function integrationConfigWriteEpoch(): number {
@@ -48,9 +41,6 @@ export interface IntegrationConfig {
   updatedAt: number;
 }
 
-/**
- * Get the config for a platform integration.
- */
 export async function getIntegrationConfig(
   platform: string,
   configKey = "default",
@@ -72,9 +62,6 @@ export async function getIntegrationConfig(
   };
 }
 
-/**
- * Save or update a platform integration config.
- */
 export async function saveIntegrationConfig(
   platform: string,
   configData: Record<string, unknown>,
@@ -96,7 +83,6 @@ export async function saveIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
-/** Save only when the inspected config is still the current config. */
 export async function saveIntegrationConfigIfUnchanged(
   platform: string,
   configData: Record<string, unknown>,
@@ -128,9 +114,6 @@ export async function saveIntegrationConfigIfUnchanged(
   return true;
 }
 
-/**
- * Delete a platform integration config.
- */
 export async function deleteIntegrationConfig(
   platform: string,
   configKey = "default",
@@ -144,9 +127,6 @@ export async function deleteIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
-/**
- * List all configs for a platform.
- */
 export async function listIntegrationConfigs(
   platform?: string,
 ): Promise<IntegrationConfig[]> {

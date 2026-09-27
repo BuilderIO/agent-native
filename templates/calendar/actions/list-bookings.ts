@@ -4,6 +4,7 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import type { Booking } from "../shared/api.js";
 
 function rowToBooking(
@@ -22,9 +23,13 @@ function rowToBooking(
     | "meetingLink"
     | "meetingLinkPending"
     | "googleEventId"
+    | "zoomNeedsReview"
+    | "zoomMeetingId"
+    | "zoomAccountId"
     | "status"
     | "createdAt"
   >,
+  conferencing?: string | null,
 ): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
   if (row.fieldResponses) {
@@ -50,6 +55,11 @@ function rowToBooking(
     meetingLinkPending:
       row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
+    zoomNeedsReview: row.zoomNeedsReview,
+    zoomCancellationNeedsReview: needsZoomCancellationReview({
+      ...row,
+      conferencing,
+    }),
     status: row.status,
     createdAt: row.createdAt,
   };
@@ -61,11 +71,17 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     const accessibleLinks = await getDb()
-      .select({ slug: schema.bookingLinks.slug })
+      .select({
+        slug: schema.bookingLinks.slug,
+        conferencing: schema.bookingLinks.conferencing,
+      })
       .from(schema.bookingLinks)
       .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
     const slugs = accessibleLinks.map((link) => link.slug);
     if (slugs.length === 0) return [];
+    const conferencingBySlug = new Map(
+      accessibleLinks.map((link) => [link.slug, link.conferencing]),
+    );
 
     const rows = await getDb()
       .select({
@@ -82,13 +98,18 @@ export default defineAction({
         meetingLink: schema.bookings.meetingLink,
         meetingLinkPending: schema.bookings.meetingLinkPending,
         googleEventId: schema.bookings.googleEventId,
+        zoomNeedsReview: schema.bookings.zoomNeedsReview,
+        zoomMeetingId: schema.bookings.zoomMeetingId,
+        zoomAccountId: schema.bookings.zoomAccountId,
         status: schema.bookings.status,
         createdAt: schema.bookings.createdAt,
       })
       .from(schema.bookings)
       .where(inArray(schema.bookings.slug, slugs))
       .orderBy(schema.bookings.start);
-    return rows.map(rowToBooking);
+    return rows.map((row) =>
+      rowToBooking(row, conferencingBySlug.get(row.slug)),
+    );
   },
 });
 

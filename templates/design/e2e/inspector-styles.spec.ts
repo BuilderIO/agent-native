@@ -31,12 +31,6 @@ function inspectorSection(page: Page, title: RegExp | string): Locator {
   return page.locator("section").filter({ has: heading }).first();
 }
 
-/**
- * The page/body background lives in the "Screen" section. "Canvas" is the
- * editor board behind the screens and is solid-only by design — ColorInput
- * there rejects any value that is not a plain color, so a gradient or image
- * committed against it is dropped on purpose, not lost.
- */
 function pagePropertiesSection(page: Page): Locator {
   return inspectorSection(page, /^Screen$/);
 }
@@ -143,9 +137,6 @@ async function selectedElementStyle(
     .getByText(text, { exact: false })
     .first()
     .evaluate((el, name) => {
-      // `getByText` returns the SMALLEST element holding the text, which for
-      // a painted leaf is the editor's own `data-an-text` wrapper. The
-      // inspector writes to the element that wrapper sits inside.
       const node = el as HTMLElement;
       const styled = node.hasAttribute("data-an-text")
         ? (node.parentElement ?? node)
@@ -371,8 +362,6 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
     appearanceSection.getByRole("button", { name: "Hide", exact: true }),
   ).toBeVisible();
 
-  // This spec shares the seeded document with later cases. Restore its paint
-  // state so a transparent heading does not disappear from later hit testing.
   await setScrubInput(
     appearanceSection,
     "Opacity",
@@ -381,8 +370,6 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   await expect
     .poll(() => selectedElementStyle(page, "E2E Hero Heading", "opacity"))
     .toBe(initialOpacity);
-  // Later cases select the heading on the shared seed; wait for the final
-  // show to be saved so a late save cannot leave it hidden for them.
   await expect
     .poll(async () =>
       /<h1[^>]*data-agent-native-hidden="true"[^>]*>\s*E2E Hero Heading/.test(
@@ -504,16 +491,12 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   ).toBeVisible();
 });
 
-// Stroke is solid-only and grows no layer rows, so Effects is the only
-// section that owns this UI.
 test("style layer row actions stay visible and toggle visibility state", async ({
   page,
 }) => {
   await selectByText(page, "Alpha Button");
 
   const effectsSection = inspectorSection(page, /^Effects$/i);
-  // Each section names its own add control; "Add layer" is an i18n key no
-  // component renders.
   await effectsSection.getByRole("button", { name: "Add effect" }).click();
   await page.getByRole("menuitem", { name: "Drop shadow" }).click();
   const hideEffectButton = effectsSection
@@ -548,8 +531,6 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
   await typographySection
     .getByRole("button", { name: "Typography details" })
     .click();
-  // Scoped to the popover: the canvas chrome also renders a "Preview" label,
-  // so a page-wide exact-text lookup is a strict-mode violation, not a miss.
   const typographyDetails = page
     .getByRole("dialog")
     .filter({ has: page.getByRole("tablist") })
@@ -578,16 +559,12 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
     )
     .toBe("2px");
 
-  // Figma's tracking field takes a percentage of the font size, so "2%" is
-  // authored as 0.02em (1.04px at this 52px size).
   await setScrubInput(typographySection, "Letter spacing", "2%");
   await expect
     .poll(() =>
       selectedElementStyle(page, "E2E Hero Heading", "letter-spacing"),
     )
     .toBe("0.02em");
-  // The field now reads back in percent, so a bare number would be a
-  // percentage; an explicit px keeps absolute tracking.
   await expect(
     typographySection.locator('input[aria-label="Letter spacing" i]'),
   ).toHaveValue("2%");
@@ -598,8 +575,6 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
     )
     .toBe("0.64px");
 
-  // A percent this small must round to 4 em decimals to round-trip instead
-  // of collapsing to "0em" (LETTER_SPACING_EM_PRECISION).
   await setScrubInput(typographySection, "Letter spacing", "0.01%");
   await expect
     .poll(() =>
@@ -610,8 +585,6 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
     typographySection.locator('input[aria-label="Letter spacing" i]'),
   ).toHaveValue("0.01%");
 
-  // An explicit "em" input is authored verbatim and read back in the
-  // field's percent unit (0.005em == 0.5% of the 52px font-size).
   await setScrubInput(typographySection, "Letter spacing", "0.005em");
   await expect
     .poll(() =>
@@ -622,10 +595,6 @@ test("typography edits update size and spacing inputs", async ({ page }) => {
     typographySection.locator('input[aria-label="Letter spacing" i]'),
   ).toHaveValue("0.5%");
 
-  // "2pxpx" is a doubled unit suffix - singleUnitToken sees two "px"
-  // matches and parseLetterSpacingInput returns null, so ScrubInput's
-  // onTextCommit reports { accepted: false } and reverts the field instead
-  // of committing. Nothing is persisted.
   await setScrubInput(typographySection, "Letter spacing", "2pxpx");
   await expect
     .poll(() =>
@@ -953,8 +922,6 @@ test("pointercancel restores a scrubbed value without adding a history step", as
     const inputId = await input.getAttribute("id");
     if (!inputId) throw new Error("X-position input has no id");
     const label = page.locator(`label[for="${cssAttrValue(inputId)}"]`);
-    // The shared fixture button is static. Move it from its displayed canvas
-    // coordinate so this regression starts from an authored numeric position.
     const initialXText =
       (await input.inputValue()) ||
       (await input.getAttribute("placeholder")) ||
@@ -1040,8 +1007,6 @@ test("pointercancel restores a scrubbed value without adding a history step", as
       .toBe(committedLeft);
     await page.mouse.up();
 
-    // The next Undo must consume the earlier typed commit. A scrub-cancel
-    // history entry would instead restore the discarded preview value.
     await page.keyboard.press("ControlOrMeta+z");
     await expect(input).toHaveValue(originalLeft);
     await expect

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  canUploadResourceFile,
   filterResourceTree,
   hasAvailableMcpIntegrations,
+  mergePendingResourceUploads,
   normalizeResourceFileName,
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
@@ -122,6 +124,37 @@ describe("normalizeResourceFileName", () => {
     expect(normalizeResourceFileName("  notes.txt  ")).toBe("notes.txt");
     expect(normalizeResourceFileName("   ")).toBe("");
     expect(normalizeResourceFileName("notes/")).toBe("");
+  });
+});
+
+describe("canUploadResourceFile", () => {
+  it("keeps text and JSON resource uploads available without object storage", () => {
+    expect(canUploadResourceFile("text/markdown", false)).toBe(true);
+    expect(canUploadResourceFile("application/json", false)).toBe(true);
+  });
+
+  it("requires configured storage for binary files and unknown MIME types", () => {
+    expect(canUploadResourceFile("image/png", false)).toBe(false);
+    expect(canUploadResourceFile("", false)).toBe(false);
+    expect(canUploadResourceFile("image/png", true)).toBe(true);
+  });
+});
+
+describe("mergePendingResourceUploads", () => {
+  it("replaces a queued file for the same resource path and keeps other scopes", () => {
+    const first = new File(["first"], "notes.bin", { lastModified: 1 });
+    const latest = new File(["latest"], "notes.bin", { lastModified: 2 });
+    const pending = [{ file: first, targetScope: "personal" as const }];
+
+    expect(
+      mergePendingResourceUploads(pending, [
+        { file: latest, targetScope: "personal" },
+        { file: first, targetScope: "shared" },
+      ]),
+    ).toEqual([
+      { file: latest, targetScope: "personal" },
+      { file: first, targetScope: "shared" },
+    ]);
   });
 });
 

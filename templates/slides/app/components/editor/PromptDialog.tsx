@@ -23,10 +23,18 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
   deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -37,11 +45,14 @@ import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 import type { useSlidesComposerContext } from "./SlidesComposerContext";
+import { UploadStorageGate } from "./UploadStorageGate";
 import {
   usePromptImport,
   type PromptImportSelection,
   type PromptImportSource,
 } from "./use-prompt-import";
+
+const slidesPromptAttachmentAdapter = createSlidesPromptAttachmentAdapter();
 
 export type {
   PromptImportSelection,
@@ -142,6 +153,7 @@ export interface PromptPopoverHandle {
 
 interface PromptPopoverProps {
   open: boolean;
+  active?: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
@@ -163,11 +175,9 @@ interface PromptPopoverProps {
   presentation?: "popover" | "inline";
   context?: ReturnType<typeof useSlidesComposerContext>;
   controllerRef?: React.Ref<PromptPopoverHandle>;
-  /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
-  /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
   initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
     prompt: string,
@@ -187,6 +197,7 @@ interface PromptPopoverProps {
 
 export default function PromptPopover({
   open,
+  active = true,
   onOpenChange,
   title,
   placeholder = "Describe what you want...",
@@ -213,6 +224,9 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open && active);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -222,6 +236,7 @@ export default function PromptPopover({
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
   const [importMode, setImportMode] = useState<PromptImportSource | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
     null,
   );
@@ -257,7 +272,6 @@ export default function PromptPopover({
     [],
   );
 
-  // Position the popover after render so we can measure its actual size
   useEffect(() => {
     if (inline || !open || !panelRef.current) return;
     const panel = panelRef.current;
@@ -293,7 +307,6 @@ export default function PromptPopover({
     panel.style.transform = "none";
   });
 
-  // Close on outside click / escape
   useEffect(() => {
     if (inline || !open) return;
     const handleClick = (e: MouseEvent) => {
@@ -318,6 +331,11 @@ export default function PromptPopover({
   }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
 
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
@@ -342,13 +360,17 @@ export default function PromptPopover({
     uploading,
     reset: resetEagerUploads,
     syncFiles,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      if (!fileStorageConfigured) {
+        if (files.length > 0) setStoragePromptOpen(true);
+        return;
+      }
       if (files.length === 0 && retainingAttachmentsRef.current) return;
       activeAttachmentFilesRef.current = files;
       syncFiles(files);
@@ -371,11 +393,25 @@ export default function PromptPopover({
           )
         )
           return;
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("raw.uploadAttachedFailed"),
+          ),
         });
       });
     },
@@ -387,6 +423,8 @@ export default function PromptPopover({
       syncFiles,
       t,
       uploadFiles,
+      fileStorageConfigured,
+      storageQuery.refetch,
     ],
   );
 
@@ -398,6 +436,10 @@ export default function PromptPopover({
       options?: SlidesPromptSubmitOptions,
     ) => {
       files = [...new Set([...files, ...sourceFilesRef.current])];
+      if (files.length > 0 && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
       if (sourceFilesRef.current.length) {
         options = {
           ...options,
@@ -482,11 +524,25 @@ export default function PromptPopover({
         discardFiles(files);
         setSubmitting(false);
         submittingRef.current = false;
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("raw.uploadAttachedFailed"),
+          ),
         });
         throw error;
       }
@@ -501,6 +557,8 @@ export default function PromptPopover({
       retainFiles,
       uploadFiles,
       t,
+      fileStorageConfigured,
+      storageQuery.refetch,
     ],
   );
 
@@ -533,27 +591,55 @@ export default function PromptPopover({
     [open, disabled, submissionDisabled, loading, uploading, promptText],
   );
 
-  const { importingSource, runImport } = usePromptImport({
+  const { importingSource, runImport: runPromptImport } = usePromptImport({
     onImport,
     onSuccess: () => onOpenChange(false),
-    onError: (description) =>
-      toast.error(t("raw.uploadFailed"), { description }),
+    onError: (description, cause) => {
+      const storageSetupRequired = isStorageSetupRequiredError(cause);
+      if (storageSetupRequired) void storageQuery.refetch();
+      toast.error(t("raw.uploadFailed"), {
+        description: storageSetupRequired
+          ? t("home.fileStorageSetupRequired")
+          : description,
+      });
+    },
   });
+  const runImport = useCallback(
+    (selection: PromptImportSelection) => {
+      if (selection.kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return Promise.resolve(false);
+      }
+      return runPromptImport(selection);
+    },
+    [fileStorageConfigured, runPromptImport],
+  );
 
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
       if (!file) return;
+      if (!fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
       setSelectedImportFile(file);
       void runImport({ kind, files: [file] });
     },
     [runImport],
   );
 
-  const chooseImportMode = useCallback((kind: PromptImportSource) => {
-    setImportMode(kind);
-    setSelectedImportFile(null);
-    setGoogleSlidesUrl("");
-  }, []);
+  const chooseImportMode = useCallback(
+    (kind: PromptImportSource) => {
+      if (kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
+      setImportMode(kind);
+      setSelectedImportFile(null);
+      setGoogleSlidesUrl("");
+    },
+    [fileStorageConfigured],
+  );
 
   const returnToPrompt = useCallback(() => {
     if (importingSource) return;
@@ -634,6 +720,7 @@ export default function PromptPopover({
             accept=".pdf,application/pdf"
             className="sr-only"
             aria-label={t("editorToolbar.importFile")}
+            disabled={!fileStorageConfigured}
             onChange={(event) => {
               handleFileImport("pdf", event.target.files?.[0]);
               event.target.value = "";
@@ -647,6 +734,7 @@ export default function PromptPopover({
             accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             className="sr-only"
             aria-label={t("editorToolbar.importFile")}
+            disabled={!fileStorageConfigured}
             onChange={(event) => {
               handleFileImport("pptx", event.target.files?.[0]);
               event.target.value = "";
@@ -674,7 +762,8 @@ export default function PromptPopover({
                 className={
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
-                attachmentsEnabled
+                attachmentsEnabled={active && fileStorageConfigured}
+                attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 submissionDisabled={submissionDisabled}
@@ -710,8 +799,22 @@ export default function PromptPopover({
                   initialModelSelection ? handleEffortChange : undefined
                 }
                 onModelSelectionChange={setModelSelection}
+                onAttachmentRequest={
+                  fileStorageConfigured
+                    ? undefined
+                    : () => setStoragePromptOpen(true)
+                }
               />
             </div>
+
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={!storageQuery.isSuccess}
+              open={storagePromptOpen}
+              onOpenChange={setStoragePromptOpen}
+              onRetry={() => void storageQuery.refetch()}
+              anchorRef={panelRef}
+            />
 
             {uploading && (
               <div
@@ -858,7 +961,11 @@ export default function PromptPopover({
                       variant="outline"
                       className="w-full justify-center gap-2"
                       disabled={importingSource !== null || loading}
-                      onClick={() => importInputRef.current?.click()}
+                      onClick={() => {
+                        if (fileStorageConfigured)
+                          importInputRef.current?.click();
+                        else setStoragePromptOpen(true);
+                      }}
                     >
                       <IconUpload className="size-4" />
                       Upload {importModeLabel}

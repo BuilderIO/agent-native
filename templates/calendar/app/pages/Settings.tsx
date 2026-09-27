@@ -7,12 +7,15 @@ import {
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  BuilderConnectPopover,
   SettingsGroup,
   SettingsRow,
   SettingsTabsPage,
+  useBuilderConnectFlow,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
@@ -29,6 +32,7 @@ import {
   IconUnlink,
   IconCircleCheck,
   IconCircleX,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router";
@@ -54,7 +58,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useGoogleAuthStatus,
   useGoogleDesktopAuth,
@@ -82,6 +94,7 @@ export default function Settings() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const eventRulesStatus = useActionQuery<{
+    jevConfigured: boolean;
     enabled: boolean;
     intervalMinutes: number | null;
     message: string | null;
@@ -90,7 +103,20 @@ export default function Settings() {
     conflictsSkipped: boolean;
     reason: string | null;
     registered: boolean;
-  }>("get-event-rules-status");
+  }>(
+    "get-event-rules-status",
+    {},
+    {
+      staleTime: 0,
+      // request-storm-allow: refresh this one capability query when API-key settings return from another tab.
+      refetchOnWindowFocus: true,
+    },
+  );
+  const jevConnectFlow = useBuilderConnectFlow({
+    trackingSource: "calendar_jev_invitation_rules",
+    trackingFlow: "connect_jev",
+    onConnected: () => void eventRulesStatus.refetch(),
+  });
   const undoEventRuleActivity = useActionMutation<
     { success: boolean; activityId: string },
     { activityId: string }
@@ -201,6 +227,20 @@ export default function Settings() {
     );
   }
 
+  function handleClearSavedRules() {
+    const emptyRules = { accept: "", decline: "", hide: "" };
+    updateSettings.mutate(
+      { eventRules: emptyRules },
+      {
+        onSuccess: () => {
+          setEventRules(emptyRules);
+          toast.success(t("settings.saved"));
+        },
+        onError: () => toast.error(t("settings.saveFailed")),
+      },
+    );
+  }
+
   function handleConnect() {
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({
@@ -293,12 +333,6 @@ export default function Settings() {
         hash: "general-settings",
       },
       {
-        id: "calendar-event-rules",
-        label: t("settings.eventRules"),
-        keywords: "jev invitation rules accept decline hide",
-        hash: "event-rules",
-      },
-      {
         id: "calendar-availability",
         label: t("bookingLinks.availability"),
         keywords: "availability available hours booking schedule working hours",
@@ -320,7 +354,13 @@ export default function Settings() {
     [t],
   );
   const hasEventRules = Object.values(eventRules).some((rule) => rule.trim());
+  const hasSavedEventRules = Object.values(settings?.eventRules ?? {}).some(
+    (rule) => rule?.trim(),
+  );
   const statusData = eventRulesStatus.data;
+  const jevConfigured = statusData?.jevConfigured === true;
+  const canEditEventRules =
+    !eventRulesStatus.isLoading && !eventRulesStatus.isError && jevConfigured;
   const unavailableRulesMessage =
     statusData?.enabled === false && hasEventRules
       ? t(
@@ -337,138 +377,167 @@ export default function Settings() {
       (statusData?.conflictsSkipped
         ? t("settings.eventRulesConflict")
         : unavailableRulesMessage));
-
-  return (
-    <SettingsTabsPage
-      account={<AccountSettingsCard />}
-      generalLabel={t("settings.general")}
-      teamLabel={t("navigation.team")}
-      extraTabs={agentSettingsTabs}
-      generalSearchEntries={generalSearchEntries}
-      general={
-        <div className="mx-auto max-w-2xl space-y-6 pb-12">
-          <p className="text-sm text-muted-foreground">
-            {t("settings.description")}
-          </p>
-
-          <SettingsGroup>
-            <SettingsRow
-              id="language"
-              label={t("settings.languageTitle")}
-              description={t("settings.languageDescription")}
-              control={
-                <div className="w-56">
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </div>
-              }
-            />
-            <SettingsRow
-              id="appearance"
-              label={t("settings.appearance")}
-              description={t("settings.appearanceDescription")}
-            >
-              <AppearancePicker
-                onChange={(preset: AppearancePresetId) => {
-                  // Persist server-side so the choice survives reload and syncs
-                  // across devices; the local UI has already updated optimistically.
-                  callAction(
-                    "change-appearance" as any,
-                    { preset } as any,
-                  ).catch(() => {
-                    // Server write failed; the local DOM change still stands.
-                  });
-                }}
-              />
-            </SettingsRow>
-            {notificationPermission !== null ? (
-              <SettingsRow
-                id="notifications"
-                label={t("settings.desktopNotifications")}
-                description={t("settings.desktopNotificationsDescription")}
-                control={
-                  notificationPermission === "granted" ? (
-                    <span className="text-sm text-muted-foreground">
-                      {t("settings.desktopNotificationsEnabled")}
-                    </span>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleEnableDesktopNotifications()}
-                      disabled={notificationPermissionPending}
-                    >
-                      {t("settings.enableDesktopNotifications")}
-                    </Button>
-                  )
-                }
-              />
-            ) : null}
-            <SettingsRow
-              id="availability"
-              label={t("bookingLinks.availability")}
-              description={t("bookingLinks.availabilityDescription")}
-              control={
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={AVAILABILITY_SETTINGS_PATH}>
-                    {t("bookingLinks.availability")}
-                  </Link>
-                </Button>
-              }
-            />
-          </SettingsGroup>
-
-          <Card id="event-rules" className="scroll-mt-16">
-            <CardHeader>
+  const settingsTabs = [
+    ...agentSettingsTabs,
+    {
+      id: "event-rules",
+      label: t("settings.eventRules"),
+      keywords: "jev invitation rules accept decline hide",
+      content: (
+        <Card
+          id="event-rules"
+          className="mx-auto w-full max-w-2xl scroll-mt-16"
+        >
+          <CardHeader>
+            <div className="flex items-center gap-2">
               <CardTitle className="text-lg">
                 {t("settings.eventRules")}
               </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {eventRulesStatusError ? (
-                <p className="text-sm text-destructive" role="status">
-                  {eventRulesStatusError}
-                </p>
-              ) : null}
-              {statusData?.accountRefreshErrors.map(({ email, error }) => (
-                <p
-                  key={email}
-                  className="text-sm text-destructive"
-                  role="status"
-                >
-                  {email}: {error}
-                </p>
-              ))}
-              {(["accept", "decline", "hide"] as const).map((rule) => (
-                <div key={rule} className="space-y-2">
-                  <Label htmlFor={`event-rule-${rule}`}>
-                    {eventRuleLabels[rule]}
-                  </Label>
-                  <Textarea
-                    id={`event-rule-${rule}`}
-                    value={eventRules[rule]}
-                    onChange={(event) =>
-                      setEventRules((current) => ({
-                        ...current,
-                        [rule]: event.target.value,
-                      }))
-                    }
-                    placeholder={eventRulePlaceholders[rule]}
-                    maxLength={2000}
-                    rows={2}
-                  />
-                </div>
-              ))}
-              <Button
-                size="sm"
-                onClick={handleSaveRules}
-                disabled={updateSettings.isPending}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                      aria-label={t("settings.eventRulesHelpLabel")}
+                    >
+                      <IconInfoCircle className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-64">
+                    {t("settings.eventRulesHelp")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="rules">
+              <TabsList
+                aria-label={t("settings.eventRules")}
+                className="grid w-full grid-cols-2"
               >
-                {t("settings.eventRulesSave")}
-              </Button>
-              <details className="border-t pt-3">
-                <summary className="cursor-pointer text-sm font-medium">
+                <TabsTrigger value="rules">
+                  {t("settings.eventRulesTabRules")}
+                </TabsTrigger>
+                <TabsTrigger value="activity">
                   {t("settings.eventRulesRecentActivity")}
-                </summary>
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="rules" className="space-y-4 pt-4">
+                {eventRulesStatus.isError ? (
+                  <div
+                    className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-3 py-2"
+                    role="alert"
+                  >
+                    <span className="text-sm text-muted-foreground">
+                      {t("common.loadFailed")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={eventRulesStatus.isFetching}
+                      onClick={() => void eventRulesStatus.refetch()}
+                    >
+                      {t("common.retry")}
+                    </Button>
+                  </div>
+                ) : eventRulesStatusError ? (
+                  <p className="text-sm text-destructive" role="status">
+                    {eventRulesStatusError}
+                  </p>
+                ) : null}
+                {!eventRulesStatus.isError &&
+                !eventRulesStatus.isLoading &&
+                !jevConfigured ? (
+                  <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {t("settings.eventRulesConnectJev")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("settings.eventRulesFreeBuilderOrApiKey")}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <BuilderConnectPopover flow={jevConnectFlow}>
+                        <Button
+                          type="button"
+                          disabled={jevConnectFlow.connecting}
+                          aria-busy={jevConnectFlow.connecting}
+                          className="h-8 px-3 text-xs"
+                        >
+                          {jevConnectFlow.connecting
+                            ? t("common.connecting")
+                            : t("settings.eventRulesConnectBuilder")}
+                        </Button>
+                      </BuilderConnectPopover>
+                      <Link
+                        to={buildSettingsRoute("keys:secrets:JEV_API_KEY")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                      >
+                        {t("settings.eventRulesAddJevApiKey")}
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+                {eventRulesStatus.isLoading ? (
+                  <Skeleton className="h-52 w-full" />
+                ) : null}
+                {statusData?.accountRefreshErrors.map(({ email, error }) => (
+                  <p
+                    key={email}
+                    className="text-sm text-destructive"
+                    role="status"
+                  >
+                    {email}: {error}
+                  </p>
+                ))}
+                {(["accept", "decline", "hide"] as const).map((rule) => (
+                  <div key={rule} className="space-y-2">
+                    <Label htmlFor={`event-rule-${rule}`}>
+                      {eventRuleLabels[rule]}
+                    </Label>
+                    <Textarea
+                      id={`event-rule-${rule}`}
+                      value={eventRules[rule]}
+                      onChange={(event) =>
+                        setEventRules((current) => ({
+                          ...current,
+                          [rule]: event.target.value,
+                        }))
+                      }
+                      placeholder={eventRulePlaceholders[rule]}
+                      maxLength={2000}
+                      rows={2}
+                      disabled={!canEditEventRules}
+                    />
+                  </div>
+                ))}
+                <Button
+                  size="sm"
+                  onClick={handleSaveRules}
+                  disabled={updateSettings.isPending || !canEditEventRules}
+                >
+                  {t("settings.eventRulesSave")}
+                </Button>
+                {!eventRulesStatus.isLoading &&
+                !eventRulesStatus.isError &&
+                !jevConfigured &&
+                hasSavedEventRules ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearSavedRules}
+                    disabled={updateSettings.isPending}
+                  >
+                    {t("settings.eventRulesClearSaved")}
+                  </Button>
+                ) : null}
+              </TabsContent>
+              <TabsContent value="activity">
                 {settings?.eventRuleActivity?.length ? (
                   <ul className="mt-2 divide-y">
                     {[...settings.eventRuleActivity].reverse().map((entry) => (
@@ -515,9 +584,90 @@ export default function Settings() {
                     {t("settings.eventRulesNoActivity")}
                   </p>
                 )}
-              </details>
-            </CardContent>
-          </Card>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      ),
+    },
+  ];
+
+  return (
+    <SettingsTabsPage
+      account={<AccountSettingsCard />}
+      generalLabel={t("settings.general")}
+      teamLabel={t("navigation.team")}
+      extraTabs={settingsTabs}
+      generalSearchEntries={generalSearchEntries}
+      general={
+        <div className="mx-auto max-w-2xl space-y-6 pb-12">
+          <p className="text-sm text-muted-foreground">
+            {t("settings.description")}
+          </p>
+
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="appearance"
+              label={t("settings.appearance")}
+              description={t("settings.appearanceDescription")}
+            >
+              <AppearancePicker
+                onChange={(preset: AppearancePresetId) => {
+                  callAction(
+                    "change-appearance" as any,
+                    { preset } as any,
+                  ).catch(() => {
+                    // Server write failed; the local DOM change still stands.
+                  });
+                }}
+              />
+            </SettingsRow>
+            {notificationPermission !== null ? (
+              <SettingsRow
+                id="notifications"
+                label={t("settings.desktopNotifications")}
+                description={t("settings.desktopNotificationsDescription")}
+                control={
+                  notificationPermission === "granted" ? (
+                    <span className="text-sm text-muted-foreground">
+                      {t("settings.desktopNotificationsEnabled")}
+                    </span>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleEnableDesktopNotifications()}
+                      disabled={notificationPermissionPending}
+                    >
+                      {t("settings.enableDesktopNotifications")}
+                    </Button>
+                  )
+                }
+              />
+            ) : null}
+            <SettingsRow
+              id="availability"
+              label={t("bookingLinks.availability")}
+              description={t("bookingLinks.availabilityDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={AVAILABILITY_SETTINGS_PATH}>
+                    {t("bookingLinks.availability")}
+                  </Link>
+                </Button>
+              }
+            />
+          </SettingsGroup>
 
           {/* Google Calendar Connection */}
           {(googleStatus.isError ||

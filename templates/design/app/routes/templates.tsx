@@ -5,10 +5,8 @@ import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import enUSMessages from "@/i18n/en-US";
 
 import { getDb, schema } from "../../server/db";
-import {
-  designResourceMeta,
-  publicDesignMetaLoaderData,
-} from "./public-design-meta";
+import { publicDesignMetaLoaderData } from "../../server/lib/public-design-meta.server";
+import { designResourceMeta } from "./public-design-meta";
 
 export { default } from "../pages/Templates";
 

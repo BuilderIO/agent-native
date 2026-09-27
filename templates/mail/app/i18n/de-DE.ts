@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "KI-Posteingang einrichten",
       aiSetupTagLabel: "KI-Tag erstellen",
       aiSetupImportanceLabel: "Wichtige E-Mails",
-      aiSetupSpamLabel: "Spam und unerwünschte E-Mails",
+      aiSetupSpamLabel: "Unerwünscht",
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
@@ -59,7 +59,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
       aiSetupArchiveSpamPrompt:
-        "Automatisch archivieren: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+        "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
       aiSetupCustomTag: "Benutzerdefiniert",
       aiSetupDone: "Fertig",
       aiSetupRunAgain: "Einrichtung erneut starten",
@@ -71,6 +71,29 @@ const messages = {
         "Reisebestätigungen und Reservierungen, die ich brauche",
       aiSetupTagFinance: "Finanzen",
       aiSetupPromptFinance: "Rechnungen und Kontoauszüge, die ich brauche",
+      aiSetupArchiveExample:
+        "Bot- und CI-Benachrichtigungen von GitHub, Vercel und Dependabot",
+      aiSetupFilteredExample:
+        "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
+      aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupSortingProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
+      aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupSortingFailed:
+        "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
+      aiSetupUndoComplete:
+        "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupRuleCount: "{{count}} Treffer",
+      aiSetupNoMatches:
+        "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
+      aiSetupChatTip:
+        "Du kannst Regeln jederzeit im Chat verfeinern oder ergänzen.",
+      aiSetupChatPrompt: "E-Mails von meiner Führungskraft priorisieren…",
+      aiSetupNoRules: "Es wurden keine Regeln ausgewählt.",
+      aiSetupPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      aiSetupSortInbox: "Posteingang sortieren",
+      aiSetupImportantExample: "Alles von meiner Führungskraft Priya…",
       priorityFeedbackLabel: "Feedback zur Wichtigkeit",
       priorityScoreHigh: "Hohe Wichtigkeit",
       priorityScoreMedium: "Mittlere Wichtigkeit",
@@ -547,6 +570,8 @@ const messages = {
         "Fügt das Label agent-native-filtered hinzu und archiviert die Unterhaltung. Du kannst dies jederzeit rückgängig machen.",
       learningNote:
         "Behält die Nachricht im Posteingang und bringt dem Filter bei, den Fehler nicht zu wiederholen.",
+      learningProgress:
+        "{{count}} von {{required}} Beispielen bestätigt. Aktuelle E-Mails werden geprüft, sobald alle {{required}} bestätigt sind.",
       rememberLabel: "Für zukünftige Nachrichten merken (optional)",
       correctLabel: "Was soll der Filter lernen? (optional)",
       rememberPlaceholder:
@@ -562,12 +587,41 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
       skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
       tagMode: "Tag",
       aiTagsTitle: "KI-Tags",
+      ruleHelpLabel: "{{mode}}-Regeln erklären",
+      aiTagRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+      importantRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+      skipInboxRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+      spamRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
+      filteredMode: "Gefiltert",
+      manageSettings: "Verwalten",
+      askJev: "Jev fragen",
+      askJevPrompt:
+        "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
+      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
+      ruleBackfillProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
+      ruleBackfillMatches: "{{count}} aktuelle Nachrichten passen",
+      ruleBackfillNoMatches:
+        "Keine aktuellen Nachrichten passen zu dieser Regel.",
+      ruleBackfillFailed:
+        "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      ruleBackfillUndoing: "Aktuelle E-Mails werden wiederhergestellt…",
+      ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
+      ruleBackfillReview: "Treffer prüfen",
       importantMode: "Wichtig",
       notImportantMode: "Nicht wichtig",
       importantLabel: "KI-Wichtig",
@@ -610,7 +664,7 @@ const messages = {
       promptRulesCleared: "Triage-Regeln entfernt.",
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
-      triageTitle: "Triage",
+      triageTitle: "KI-Triage",
       connectJev: "Jev verbinden",
       connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
       freeBuilderOrApiKey:
@@ -809,7 +863,7 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
-    aiFilter: "Triage",
+    aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",

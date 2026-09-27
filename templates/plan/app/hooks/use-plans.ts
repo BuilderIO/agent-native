@@ -347,10 +347,6 @@ export function usePlan(id?: string) {
     planBundleQueryParams(id ?? ""),
     {
       enabled: !!id,
-      // Mutating actions and collaboration writes already arrive through the
-      // shared useDbSync SSE/poll transport, which invalidates active action
-      // reads. Keep the last bundle visible during that targeted refresh and
-      // avoid repeatedly downloading the full plan while nothing changed.
       placeholderData: (previous) => previous,
     },
   );
@@ -502,8 +498,6 @@ export function useUpdateLocalPlan() {
   });
 }
 
-// Like useUpdatePlanComments, but persists to the local folder's comments.json
-// (DB-free) so comments survive a refresh in /local-plans/:slug.
 export function useUpdateLocalPlanComments() {
   const qc = useQueryClient();
   const invalidate = usePlanInvalidation();
@@ -569,12 +563,6 @@ export function usePromoteLocalPlan() {
   });
 }
 
-/**
- * A separate mutation instance used exclusively for status changes
- * (draft / review / approved / in_progress / complete). Keeping it separate
- * from the prose-autosave `useUpdatePlan` instance avoids any bleed between
- * save-pending and status-pending states.
- */
 export function useUpdatePlanStatus() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
@@ -586,12 +574,6 @@ export function useUpdatePlanStatus() {
   );
 }
 
-/**
- * A separate mutation instance used exclusively for comment writes
- * (reply, resolve, reopen). Keeping it separate from the prose-autosave
- * `useUpdatePlan` instance means the autosave `isPending` state cannot
- * bleed into comment button disabled states (Issue 3).
- */
 export function useUpdatePlanComments() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
@@ -672,11 +654,6 @@ export function useConvertVisualPlanToPrototype() {
   });
 }
 
-/**
- * Result of the `publish-visual-plan` action (owned by the plan server stream).
- * Either the plan is hosted and we get a shareable URL, or the user is in
- * local/no-account mode and must create an account / sign in first.
- */
 export type PublishVisualPlanResult =
   | {
       needsAuth?: false | undefined;
@@ -691,9 +668,7 @@ export type PublishVisualPlanResult =
       hostedPlanId?: undefined;
       hostedPlanUrl?: undefined;
       hostedUrl?: undefined;
-      /** CLI command that connects an account (shown for terminal users). */
       connectCommand?: string;
-      /** Browser sign-in / account-creation URL to open and then retry. */
       authUrl?: string;
     };
 

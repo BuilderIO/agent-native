@@ -40,7 +40,7 @@ const messages = {
       aiSetupTitle: "إعداد بريدك الوارد بالذكاء الاصطناعي",
       aiSetupTagLabel: "إنشاء وسم ذكاء اصطناعي",
       aiSetupImportanceLabel: "رسائل مهمة",
-      aiSetupSpamLabel: "رسائل مزعجة وغير مرغوب فيها",
+      aiSetupSpamLabel: "مزعج",
       aiSetupArchiveLabel: "تجاوز البريد الوارد",
       aiSetupSave: "حفظ الإعداد",
       aiSetupSkip: "تخط الآن",
@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "الرسائل التي تحتاج إلى رد أو لها موعد نهائي، بما فيها تعليقات الأشخاص على GitHub. تخطَّ تعليقات الروبوتات.",
       aiSetupArchiveSpamPrompt:
-        "أرشفة تلقائية: إشعارات GitHub التي نشر فيها روبوت تعليقًا أو تحديثًا آليًا.\nالرسائل المزعجة: الرسائل الترويجية بوضوح أو غير المرغوب فيها التي لم أطلبها.",
+        "تجاوز صندوق الوارد: إشعارات GitHub التي نشر فيها روبوت تعليقًا أو تحديثًا آليًا.\nالرسائل المزعجة: الرسائل الترويجية بوضوح أو غير المرغوب فيها التي لم أطلبها.",
       aiSetupCustomTag: "مخصص",
       aiSetupDone: "تم",
       aiSetupRunAgain: "تشغيل الإعداد مرة أخرى",
@@ -68,6 +68,25 @@ const messages = {
       aiSetupPromptTravel: "تأكيدات الرحلات والحجوزات التي أحتاجها",
       aiSetupTagFinance: "المالية",
       aiSetupPromptFinance: "الفواتير وكشوف الحسابات التي أحتاجها",
+      aiSetupArchiveExample:
+        "إشعارات الروبوتات وCI من GitHub وVercel وDependabot",
+      aiSetupFilteredExample:
+        "رسائل المبيعات غير المرغوبة والمجندون الذين لم أرد عليهم",
+      aiSetupSortingHeadline: "جارٍ تنظيم صندوق الوارد",
+      aiSetupSortingProgress:
+        "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
+      aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
+      aiSetupSortingFailed:
+        "تعذّر تنظيم صندوق الوارد. حُفظت قواعدك؛ حاول مرة أخرى.",
+      aiSetupUndoComplete: "أُعيدت {{count}} رسالة إلى حالتها السابقة.",
+      aiSetupRuleCount: "{{count}} مطابقة",
+      aiSetupNoMatches: "لم تطابق أي رسائل خلال آخر 14 يومًا هذه القواعد.",
+      aiSetupChatTip: "يمكنك تحسين القواعد أو إضافتها في الدردشة متى شئت.",
+      aiSetupChatPrompt: "أعطِ الأولوية لرسائل مديري…",
+      aiSetupNoRules: "لم يتم اختيار أي قواعد.",
+      aiSetupPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      aiSetupSortInbox: "نظّم صندوق الوارد",
+      aiSetupImportantExample: "كل ما يصل من مديرتي Priya…",
       priorityFeedbackLabel: "تقييم الأهمية",
       priorityScoreHigh: "أهمية عالية",
       priorityScoreMedium: "أهمية متوسطة",
@@ -536,6 +555,8 @@ const messages = {
       labelNote:
         "يضيف تصنيف agent-native-filtered ويؤرشف المحادثة. يمكنك التراجع في أي وقت.",
       learningNote: "يبقي الرسالة في الوارد ويعلّم الفلتر ألا يكرر الخطأ.",
+      learningProgress:
+        "تم تأكيد {{count}} من أصل {{required}} أمثلة. ستتم مراجعة الرسائل الحديثة بعد تأكيد الأمثلة كلها.",
       rememberLabel: "تذكّر للرسائل المستقبلية (اختياري)",
       correctLabel: "ما الذي يجب أن يتعلمه؟ (اختياري)",
       rememberPlaceholder:
@@ -549,11 +570,37 @@ const messages = {
       keptToast: "تم إبقاء {{count}} من المحادثات في الوارد.",
       actionFailed: "تعذّر تحديث فلتر الذكاء الاصطناعي.",
       settingsFailed: "تعذّر حفظ إعدادات فلتر الذكاء الاصطناعي.",
+      automationRulesLoadFailed: "تعذّر تحميل قواعد الفرز.",
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
       skipInboxMode: "تجاوز صندوق الوارد",
       spamMode: "مزعج",
       tagMode: "وسم",
       aiTagsTitle: "وسوم الذكاء الاصطناعي",
+      ruleHelpLabel: "شرح قواعد {{mode}}",
+      aiTagRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev هذه العلامة إلى الرسائل المطابقة.",
+      importantRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضع Jev علامة مهم على الرسائل المطابقة.",
+      skipInboxRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يؤرشف Jev الرسائل المطابقة لتجاوز صندوق الوارد.",
+      spamRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
+      filteredMode: "مصفّى",
+      manageSettings: "إدارة",
+      askJev: "اسأل Jev",
+      askJevPrompt:
+        "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
+      composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      ruleBackfillStarting: "جارٍ تطبيق هذه القاعدة على البريد الحديث…",
+      ruleBackfillProgress:
+        "جارٍ التطبيق على البريد الحديث: {{processed}} من {{total}}",
+      ruleBackfillMatches: "تطابقت {{count}} رسالة حديثة",
+      ruleBackfillNoMatches: "لا توجد رسائل حديثة تطابق هذه القاعدة.",
+      ruleBackfillFailed: "تعذّر تطبيق هذه القاعدة على البريد الحديث.",
+      ruleBackfillPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      ruleBackfillUndoing: "جارٍ استعادة البريد الحديث…",
+      ruleBackfillUndoComplete: "تمت استعادة {{count}} رسالة",
+      ruleBackfillReview: "مراجعة النتائج",
       importantMode: "مهم",
       notImportantMode: "غير مهم",
       importantLabel: "مهم بالذكاء الاصطناعي",
@@ -590,7 +637,7 @@ const messages = {
       promptRulesCleared: "تمت إزالة قواعد الفرز.",
       tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
       addTag: "إضافة وسم",
-      triageTitle: "إعداد الفرز",
+      triageTitle: "الفرز بالذكاء الاصطناعي",
       connectJev: "ربط Jev",
       connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
@@ -777,7 +824,7 @@ const messages = {
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
     automations: "الأتمتة",
-    aiFilter: "الفرز",
+    aiFilter: "الفرز بالذكاء الاصطناعي",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",

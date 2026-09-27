@@ -41,31 +41,15 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Keep the legacy "all" date-range sentinel out of provider queries. Analytics
-// data cannot predate the Unix epoch, so this is equivalent to an unbounded
-// lower date while remaining valid for BigQuery DATE/TIMESTAMP expressions.
 const ALL_TIME_START = "1970-01-01";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Date-valued filters whose default may use the "Nd" / "today" shorthand. */
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
   "date-range",
   "toggle-date",
 ]);
 
-/**
- * Resolve a filter's "default" string.
- *
- * For date-valued filters (date / date-range / toggle-date) the shorthand
- * tokens "Nd" (N days ago) and "today" are expanded into a concrete
- * YYYY-MM-DD date. For value filters (select / text / toggle) the default is
- * a LITERAL — e.g. a `select` whose option value is "90d" must stay "90d", not
- * be mis-expanded into a date. Expanding it would break the control (the date
- * matches no option, so the dropdown renders blank) and break every panel
- * whose SQL gates on `'{{id}}' = '90d'` (the date matches no branch, so the
- * WHERE is false and the panel returns "No data").
- */
 function resolveDefault(raw: string | undefined, type: FilterType): string {
   if (!raw) return "";
   if (DATE_FILTER_TYPES.has(type)) {
@@ -103,10 +87,6 @@ export function resolveFilterVars(
       out[endKey] =
         resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
     } else if (f.type === "toggle" || f.type === "toggle-date") {
-      // Toggles have no "off value" default — if the user hasn't opted in
-      // via the URL, the SQL-side conditional block ({{?id}}...{{/id}})
-      // must see an empty value so it doesn't emit. Otherwise the filter
-      // looks "off" in the UI but still filters the data.
       out[f.id] =
         f.type === "toggle-date"
           ? resolveDateValue(getParam(f.id), ALL_TIME_START)
@@ -123,7 +103,6 @@ export function resolveFilterVars(
   return out;
 }
 
-/** Check if any filter param in the URL differs from the defaults */
 function hasActiveFilters(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
@@ -139,7 +118,6 @@ function hasActiveFilters(
   return false;
 }
 
-/** Extract current filter params from URL search params */
 export function extractFilterParams(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
@@ -166,11 +144,6 @@ interface DashboardFilterBarProps {
   onSaveView?: (name: string, filters: Record<string, string>) => void;
 }
 
-/**
- * Reads/writes filter state to URL search params under f_<id> keys, renders the
- * filter inputs, and emits a `vars` dict (suitable for SQL interpolation) to the
- * parent. Date-range filters emit `<id>Start` and `<id>End` keys.
- */
 export function DashboardFilterBar({
   filters,
   onSaveView,
@@ -223,13 +196,11 @@ export function DashboardFilterBar({
   const clearAllFilters = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      // Remove all f_ prefixed params
       const keysToRemove: string[] = [];
       next.forEach((_, k) => {
         if (k.startsWith(FILTER_PARAM_PREFIX)) keysToRemove.push(k);
       });
       keysToRemove.forEach((k) => next.delete(k));
-      // Also remove the view param since we're clearing
       next.delete("view");
       return next;
     });
@@ -243,7 +214,6 @@ export function DashboardFilterBar({
     setSaveDialogOpen(false);
   }, [viewName, onSaveView, uniqueFilters, searchParams]);
 
-  // Compute the live vars dict (URL value or default) for every filter.
   const vars = useMemo(
     () => resolveFilterVars(uniqueFilters, getParam),
     [uniqueFilters, getParam],
@@ -363,10 +333,6 @@ export function DashboardFilterBar({
 interface FilterControlProps {
   filter: DashboardFilter;
   vars: Record<string, string>;
-  /** True when the user has an explicit value in the URL for this key.
-   *  Distinct from `vars[key]`, which falls back to the resolved default —
-   *  toggle filters need to check "is the URL param set" to render On/Off
-   *  state correctly, not "does a resolved value exist". */
   hasParam: (key: string) => boolean;
   setValue: (updates: Record<string, string>) => void;
 }
@@ -464,9 +430,6 @@ function FilterControl({
   }
 
   if (filter.type === "toggle-date") {
-    // The toggle reflects whether the user has an explicit URL param, not
-    // whether a default would resolve to a value. Otherwise a filter with
-    // default "30d" would appear stuck in the "On" state forever.
     const active = hasParam(filter.id);
     const current = active ? vars[filter.id] || "" : "";
     return (
@@ -505,7 +468,6 @@ function FilterControl({
     );
   }
 
-  // text
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs text-muted-foreground font-medium">

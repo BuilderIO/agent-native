@@ -42,10 +42,6 @@ interface FakeXhr {
   send(body?: unknown): void;
 }
 
-/**
- * Fresh class per test so a leaked prototype patch (e.g. from a failed
- * assertion before stopSessionReplay ran) can never bleed across tests.
- */
 function createFakeXhrClass(): new () => FakeXhr {
   return class FakeXMLHttpRequest implements FakeXhr {
     status = 0;
@@ -180,8 +176,6 @@ async function startCapture(
 
 describe("session replay console/network capture", () => {
   afterEach(async () => {
-    // Restore interceptors even when a failed assertion skipped the in-test
-    // stop, so wrappers never leak into the next test.
     try {
       await activeModule?.stopSessionReplay();
     } catch {
@@ -272,8 +266,6 @@ describe("session replay console/network capture", () => {
     expect(args[0].length).toBe(500);
     expect(args[1]).toContain('"self":"[circular]"');
     expect(args[2]).toBe("Error: kaboom");
-    // args holds only the 10 values after the message; "8" and the final
-    // string were dropped by the max-args cap.
     expect(args[9]).toBe("7");
     expect((event.stack as string).length).toBeLessThanOrEqual(2000);
   });
@@ -475,8 +467,6 @@ describe("session replay console/network capture", () => {
     const wrappedFetch = windowStub.fetch as typeof fetch;
     const result = await wrappedFetch("https://api.example.test/broken");
 
-    // The caller's response body must still be fully readable -- the
-    // response-body capture reads a clone, never the original stream.
     expect(await result.json()).toEqual({ error: "boom", apiKey: "abc123" });
 
     await vi.waitFor(() => {
@@ -522,8 +512,6 @@ describe("session replay console/network capture", () => {
       wrappedFetch("https://api.example.test/down"),
     ).rejects.toThrow();
 
-    // Give any (incorrectly-scheduled) body read a chance to resolve before
-    // asserting absence.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const events = networkEvents();
@@ -555,8 +543,6 @@ describe("session replay console/network capture", () => {
     try {
       const { fetchMock, windowStub } = installBrowser();
       recordMock.mockReturnValue(vi.fn());
-      // A response whose clone().text()/reader never resolves, simulating a
-      // stalled/slow body read.
       const hangingBody = new ReadableStream<Uint8Array>({
         start: () => {
           // never enqueue or close -- the reader hangs forever.
@@ -569,8 +555,6 @@ describe("session replay console/network capture", () => {
       const wrappedFetch = windowStub.fetch as typeof fetch;
       await wrappedFetch("https://api.example.test/stalled");
 
-      // Advance past the 1500ms hard timeout so the race resolves without a
-      // body, then let the microtask queue drain.
       await vi.advanceTimersByTimeAsync(2000);
 
       expect(networkEvents()).toHaveLength(1);
@@ -699,7 +683,6 @@ describe("session replay console/network capture", () => {
     expect(XhrCtor.prototype.open).toBe(originalOpen);
     recordMock.addCustomEvent.mockClear();
 
-    // A fresh start/stop cycle installs and restores cleanly again.
     delete (globalThis as Record<symbol, unknown>)[replayStateKey];
     const restarted = await mod.startSessionReplay({ ...START_OPTIONS });
     expect(restarted.started).toBe(true);
@@ -747,7 +730,6 @@ describe("session replay console/network capture", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     recordMock.mockReturnValue(vi.fn());
     recordMock.addCustomEvent.mockImplementation(() => {
-      // rrweb work triggered by the emit must not be re-captured.
       console.log("internal recorder log");
     });
     await startCapture();
@@ -777,7 +759,6 @@ describe("session replay console/network capture", () => {
     const logBefore = console.log;
     recordMock.mockReturnValue(vi.fn());
     const addCustomEvent = recordMock.addCustomEvent;
-    // Simulate an rrweb build without the static helper.
     (recordMock as { addCustomEvent?: unknown }).addCustomEvent = undefined;
     try {
       const mod = await freshSessionReplay();

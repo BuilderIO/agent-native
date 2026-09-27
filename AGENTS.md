@@ -40,16 +40,18 @@ contract.
 
 ## Always-On Rules
 
-- Scale effort to the task. A small, well-specified change is a short read, the
-  edit, and the existing checks — not a codebase survey, unrequested tests, or
-  browser automation. Save deep exploration for ambiguous or cross-cutting work.
-- In task-owned worktrees, make needed safe branch changes without asking.
-  Classify dirty paths first; preserve unrelated work and never move peer or
-  platform branches. Shared checkouts need exact authorization. See
-  `new-branch`.
+- Scale effort: for small changes, read briefly, edit, and run existing checks;
+  skip surveys, unrequested tests, and browser automation. Explore deeply only
+  for ambiguous or cross-cutting work.
+- Before finishing or handoff, close opened browser tabs/app sessions and stop
+  started processes. Honor keep-open requests; stop only owned resources; report
+  failures.
+- In task worktrees, make needed safe branch changes without asking. Classify
+  dirty paths first; preserve unrelated work; never move peer/platform branches.
+  Shared checkouts need exact authorization. See `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current suitable branch and are ready for review by default, not
-  drafts, unless requested.
+- Use the current suitable branch. PRs are ready for review unless drafts are
+  requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole automatic beta publisher. It builds in GitHub Actions and uploads
   prebuilt artifacts to the independent Netlify beta sites at

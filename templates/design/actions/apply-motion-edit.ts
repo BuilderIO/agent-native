@@ -1,20 +1,3 @@
-/**
- * apply-motion-edit — ATOMIC motion timeline write (§6.3).
- *
- * One action does all of:
- * 1. Validate the timeline against the design's source capabilities.
- * 2. Persist the `motion_timeline` row (insert or update).
- * 3. Compile the tracks into deterministic CSS.
- * 4. Inject/replace the managed `<style data-agent-native-motion>` block inside
- *    the design's durable HTML content.
- * 5. Update `compiledHash` on the row to guard against drift.
- * 6. Return a diff summary (bytes before/after, track count, hash).
- *
- * Never writes unless all steps succeed. Scrubbing/preview is handled by the
- * separate `motion-preview` postMessage path on the frontend — this action is
- * the durable autosave/persist path for edited timelines.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
@@ -30,7 +13,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
@@ -53,21 +36,9 @@ import {
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
 
-// ─── DoS-guard caps ──────────────────────────────────────────────────────────
-//
-// Mirrors the style of other hard resource caps in this template (e.g.
-// MAX_SHADERS_PER_ARTBOARD in shared/shader-safety.ts): a small, exported
-// constant plus a clear thrown Error (never a silent clamp) so callers see
-// exactly which limit was exceeded and by how much.
-
-/** Max tracks per timeline/screen — keeps compile() bounded and DOM-safe. */
 export const MAX_MOTION_TRACKS = 64;
-/** Max keyframes per track — keeps @keyframes blocks bounded. */
 export const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
-/** Max total timeline duration, ms (120s) — guards against runaway timelines. */
 export const MAX_MOTION_DURATION_MS = 120_000;
-
-// ─── Zod schemas ─────────────────────────────────────────────────────────────
 
 const keyframeSchema = z.object({
   t: z
@@ -144,8 +115,6 @@ const trackSchema = z.object({
     ),
 });
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -173,12 +142,6 @@ export function canPatchManagedMotionCss(content: string): boolean {
   return /<\s*(?:!doctype|[a-z][a-z0-9:-]*(?:\s|>|\/>))/i.test(content);
 }
 
-// Composite key for detecting duplicate (targetNodeId, property) track pairs.
-// Uses the ASCII Unit Separator (U+001F) — an escape in source, so the file
-// stays plain text (a literal NUL made tooling treat it as binary). U+001F
-// cannot appear in a valid data-agent-native-node-id or CSS property name
-// (both are validated to CSS-safe identifiers), so it can never collide with
-// real content and remains an unambiguous field delimiter.
 const MOTION_TRACK_KEY_SEPARATOR = "\x1f";
 
 export function motionTrackKey(targetNodeId: string, property: string): string {
@@ -202,16 +165,6 @@ export function assertValidMotionEase(ease: string, field: string): string {
   return ease;
 }
 
-/**
- * Persist the patched HTML through the same collab-aware seam as
- * apply-visual-edit.ts / remove-motion-timeline.ts: `writeInlineSourceFile`
- * re-reads the live (collab-authoritative, else SQL) text immediately before
- * its own write and rejects if it no longer matches `expectedVersionHash` —
- * closing the race window where a concurrent editor's change lands between
- * the base read that produced `content` and this persist call. It also bumps
- * `schema.designs.updatedAt` internally, so no separate designs-row bump is
- * needed here (unlike the old raw-SQL `persistFileContent`).
- */
 async function persistFileContent(
   file: {
     id: string;
@@ -244,8 +197,6 @@ async function persistFileContent(
     agentLeaveDocument(file.id);
   }
 }
-
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -376,7 +327,6 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // ── 1. Resolve the target design file ──────────────────────────────────
     const conditions = [eq(schema.designFiles.designId, designId)];
     if (fileIdInput) {
       conditions.push(eq(schema.designFiles.id, fileIdInput));
@@ -412,10 +362,6 @@ export default defineAction({
     const fileId = file.id;
     const resolvedSourceRef = sourceRef ?? fileId;
 
-    // Keep the transform working copy separate from the live version it may
-    // replace. A caller snapshot can legitimately contain unsaved local edits
-    // beyond the matching SQL revision; the write CAS must guard the observed
-    // live base, not incorrectly hash those unsaved edits as if already live.
     const prepared = await prepareInlineSourceEdit({
       file: {
         id: file.id,
@@ -432,11 +378,8 @@ export default defineAction({
     const currentContent = prepared.content;
     const baseVersionHash = prepared.expectedVersionHash;
 
-    // ── 2. Compile tracks → CSS ─────────────────────────────────────────────
     const inputTracks = tracks as MotionTrack[];
 
-    // DoS guards: reject (never silently clamp) before any compilation work
-    // so an over-limit request fails fast with a clear, actionable error.
     if (inputTracks.length > MAX_MOTION_TRACKS) {
       throw new Error(
         `Too many motion tracks: ${inputTracks.length} exceeds the ` +
@@ -454,11 +397,6 @@ export default defineAction({
       }
     }
 
-    // Reject CSS-injection vectors in caller-supplied track properties,
-    // keyframe values, and easing strings before they are compiled into the
-    // managed <style> block. Also reject duplicate (targetNodeId, property)
-    // pairs: the compiler derives the animation name from that pair, so a
-    // duplicate would silently overwrite the earlier track's keyframes.
     const seenTrackKeys = new Set<string>();
     for (const track of inputTracks) {
       assertSafeMotionCssProperty(track.property, "track.property");
@@ -480,10 +418,6 @@ export default defineAction({
     }
     assertValidMotionEase(defaultEase, "defaultEase");
 
-    // Persist the timeline-level playback mode as a stamp on the first track
-    // so the stored tracks JSON stays a plain (schema-compatible) array. An
-    // explicit playbackMode wins; otherwise any stamp already present in the
-    // incoming tracks is preserved.
     const typedTracks = playbackMode
       ? withTimelinePlaybackMode(inputTracks, playbackMode)
       : inputTracks;
@@ -504,7 +438,6 @@ export default defineAction({
       updatedAt: now,
     });
 
-    // ── 3. Inject the managed CSS block into the HTML ───────────────────────
     const contentPatched = canPatchManagedMotionCss(currentContent);
     const patchedContent = contentPatched
       ? injectManagedMotionCss(currentContent, css)
@@ -512,9 +445,6 @@ export default defineAction({
     const bytesBefore = currentContent.length;
     const bytesAfter = patchedContent.length;
 
-    // ── 4. Pre-flight the motion_timeline row write ─────────────────────────
-    // Resolve everything that can fail (existence + ownership) BEFORE touching
-    // content, so we never persist HTML for a row that can't be written.
     const tracksJson = JSON.stringify(typedTracks);
     let existingTimelineId = timelineId;
 
@@ -522,7 +452,6 @@ export default defineAction({
     let insertOrgId: string | null = null;
 
     if (timelineId) {
-      // Update existing row — verify it belongs to this design.
       const [existing] = await db
         .select({ id: schema.motionTimeline.id })
         .from(schema.motionTimeline)
@@ -555,9 +484,6 @@ export default defineAction({
       if (existingForSource) {
         existingTimelineId = existingForSource.id;
       } else {
-        // Insert new row — derive ownership from the request context, falling
-        // back to the already-authorized design owner for local/public editor
-        // sessions that do not carry an authenticated request user.
         const insertOwnership = resolveMotionTimelineInsertOwnership({
           requestUserEmail: getRequestUserEmail(),
           requestOrgId: getRequestOrgId(),
@@ -607,14 +533,6 @@ export default defineAction({
       }
     });
 
-    // ── 6. Persist the patched HTML content SECOND ─────────────────────────
-    // Written after the row so a SQL failure here leaves the timeline row
-    // accurate (correct tracks + hash) and the stale HTML can be recompiled on
-    // the next apply-motion-edit call via compiledHash drift detection.
-    // Goes through the collab-aware writeInlineSourceFile seam, conditioned on
-    // baseVersionHash (the hash of the SAME base string used above to compile
-    // patchedContent), so a concurrent editor's write between that base read
-    // and this persist is rejected loud rather than silently overwritten.
     const updatedAt = contentPatched
       ? await persistFileContent(
           {

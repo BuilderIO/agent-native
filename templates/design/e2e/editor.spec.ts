@@ -37,15 +37,6 @@ async function setCreativeContextLab(
   ).toBe(true);
 }
 
-/**
- * Cmd/Ctrl+click deep-selects the raw hit under the pointer, skipping the
- * container-first "select the screen's direct child" resolution — the Figma
- * way to reach a fixture element nested more than one level below the
- * screen root (see e2e/parity-selection.spec.ts's own cmd+click test).
- * page.mouse.click's `modifiers` option is unreliable against this canvas
- * (see reference_browser_modifier_keys_not_delivered) — hold the key with
- * keyboard.down/up around a plain click instead.
- */
 async function deepSelectByText(
   page: import("@playwright/test").Page,
   text: string,
@@ -80,16 +71,12 @@ test.beforeEach(async ({ page }) => {
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
-  // Scoped to the toolbar: screen-card chrome carries its own "Interact"
-  // button for one frame, so an unscoped role query matches two controls.
   const toolbar = page.locator("[data-design-bottom-toolbar]");
   for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
-    // exact:true keeps "Move" from matching the "Move options" split button.
     await expect(
       toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
-  // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")
@@ -109,11 +96,6 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
 
   const agentPanel = page.locator("[data-design-agent-panel]");
   await expect(agentPanel).toBeVisible();
-  // An untitled conversation tab also renders "New chat" as its placeholder
-  // label (MultiTabAssistantChat falls back to that name until a real title
-  // lands), so a name-only lookup for the header's compose button matches
-  // the tab too. Scope to the real <button> tag: the tab is a
-  // `<div role="button">`, so this selector alone disambiguates them.
   const newChatButton = agentPanel.locator('button[aria-label="New chat"]');
   await expect(newChatButton).toBeVisible();
   await expect(
@@ -395,7 +377,6 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     await expect(customTarget).toBeVisible();
     await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
 
-    // Leave the shared seed design pristine for later inspector/browser specs.
     await customTarget.click();
     await breakpointControl
       .getByRole("button", { name: "Breakpoint options" })
@@ -625,13 +606,6 @@ test("left sidebar switches between all screens and focused screens", async ({
   await homeScreen.click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  // Leaving the board is the switch under test. Only two views exist now
-  // (mode-change.ts's "enter-single-interact" routing, in place since
-  // 74c9585d72): picking a screen from the list lands in the responsive
-  // Interact view, which still renders the focused screen through
-  // MultiScreenCanvas (so its [data-screen-card] stays in the DOM) with
-  // [data-screen-interact-mode="true"] on the owning shell — the marker
-  // this test used to look for as "no card at all" no longer exists.
   await expect(
     page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
   ).toHaveCount(1, { timeout: 10_000 });
@@ -644,9 +618,6 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 });
 
-// Only registered against the profile that actually disables the gated
-// panels — the default E2E profile keeps them enabled for their own coverage,
-// so a runtime test.skip here would count as a permanent conditional skip.
 if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
   test("hides the gated secondary panels and Assets picker when disabled", async ({
     page,
@@ -664,15 +635,11 @@ test("clicking an element selects it and populates the inspector", async ({
   page,
 }) => {
   const before = await inspectorInputCount(page);
-  // "E2E Hero Heading" is nested inside the screen's <main> container (not a
-  // direct child of the screen), so reaching it directly is Cmd/Ctrl+click's
-  // deep-select — a plain click resolves container-first to <main> instead.
   const payload = await deepSelectByText(page, "E2E Hero Heading");
 
   expect(payload).toBeTruthy();
   expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
   expect(payload.textContent ?? "").toContain("E2E Hero Heading");
-  // The element-select payload resolves to a runtime-stamped, stable node id.
   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
 
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
@@ -744,10 +711,6 @@ test("spacing handles stay visible at rest and remain draggable", async ({
     .last()
     .boundingBox();
   if (!frameBox) throw new Error("missing design iframe bounds");
-  // The iframe is CSS-scaled by the canvas zoom, but clientX/clientY inside it
-  // are unscaled content px. Passing the host-space offset straight through
-  // lands the click near the screen's origin — on <body>, which CLEARS the
-  // selection instead of selecting anything.
   const zoom = await canvasZoom(page);
   await designFrame(page)
     .locator('[data-agent-native-edit-overlay="shield"]')
@@ -800,8 +763,6 @@ test("spacing handles stay visible at rest and remain draggable", async ({
 test("selecting a different element changes the selection", async ({
   page,
 }) => {
-  // Both fixture elements are nested more than one level below the screen
-  // root, so deep-selecting them the Figma way is Cmd/Ctrl+click.
   const first = await deepSelectByText(page, "E2E Hero Heading");
   const second = await deepSelectByText(page, "Fixture Card Title");
 
@@ -814,13 +775,10 @@ test("selecting a different element changes the selection", async ({
 test("the layers panel lists layers and a layer row selects on the canvas", async ({
   page,
 }) => {
-  // :visible — a collapsed screen's descendant rows stay in the DOM, and
-  // clicking one that is not on screen can never select anything.
   const rows = page.locator('[role="treeitem"][aria-selected]:visible');
   await expect(rows.first()).toBeVisible({ timeout: 15_000 });
   expect(await rows.count()).toBeGreaterThan(0);
 
-  // Clicking a selectable layer row should make it the active selected row.
   const target = rows.last();
   await target.click();
   await expect(target).toHaveAttribute("aria-selected", "true");
@@ -858,8 +816,6 @@ test("deeply nested layer rows keep a clickable hit target", async ({
 test("dragging an element on the canvas drives the bridge (move/reorder)", async ({
   page,
 }) => {
-  // Real pointer drag through the editor: this must reach the structural
-  // move path, not just the hover/select bridge messages.
   const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
   expect(fired).toContain("visual-structure-change");
 });
@@ -914,7 +870,6 @@ test("Escape cancels an in-progress element drag on the canvas", async ({
 test("can capture a screenshot of the editor via CDP", async ({
   page,
 }, info) => {
-  // page.screenshot() hangs (the page never reaches an idle frame), so use CDP.
   const out = info.outputPath("editor.png");
   await cdpScreenshot(page, out);
   await info.attach("editor", { path: out, contentType: "image/png" });

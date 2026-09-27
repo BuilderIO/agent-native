@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconUpload } from "@tabler/icons-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +18,7 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 import {
@@ -39,11 +40,22 @@ export function ImportDeckButton({
   const urlInput = useRef<HTMLInputElement>(null);
   const scope = useRef<DeckFileKind | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [popover, setPopover] = useState<"google" | "error" | null>(null);
+  const [popover, setPopover] = useState<"google" | "error" | "storage" | null>(
+    null,
+  );
   const [url, setUrl] = useState("");
   const busy = controller.importingSource !== null;
+  const storageQuery = useSlideFileStorageStatus();
+  const fileStorageConfigured =
+    storageQuery.isSuccess && storageQuery.data.configured === true;
   const openPicker = (kind?: DeckFileKind) => {
-    if (!input.current || busy) return;
+    if (busy) return;
+    if (!fileStorageConfigured) {
+      setMenuOpen(false);
+      setPopover("storage");
+      return;
+    }
+    if (!input.current) return;
     scope.current = kind;
     input.current.accept = kind
       ? DECK_FILE_ACCEPT[kind]
@@ -54,23 +66,29 @@ export function ImportDeckButton({
     setPopover(null);
     input.current.click();
   };
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || busy) return;
+    if (!fileStorageConfigured) {
+      setPopover("storage");
+      return;
+    }
+    void controller.importFile(file, scope.current).then((done) => {
+      if (!done) setPopover("error");
+    });
+  };
+
+  useEffect(() => {
+    if (popover === "storage" && fileStorageConfigured) setPopover(null);
+  }, [fileStorageConfigured, popover]);
   return (
     <Popover
-      open={popover !== null}
+      open={popover !== null && popover !== "storage"}
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <ButtonGroup aria-label={t("home.importMenu.import")}>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={() => openPicker()}
-          >
-            <IconUpload />
-            {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
-          </Button>
+        <div className="inline-flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -78,8 +96,17 @@ export function ImportDeckButton({
                 type="button"
                 size="sm"
                 disabled={busy}
-                aria-label={t("home.importMenu.options")}
+                aria-busy={busy}
+                aria-label={t(
+                  busy ? "editorToolbar.importing" : "home.importMenu.import",
+                )}
               >
+                <IconUpload />
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>
@@ -110,26 +137,20 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-        </ButtonGroup>
+        </div>
       </PopoverAnchor>
       <input
         ref={input}
         type="file"
         hidden
-        disabled={busy}
+        disabled={busy || !fileStorageConfigured}
         aria-label={t("editorToolbar.importFile")}
         accept={Object.values(DECK_FILE_ACCEPT).join(",")}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (!file || busy) return;
-          void controller.importFile(file, scope.current).then((done) => {
-            if (!done) setPopover("error");
-          });
-        }}
+        onChange={handleFileChange}
       />
       <PopoverContent
         align="end"
+        className="w-[min(28rem,calc(100vw-2rem))]"
         onOpenAutoFocus={(event) => {
           if (popover === "google") {
             event.preventDefault();
@@ -202,6 +223,13 @@ export function ImportDeckButton({
           </div>
         )}
       </PopoverContent>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={popover === "storage"}
+        onOpenChange={(open) => !open && setPopover(null)}
+        onRetry={() => void storageQuery.refetch()}
+      />
     </Popover>
   );
 }

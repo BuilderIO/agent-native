@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   onImport: vi.fn(),
   queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
+  fileStorageStatus: {
+    isSuccess: true,
+    data: { configured: true },
+    refetch: vi.fn(),
+  },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({
@@ -36,6 +41,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
+}));
+vi.mock("@agent-native/core/client/uploads", () => ({
+  useFileUploadStatus: () => mocks.fileStorageStatus,
+}));
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="file-storage-setup" /> : null,
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
@@ -101,6 +113,9 @@ beforeEach(() => {
   file = new File(["fixture"], "picked.fig");
   setPendingDesignImport("home-design", { kind: "file", file });
   mocks.shouldWarn.mockReturnValue(false);
+  mocks.fileStorageStatus.isSuccess = true;
+  mocks.fileStorageStatus.data = { configured: true };
+  mocks.fileStorageStatus.refetch.mockReset();
   mocks.prepare.mockImplementation(async () => prepared());
   mocks.import.mockResolvedValue({
     designId: "home-design",
@@ -180,6 +195,24 @@ describe("home-picked .fig handoff", () => {
     await remount();
     expect(mocks.prepare).toHaveBeenCalledOnce();
     expect(mocks.import).not.toHaveBeenCalled();
+  });
+  it("requires object storage before the decoder fallback uploads a .fig file", async () => {
+    mocks.prepare.mockRejectedValue(new Error("Decoder unavailable"));
+    mocks.fileStorageStatus.data = { configured: false };
+    mocks.fileStorageStatus.refetch.mockResolvedValue({
+      isSuccess: true,
+      data: { configured: false },
+    });
+
+    await render();
+
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="file-storage-setup"]'),
+      ).not.toBeNull(),
+    );
+    expect(mocks.fileStorageStatus.refetch).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
   it("reports an invalid handoff once without decoding, saving, or an automatic retry loop", async () => {
     setPendingDesignImport("home-design", {

@@ -30,8 +30,6 @@ export function createDesignPromptAttachmentAdapter(
     accept: DESIGN_PROMPT_ATTACHMENT_ACCEPT,
     async add({ file }) {
       if (file.size > MAX_UPLOAD_BYTES) throw new Error(attachmentLimitMessage);
-      // The host uploads original files and extracts bounded text/images; the
-      // composer owns staging without reading a second unbounded inline copy.
       return {
         id: crypto.randomUUID(),
         type: /\.(png|jpe?g|webp|gif)$/i.test(file.name) ? "image" : "document",

@@ -45,9 +45,6 @@ function Harness({
   onPopoverEscape: () => void;
   onCanvasEscapeHotkey: () => void;
 }) {
-  // Mirrors DesignEditor.tsx's real `useDesignHotkeys({ ..., onEscape:
-  // handleEscapeHotkey })` call: no `target`/`capture` override, so it binds
-  // to `window` in the default bubble phase, exactly like production.
   useDesignHotkeys({ onEscape: onCanvasEscapeHotkey });
 
   return (

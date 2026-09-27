@@ -11,7 +11,6 @@ export interface VerifiedA2AClaims {
   scope: string[];
 }
 
-/** Typed opt-in claims check; legacy A2A verification remains unchanged. */
 export async function verifyA2ATokenWithClaims(
   token: string,
   event?: any,
@@ -25,10 +24,6 @@ export async function verifyA2ATokenWithClaims(
       : typeof raw.aud === "string"
         ? [raw.aud]
         : [];
-    // Legacy A2A callers may omit `aud`, but privileged fleet-management
-    // delegation never may. verifyA2AToken already proves a declared audience
-    // matches this receiver; this opt-in claims layer makes its presence
-    // mandatory before exposing administrative scopes.
     if (audiences.length === 0 || audiences.some((value) => !value.trim()))
       return null;
     const orgId = typeof raw.org_id === "string" ? raw.org_id.trim() : "";

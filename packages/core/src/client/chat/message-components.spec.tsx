@@ -919,7 +919,6 @@ describe("shouldShowMissingFinalResponse", () => {
   });
 
   it("stays hidden while the server still reports the run as running", () => {
-    // Local chatRunning dips at every chunk boundary; server truth wins.
     expect(
       shouldShowMissingFinalResponse({
         isCurrentTurnRunning: false,
@@ -1329,8 +1328,6 @@ describe("shouldShowInlineRunError", () => {
   };
 
   it("marks a failed turn regardless of where it sits in the thread", () => {
-    // No isLast input: an error persisted on an earlier turn stays visible once
-    // the user sends the next message.
     expect(
       shouldShowInlineRunError({ runError, bannerRunErrorKey: null }),
     ).toBe(true);
@@ -1528,7 +1525,6 @@ describe("isCollapsibleAssistantWorkPart", () => {
   });
 
   it("stops counting reasoning as work once thinking is hidden", () => {
-    // Otherwise a reasoning-only turn renders an empty "Worked for…" wrapper.
     expect(
       isCollapsibleAssistantWorkPart({ type: "reasoning" }, "hidden"),
     ).toBe(false);

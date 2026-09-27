@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { parseVisualEditSnapshotBlobHandle } from "../server/lib/visual-edit-snapshot-blobs.js";
 import { withDesignSourceReadTransaction } from "../server/source-workspace.js";
 import { assertLocalhostScreenMetadata } from "./publish-visual-edit-snapshot.js";
@@ -197,7 +197,6 @@ export default defineAction({
       throw new Error("Stored visual-edit snapshot exceeds the 1 MiB limit.");
     }
 
-    // Keep remote blob I/O outside the shared read lock, then reject opt-out or replacement races.
     const stillCurrent = await withDesignSourceReadTransaction(
       designId,
       async (tx) => {

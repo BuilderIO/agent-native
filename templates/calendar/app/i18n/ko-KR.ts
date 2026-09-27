@@ -247,6 +247,15 @@ export default {
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
     eventRules: "초대 규칙",
+    eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
+    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesAddJevApiKey: "API 키 추가",
+    eventRulesTabRules: "규칙",
+    eventRulesHelpLabel: "초대 규칙 프롬프트 안내",
+    eventRulesHelp:
+      "Jev가 자동으로 수락, 거절 또는 숨길 초대를 지정하는 프롬프트를 작성하세요.",
     eventRuleAccept: "자동 수락",
     eventRuleDecline: "자동 거절",
     eventRuleHide: "자동 숨기기",
@@ -254,6 +263,7 @@ export default {
     eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
     eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
     eventRulesSave: "규칙 저장",
+    eventRulesClearSaved: "저장된 규칙 지우기",
     eventRulesRecentActivity: "최근 활동",
     eventRulesNoActivity: "아직 활동이 없습니다",
     eventRuleActivityAccepted: "수락함",
@@ -506,6 +516,14 @@ export default {
       "시간이 예약되었습니다. 호스트가 회의 정보를 안내해 드립니다.",
     confirmed: "확정됨",
     confirmedCount: "확정됨 ({{count}})",
+    zoomNeedsReview: "다시 시도하기 전에 Zoom 확인",
+    zoomCancellationNeedsReview: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancellationRequiresHostReview:
+      "예약을 취소하려면 먼저 주최자가 Zoom 회의를 확인해야 합니다.",
+    zoomCancelTitle: "취소하기 전에 Zoom을 확인하세요",
+    zoomCancelDescription:
+      "Zoom이 이 예약의 회의를 만들었을 수 있습니다. Zoom 계정을 확인하고 회의가 있으면 Zoom에서 취소하세요. 회의가 취소되었거나 없는 것을 확인한 뒤에만 계속하세요.",
+    zoomCancelConfirm: "Zoom을 확인했습니다",
     confirming: "확인 중",
     conferencing: "회의",
     connectZoom: "Zoom 연결",

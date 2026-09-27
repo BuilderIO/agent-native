@@ -20,7 +20,6 @@ export interface DesktopContentFilesFolderRequest {
   folderId?: string;
 }
 
-/** Opaque content fingerprint returned by the trusted local bridge. */
 export type DesktopContentFileRevision = string;
 
 export interface DesktopContentFileConflict {
@@ -81,7 +80,6 @@ export interface DesktopContentFilesApi {
     folderId?: string;
     path: string;
     content: string;
-    /** The revision observed by the editor; a mismatch must not overwrite. */
     expectedRevision: string | null;
   }): Promise<DesktopContentFilesResult>;
   deleteFile?(request: {
@@ -106,7 +104,6 @@ export interface DesktopContentFilesApi {
     request: DesktopContentFilesFolderRequest,
   ): Promise<DesktopContentFilesResult>;
   onChange?(callback: (change: DesktopContentFilesChange) => void): () => void;
-  /** Optional until the installed Desktop bridge supports live folder events. */
   watchFiles?(
     request: DesktopContentFilesFolderRequest,
     onChange: (change: DesktopContentFilesChange) => void,

@@ -43,7 +43,6 @@ export interface Comment {
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
-  /** Robust anchor context, captured from the root comment. */
   prefix: string | null;
   suffix: string | null;
   startOffset: number | null;

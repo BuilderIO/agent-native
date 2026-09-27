@@ -11,8 +11,6 @@ describe("widenIntColumnsToBigInt", () => {
     vi.resetModules();
   });
 
-  // A recording fake client. `int4Columns` are the columns the simulated
-  // information_schema reports as 32-bit `integer`.
   function fakeClient(int4Columns: string[]) {
     const calls: string[] = [];
     const client = {
@@ -34,7 +32,6 @@ describe("widenIntColumnsToBigInt", () => {
   it("only ALTERs columns that are currently int4 (skips already-bigint)", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    // started_at + completed_at are still int4; heartbeat_at is already bigint.
     const { client, calls } = fakeClient(["started_at", "completed_at"]);
     await widenIntColumnsToBigInt(
       "agent_runs",
@@ -51,7 +48,7 @@ describe("widenIntColumnsToBigInt", () => {
   it("issues no ALTER when no requested column is int4", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { widenIntColumnsToBigInt } = await import("./widen-columns.js");
-    const { client, calls } = fakeClient([]); // all already bigint
+    const { client, calls } = fakeClient([]);
     await widenIntColumnsToBigInt("chat_threads", ["created_at"], client);
     expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
   });

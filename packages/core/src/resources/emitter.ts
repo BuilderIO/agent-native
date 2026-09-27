@@ -9,10 +9,6 @@ export interface ResourceEvent {
   requestSource?: string;
 }
 
-/**
- * Singleton EventEmitter for resources DB changes.
- * The SSE handler subscribes to this via extraEmitters.
- */
 const _emitter = new EventEmitter();
 
 export function getResourcesEmitter(): EventEmitter {

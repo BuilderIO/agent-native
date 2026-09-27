@@ -36,13 +36,10 @@ describe("corner radius on a pen vector", () => {
   });
 
   it("rounds a pasted vector's paths, through its viewBox and <g> scale", () => {
-    // Pasted Figma shape: viewBox 0 0 100 100 drawn at 50px, inside scale(2).
     const html = `<svg data-agent-native-node-id="pen" viewBox="0 0 100 100" style="width:50px;height:50px;border-radius:90px"><g transform="scale(2 2)"><path d="M0 0 L40 0 L40 40 L0 40 Z M5 5 L10 5 L10 10 Z" fill="#fff"></path></g></svg>`;
     const result = setRadius(html, "5px");
     expect(result.result.status).toBe("applied");
-    // 5px on screen = 5 / (0.5 * 2) = 5 path units; every subpath is rounded.
     expect(result.content).toContain('d="M 5 0 L 35 0 A 5 5 0 0 1 40 5');
-    // The small triangle can't fit 5: it rounds into its incircle.
     expect(result.content).toContain("A 1.464 1.464 0 0 1 10 6.464");
     expect(result.content).toContain(
       'data-an-source-d="M0 0 L40 0 L40 40 L0 40 Z M5 5 L10 5 L10 10 Z"',

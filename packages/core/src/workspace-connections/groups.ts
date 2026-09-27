@@ -506,9 +506,6 @@ export async function workspaceUserGroupsIncludeUser(
   if (!normalizedOrgId || !normalizedEmail || normalizedIds.length === 0) {
     return false;
   }
-  // Group rows can outlive roster membership. A stale email in the JSON
-  // member list must not keep granting access after that person leaves the
-  // organization.
   if (!(await isOrgMember(normalizedOrgId, normalizedEmail))) return false;
   const groups = await listWorkspaceUserGroupsForOrg(
     normalizedOrgId,

@@ -4,6 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getPrimaryIframeId } from "./multi-screen/iframe-targeting";
+import {
+  __clearLinkedScreenPreviewHandlersForTests,
+  registerLinkedScreenPreviewHandlers,
+} from "./multi-screen/linked-screen-preview";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 (
@@ -46,12 +51,19 @@ describe("cross-screen drag identity provenance", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    __clearLinkedScreenPreviewHandlersForTests();
     rectSpy.mockRestore();
     container.remove();
   });
 
   it("keeps start identity through move and forwards the target hit-test proof", async () => {
     const onCrossScreenElementDrop = vi.fn();
+    const previewPendingDelete = vi.fn(() => true);
+    registerLinkedScreenPreviewHandlers(getPrimaryIframeId("source"), {
+      replaceContent: () => true,
+      sendStyleChange: () => true,
+      pendingDelete: previewPendingDelete,
+    });
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -62,6 +74,7 @@ describe("cross-screen drag identity provenance", () => {
           zoom={100}
           activeId="source"
           activeTool="move"
+          editableScreenIds={new Set(["source", "target"])}
           geometryById={{
             source: { x: 0, y: 0, width: 400, height: 300 },
             target: { x: 600, y: 0, width: 400, height: 300 },
@@ -130,6 +143,7 @@ describe("cross-screen drag identity provenance", () => {
         screenId: "source",
         selector: ".source-at-start",
         sourceId: "source-start-node",
+        sourceDeleteRequestId: "source-delete-request",
         sourceProvenance: startProof,
       });
       sendDrag({
@@ -168,6 +182,7 @@ describe("cross-screen drag identity provenance", () => {
         targetAnchorNodeId: "target-anchor-proof",
       }),
     );
+    expect(previewPendingDelete).not.toHaveBeenCalled();
   });
 
   it("uses the source frame geometry from drag start after a Hug screen grows", async () => {

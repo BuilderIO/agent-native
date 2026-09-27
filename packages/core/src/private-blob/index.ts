@@ -10,6 +10,7 @@ export {
   deletePrivateBlob,
   getActivePrivateBlobProvider,
   getActivePrivateBlobProviderForRequest,
+  isPrivateBlobConfiguredForRequest,
   listPrivateBlobProviders,
   putPrivateBlob,
   readPrivateBlob,

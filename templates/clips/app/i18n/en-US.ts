@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
+  },
   common: {
     cancel: "Cancel",
     create: "Create",
@@ -359,10 +366,9 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
-    commentSignupTitle: "Give your AI agent the full picture",
-    commentSignupContext: "Share transcript and timestamped frames in one link",
-    commentSignupFeedback: "Turn recorded feedback into clear next steps",
-    commentSignupDebug: "Capture console errors and failed requests",
+    commentSignupTitle: "Screen recordings your AI agent can see and hear",
+    commentSignupDescription:
+      "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -755,6 +761,8 @@ const messages = {
     changelogEmpty: "No updates yet.",
     changelogCommentSignup:
       "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogCommentsEmptyState:
+      "The empty comments state now explains how screen recordings help AI agents.",
     changelogShareLink:
       'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
@@ -1416,11 +1424,6 @@ const messages = {
     styleBlur: "Blur",
     styleSolid: "Solid",
     helpTitle: "Using redaction",
-    /**
-     * First, and on its own: everything else here is about drawing boxes, and
-     * a box on its own hides nothing. Someone who reads only one line of this
-     * help should read this one.
-     */
     helpLead:
       "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
     helpDrawTerm: "Cover something",
@@ -1440,18 +1443,8 @@ const messages = {
     helpStylesTerm: "Blur or Solid",
     styleBlurHint:
       "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
-    /**
-     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
-     * is a repeatable average, so guesses can be pixelated the same way and
-     * compared — public tools do it. Whether it works on a given clip depends
-     * on the text being short, the rendering reproducible, and the blocks small
-     * against the glyphs; ours are frame width / 40, coarse enough that this is
-     * hard. Nobody can tell which case they are in while drawing a box, and
-     * Solid costs nothing, so the advice is flat.
-     */
     styleSolidHint:
       "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
-    /** The whole judgement, in one line, for someone who does not want it. */
     helpWhenInDoubt: "Either style hides the area completely.",
     goTo: "Go to this redaction",
     remove: "Delete redaction {{number}}",

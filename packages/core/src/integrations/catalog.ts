@@ -1,11 +1,3 @@
-/**
- * Framework-owned integration taxonomy and metadata.
- *
- * This module deliberately describes integrations without implementing them.
- * Runtime behavior stays in adapters and plugins; consumers must use
- * availability and support maturity before offering a connection flow.
- */
-
 import { docsUrl } from "../shared/docs-url.js";
 
 export const INTEGRATION_CATEGORIES = [
@@ -65,11 +57,6 @@ export interface ChannelCapabilities {
 }
 
 export interface AutomationCapabilities {
-  /**
-   * `configured-webhook` uses the generic automation runtime after an app
-   * owner supplies a workflow URL and credentials. `blueprint-only` has no
-   * generic execution path in Agent-Native.
-   */
   readonly runtime: "configured-webhook" | "blueprint-only";
   readonly invokeWorkflow: boolean;
   readonly receiveCallback: boolean;
@@ -83,7 +70,6 @@ export interface IntegrationCatalogEntry {
   readonly categories: readonly IntegrationCategory[];
   readonly availability: IntegrationAvailability;
   readonly supportMaturity: IntegrationSupportMaturity;
-  /** A semantic key for consumers to map to their own icon library or asset. */
   readonly iconKey: IntegrationIconKey;
   readonly description: string;
   readonly caveats: readonly string[];

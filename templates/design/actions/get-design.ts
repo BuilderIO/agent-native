@@ -1,4 +1,9 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import {
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
+} from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -6,13 +11,10 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import getDesignSystem from "./get-design-system.js";
 import { getDesignSchema } from "./get-design.schema.js";
 
-// The editor re-reads get-design after saves, on sync events, and every second
-// while a generation runs. Count a signed-in viewer's view once per window,
-// not once per read. Per server instance; anonymous reads have no viewer key.
 const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
 const DESIGN_VIEW_TRACK_MAX_KEYS = 5000;
 const lastDesignViewTrackedAt = new Map<string, number>();
@@ -45,8 +47,32 @@ export default defineAction({
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id, fileId, includeFileContent }, ctx) => {
-    const access = await resolveAccess("design", id);
+  run: async ({ id, fileId, includeFileContent, reviewPreview }, ctx) => {
+    const db = getDb();
+    let access;
+    if (reviewPreview) {
+      const orgId = getRequestOrgId();
+      if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+        fail(
+          "Only organization owners and admins can preview reviewed designs.",
+          { statusCode: 403 },
+        );
+      }
+      const isSuperOrgAdmin = getAppConfig().observability.superOrgId === orgId;
+      const [resource] = await db
+        .select()
+        .from(schema.designs)
+        .where(
+          isSuperOrgAdmin
+            ? eq(schema.designs.id, id)
+            : and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)),
+        )
+        .limit(1);
+      if (!resource) fail("Design not found.", { statusCode: 404 });
+      access = { role: "viewer" as const, resource };
+    } else {
+      access = await resolveAccess("design", id);
+    }
     if (!access) {
       const error = new Error("Design not found") as Error & {
         statusCode: number;
@@ -56,16 +82,6 @@ export default defineAction({
     }
 
     const row = access.resource;
-    const db = getDb();
-
-    // Fetch associated files in a stable order. This array feeds the overview
-    // canvas's screen stack and each screen's index within its layout group, so
-    // unordered rows (Postgres returns heap order, which an UPDATE can change)
-    // meant the same design could lay itself out differently on two loads.
-    // Note this is deterministic, not creation-ordered: files written in one
-    // batch share a `createdAt` to the millisecond and fall back to the id
-    // tiebreak. Nothing may depend on the index matching the order a generator
-    // wrote in — see the order-independence case in variant-lineup.test.ts.
     const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,
@@ -100,7 +116,7 @@ export default defineAction({
       getDesignSystem,
     );
 
-    if (shouldTrackDesignView(ctx?.userEmail, id)) {
+    if (!reviewPreview && shouldTrackDesignView(ctx?.userEmail, id)) {
       track(
         "design_viewed",
         {
