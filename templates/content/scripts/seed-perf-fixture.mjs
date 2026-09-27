@@ -158,7 +158,23 @@ async function signIn(accountEmail, accountPassword) {
   if (cookies.length === 0) {
     throw new Error(`Sign-in for ${accountEmail} returned no session cookie`);
   }
-  return cookies.join("; ");
+  const cookie = cookies.join("; ");
+  // A new account opens on the first-run questionnaire, which hides the app;
+  // the fixture stands in for a returning user.
+  const completed = await fetch(
+    `${baseUrl}/_agent-native/onboarding/first-run/complete`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: baseUrl, cookie },
+      body: "{}",
+    },
+  );
+  if (!completed.ok) {
+    throw new Error(
+      `Completing first-run onboarding failed for ${accountEmail} (${completed.status})`,
+    );
+  }
+  return cookie;
 }
 
 async function callAction(cookie, name, payload, attempt = 1) {

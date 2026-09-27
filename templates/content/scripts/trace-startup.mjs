@@ -70,9 +70,12 @@ async function sessionCookies() {
       `Login failed (${response.status}): ${await response.text()}`,
     );
   }
+  // The first-run cookie marks a brand-new sign-up; a returning user's
+  // browser no longer carries it.
   return response.headers
     .getSetCookie()
     .map((cookie) => cookie.split(";")[0])
+    .filter((cookie) => !cookie.startsWith("agent-native-first-run="))
     .join("; ");
 }
 
@@ -289,7 +292,7 @@ for (let run = 0; run < runs; run += 1) {
     const targetId = clickPath.split("/").pop();
     const since = await page.evaluate(() => performance.now());
     await page
-      .locator(`nav a[href="${clickPath}"]`)
+      .locator(`a[href="${clickPath}"]`)
       .filter({ visible: true })
       .first()
       .click();
