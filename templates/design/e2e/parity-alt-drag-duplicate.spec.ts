@@ -112,28 +112,63 @@ const SCREEN_WITH_TWO_ELEMENTS_HTML = `<!doctype html>
 </div>
 </body></html>`;
 
-const BOARD_AUTO_LAYOUT_HTML = `<!doctype html>
+const PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1280px;height:900px;overflow:visible">
+<main data-agent-native-node-id="exit-frame" data-agent-native-layer-name="Exit frame" data-an-primitive="frame"
+      style="position:absolute;left:100px;top:100px;width:220px;height:180px;overflow:visible;background:#334155">
+  <div data-agent-native-node-id="absolute-child" data-agent-native-layer-name="Absolute child"
+       style="position:absolute;left:20px;top:24px;width:72px;height:52px;background:#2563eb">Child</div>
+</main>
+<div data-agent-native-node-id="later-sibling" data-agent-native-layer-name="Later sibling"
+     style="position:absolute;left:500px;top:100px;width:120px;height:100px;background:#475569"></div>
+</body></html>`;
+
+function boardHtml(
+  options: {
+    rootOverflow?: "visible" | "hidden";
+    rootLayout?: "auto" | "plain";
+  } = {},
+) {
+  const rootOverflow = options.rootOverflow ?? "visible";
+  const rootLayout = options.rootLayout ?? "auto";
+  const autoLayoutStyles =
+    rootLayout === "auto"
+      ? "display:flex;flex-direction:column;gap:12px;padding:20px;"
+      : "";
+  const frame2Position =
+    rootLayout === "plain" ? "position:absolute;left:20px;top:20px;" : "";
+  const frame3Position =
+    rootLayout === "plain" ? "position:absolute;left:20px;top:210px;" : "";
+
+  return `<!doctype html>
 <html><body style="margin:0;position:relative;width:3000px;height:1200px;overflow:visible;background:transparent">
 <div data-agent-native-node-id="root-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
-     style="position:absolute;left:600px;top:940px;width:440px;height:300px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:20px;background:#334155">
+     style="position:absolute;left:600px;top:940px;width:440px;height:300px;box-sizing:border-box;${autoLayoutStyles}overflow:${rootOverflow};background:#334155">
   <section data-agent-native-node-id="frame-2" data-agent-native-layer-name="Frame 2" data-an-primitive="frame"
-           style="box-sizing:border-box;width:260px;height:160px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#475569">
+           style="${frame2Position}box-sizing:border-box;width:260px;height:160px;display:flex;flex-direction:column;gap:8px;padding:12px;background:#475569">
     <div data-agent-native-node-id="frame-2-child-a" data-agent-native-layer-name="Frame 2 child A"
          style="flex:0 0 auto;width:180px;height:48px;background:#2563eb"></div>
     <div data-agent-native-node-id="frame-2-child-b" data-agent-native-layer-name="Frame 2 child B"
          style="flex:0 0 auto;width:180px;height:48px;background:#7c3aed"></div>
   </section>
   <section data-agent-native-node-id="frame-3" data-agent-native-layer-name="Frame 3" data-an-primitive="frame"
-           style="box-sizing:border-box;width:260px;height:80px;background:#0f766e"></section>
+           style="${frame3Position}box-sizing:border-box;width:260px;height:80px;background:#0f766e"></section>
 </div>
 </body></html>`;
+}
 
-async function createDesignWithBoard(request: APIRequestContext) {
+async function createDesignWithBoard(
+  request: APIRequestContext,
+  options: {
+    rootOverflow?: "visible" | "hidden";
+    rootLayout?: "auto" | "plain";
+  } = {},
+) {
   const { designId } = await createDesign(request, NAMED_HTML);
   const board = await action(request, "create-file", {
     designId,
     filename: "__board__.html",
-    content: BOARD_AUTO_LAYOUT_HTML,
+    content: boardHtml(options),
     fileType: "html",
   });
   const boardFileId = board.id ?? board.data?.id;
@@ -363,6 +398,7 @@ async function dragBoardLayerCopyToEmptyCanvas(
   request: APIRequestContext,
   designId: string,
   sourceNodeId: string,
+  expectedRootFrame?: { overflow: "visible" | "hidden"; display: string },
 ) {
   await openOverview(page, designId, 1);
   await expandAllLayers(page);
@@ -374,6 +410,16 @@ async function dragBoardLayerCopyToEmptyCanvas(
   const originalRoot = boardFrame.locator(
     '[data-agent-native-node-id="root-frame"]',
   );
+  if (expectedRootFrame) {
+    await expect
+      .poll(() =>
+        originalRoot.evaluate((element) => ({
+          overflow: getComputedStyle(element).overflow,
+          display: getComputedStyle(element).display,
+        })),
+      )
+      .toEqual(expectedRootFrame);
+  }
   const source = boardFrame.locator(
     `[data-agent-native-node-id="${sourceNodeId}"]`,
   );
@@ -395,6 +441,9 @@ async function dragBoardLayerCopyToEmptyCanvas(
   await expect(selectionBox).toBeVisible();
   const dragSurface = selectionBox.locator("[data-frame-drag-surface]");
   await expect(dragSurface).toBeVisible();
+  const traceCountBeforeDrag = await page.evaluate(
+    () => (window as any).__designTrace?.entries?.().length ?? 0,
+  );
   await zoomOutToBoardDropPoint(page);
   const rootBox = await boardNodeHostBounds(
     page,
@@ -475,6 +524,10 @@ async function dragBoardLayerCopyToEmptyCanvas(
     `[data-agent-native-node-id="${copyInfo!.id}"]`,
   );
   const copyTree = await readLayerTree(copy);
+  const copyPosition = await copy.evaluate((element) => ({
+    left: (element as HTMLElement).style.left,
+    top: (element as HTMLElement).style.top,
+  }));
   expect(originalTreeAfter).toEqual(originalTreeBefore);
   expect(withoutLayerIds(copyTree)).toEqual(withoutLayerIds(sourceTreeBefore));
   expect(new Set([...originalIdsBefore, ...layerTreeIds(copyTree)]).size).toBe(
@@ -503,6 +556,7 @@ async function dragBoardLayerCopyToEmptyCanvas(
     () => (window as any).__designTrace?.entries?.() ?? [],
   );
   const selectedCopy = selectionEntries
+    .slice(traceCountBeforeDrag)
     .filter(
       (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
         entry.event === "selection-changed" && entry.data?.hasSelection,
@@ -517,7 +571,11 @@ async function dragBoardLayerCopyToEmptyCanvas(
     .toContain(`data-agent-native-node-id="${copyInfo!.id}"`);
   return {
     copyId: copyInfo!.id,
+    copyBox,
+    copyPosition,
     copyTree,
+    dropPoint: emptyPoint,
+    grabOffset,
     originalTreeBefore,
     sourceTreeBefore,
   };
@@ -1290,6 +1348,187 @@ test.describe("alt-drag board auto-layout frames to empty board", () => {
       expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
         result.copyTree.children.map((child) => child.id),
       );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+
+  test("copies a deeply nested flow child through a plain clipped board frame to the board root", async ({
+    page,
+    request,
+  }) => {
+    const designId = await createDesignWithBoard(request, {
+      rootOverflow: "hidden",
+      rootLayout: "plain",
+    });
+    try {
+      const result = await dragBoardLayerCopyToEmptyCanvas(
+        page,
+        request,
+        designId,
+        "frame-2-child-a",
+        { overflow: "hidden", display: "block" },
+      );
+      expect(result.sourceTreeBefore.name).toBe("Frame 2 child A");
+
+      const reloaded = await expectBoardCopyAfterReload(
+        page,
+        request,
+        designId,
+        result.copyId,
+      );
+      await expect(reloaded.copy).toBeVisible();
+      expect(
+        await reloaded.original.evaluate((element) => ({
+          overflow: getComputedStyle(element).overflow,
+          display: getComputedStyle(element).display,
+        })),
+      ).toEqual({ overflow: "hidden", display: "block" });
+      expect(
+        await reloaded.copy.evaluate((element) => element.parentElement),
+      ).toBeTruthy();
+      expect(
+        await reloaded.copy.evaluate(
+          (element) => element.parentElement === element.ownerDocument.body,
+        ),
+      ).toBe(true);
+      expect(
+        await reloaded.original
+          .locator('[data-agent-native-node-id="frame-2-child-a"]')
+          .evaluate((element) =>
+            element.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+      ).toBe("frame-2");
+      expect(
+        await readLayerTree(
+          reloaded.original.locator(
+            '[data-agent-native-node-id="frame-2-child-a"]',
+          ),
+        ),
+      ).toEqual(result.sourceTreeBefore);
+      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+      expect(
+        await reloaded.copy.evaluate((element) => ({
+          left: (element as HTMLElement).style.left,
+          top: (element as HTMLElement).style.top,
+        })),
+      ).toEqual(result.copyPosition);
+      expect(result.copyBox.x).toBeCloseTo(
+        result.dropPoint.x - result.grabOffset.x,
+        -1,
+      );
+      expect(result.copyBox.y).toBeCloseTo(
+        result.dropPoint.y - result.grabOffset.y,
+        -1,
+      );
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
+});
+
+test.describe("absolute child exit from a plain frame", () => {
+  test.use({ viewport: { width: 1600, height: 1000 } });
+
+  test("moves an absolute child into empty parent space directly after its exited frame", async ({
+    page,
+    request,
+  }) => {
+    const { designId } = await createDesign(
+      request,
+      PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML,
+    );
+    try {
+      await gotoEditor(page, designId);
+      const frame = designFrame(page);
+      const child = frame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      const exitFrame = frame.locator(
+        '[data-agent-native-node-id="exit-frame"]',
+      );
+      const laterSibling = frame.locator(
+        '[data-agent-native-node-id="later-sibling"]',
+      );
+      await expect(child).toBeVisible();
+      const [childBox, frameBox, laterBox] = await Promise.all([
+        child.boundingBox(),
+        exitFrame.boundingBox(),
+        laterSibling.boundingBox(),
+      ]);
+      if (!childBox || !frameBox || !laterBox) {
+        throw new Error("plain-frame exit fixture nodes need rendered bounds");
+      }
+      const zoom = await canvasZoom(page);
+      const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
+      const start = {
+        x: childBox.x + grabOffset.x,
+        y: childBox.y + grabOffset.y,
+      };
+      const release = {
+        x: frameBox.x + frameBox.width + 48 * zoom,
+        y: frameBox.y + frameBox.height / 2,
+      };
+      expect(release.x).toBeLessThan(laterBox.x);
+      const expectedPosition = {
+        x: frameBox.x + frameBox.width,
+        y: release.y - grabOffset.y,
+      };
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      await page.mouse.up();
+
+      const bodyRoots = frame.locator("body > [data-agent-native-node-id]");
+      await expect(bodyRoots).toHaveCount(3, { timeout: 15_000 });
+      const order = await bodyRoots.evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+      );
+      expect(order).toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+      await expect
+        .poll(() => child.evaluate((element) => element.parentElement?.tagName))
+        .toBe("BODY");
+      const movedBox = await child.boundingBox();
+      expect(movedBox).not.toBeNull();
+      expect(movedBox!.x).toBeCloseTo(expectedPosition.x, -1);
+      expect(movedBox!.y).toBeCloseTo(expectedPosition.y, -1);
+      const savedInlinePosition = await child.evaluate((element) => ({
+        left: (element as HTMLElement).style.left,
+        top: (element as HTMLElement).style.top,
+      }));
+
+      await expect
+        .poll(() => fileContent(request, designId, "index.html"))
+        .toContain('data-agent-native-node-id="absolute-child"');
+      await gotoEditor(page, designId);
+      const reloadedFrame = designFrame(page);
+      const reloadedChild = reloadedFrame.locator(
+        '[data-agent-native-node-id="absolute-child"]',
+      );
+      await expect(
+        reloadedFrame.locator("body > [data-agent-native-node-id]"),
+      ).toHaveCount(3);
+      await expect
+        .poll(() =>
+          reloadedChild.evaluate((element) => element.parentElement?.tagName),
+        )
+        .toBe("BODY");
+      expect(
+        await reloadedChild.evaluate((element) => ({
+          left: (element as HTMLElement).style.left,
+          top: (element as HTMLElement).style.top,
+        })),
+      ).toEqual(savedInlinePosition);
+      const persisted = await fileContent(request, designId, "index.html");
+      const persistedOrder = await page.evaluate((html) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return Array.from(doc.body.children).map((node) =>
+          node.getAttribute("data-agent-native-node-id"),
+        );
+      }, persisted);
+      expect(persistedOrder).toEqual(order);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }

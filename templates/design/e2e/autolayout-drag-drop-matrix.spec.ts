@@ -6,7 +6,13 @@ import {
 } from "@playwright/test";
 
 import { chromeBounds } from "./drag-and-drop.shared";
-import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  designFrame,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 // Oracle: Figma Guide to auto layout (D-AL/D-HV/D-IGNORE/D-COPY) and the
 // 2026-09-18 held-drag matrix in .tmp/interaction-parity. These tests assert
@@ -71,6 +77,15 @@ const FLOW_CHILD_FREE_CANVAS_HTML = `<!doctype html><html><body style="margin:0;
   <section id="flow-origin" data-agent-native-node-id="flow-origin" data-agent-native-layer-name="Flow origin" style="position:absolute;left:80px;top:100px;width:360px;height:130px;box-sizing:border-box;display:flex;flex-direction:row;gap:20px;padding:16px;background:#334155">
     <div data-agent-native-node-id="flow-child" data-agent-native-layer-name="Flow child" style="box-sizing:border-box;flex:0 0 100px;width:100px;height:56px;background:#38bdf8;color:#082f49">Child</div>
     <div data-agent-native-node-id="flow-peer" data-agent-native-layer-name="Flow peer" style="box-sizing:border-box;flex:0 0 100px;width:100px;height:56px;background:#a78bfa;color:#2e1065">Peer</div>
+  </section>
+</body></html>`;
+
+const NESTED_GRID_HTML = `<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a;color:#f8fafc">
+  <section id="grid-outer" data-agent-native-node-id="grid-outer" data-agent-native-layer-name="Grid outer" style="position:absolute;left:200px;top:150px;width:450px;height:220px;box-sizing:border-box;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);background:#334155">
+    <section id="grid-inner" data-agent-native-node-id="grid-inner" data-agent-native-layer-name="Grid inner" style="grid-column:1;grid-row:1;display:grid;grid-template-columns:120px;grid-template-rows:60px;width:120px;height:60px;background:#475569">
+      <p data-agent-native-node-id="grid-child" data-agent-native-layer-name="Grid child" style="grid-column:1;grid-row:1;margin:0;padding:8px;background:#e2e8f0;color:#0f172a">Grid child</p>
+    </section>
+    <div id="grid-marker" data-agent-native-node-id="grid-marker" data-agent-native-layer-name="Grid marker" style="grid-column:2;grid-row:1;background:#64748b">Marker</div>
   </section>
 </body></html>`;
 
@@ -1321,6 +1336,240 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.primaryId, "inner-text"))
         .toBe("nested-outer");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("flow child dragged into empty auto-layout space keeps the pointer slot", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      await expandAllLayers(page);
+      await selectLayer(page, "Inner text");
+      const source = await boxFor(page, design.primaryId, "inner-text");
+      const marker = await boxFor(page, design.primaryId, "nested-marker");
+      const outer = await boxFor(page, design.primaryId, "nested-outer");
+      const release = {
+        x: marker.x + marker.width + 80,
+        y: marker.y + marker.height - 1,
+      };
+      expect(release.x).toBeLessThan(outer.x + outer.width);
+
+      await page.evaluate(() => {
+        const host = window as Window & {
+          __g4AutoLayoutDragStates?: Array<{
+            active?: boolean;
+            preview?: {
+              phase?: string;
+              sourceId?: string;
+              anchorId?: string;
+              placement?: string;
+              insert?: boolean;
+            };
+          }>;
+          __g4AutoLayoutStructureChanges?: Array<Record<string, unknown>>;
+        };
+        host.__g4AutoLayoutDragStates = [];
+        host.__g4AutoLayoutStructureChanges = [];
+        window.addEventListener(
+          "message",
+          (event: MessageEvent) => {
+            if (event.data?.type === "agent-native:editor-drag-state") {
+              host.__g4AutoLayoutDragStates?.push(event.data);
+            } else if (event.data?.type === "visual-structure-change") {
+              host.__g4AutoLayoutStructureChanges?.push(event.data);
+            }
+          },
+          true,
+        );
+      });
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + source.width / 2 + 12, source.y + 8, {
+        steps: 2,
+      });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const host = window as Window & {
+              __g4AutoLayoutDragStates?: Array<{
+                active?: boolean;
+                preview?: {
+                  phase?: string;
+                  sourceId?: string;
+                  anchorId?: string;
+                  placement?: string;
+                  insert?: boolean;
+                };
+              }>;
+            };
+            const previews = host.__g4AutoLayoutDragStates?.filter(
+              (state) => state.preview?.phase === "preview",
+            );
+            return previews?.[previews.length - 1] ?? null;
+          }),
+        )
+        .toMatchObject({
+          active: true,
+          preview: {
+            phase: "preview",
+            sourceId: "inner-text",
+            anchorId: "nested-marker",
+            placement: "after",
+            insert: true,
+          },
+        });
+      await expect
+        .poll(() => parentId(page, design.primaryId, "inner-text"))
+        .toBe("nested-inner");
+      await page.mouse.up();
+
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const host = window as Window & {
+              __g4AutoLayoutStructureChanges?: Array<{
+                sourceId?: string;
+                anchorSourceId?: string;
+                placement?: string;
+                persistenceAnchorSourceId?: string;
+                persistencePlacement?: string;
+              }>;
+            };
+            const changes = host.__g4AutoLayoutStructureChanges;
+            return changes?.[changes.length - 1] ?? null;
+          }),
+        )
+        .toMatchObject({
+          sourceId: "inner-text",
+          anchorSourceId: "nested-marker",
+          placement: "after",
+          persistenceAnchorSourceId: "nested-marker",
+          persistencePlacement: "after",
+        });
+
+      await expect
+        .poll(() => parentId(page, design.primaryId, "inner-text"))
+        .toBe("nested-outer");
+      await expect
+        .poll(() => directChildren(page, design.primaryId, "nested-outer"))
+        .toEqual(["nested-inner", "nested-marker", "inner-text"]);
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(() => parentId(page, design.primaryId, "inner-text"))
+        .toBe("nested-outer");
+      await expect
+        .poll(() => directChildren(page, design.primaryId, "nested-outer"))
+        .toEqual(["nested-inner", "nested-marker", "inner-text"]);
+      await cdpScreenshot(
+        page,
+        "../../.tmp/design-g4-auto-layout-direct-child.png",
+      );
+      await test.info().attach("design-g4-auto-layout-direct-child.png", {
+        path: "../../.tmp/design-g4-auto-layout-direct-child.png",
+        contentType: "image/png",
+      });
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("flow child dragged into an empty grid cell keeps that cell", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      primaryHtml: NESTED_GRID_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await expandAllLayers(page);
+      await selectLayer(page, "Grid child");
+      const source = await boxFor(page, design.primaryId, "grid-child");
+      const grid = await boxFor(page, design.primaryId, "grid-outer");
+      const release = {
+        x: grid.x + (grid.width * 5) / 6,
+        y: grid.y + grid.height / 4,
+      };
+
+      await page.evaluate(() => {
+        const host = window as Window & {
+          __g4GridStructureChanges?: Array<Record<string, unknown>>;
+        };
+        host.__g4GridStructureChanges = [];
+        window.addEventListener(
+          "message",
+          (event: MessageEvent) => {
+            if (
+              event.data?.type === "visual-structure-change" &&
+              event.data?.sourceId === "grid-child"
+            ) {
+              host.__g4GridStructureChanges?.push(event.data);
+            }
+          },
+          true,
+        );
+      });
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + source.width / 2 + 12, source.y + 8, {
+        steps: 2,
+      });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
+      await expect
+        .poll(() => parentId(page, design.primaryId, "grid-child"))
+        .toBe("grid-inner");
+      await page.mouse.up();
+
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const host = window as Window & {
+              __g4GridStructureChanges?: Array<Record<string, unknown>>;
+            };
+            const changes = host.__g4GridStructureChanges;
+            return changes?.[changes.length - 1] ?? null;
+          }),
+        )
+        .toMatchObject({
+          sourceId: "grid-child",
+          anchorSourceId: "grid-outer",
+          placement: "inside",
+          gridPlacement: { column: 3, row: 1 },
+        });
+      await expect
+        .poll(() => parentId(page, design.primaryId, "grid-child"))
+        .toBe("grid-outer");
+      const placement = () =>
+        designFrame(page, design.primaryId)
+          .locator('[data-agent-native-node-id="grid-child"]')
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              column: style.gridColumnStart,
+              row: style.gridRowStart,
+            };
+          });
+      await expect.poll(placement).toEqual({ column: "3", row: "1" });
+
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(() => parentId(page, design.primaryId, "grid-child"))
+        .toBe("grid-outer");
+      await expect.poll(placement).toEqual({ column: "3", row: "1" });
     } finally {
       await deleteDesign(request, design.id);
     }
