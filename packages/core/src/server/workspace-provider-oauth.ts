@@ -182,18 +182,6 @@ export function createWorkspaceProviderOAuthHandler(
   );
 }
 
-/**
- * Fails an OAuth step in whatever form the caller can actually read.
- *
- * Both ends of this flow are top-level browser navigations —
- * `startWorkspaceProviderOAuth` assigns `window.location`, onboarding cards
- * link straight to `/start`, and the provider redirects the browser to
- * `/callback` — so a bare `{ error }` body replaces whatever the user was
- * looking at with raw JSON and no way back. On the callback that lands them
- * there *after* they have already consented. Anything asking for HTML gets the
- * error page the sign-in callbacks already use; a programmatic caller still
- * gets JSON and the same status.
- */
 export function oauthFlowFailure(
   event: H3Event,
   status: number,
@@ -1384,11 +1372,6 @@ function methodNotAllowed(event: H3Event) {
   return oauthFlowFailure(event, 405, "Method not allowed");
 }
 
-/**
- * Losing the session mid-flow is the most likely way a real user reaches this,
- * and it happens on a navigation — so it needs the same readable page as every
- * other failure here rather than a bare 401 body.
- */
 function unauthorized(event: H3Event) {
   return oauthFlowFailure(event, 401, "Authentication required");
 }

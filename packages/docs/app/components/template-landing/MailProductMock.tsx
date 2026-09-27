@@ -32,6 +32,7 @@ type MailVariant =
 
 type MailProductMockProps = {
   label: string;
+  mobileArchiveToast: string;
   variant?: MailVariant;
   className?: string;
 };
@@ -327,6 +328,7 @@ const AGENT_STATES = {
 
 export function MailProductMock({
   label,
+  mobileArchiveToast,
   variant = "empty",
   className = "",
 }: MailProductMockProps) {
@@ -549,6 +551,11 @@ export function MailProductMock({
           </div>
         </aside>
       </div>
+      {variant === "jev" ? (
+        <div className="mm-mobile-toast" aria-hidden="true">
+          {mobileArchiveToast}
+        </div>
+      ) : null}
     </div>
   );
 }

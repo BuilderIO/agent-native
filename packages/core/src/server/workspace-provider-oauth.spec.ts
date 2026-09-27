@@ -1056,15 +1056,7 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
   );
 });
 
-/**
- * `startWorkspaceProviderOAuth` navigates the top window to this endpoint, and
- * onboarding cards link straight to it, so a JSON body on failure replaces the
- * page the user was on — a deck, a settings screen — with raw JSON and no way
- * back.
- */
 describe("oauthFlowFailure", () => {
-  // Minimal h3-v2 shape: a real Request so `getRequestHeader` reads a real
-  // header bag, and a `res` so `setResponseStatus` has somewhere to write.
   const event = (accept?: string) =>
     ({
       req: new Request("https://example.test/start", {
@@ -1080,8 +1072,6 @@ describe("oauthFlowFailure", () => {
       "Google Drive OAuth client credentials are not configured.",
     );
     expect(result).toBeInstanceOf(Response);
-    // The page carries the caller's status, not the renderer's default 400 —
-    // a missing credential is a 503 whether the caller reads HTML or JSON.
     expect((result as Response).status).toBe(503);
     const body = await (result as Response).text();
     expect(body).toContain("Google Drive OAuth client credentials");

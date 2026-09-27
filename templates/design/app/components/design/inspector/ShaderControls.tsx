@@ -60,10 +60,6 @@ const SHADER_COMPONENTS: Record<ShaderPresetName, AnyShaderComponent> = {
   PaperTexture: PaperTexture as AnyShaderComponent,
 };
 
-// ---------------------------------------------------------------------------
-// ShaderPreview sub-component
-// ---------------------------------------------------------------------------
-
 interface ShaderPreviewProps {
   descriptor: ShaderDescriptor;
   animated: boolean;
@@ -74,7 +70,6 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
   const ShaderComponent = SHADER_COMPONENTS[descriptor.preset];
   const webglOk = isWebGLAvailable();
 
-  // Build props — memoized to avoid identity churn on the WebGL layer
   const shaderProps = useMemo(() => {
     const p: Record<string, unknown> = { ...descriptor.params };
     if (descriptor.colors !== undefined) p.colors = descriptor.colors;
@@ -88,7 +83,6 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
     return p;
   }, [descriptor, animated]);
 
-  // Fallback gradient from the preset's default colors
   const fallbackStyle = {
     background: buildFallbackGradient(
       preset?.defaultColors ?? [],
@@ -138,10 +132,6 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Shared row wrapper: label-left, control-right, h-6 density
-// ---------------------------------------------------------------------------
-
 function ParamLabel({ children }: { children: React.ReactNode }) {
   return (
     <span className="w-[5.5rem] shrink-0 truncate !text-[11px] text-muted-foreground">
@@ -150,10 +140,6 @@ function ParamLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Color swatch button — design-editor style: rounded rect swatch + hex label inline
-// ---------------------------------------------------------------------------
-
 interface ColorSwatchProps {
   color: string;
   label: string;
@@ -161,9 +147,6 @@ interface ColorSwatchProps {
 }
 
 function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
-  // <input type="color"> only accepts 6-digit hex; strip any alpha suffix before
-  // passing as value, then reattach it when the user picks a new color so alpha
-  // is preserved rather than silently dropped.
   const sixDigit =
     color.length === 9 && color.startsWith("#") ? color.slice(0, 7) : color;
   const alphaSuffix =
@@ -197,10 +180,6 @@ function ColorSwatch({ color, label, onChange }: ColorSwatchProps) {
     </Tooltip>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Param row renderers
-// ---------------------------------------------------------------------------
 
 interface ParamRowProps {
   paramDef: ParamDef;
@@ -355,14 +334,9 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Main ShaderControls component
-// ---------------------------------------------------------------------------
-
 export interface ShaderControlsProps {
   descriptor: ShaderDescriptor;
   onChange: (descriptor: ShaderDescriptor) => void;
-  /** Optional callback to navigate back to the preset browser. */
   onBack?: () => void;
   className?: string;
 }
@@ -381,7 +355,6 @@ export function ShaderControls({
 
   const preset = SHADER_PRESET_MAP[descriptor.preset];
 
-  // Check if any expensive param is non-zero
   const hasExpensiveParam = preset?.params.some(
     (p: ParamDef) =>
       p.isExpensive && Number(descriptor.params[p.key] ?? p.default) > 0,
@@ -413,7 +386,6 @@ export function ShaderControls({
     value: number | boolean | string | string[],
   ) {
     if (Array.isArray(value)) {
-      // colors-kind param
       onChange({
         ...descriptor,
         params: { ...descriptor.params, [key]: value as unknown as string },
@@ -427,12 +399,9 @@ export function ShaderControls({
   }
 
   function handleColorsParamChange(key: string, value: string[]) {
-    // The shader-specific colors[] key may differ from the universal one;
-    // for now store on descriptor.colors when the param key matches "colors".
     if (key === "colors") {
       onChange({ ...descriptor, colors: value });
     } else {
-      // Store as JSON string in params for non-standard color arrays
       onChange({
         ...descriptor,
         params: { ...descriptor.params, [key]: JSON.stringify(value) },
@@ -544,7 +513,6 @@ export function ShaderControls({
           <div className="flex flex-col gap-1 px-3 pb-2">
             {preset.params.map((paramDef: ParamDef) => {
               if (paramDef.kind === "colors") {
-                // Resolve the current color array
                 const val: string[] =
                   descriptor.colors ?? preset.defaultColors ?? [];
                 return (

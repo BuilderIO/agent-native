@@ -24,11 +24,6 @@ function canManageTemplateRole(role: EffectiveRole) {
 
 type UnlinkResult = { id: string; status: "unlinked" | "skipped-no-access" };
 
-// Admin access on a shared design system does not grant write access to
-// every design or saved template that happens to reference it — those are
-// separate resources with their own owners and shares. Skip anything the
-// caller can't edit instead of silently rewriting it, and report the skips
-// back so the caller can decide whether to follow up.
 async function unlinkDesign(designId: string): Promise<UnlinkResult> {
   const access = await resolveAccess("design", designId);
   if (!access || !canEditDesignRole(access.role)) {
@@ -86,11 +81,6 @@ export default defineAction({
         .then((rows) => rows.map((row) => row.id)),
     ]);
 
-    // Delete the design system (and its shares) before touching linked
-    // designs/templates. Once the row is gone, other actions'
-    // assertAccess("design-system", ...) checks fail for anyone trying to
-    // attach a fresh link, shrinking the window for a new link to attach to
-    // a design system being deleted.
     await db.transaction(async (tx) => {
       await tx
         .delete(schema.designSystemShares)
@@ -125,10 +115,6 @@ export default defineAction({
       }
     });
 
-    // Best-effort cleanup: the design system is already gone, so a design or
-    // template we can't touch (missing access) is left dangling rather than
-    // retried here — both get-design-template and list-design-templates
-    // already mask a dangling designSystemId by resolving it back to null.
     const [designResults, templateResults] = await Promise.all([
       Promise.allSettled(linkedDesignIds.map(unlinkDesign)),
       Promise.allSettled(linkedTemplateIds.map(unlinkDesignTemplate)),

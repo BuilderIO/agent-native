@@ -64,10 +64,6 @@ const coreRuntimeApi: CoreRuntimeApi = {
   transitionStoredMultiFrontierRun,
 };
 
-/**
- * The coordinator's only durable-store adapter. It deliberately projects no
- * provider output: core owns event fencing and the durable collaboration file.
- */
 export class CoreMultiFrontierCoordinatorStore implements LocalFrontierCoordinatorStore {
   readonly #core: CoreRuntimeApi;
   readonly #now: () => string;
@@ -148,7 +144,6 @@ export interface CodexLocalFrontierParticipantOptions {
   command?: string;
   env?: NodeJS.ProcessEnv;
   sessionRef?: string;
-  /** Called only after Codex returns a new opaque resume id. */
   onSessionRef?: (sessionRef: string) => Promise<void> | void;
   run?: typeof runCodexCliParticipant;
 }
@@ -419,7 +414,6 @@ export class ClaudeLocalFrontierParticipant implements LocalFrontierParticipant 
   }
 }
 
-/** Startup recovery is intentionally persistence-only: it never creates a CLI child. */
 export function pauseRecoveredMultiFrontierRuns(
   options: {
     core?: CoreRuntimeApi;
@@ -445,7 +439,6 @@ export function pauseRecoveredMultiFrontierRuns(
     });
 }
 
-/** Persists an opaque participant session without accepting renderer state. */
 export function persistMultiFrontierParticipantSessionRef(
   collaborationId: string,
   participantId: string,
@@ -567,7 +560,6 @@ function toCoreParticipants(
     const persisted = current?.participants.find(
       (candidate) => candidate.participantId === participant.participantId,
     );
-    // Session values advance only through persistMultiFrontierParticipantSessionRef.
     const sessionRef = persisted?.sessionRef ?? participant.sessionRef;
     return {
       ...participant,

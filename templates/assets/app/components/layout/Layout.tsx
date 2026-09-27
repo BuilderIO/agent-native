@@ -77,8 +77,6 @@ export function Layout({ children }: LayoutProps) {
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) =>
       pathname === "/home" || pathname.startsWith("/chat/"),
-    // Only preserve the transition when chat activity has recorded an active
-    // handoff; an empty home chat should keep the destination sidebar closed.
     requireActiveHandoff: true,
   });
 

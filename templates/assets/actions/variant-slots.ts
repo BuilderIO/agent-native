@@ -85,9 +85,6 @@ export async function wasVariantSlotDismissed(
     typeof scope === "object" && scope
       ? variantScopeIdFor(scope)
       : normalizeVariantScopeId(scope);
-  // Unscoped callers (CLI/A2A/MCP with no thread or picker tab) share one global
-  // state row across separate processes, so a missing slot there means another
-  // process overwrote the row, not that a human dismissed anything.
   if (!scopeId) return false;
   return withVariantStateLock(async () => {
     const state = await readVariantStateUnlocked(scopeId);
@@ -166,8 +163,6 @@ function isSameVariantScope(
 ): boolean {
   if (!previous) return false;
 
-  // The batch/run id is the generation boundary: batch slots may have distinct
-  // prompts, while a later run with the same prompt/options must start fresh.
   return (
     previous.libraryId === input.libraryId &&
     variantScopeId(previous) === variantScopeId(input) &&
@@ -217,12 +212,6 @@ export async function failMissingVariantRun(input: {
   });
 }
 
-// Iterations (refine/edit/restyle) are a continuation of what is already on
-// screen for this thread, not a new generation topic: they should append into
-// the live tray instead of tripping the "new batch/run" reset in
-// isSameVariantScope. Passing the current tray's batch/run id plus its
-// collection/preset/session back through keeps every isSameVariantScope check
-// satisfied.
 export async function resolveLiveBatchContinuation(input: {
   threadId?: string | null;
   libraryId: string;

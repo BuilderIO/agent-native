@@ -162,13 +162,6 @@ export interface CommitVisualStylesArgs {
   ydoc: Y.Doc | null;
 }
 
-/**
- * A selector different from the selection's own means the caller deliberately
- * retargeted the write — a repeat's template body, or the child that paints
- * the text. Resolving from the selection then sends it back to the element the
- * caller ruled out, and a clone's positional selector resolves to nothing in
- * source, so the write silently vanishes.
- */
 export function styleWriteIsRetargeted(
   selector: unknown,
   selectedElement: ElementInfo | null | undefined,
@@ -228,11 +221,8 @@ export function runCommitVisualStyles(
   options: {
     runtimeApplied?: boolean;
     elementInfo?: ElementInfo;
-    /** Pre-gesture values, for the pending-edit revert stack. */
     originalStyles?: Record<string, string>;
     pendingUndoGestureId?: string;
-    /** The write is a side effect of a gesture on another element, so it must
-     *  not move the selection onto the element it touched. */
     preserveSelection?: boolean;
     routePath?: string;
   } = {},
@@ -273,9 +263,6 @@ export function runCommitVisualStyles(
     (liveTargetInfo.boundingRect.width <= 0 ||
       liveTargetInfo.boundingRect.height <= 0)
   ) {
-    // A live gesture may have already painted the wrapper before its measured
-    // box proved non-rendered. Roll that preview back through the same bridge
-    // identity used by undo, then reject the invisible edit below.
     if (options.runtimeApplied && options.originalStyles) {
       const runtimePatch = {
         screenId: activeFile.id,
@@ -308,21 +295,8 @@ export function runCommitVisualStyles(
     return;
   }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
-  // §gesture-persistence — a localhost screen's source of truth is the
-  // running app's own files, which this client cannot write. Everything
-  // below patches the design's STORED html, which for such a screen is
-  // only the bridged route URL, so an inspector commit updated the model
-  // and the undo stack while the running app kept rendering the old value
-  // and no pending edit was ever queued for the Apply pass. Push the value
-  // into the live DOM and queue it, exactly like a canvas gesture
-  // (handleVisualStyleChange delegates here with runtimeApplied set
-  // because its gesture already moved the live DOM).
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     const targetInfo = liveTargetInfo;
-    // Breakpoint-scoped writes are excluded for the same reason as the
-    // base path below (Item 5, edit-flash): the agent persists them as a
-    // width-scoped class or an `@media` rule, which an inline style would
-    // preview wrong.
     if (
       !options.runtimeApplied &&
       activeBreakpointUpperBoundPx == null &&
@@ -355,10 +329,6 @@ export function runCommitVisualStyles(
       : undefined
     : undefined;
   const baseContent = getScreenContent(activeFile.id);
-  // A localhost screen's stored content IS its route URL, so with no
-  // snapshot yet the chain above yields that URL string. Projecting it gives
-  // a 3-node document where nothing resolves: a snapshot that has not
-  // arrived is not an empty document.
   if (isStandaloneHttpUrl(baseContent)) {
     toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
       duration: 4000,
@@ -366,20 +336,12 @@ export function runCommitVisualStyles(
     return;
   }
   const [firstProperty, firstValue] = entries[0];
-  // PF12: reuse the already-built activeCodeLayerProjection when its
-  // source content is exactly the content this commit is about to patch
-  // (the common case — no pending live snapshot/local-edit divergence).
-  // Style commits fire on every slider/color-picker drag tick, so
-  // skipping a redundant full-document reparse here matters.
   const projection =
     baseContent === activeProjectionContent
       ? activeCodeLayerProjection
       : buildCodeLayerProjection(baseContent, {
           source: activeCodeLayerProjection.source,
         });
-  // An explicitly retargeted selector wins over the payload too: the canvas
-  // gesture path passes both, and resolving from the payload would send the
-  // write back to the one clone the gesture happened to move.
   const carriedInfo = options.elementInfo ?? selectedElement;
   const targetInfo = styleWriteIsRetargeted(selector, carriedInfo)
     ? null
@@ -390,21 +352,6 @@ export function runCommitVisualStyles(
   const targetNode =
     targetResolution.status === "resolved" ? targetResolution.node : null;
   const sendStyleChange = (window as any).__designCanvasSendStyle;
-  // Item 5 (edit-flash): a breakpoint-scoped commit
-  // (activeBreakpointUpperBoundPx set) never persists as a plain inline
-  // style — planBreakpointStyleWrite below turns it into a width-scoped
-  // Tailwind class or an `@media` rule in the managed breakpoints <style>
-  // block. sendStyleChange only knows how to patch the live element's
-  // INLINE style, which unconditionally beats any `@media` rule's
-  // specificity. Applying it here would preview the wrong
-  // (inline-style-overridden) value immediately, then visibly flash to the
-  // correct cascaded value once the next full document patch/reload catches
-  // up — so skip the runtime shortcut entirely for breakpoint-scoped writes
-  // and fall through to the full content patch path below, which reflects
-  // the actual persisted class/`@media` result.
-  // These rebuild SVG markup (defs/use, or a vector's rounded path data), so
-  // preview them through the committed document replacement below instead of
-  // layering a runtime copy.
   const targetIsSvg =
     (targetNode?.tag ?? targetInfo?.tagName)?.toLowerCase() === "svg";
   const runtimeStyleApplied =
@@ -414,7 +361,6 @@ export function runCommitVisualStyles(
         isVectorEndpointProperty(property) ||
         (targetIsSvg &&
           /^border(-[a-z]+)*-radius$|^border\w*Radius$/.test(property)) ||
-        // A Figma vector's first resize also adds preserveAspectRatio="none".
         (targetIsSvg &&
           (property === "width" || property === "height") &&
           targetNode?.dataAttributes["data-figma-node-id"] !== undefined &&
@@ -423,13 +369,8 @@ export function runCommitVisualStyles(
     !options.runtimeApplied &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";
-  // Shared by both terminal paths below so neither drifts into previewing a
-  // different element than the other.
   const sendRuntimeStylePreview = (): void => {
     if (!runtimeStyleApplied) return;
-    // A stamped id goes stale the moment React re-creates the node, so send
-    // the bridge-minted identities as fallbacks (see
-    // canonicalElementInfoForCodeLayerNode).
     const selectorCandidates = targetNode
       ? codeLayerSelectorAliases(targetNode)
       : Array.from(
@@ -487,9 +428,6 @@ export function runCommitVisualStyles(
     return;
   }
 
-  // U7: if this style commit repositions (left/top) the node(s) most
-  // recently created by Cmd+D, record the delta so the next Cmd+D on that
-  // same selection can replay it instead of landing back in place.
   if (targetNode && lastDuplicateTransformRef.current) {
     const nodeId =
       targetNode.dataAttributes["data-agent-native-node-id"] ?? targetNode.id;
@@ -521,13 +459,6 @@ export function runCommitVisualStyles(
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
-    // Fail LOUD (same contract as the resolveVisualStyleCommitContent
-    // error branch below): patch-proof state alone is too quiet for a
-    // user-initiated edit that will never persist.
-    //
-    // Three facts, three remedies: ambiguous needs scoping, a mount shell
-    // has no app markup at ANY selector, and only an authored document that
-    // lost the node is actually "missing".
     const resolutionFailure =
       targetResolution.status === "ambiguous"
         ? t("designEditor.patchProof.selectorAmbiguous", {
@@ -642,11 +573,6 @@ export function runCommitVisualStyles(
     },
     { content: baseContent, failed: null },
   );
-  // §6.4 — the legacy selector-based inline-style fallback (nextContent)
-  // is a BASE write: safe when editing the base, but while a narrower
-  // breakpoint is active it would clobber every viewport width with a
-  // value the user meant to scope. Fail loud (patch-proof error) instead
-  // of silently widening the edit.
   const commitResolution = resolveVisualStyleCommitContent({
     scopedContent: stylePatch.content,
     scopedFailure: stylePatch.failed,
@@ -658,13 +584,6 @@ export function runCommitVisualStyles(
       commitResolution.error,
       t("designEditor.patchProof.selectorMissing"),
     );
-    // Fail LOUD, never silently: an unresolvable commit target (e.g. an
-    // Alpine template-instance element with no per-instance source node)
-    // used to only flip the patch-proof panel to "failed" — no toast, no
-    // revert, while the inspector kept displaying the new value, so users
-    // had no idea their edit never persisted (verified on real content:
-    // Gap scrub on an x-for todo-card subtask row). Same toast pattern as
-    // handleVisualStructureChange's move failure.
     toast.error(failureMessage, { duration: 4000 });
     setPatchProof((prev) =>
       prev?.id === proofId
@@ -675,8 +594,6 @@ export function runCommitVisualStyles(
   }
   const resolvedNextContentBeforeFontLink = commitResolution.content;
 
-  // T16: if this commit set fontFamily to a known Google Font not
-  // already loaded in this screen, inject its <link> into <head>.
   const fontFamilyValue = Object.fromEntries(entries).fontFamily;
   const resolvedNextContentAfterFontLink = fontFamilyValue
     ? ensureGoogleFontLinkInHtml(
@@ -685,11 +602,6 @@ export function runCommitVisualStyles(
       )
     : resolvedNextContentBeforeFontLink;
 
-  // Finding 2(b): an explicit "color" commit on a node that still carries
-  // BOARD_TEXT_AUTO_COLOR_MARKER means the user just deliberately chose a
-  // color — the marker no longer describes an auto-applied default and
-  // must not survive to mislead a later reparent/cross-screen move (see
-  // isStaleAutoTextColorMarker / clearAutoTextColorMarkerOnExplicitColorCommit).
   const committedNodeId =
     targetNode?.dataAttributes["data-agent-native-node-id"];
   const unpreparedNextContent =
@@ -787,19 +699,6 @@ export function runCommitVisualStyles(
       !suppressContentHistoryRef.current &&
       baseContent !== resolvedNextContent
     ) {
-      // BUG-UNDO-RESIZE-STACK: mirror the same before/after into the local
-      // fallback stack that applyLocalContentUpdate already maintains for
-      // every other commit path (text edits, moves, structure changes).
-      // The Yjs UndoManager is destroyed and recreated whenever `docId`
-      // changes — a view-mode switch, a zoom-triggered re-render, or a
-      // breakpoint switch — which silently drops its entire undo stack.
-      // Without this mirror, a gesture-driven style/resize commit (the
-      // ONLY commit path that skipped this call) became permanently
-      // unrecoverable the moment that happened: handleUndo's um.canUndo()
-      // goes false with nothing to fall back to, so Cmd+Z does nothing at
-      // all for a resize-drag even though every other edit kind still has
-      // a working fallback. Only consulted once Yjs itself has nothing
-      // left to undo (see handleUndo), so this never causes a double-undo.
       recordLocalContentHistoryChangeFallback({
         fileId: activeFile.id,
         before: baseContent,
@@ -812,22 +711,12 @@ export function runCommitVisualStyles(
     setPatchProof((prev) =>
       prev?.id === proofId ? { ...prev, status: "queued" } : prev,
     );
-    // Mark as our own write so the get-design reconcile + Yjs observe don't
-    // treat the echo as an external edit and fight the live value.
     lastLocalContentRef.current = resolvedNextContent;
     latestActiveContentRef.current = resolvedNextContent;
-    // Write the edit into the shared Y.Doc so other open clients see it live
-    // through Yjs (not only via the slower update-file → applyText round-trip).
-    // Single-screen edits use the active-file UndoManager. Overview edits are
-    // tracked in the global file-content stack so all screens share one order.
     if (ydoc && writeLiveDoc) {
       const ytext = ydoc.getText("content");
       if (ytext.toJSON() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
-          // Untracked write (overview mode with a still-live
-          // single-mode UndoManager, or history-suppressed replay) —
-          // see U1 note: clear the undo stack so a stale tracked delta
-          // can't be replayed against content it no longer matches.
           undoManagerRef.current?.clear(true, false);
         }
         writeCollabText(
@@ -855,9 +744,6 @@ export function runCommitVisualStyles(
     }
   }
   if (options.preserveSelection) return;
-  // A commit must never shrink the selection: a group transform commits one
-  // style change per member, so selecting the committed node keeps only the
-  // member that happened to commit last.
   if (resolvedNode) {
     setSelectedLayerIdsState((current) =>
       current.includes(resolvedNode.id) ? current : [resolvedNode.id],

@@ -138,9 +138,6 @@ export default defineAction({
         title?.trim() ||
         `Copy of ${lockedRow.document.title.trim() || "Untitled"}`;
       const nextPosition = lockedRow.item.position + 1;
-      // The copy sits beside its original: collection rows keep the collection
-      // page as parent, and Files pages keep their place in the page tree
-      // (including top-level pages, whose parent is null).
       const duplicateParentId =
         row.database.systemRole === "files"
           ? lockedRow.document.parentId
@@ -193,7 +190,6 @@ export default defineAction({
             eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
             duplicateParentId === null
               ? and(
-                  // Top-level siblings are the same space and root section.
                   isNull(schema.documents.parentId),
                   eq(schema.documents.spaceId, row.database.spaceId!),
                   eq(

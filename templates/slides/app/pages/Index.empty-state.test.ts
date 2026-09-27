@@ -11,12 +11,10 @@ const source = readFileSync(
 
 describe("Slides home header", () => {
   it("keeps search and import available without create or filter controls", () => {
+    const headerStart = source.indexOf("const homeHeaderActions = useMemo(");
     const header = source.slice(
-      source.indexOf("useSetHeaderActions("),
-      source.indexOf(
-        "if (isStartingNewDeck)",
-        source.indexOf("useSetHeaderActions("),
-      ),
+      headerStart,
+      source.indexOf("</HomeHeaderActions>", headerStart),
     );
 
     expect(header).toContain("<DeckSearchInput");

@@ -25,17 +25,6 @@ import {
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 
-/**
- * Deep link that reopens a compose draft in the Mail compose panel.
- *
- * The link is an opaque pointer (draft id only). The full draft — subject,
- * recipients, body — lives in the `compose-{id}` app-state row written by
- * this action, so the compose panel reads it from there on render. We
- * deliberately do NOT inline the draft contents into the URL: external MCP
- * hosts (ChatGPT / Claude) surface this link in their UI, the host LLM can
- * see and remember query strings, and shared / exported chat transcripts
- * would otherwise leak private draft content.
- */
 function composeDeepLink(draft: Record<string, string>): string {
   return buildDeepLink({
     app: "mail",
@@ -45,7 +34,6 @@ function composeDeepLink(draft: Record<string, string>): string {
   });
 }
 
-/** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }

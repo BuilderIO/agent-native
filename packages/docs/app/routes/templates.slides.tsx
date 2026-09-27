@@ -52,8 +52,6 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "slides")!;
 
-// Which side carries the text is data rather than row parity, matching Clips,
-// so a reordered or added row does not silently flip every side below it.
 const USE_CASES = [
   {
     id: "sales-and-pitch-decks",
@@ -108,11 +106,6 @@ const FAQ_ITEMS = [
   { id: "powerpoint-google-slides", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -127,10 +120,6 @@ export default function SlidesTemplate() {
       <div className={HERO_WRAPPER_CLASS}>
         <TemplateHero
           title={
-            // Slides' title is short enough to sit on one full-width line at
-            // this column width, unlike Clips' longer title, which wraps
-            // naturally. Cap it so both apps keep the same two-line hero
-            // rhythm instead of Slides reading as a single stretched line.
             <span className="block max-w-[520px]">
               {t("templateLanding.slides.heroTitle")}
             </span>
@@ -323,11 +312,6 @@ export default function SlidesTemplate() {
             href={firstPartyAppUrl("https://slides.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // The shared cta variant renders at 14px in sentence case, but
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page
-            // read as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
             onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);

@@ -97,11 +97,6 @@ function importedToolNames(value: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * Imported tool names are descriptive input, not a permission grant. Keep only
- * names the current Dispatch surface can resolve and make every omission
- * visible to the caller instead of persisting a misleading tool list.
- */
 export function validateImportedAgentTools(
   tools: string | undefined,
   availableToolNames: ReadonlySet<string>,

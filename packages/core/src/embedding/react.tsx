@@ -46,17 +46,8 @@ export interface EmbeddedAppProps extends Omit<
   "src" | "onLoad"
 > {
   url: string;
-  /**
-   * Origin used when posting messages to the iframe. Defaults to url's origin.
-   */
   targetOrigin?: string;
-  /**
-   * Origins allowed to send messages back. Defaults to targetOrigin.
-   */
   allowedOrigins?: string[];
-  /**
-   * Adds `embedded=1` by default. Pass false to use the URL untouched.
-   */
   embed?: boolean | EmbeddedAppUrlOptions;
   onLoad?: (ref: EmbeddedAppRef) => void;
   onReady?: (

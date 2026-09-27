@@ -1,16 +1,3 @@
-/**
- * Generic media upload — used for brand logos and any other ad-hoc image
- * uploads the app needs. The video upload path lives under /api/uploads/
- * because it's chunked; this route is a one-shot file POST.
- *
- * POST /api/media?organizationId=<id>&filename=<name>
- *   Body: raw file bytes (Content-Type header determines the MIME type)
- *   Response: { reference, filename, mimeType, size }
- *
- * Max size: 5 MB (logos). Storage uses private blob storage; SQL stores only
- * the returned opaque reference, never the image bytes.
- */
-
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {

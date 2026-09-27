@@ -24,9 +24,6 @@ vi.mock("../db/client.js", () => ({
 }));
 
 async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
-  // notifyActionChange writes to the settings/application_state tables which
-  // are not migrated in this isolated test DB — stub it out so mutating ops
-  // don't fail on the change-notify side effect.
   vi.doMock("../server/action-change.js", () => ({
     notifyActionChange: vi.fn(async () => {}),
   }));
@@ -156,7 +153,6 @@ describe("getRows", () => {
       pageSize: 50,
       filters: [{ column: "author_id", op: "eq", value: 1 }],
     });
-    // books with id 1,3,5 -> author_id (i%2)+1 = 2,2,2; id 2,4 -> 1.
     expect(eq.total).toBe(2);
     expect(eq.rows.every((r) => r.author_id === 1)).toBe(true);
 
@@ -289,7 +285,6 @@ describe("applyMutations", () => {
     expect(result.sql).toHaveLength(1);
     expect(result.sql[0]).toContain('INSERT INTO "authors"');
 
-    // Row must NOT exist after a dryRun.
     const rows = await ops.getRows("authors", {
       page: 1,
       pageSize: 50,
@@ -395,7 +390,6 @@ describe("runSql", () => {
       ops.runSql("DROP TABLE books", undefined, {}),
     ).rejects.toMatchObject({ needsConfirm: true });
 
-    // Comment-stripping: a DELETE with only a commented-out WHERE is destructive.
     await expect(
       ops.runSql("DELETE FROM books -- WHERE id = 1", undefined, {}),
     ).rejects.toMatchObject({ needsConfirm: true });

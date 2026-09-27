@@ -58,8 +58,6 @@ type SignedOutPage = PageRuntimeErrors & {
   mutationRequests: string[];
 };
 
-/** The design's own screen. `designFrame`'s `.last()` resolves to the linked
- *  screen this fixture mounts after it. */
 function ownScreenFrame(page: Page) {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -931,17 +929,9 @@ test.describe.serial("public visual edit", () => {
             visible: true,
           });
       };
-      // Button asChild wraps an <a href>, so the CTA's role is link — the
-      // sibling /visual-edit test queries it the same way.
       await expect(
         signedOut.page.getByRole("link", { name: /^sign up$/i }).first(),
       ).toBeVisible();
-      // A read-only visitor DOES get a Share control — it is a sign-in CTA
-      // rendered as `<Button asChild><a>`, so it carries role "link", not
-      // "button". Asserting no *button* named share passed for the wrong
-      // reason: it is vacuously true whether or not the control renders.
-      // `signed-out save and share buttons send visitors to the sign-in
-      // return URL` covers where that link goes.
       await expect(
         signedOut.page.getByRole("link", { name: /^share$/i }),
       ).toHaveCount(1);
@@ -1013,8 +1003,6 @@ test.describe.serial("public visual edit", () => {
   test("signed-out save and share buttons send visitors to the sign-in return URL", async ({
     browser,
   }) => {
-    // Both signed-out CTAs are `<Button asChild><a href=...>`, so the element
-    // that carries the accessible name is an anchor with role "link".
     await expectReturnUrl(
       browser,
       `/design/${designId}`,

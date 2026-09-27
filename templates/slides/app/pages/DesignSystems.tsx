@@ -33,13 +33,6 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
 
-// DesignSystemCard reads colors.* / typography.* unconditionally, down to
-// nested fields like typography.headingFont. Rows written before
-// create/update validation existed can have `colors: {}`, which used to make
-// this page hide the row entirely — the card, its Delete menu item, and the
-// only UI path to remove it all disappeared with no error. Filling gaps with
-// the same defaults `useDeckDesignSystem` applies keeps the card (and its
-// delete affordance) visible instead.
 export function parseDesignSystemListData(dataStr: string): DesignSystemData {
   try {
     return mergeDesignSystemData(JSON.parse(dataStr));
@@ -81,8 +74,6 @@ export default function DesignSystems() {
 
   const applyWorkspaceDefault = async (ds: (typeof designSystems)[number]) => {
     try {
-      // Private means unreadable to teammates, which would make the workspace
-      // default silently do nothing for them. Share through the audited action.
       if (ds.visibility === "private") {
         await callAction("set-resource-visibility", {
           resourceType: "design-system",
@@ -105,8 +96,6 @@ export default function DesignSystems() {
     if (isDefault) {
       const ds = designSystems.find((d) => d.id === id);
       if (!ds) return;
-      // Only publishing a private design system to the whole workspace is
-      // worth a confirmation; the default itself is one click to undo.
       if (ds.visibility === "private") {
         setWorkspaceDefaultCandidate(ds);
         return;
@@ -126,9 +115,6 @@ export default function DesignSystems() {
   };
 
   const confirmWorkspaceDefault = () => {
-    // Read but do not clear: AlertDialogAction closes the dialog, and clearing
-    // here too would pre-empt Radix's cleanup and leave <body> at
-    // `pointer-events: none`. `onOpenChange` clears the candidate.
     const ds = workspaceDefaultCandidate;
     if (!ds) return;
     void applyWorkspaceDefault(ds);

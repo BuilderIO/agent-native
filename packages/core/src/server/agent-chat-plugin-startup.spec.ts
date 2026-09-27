@@ -39,13 +39,9 @@ describe("agent chat startup", () => {
       "utf8",
     );
 
-    // Nothing awaits the eager hydration, so on a runtime that freezes after
-    // responding its settings scan and MCP handshakes escape past the response.
     expect(source).toContain(
       "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized().catch",
     );
-    // The lazy path must actually run: never initializing would be worse than
-    // the cold-start cost it removes.
     expect(source).toContain("waitUntilReady: ensureMcpInitialized,");
     expect(
       source.slice(
@@ -97,15 +93,6 @@ describe("agent chat startup", () => {
     expect(triggerSetup).not.toContain("disableRecurringJobsRuntime");
   });
 
-  /**
-   * The in-process fast sweep is gated on `shouldDisableInProcessSweeps()`,
-   * which is ON for every production serverless function — so for 21 days
-   * production had NO periodic stale reaper at all (1,216 stranded runs, 12% of
-   * all runs, up to 59 minutes each). The durable, signed, platform-scheduled
-   * recurring-job sweep is the only per-site tick that exists; stale reaping
-   * rides it rather than getting a second scheduled function or a second
-   * kill-switch exemption.
-   */
   it("drives stale reaping from the durable scheduled sweep", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),
@@ -120,12 +107,9 @@ describe("agent chat startup", () => {
     expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
     expect(sweepRoute).toContain("reapExpired: true");
     expect(sweepRoute).toContain("jobsSkippedReason");
-    // Ahead of the open-ended job sweep, which can spend the platform wall.
     expect(sweepRoute.indexOf("reapAllStaleRuns()")).toBeLessThan(
       sweepRoute.indexOf("processRecurringJobs(schedulerDeps)"),
     );
-    // A reap failure is reported and stays distinguishable from "reaped
-    // nothing", but must never take recurring jobs down with it.
     expect(sweepRoute).toContain("durable stale-run reap failed");
     expect(sweepRoute).toContain("staleRunsReaped");
     expect(sweepRoute).not.toContain(".catch(() => {})");

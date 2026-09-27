@@ -1,14 +1,3 @@
-/**
- * Unit tests for `applyDraftGeometry`'s K-scale (Figma "Scale" tool) parity:
- * when a draft primitive resize is driven by the K/scale tool
- * (`beginDraftResize`'s mousemove handler passes `scaleK: true`), the
- * draft's `strokeWidth` must grow/shrink proportionally with the resize's
- * uniform scale factor — exactly like Figma's Scale tool multiplies stroke
- * weight along with the box. A normal resize (`scaleK` omitted/false, the
- * default) must leave `strokeWidth` completely untouched — only `geometry`
- * changes.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { applyDraftGeometry } from "./multi-screen/draft-primitives";
@@ -54,13 +43,10 @@ describe("applyDraftGeometry — K-scale strokeWidth parity", () => {
   });
 
   it("K-scale uses the LARGER axis factor for a non-uniform resize", () => {
-    // Width grows 3x, height only 1.5x — a stroke/font has no separate
-    // horizontal/vertical component, so the larger factor wins (see the
-    // doc comment on applyDraftGeometry for the rationale).
     const draft = rectDraft({ strokeWidth: 2 });
     const nonUniform: FrameGeometry = { x: 0, y: 0, width: 300, height: 150 };
     const result = applyDraftGeometry(draft, nonUniform, true);
-    expect(result.strokeWidth).toBe(6); // 2 * max(3, 1.5)
+    expect(result.strokeWidth).toBe(6);
   });
 
   it("K-scale leaves strokeWidth untouched when the draft has none set", () => {
@@ -70,10 +56,6 @@ describe("applyDraftGeometry — K-scale strokeWidth parity", () => {
   });
 
   it("K-scale never produces a negative strokeWidth (clamped at 0)", () => {
-    // Degenerate case: origin geometry collapsed to near-zero, producing an
-    // enormous scale factor — Math.max(0, ...) still guards the floor even
-    // though a huge positive factor can't go negative on its own; this
-    // documents the clamp exists rather than asserting an impossible input.
     const draft = rectDraft({ strokeWidth: 2 });
     const result = applyDraftGeometry(
       { ...draft, geometry: { x: 0, y: 0, width: 1, height: 1 } },
@@ -96,7 +78,6 @@ describe("applyDraftGeometry — K-scale strokeWidth parity", () => {
       { x: 20, y: 20 },
       { x: 180, y: 180 },
     ]);
-    // strokeWidth still untouched even though points did scale.
     expect(result.strokeWidth).toBe(2);
   });
 });

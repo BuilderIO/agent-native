@@ -38,10 +38,6 @@ import {
 import { cn } from "../utils.js";
 import { usePersistentSidebarCollapsed } from "./use-persistent-sidebar-collapsed.js";
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarLinkProps extends Omit<
   AnchorHTMLAttributes<HTMLAnchorElement>,
   "href"
@@ -50,15 +46,6 @@ export interface AppSidebarLinkProps extends Omit<
   href?: string;
 }
 
-/**
- * Sidebar links are rendered inside `asChild` triggers (tooltips on the
- * collapsed rail, and any popover/menu an app layers on top). Radix passes its
- * event handlers, `data-state`, and ref through props, so a link component that
- * only destructures the props it recognizes silently drops the trigger and the
- * tooltip never opens. Forwarding the ref and spreading the rest is the
- * contract; the type widens the prop surface so doing so compiles, and
- * `sidebar.spec.tsx` is what actually holds the contract.
- */
 export type AppSidebarLinkComponent = ComponentType<
   AppSidebarLinkProps & RefAttributes<HTMLAnchorElement>
 >;
@@ -68,7 +55,6 @@ export interface AppSidebarContextValue {
   setCollapsed: (collapsed: boolean | ((current: boolean) => boolean)) => void;
   toggleCollapsed: () => void;
   isMobile: boolean;
-  /** Router-aware link. Defaults to a native `<a href>`. */
   LinkComponent: AppSidebarLinkComponent;
 }
 
@@ -108,10 +94,6 @@ function renderSidebarIcon(
   return <IconComponent className={className} />;
 }
 
-// ---------------------------------------------------------------------------
-// Item Definition Types
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarItemDefinition {
   id?: string;
   to?: string;
@@ -125,10 +107,6 @@ export interface AppSidebarItemDefinition {
   onClick?: (event: MouseEvent) => void;
   children?: ReactNode;
 }
-
-// ---------------------------------------------------------------------------
-// Header
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarHeaderProps extends HTMLAttributes<HTMLDivElement> {
   brandName?: ReactNode;
@@ -195,10 +173,6 @@ export const AppSidebarHeader = forwardRef<
         {...props}
       >
         {collapsed && brandName && isValidElement(brand) ? (
-          // Own provider: the header is exported on its own, so it cannot
-          // assume an AppSidebar TooltipProvider above it. `isValidElement`
-          // because `brandLink` is a ReactNode escape hatch, and Radix's
-          // asChild slot needs a single element to merge into.
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>{brand}</TooltipTrigger>
@@ -215,10 +189,6 @@ export const AppSidebarHeader = forwardRef<
   },
 );
 AppSidebarHeader.displayName = "AppSidebarHeader";
-
-// ---------------------------------------------------------------------------
-// Nav Item
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarNavItemProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
@@ -373,10 +343,6 @@ export const AppSidebarNavItem = forwardRef<
 );
 AppSidebarNavItem.displayName = "AppSidebarNavItem";
 
-// ---------------------------------------------------------------------------
-// Nav Group (Collapsible)
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarNavGroupProps extends HTMLAttributes<HTMLDivElement> {
   label: ReactNode;
   icon?: ComponentType<{ className?: string }> | ReactNode;
@@ -513,10 +479,6 @@ export const AppSidebarNavGroup = forwardRef<
 );
 AppSidebarNavGroup.displayName = "AppSidebarNavGroup";
 
-// ---------------------------------------------------------------------------
-// Section / Divider
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarSectionProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
   "title"
@@ -554,10 +516,6 @@ export const AppSidebarSection = forwardRef<
   );
 });
 AppSidebarSection.displayName = "AppSidebarSection";
-
-// ---------------------------------------------------------------------------
-// Feedback Button
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarFeedbackButtonProps {
   label?: string;
@@ -611,10 +569,6 @@ export function AppSidebarFeedbackButton({
     </Tooltip>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Footer
-// ---------------------------------------------------------------------------
 
 export interface AppSidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
   feedback?: ReactNode;
@@ -727,31 +681,18 @@ export const AppSidebarFooter = forwardRef<
 );
 AppSidebarFooter.displayName = "AppSidebarFooter";
 
-// ---------------------------------------------------------------------------
-// AppSidebar (Main Component)
-// ---------------------------------------------------------------------------
-
 export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
-  // Collapse state
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
   collapsible?: boolean;
   storageKey?: string;
   isMobile?: boolean;
-  /**
-   * When set (boolean), the sidebar owns off-canvas mobile drawer positioning.
-   * Leave undefined when embedding inside an external Sheet/drawer so the
-   * sidebar stays visible without translate offsets.
-   */
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
-  /** Router-aware link component. Defaults to a native `<a href>`. */
   linkComponent?: AppSidebarLinkComponent;
-  /** Show a persistent scrollbar and edge cues while the sidebar overflows. */
   overflowAffordances?: boolean;
 
-  // Header
   brandName?: ReactNode;
   brandHref?: string;
   brandIcon?: ReactNode;
@@ -759,11 +700,9 @@ export interface AppSidebarProps extends HTMLAttributes<HTMLElement> {
   badge?: ReactNode;
   headerContent?: ReactNode;
 
-  // Items
   items?: AppSidebarItemDefinition[];
   secondaryItems?: AppSidebarItemDefinition[];
 
-  // Footer
   feedback?: ReactNode;
   orgSwitcher?: ReactNode;
   footerExtras?: ReactNode;
@@ -809,7 +748,6 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     },
     ref,
   ) => {
-    // Persistence hook if storageKey is provided and not controlled
     const persistent = usePersistentSidebarCollapsed({
       storageKey: storageKey ?? "app-sidebar-default-key",
       defaultCollapsed,
@@ -856,8 +794,6 @@ export const AppSidebar = forwardRef<HTMLElement, AppSidebarProps>(
     const showCollapsedSidebar = collapsed && !isMobile;
 
     const LinkComponent = linkComponent ?? NativeSidebarLink;
-    // Only self-manage off-canvas transform when the caller controls mobileOpen.
-    // Sheet/drawer embeds leave mobileOpen undefined so content stays visible.
     const ownsMobileDrawer = typeof mobileOpen === "boolean";
 
     const contextValue = useMemo<AppSidebarContextValue>(
@@ -1068,7 +1004,6 @@ function AppSidebarScrollRegion({
     >
       <ScrollAreaPrimitive.Viewport
         ref={viewportRef}
-        // Radix's intrinsic table sizing would widen truncated rows beyond the sidebar.
         className="size-full scroll-py-2 [&>div]:!block"
         data-app-sidebar-scroll-viewport
         onFocusCapture={(event) => {

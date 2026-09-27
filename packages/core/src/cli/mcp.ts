@@ -1,18 +1,3 @@
-/**
- * `agent-native mcp <subcommand>` — connect external coding agents (Claude
- * Code desktop & CLI, Claude Cowork, Codex, Cursor, OpenCode, GitHub Copilot /
- * VS Code) to this agent-native app/workspace over MCP.
- *
- *   serve      Run the MCP stdio transport (this is what client configs spawn).
- *   install    Provision a token + write the client's MCP config idempotently.
- *   uninstall  Remove the named entry from a client's MCP config.
- *   status     Print resolved MCP URL/port, token state, and per-client entries.
- *   token      Print or rotate the local ACCESS_TOKEN in the workspace .env.
- *
- * Node-only CLI module. Hand-rolled `.env` upsert + minimal TOML block merge
- * keep this dependency-free (no new npm deps).
- */
-
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -101,11 +86,6 @@ function existingScreenMemoryStore(candidate: string): string | undefined {
   }
 }
 
-/**
- * Resolve the active Clips store without asking people to find an app-data
- * path. Environment overrides remain the unambiguous escape hatch; otherwise
- * the most recently touched installed Clips/Clips Alpha store wins.
- */
 export function resolveScreenMemoryStoreDir(
   options: ScreenMemoryStoreResolutionOptions = {},
 ): string | undefined {
@@ -147,16 +127,10 @@ export function resolveScreenMemoryStoreDir(
     )[0]?.candidate;
 }
 
-// ---------------------------------------------------------------------------
-// .env token provisioning (local dev) — hand-rolled idempotent upsert
-// ---------------------------------------------------------------------------
-
-/** Workspace root (or cwd for a standalone app) — where .env lives. */
 function envBaseDir(cwd = process.cwd()): string {
   return findWorkspaceRoot(cwd) ?? path.resolve(cwd);
 }
 
-/** Prefer .env.local, else .env. Returns the path we should write to. */
 function envFilePath(baseDir: string): string {
   const local = path.join(baseDir, ".env.local");
   if (fs.existsSync(local)) return local;
@@ -171,7 +145,6 @@ function readEnvFile(file: string): string {
   }
 }
 
-/** Read a single key from a dotenv-format string (last assignment wins). */
 function getEnvValue(content: string, key: string): string | undefined {
   let found: string | undefined;
   for (const line of content.split(/\r?\n/)) {
@@ -216,10 +189,6 @@ function generateToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
-/**
- * Ensure a local ACCESS_TOKEN exists in the workspace .env and return it.
- * Existing tokens are reused (never clobbered). Set `rotate` to replace it.
- */
 function ensureLocalToken(
   cwd: string,
   rotate = false,
@@ -236,16 +205,6 @@ function ensureLocalToken(
   return { token, file, created: true };
 }
 
-// ---------------------------------------------------------------------------
-// Hosted vs local detection
-// ---------------------------------------------------------------------------
-
-/**
- * Detect a hosted deployment URL. When the workspace .env points at a hosted
- * origin (APP_URL / BETTER_AUTH_URL with a non-localhost host) we write an
- * `http` client entry pointing at `<origin>/mcp` with a JWT
- * bearer instead of a stdio entry.
- */
 function detectHostedUrl(cwd: string): string | undefined {
   const baseDir = envBaseDir(cwd);
   const content =
@@ -269,7 +228,6 @@ function detectHostedUrl(cwd: string): string | undefined {
 }
 
 async function mintHostedJwt(cwd: string): Promise<string | undefined> {
-  // Reuse the existing A2A signer — do not reinvent JWT minting.
   const owner =
     process.env.AGENT_NATIVE_OWNER_EMAIL ||
     process.env.OWNER_EMAIL ||
@@ -302,10 +260,6 @@ async function mintHostedJwt(cwd: string): Promise<string | undefined> {
     return undefined;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Client config entries
-// ---------------------------------------------------------------------------
 
 interface ServerEntryInputs {
   serverName: string;
@@ -347,10 +301,6 @@ function buildCodexBlock(name: string, i: ServerEntryInputs): string {
   return buildCodexLocalBlock(name, mcpServeArgs(i), mcpServeEnv(i));
 }
 
-// ---------------------------------------------------------------------------
-// Per-client install/uninstall/status
-// ---------------------------------------------------------------------------
-
 function configPathFor(
   client: ClientId,
   cwd: string,
@@ -363,9 +313,6 @@ function serverNameFor(appId: string): string {
   return `${SERVER_NAME_PREFIX}-${appId}`;
 }
 
-// Clients advertised in usage/help and listed by status. Excludes the legacy
-// `claude-code-cli` alias so only a single "Claude Code" appears (it is still
-// accepted via --client and collapses to claude-code).
 const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
   (c) => c !== "claude-code-cli",
 );
@@ -477,10 +424,6 @@ function clientHasEntry(client: ClientId, appId: string, cwd: string): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Subcommands
-// ---------------------------------------------------------------------------
-
 async function cmdServe(p: ParsedArgs): Promise<void> {
   await runMCPStdio({
     appId: p.app,
@@ -500,7 +443,6 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
   }
   const cwd = process.cwd();
 
-  // Resolve which app this entry targets (default = workspace default app).
   let appId = p.app;
   if (!appId) {
     try {

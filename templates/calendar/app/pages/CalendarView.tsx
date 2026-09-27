@@ -528,20 +528,11 @@ export default function CalendarView() {
     () => enabledGoogleSources?.map((source) => source.sourceKey),
     [enabledGoogleSources],
   );
-  // Mirrors the sidebar's merged-row visibility: a person can also be a
-  // directly-shared Google calendar merged into the same row, so their
-  // overlay-sourced events must stay hidden when that Google side is
-  // explicitly hidden, even though the person side alone is still visible.
   const googleHiddenPersonEmails = useMemo(() => {
     const hidden = new Set<string>();
     for (const source of googleCalendars.data ?? []) {
       if (!isPersonCalendarId(source.calendarId)) continue;
-      // A free/busy-only source is excluded from enabledGoogleSources above,
-      // so its visibility toggle must not hide that person's overlay events.
       if (source.accessRole === "freeBusyReader") continue;
-      // Mirrors the Sidebar's merged-row visibility: Google's own default
-      // "selected" state must not hide a deliberately-added overlay peer, so
-      // only an explicit stored preference counts as hidden here.
       const explicitVisible =
         viewPrefs.googleCalendarVisibility[source.canonicalKey];
       if (explicitVisible === false)
@@ -549,13 +540,6 @@ export default function CalendarView() {
     }
     return hidden;
   }, [googleCalendars.data, viewPrefs.googleCalendarVisibility]);
-  // A peer can be both an overlay person and a Google calendar shared with us.
-  // Requesting both reads the same calendar twice and renders every event
-  // twice, under two colors and two independent visibility toggles. Drop the
-  // overlay request when the shared calendar already covers that address —
-  // deduping the events afterwards is not possible, because provider event ids
-  // legitimately repeat across different people's calendars for the same
-  // meeting.
   const overlayEmails = useMemo(() => {
     const coveredByGoogle = new Set(
       (enabledGoogleSources ?? []).map((source) =>
@@ -648,8 +632,6 @@ export default function CalendarView() {
     );
   }, [settings, t, timezonePrompt, updateSettings]);
 
-  // The saved Calendar Settings timezone owns the range boundary. The browser
-  // timezone is only a temporary fallback while settings are loading.
   const { from, to } = useMemo(
     () =>
       getViewDateRange(
@@ -707,11 +689,6 @@ export default function CalendarView() {
     setEventDraft,
   ]);
 
-  // Warm the adjacent ranges so j/k (and the chevron buttons) feel instant.
-  // Borrowed from the mail template's background-warm pattern — fire-and-forget
-  // prefetch that lets React Query dedupe and reuse the response when the user
-  // actually navigates. Only runs once the current range has loaded so we
-  // don't fight the primary fetch for bandwidth.
   useEffect(() => {
     if (isLoading) return;
     const ranges = (() => {
@@ -724,8 +701,6 @@ export default function CalendarView() {
           );
         }
         case "week": {
-          // Warm two displayed periods so rapid `j j` stays instant, plus one
-          // period back. A custom day count advances by that same count.
           const step = normalizeNumberOfDays(viewPrefs.numberOfDays);
           const currentPeriodStart =
             step === 7
@@ -778,15 +753,6 @@ export default function CalendarView() {
     weekStartsOn,
   ]);
 
-  // Show the skeleton only when there is genuinely nothing to show for the
-  // current date range — the first load, or navigating to a range we have not
-  // fetched yet. Crucially, do NOT show it when only the *set* of calendars
-  // changes (adding/removing a feed or person overlay). Those swaps change the
-  // query key, so `keepPreviousData` keeps the user's existing events on screen
-  // as placeholder data; flashing a skeleton over them is the bug. Instead we
-  // keep the events visible and let the refreshed set merge in. We track the
-  // last date range we settled real (non-placeholder) data for, so a skeleton
-  // only appears when the range itself differs.
   const rangeKey = `${from}|${to}`;
   const settledRangeRef = useRef<string | null>(null);
   useEffect(() => {
@@ -800,12 +766,8 @@ export default function CalendarView() {
     settledRangeKey: settledRangeRef.current,
     rangeKey,
   });
-  // A quiet background refresh is in flight (e.g. a newly added calendar's
-  // events are still loading) while the existing events stay visible. Drives a
-  // small non-blocking spinner instead of hiding everything behind a skeleton.
   const eventsRefreshing = isFetching && !eventsLoading;
 
-  // Apply overlay ownership markers and filter hidden calendars
   const events = useMemo(() => {
     const sourceEvents = draftEvent
       ? [...rawEvents.filter((e) => e.id !== draftEvent.id), draftEvent]
@@ -816,7 +778,6 @@ export default function CalendarView() {
         return tempId && !e._tempId ? { ...e, _tempId: tempId } : e;
       })
       .filter((e) => {
-        // Hide events from hidden people overlays
         if (e.overlayEmail && hiddenCalendars.people.includes(e.overlayEmail))
           return false;
         if (
@@ -831,10 +792,6 @@ export default function CalendarView() {
         ) {
           return false;
         }
-        // A person can also be a directly-shared Google calendar. The
-        // sidebar merges that into the same row as their overlay entry, so
-        // hiding it must also hide their Google-sourced events, not just the
-        // overlay-sourced ones the check above covers.
         if (
           e.source === "google" &&
           e.calendarId &&
@@ -852,7 +809,6 @@ export default function CalendarView() {
         ) {
           return false;
         }
-        // Hide events from hidden external calendars
         if (e.source === "ical") {
           const hiddenMatch = hiddenCalendars.external.some((calId) =>
             e.id.startsWith(`ical-${calId}-`),
@@ -872,8 +828,6 @@ export default function CalendarView() {
     googleHiddenPersonEmails,
   ]);
 
-  // Filter events for day view — use overlap check so multi-day continuation
-  // events (started on a prior day) still appear on the selected day.
   const dayEvents = useMemo(() => {
     if (viewMode !== "day") return events;
     return events.filter((event) =>
@@ -1317,12 +1271,7 @@ export default function CalendarView() {
           : { sendUpdates: "none" as const });
       if (!guestNotification) return;
 
-      // Snapshot for undo — preserve all event fields so undo recreates faithfully
       const { id: _id, source: _source, ...snapshot } = ev;
-      // removeOnly means the current user was only an attendee, not the
-      // organizer — the event still exists for everyone else. Undo must
-      // re-accept the existing event rather than fabricate a new one the
-      // user doesn't own.
       const undo = removeOnly
         ? () => {
             rsvpEvent.mutate(
@@ -1409,7 +1358,6 @@ export default function CalendarView() {
     [deleteEvent.isPending, discardDraftEvent, events, handleDirectDelete],
   );
 
-  // Move event to a new date (drag-and-drop from MonthView)
   async function handleEventDrop(selectedEvent: CalendarEvent, newDate: Date) {
     const event = findEventByCurrentOrReplacedId(events, selectedEvent);
     if (!event) return;
@@ -1435,8 +1383,6 @@ export default function CalendarView() {
     const newStart = new Date(moved.start);
     const newEnd = new Date(moved.end);
 
-    // Guard against a zero/negative duration reaching the server (e.g. a
-    // DST transition collapsing a short event's start/end onto each other).
     if (newEnd.getTime() <= newStart.getTime()) return;
 
     const updates = moved;
@@ -1495,13 +1441,11 @@ export default function CalendarView() {
     );
   }
 
-  // Move/resize event to new start/end times (drag from Week/Day views)
   const handleEventTimeChange = useCallback(
     async (selectedEvent: CalendarEvent, newStart: Date, newEnd: Date) => {
       const event = findEventByCurrentOrReplacedId(events, selectedEvent);
       if (!event) return;
       const eventId = event.id;
-      // Skip no-op drags (dropped back in same spot)
       if (
         event.calendarPrimary === false ||
         event.calendarReadOnly ||
@@ -1510,8 +1454,6 @@ export default function CalendarView() {
       )
         return;
 
-      // Guard against a zero/negative duration reaching the server —
-      // gesture math should already prevent this, but never commit it.
       if (newEnd.getTime() <= newStart.getTime()) return;
 
       if (calendarDraftIdFromEventId(eventId)) {
@@ -1648,8 +1590,6 @@ export default function CalendarView() {
 
       setCreateDefaultStart(startTime);
 
-      // A drag-to-create gesture already computed the exact dragged range;
-      // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
         ? { date: dateStr, time: endTime }
         : addMinutesToDateTimeParts(dateStr, startTime, defaultDuration);
@@ -1733,9 +1673,6 @@ export default function CalendarView() {
     ],
   );
 
-  // Command palette natural-language quick create (e.g. "lunch with Sam
-  // tomorrow 12:30") — builds a prefilled draft and jumps to it, reusing the
-  // same draft/quick-edit flow as clicking a time slot.
   const handleCreateEventFromText = useCallback(
     async (quickCreate: QuickCreateEvent) => {
       let activeSettings = settings;
@@ -1892,7 +1829,6 @@ export default function CalendarView() {
       });
       const currentEvent =
         findEventByCurrentOrReplacedId(events, event) ?? event;
-      // Delete the event if title was never set
       if (!getEditableEventTitle(currentEvent).trim()) {
         deleteEvent.mutate(
           buildDeleteEventMutationInput(currentEvent, {
@@ -1909,17 +1845,14 @@ export default function CalendarView() {
     function handleKeyDown(e: KeyboardEvent) {
       if (isCalendarShortcutSuppressedTarget(e.target)) return;
 
-      // Cmd+K / Ctrl+K — open the command palette from the calendar surface.
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         openCommandPalette();
         return;
       }
 
-      // Skip calendar-specific shortcuts while a page-owned dialog is open.
       if (createDialogOpen || deleteDialogEvent) return;
 
-      // Delete/Backspace — delete the selected event
       if (e.key === "Delete" || e.key === "Backspace") {
         const targetEvent = sidebarEvent || focusedEvent;
         if (!targetEvent) return;
@@ -1928,14 +1861,8 @@ export default function CalendarView() {
         return;
       }
 
-      // Don't intercept keyboard shortcuts with modifier keys (Cmd+C, Ctrl+V, etc.)
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      // `?` / shift+/ opens the keyboard shortcuts help — that listener now
-      // lives in AppLayout so it works on every tab. Don't double-handle here.
-
-      // Arrow keys navigate the calendar grid — never steal them from list
-      // navigation inside the command palette or other open dialogs.
       const isArrowKey =
         e.key === "ArrowLeft" ||
         e.key === "ArrowRight" ||
@@ -2485,7 +2412,6 @@ export default function CalendarView() {
                 workingLocationProperties: snapshot.workingLocationProperties,
               });
             };
-            // Optimistic: close dialog immediately
             setDeleteDialogEvent(null);
             if (
               sidebarEvent &&
@@ -2586,11 +2512,6 @@ function AccountAvatars() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  // MCP host iframes (ChatGPT / Claude) ship strict COEP/CORP
-                  // headers that block cross-origin googleusercontent.com
-                  // avatars and produce noisy console errors. Fall back to a
-                  // same-origin initial chip when embedded. See
-                  // `templates/calendar/app/lib/mcp-embed.ts`.
                   <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-[11px] font-semibold text-primary">
                     {account.email[0]?.toUpperCase()}
                   </div>

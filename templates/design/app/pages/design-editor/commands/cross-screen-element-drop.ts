@@ -59,8 +59,6 @@ import {
   projectAcceptedSource,
 } from "./selection-publication";
 
-/** Empty generated screens strip absolute positioning, so a flow-insert
- * into an empty body parks the node at 0,0. Drop at the pointer instead. */
 export function shouldAbsolutePlaceOnEmptyScreen({
   destHtml,
   targetLocalPoint,
@@ -70,7 +68,6 @@ export function shouldAbsolutePlaceOnEmptyScreen({
 }): boolean {
   if (!targetLocalPoint) return false;
   if (typeof DOMParser === "undefined") return false;
-  // Live-app destinations store a URL, not HTML — do not treat that as empty.
   if (!/<body[\s>]/i.test(destHtml)) return false;
   const doc = new DOMParser().parseFromString(destHtml, "text/html");
   return (doc.body?.children.length ?? 0) === 0;
@@ -87,8 +84,6 @@ function absoluteDropPoint(
   };
 }
 
-/** Empty-screen drops must keep pointer coords. A leftover hit-test rect
- * would subtract the previous screen's origin and park the layer at 0,0. */
 export function absolutePlacePointForDrop(args: {
   placeAbsoluteOnEmptyScreen: boolean;
   targetAnchorRect?: { left: number; top: number } | null;
@@ -142,8 +137,6 @@ export function resolveCrossScreenMoveFailureRecovery(args: {
   const destinationDocumentLost =
     args.reason === "target-canvas-unmounted" ||
     args.reason === "target-document-replaced";
-  // A lost document discarded its transient insert; only an acknowledged
-  // insert needs the source's pending delete canceled before admission opens.
   const needsRollback =
     !destinationDocumentLost &&
     (args.reason === "board-drop-timeout" ||
@@ -370,13 +363,6 @@ export function runCrossScreenElementDrop(
     targetAnchorPlacement,
     targetDropMode,
   });
-  // The bridge could not measure the bare-tag probe for this move — a
-  // class-only appearance (color/background/etc. authored only by a
-  // stylesheet rule, never inline) would be silently dropped once this node
-  // lands in a destination screen without that rule. Refuse the whole move
-  // at this boundary: source untouched, destination untouched. Distinct from
-  // a legitimately absent snapshot (`styleSnapshot === undefined`, nothing to
-  // carry), which must keep working — see collectPortableStyleSnapshot.
   if (styleSnapshotCaptureFailed) {
     trace("drop", "refused", {
       reason:
@@ -532,9 +518,6 @@ export function runCrossScreenElementDrop(
     return transactionId;
   };
 
-  // Duplicate intent must be resolved before live/semantic move routing. A
-  // fresh clone cannot resolve to a source owner, so those paths would reject
-  // the copy or treat it as a move without consuming sourceCloneHtml.
   if ((canEditLiveCrossScreen || canEditLiveBoardMove) && !duplicate) {
     const subjectNodeId =
       sourceNodeId ??
@@ -744,15 +727,6 @@ export function runCrossScreenElementDrop(
       : targetAnchor
         ? codeLayerSelectorAliases(targetAnchor)
         : [];
-    // A duplicate leaves the source alive: insertClonedHtmlLayers's
-    // preserveIncomingNodeIds only reserves ids already present in
-    // rawDestContent (a different document), so without this the copy
-    // silently keeps the source's own data-agent-native-node-id — two live
-    // elements in two files sharing one id, breaking every id-keyed lookup
-    // (selection, nudge, the cross-file code-layer owner map) on either.
-    // A localhost/fusion screen's persisted content is a route URL, not
-    // markup, so its projection contributes no ids; reserve the live clone's
-    // already-stamped subtree ids as well.
     const sourceNodeIds = [
       ...buildCodeLayerProjection(sourceContent)
         .nodes.map((node) => node.dataAttributes["data-agent-native-node-id"])
@@ -877,20 +851,11 @@ export function runCrossScreenElementDrop(
     return;
   }
 
-  // A live app destination has no editable stored document — its
-  // stored "content" is the bridge URL — so the source-edit path below
-  // would write a whole HTML document over that URL and never reach the
-  // running app. Key off the destination SCREEN's source type: a live
-  // anchor normally has no stored layer owner at all, so both runtimeOnly
-  // flags read false and the drop looks like an ordinary source move.
   const crossScreenExecutionMode = resolveRuntimeStructureMoveExecutionMode({
     subjectRuntimeOnly: Boolean(sourceOwnerEntry?.[1].runtimeOnly),
     targetRuntimeOnly: Boolean(targetOwnerEntry?.[1].runtimeOnly),
     sourceScreenId,
     targetScreenId,
-    // Only a board primitive may be reinterpreted as an insert; a real
-    // screen's element dropped into a live app is a move, and inserting it
-    // would leave a duplicate behind in its own screen.
     sourceScreenIsBoard,
     targetScreenIsLive,
   });
@@ -906,11 +871,6 @@ export function runCrossScreenElementDrop(
       sourceSelector,
       sourceNodeId,
     );
-    // A live layer dragged onto the canvas is present in the board iframe's
-    // transient DOM, but it is intentionally not persisted into the board
-    // document. Prefer the id and outerHTML captured from that iframe. The
-    // stored board projection remains the fallback for ordinary board
-    // primitives that were already in the document.
     const subjectNodeId =
       sourceNodeId ?? subjectNode?.dataAttributes["data-agent-native-node-id"];
     const validatedSourceHtmlSnapshot =
@@ -923,11 +883,6 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    // Reuse the stored-document transforms instead of slicing the source
-    // span: they already own absolute/flow semantics. The portable style
-    // snapshot is always inlined (no sourceContent argument) — a live app
-    // never shares the board's stylesheet head, so the node would land
-    // unstyled otherwise.
     const insertedHtml = subjectNodeId
       ? (() => {
           const styled = applyPortableStyleSnapshotToHtml(
@@ -986,20 +941,10 @@ export function runCrossScreenElementDrop(
       },
       placement: targetAnchorPlacement ?? "inside",
     });
-    // The board keeps its copy until the pending live edit is applied.
-    // Removing it here would commit the board file immediately while the
-    // destination is still only a pending live edit, and undo pops whichever
-    // stack is newer — one Cmd+Z would revert half the gesture, and a drop
-    // that is never applied would lose the primitive entirely.
     return;
   }
   if (crossScreenExecutionMode === "semantic-handoff") {
     if (!sourceOwnerEntry || !targetOwnerEntry) {
-      // A runtime/source cross-screen drop without an exact target (for
-      // example, dropping on the bare screen root) cannot satisfy the
-      // semantic handoff's two-anchor contract. Do not fall through to a
-      // selector guess or mutate stored wrapper HTML that does not own the
-      // runtime React node.
       toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
       return;
     }
@@ -1052,20 +997,6 @@ export function runCrossScreenElementDrop(
       ? targetAnchorSelector
       : undefined;
 
-  // Id-on-demand handshake (two-step, mirroring the element-select
-  // persist-on-select path above): AI-generated/duplicated screens often
-  // carry ZERO data-agent-native-node-id attributes, so the hit-test
-  // bridge can't return an anchor id — it mints a pendingNodeId (stamped
-  // on the LIVE dest DOM as data-an-pending-node-id) plus a
-  // source-equivalent structural anchorSelector. Persist that pending id
-  // as the anchor's real node id in the STORED dest document first, then
-  // resolve the drop against it — otherwise every flow-insert into an
-  // id-less screen silently degrades to absolute placement even though
-  // the hit-test found a valid before/after/inside slot. applyVisualEdit
-  // resolves the selector STRICTLY (unique match or conflict), so a
-  // selector that can't be honestly mapped to one source element (e.g.
-  // Alpine template instances) leaves the absolute fallback untouched
-  // rather than ever stamping the wrong node.
   let destContent = rawDestContent;
   let effectiveAnchorNodeId = provenTargetAnchorNodeId;
   if (
@@ -1103,8 +1034,6 @@ export function runCrossScreenElementDrop(
     }
   }
 
-  // Resolve against the authored tree: projection aliases alone cannot match
-  // a positional selector when duplicated IDs appear in the projection path.
   const sourceResolution = resolveCodeLayerTarget(
     sourceContent,
     { nodeId: provenSourceNodeId, selector: provenSourceSelector },
@@ -1137,8 +1066,6 @@ export function runCrossScreenElementDrop(
     targetResolution?.status === "resolved" ? targetResolution.node : null;
   const targetAnchorAttrId =
     resolvedTargetAnchor?.dataAttributes["data-agent-native-node-id"];
-  // Projection paths omit :nth-of-type(1); preserve the proven selector so
-  // the strict move resolver still distinguishes the first authored sibling.
   const resolvedSourceSelector =
     provenSourceSelector ?? resolvedSourceNode.path;
   const anchorWasRequested = Boolean(
@@ -1151,8 +1078,6 @@ export function runCrossScreenElementDrop(
   const resolvedAnchorSelector =
     provenTargetAnchorSelector ?? resolvedTargetAnchor?.path;
 
-  // Use hit-test anchor when the canvas supplied one; fall back to
-  // top-level body append ("inside" with no anchor = existing behaviour).
   const result = moveNodeBetweenDocuments(sourceContent, destContent, {
     nodeId: nodeAttrId,
     ...(resolvedSourceSelector
@@ -1181,33 +1106,18 @@ export function runCrossScreenElementDrop(
     );
     return;
   }
-  // Finding 8: see the same-screen move's identical handling above —
-  // the anchor placement was redirected out of a <template> interior to
-  // right after the enclosing template's close instead of failing or
-  // teleporting to doc end.
   if (result.anchorRedirected) {
     toast(t("designEditor.toasts.layerMoveRedirected"), {
       duration: 4000,
     });
   }
 
-  // Hit-test anchors are emitted only for auto-layout insertion targets. If
-  // there is no anchor, preserve absolute mode and rebase left/top to the
-  // release point so screen↔board moves behave like Figma absolute layers.
   const destNodeAttrId = result.movedNodeId ?? nodeAttrId;
   const styleSnapshotDest = applyPortableStyleSnapshotToHtml(
     result.destHtml,
     destNodeAttrId,
     styleSnapshot,
   );
-  // Finding 8: board/screen text carrying the auto-applied white default
-  // (see BOARD_TEXT_AUTO_COLOR_MARKER / defaultCanvasTextColor) must not
-  // keep that forced white when it lands cross-screen in a light
-  // destination — otherwise it renders invisible white-on-white. The
-  // in-screen drag path already adapts via the bridge's
-  // adaptAutoTextColorForNest; this is the cross-screen mirror, applied
-  // host-side now that the node has actually been re-parented into
-  // destContent.
   const liveDestIframe = document.querySelector<HTMLIFrameElement>(
     `[data-screen-iframe-id="${CSS.escape(getPrimaryIframeId(targetScreenId))}"]`,
   );
@@ -1220,8 +1130,6 @@ export function runCrossScreenElementDrop(
     destHtml: destContent,
     targetLocalPoint,
   });
-  // One decision, one label: the branch name in the trace is the branch that
-  // ran, so a bug report cannot disagree with the code.
   const placed = ((): { content: string; branch: string } => {
     const absolute = (point: { x: number; y: number }, branch: string) => ({
       content: setAbsolutePositioningForNodeInHtml(
@@ -1241,8 +1149,6 @@ export function runCrossScreenElementDrop(
       branch: "anchored-flow-insert",
     };
     if (!targetLocalPoint) {
-      // No release point: nothing can be placed. Keeping the layer's previous
-      // position beats writing it with none, which read as lost.
       if (targetAnchorAttrId && targetDropMode !== "absolute-container") {
         return flowInsert;
       }
@@ -1274,7 +1180,6 @@ export function runCrossScreenElementDrop(
   })();
   const point = (value: { x: number; y: number } | undefined) =>
     value ? `${Math.round(value.x)},${Math.round(value.y)}` : "none";
-  // Flat string, not an object: a console paste collapses objects to "{…}".
   trace(
     "drop",
     "placement",
@@ -1286,10 +1191,6 @@ export function runCrossScreenElementDrop(
   );
   const nextDestContent = placed.content;
 
-  // Both halves of a cross-screen move must pass the exact publication
-  // integrity boundary before either file or the history stack is changed.
-  // Otherwise a valid source removal can commit before an Alpine/runtime
-  // integrity failure rejects the destination insertion.
   try {
     prepareAcceptedSourceContent(result.sourceHtml, {
       fileId: sourceScreenId,
@@ -1406,9 +1307,6 @@ export function runCrossScreenElementDrop(
     return;
   }
 
-  // Capture after both publications so synchronous bridge/state updates caused
-  // by this move are part of the operation rather than mistaken for a newer
-  // selection.
   const selectionFingerprintAtPublication = getCurrentSelectionFingerprint?.();
   const saveOperationRevisionsAtPublication = {
     [targetScreenId]: fileSaveOperationRevisionRef?.current[targetScreenId],
@@ -1433,9 +1331,6 @@ export function runCrossScreenElementDrop(
     const serverSnapshot = getCurrentFileSnapshot?.(fileId);
     const initialServerSnapshot = serverSnapshotsAtPublication?.[fileId];
     const currentContent = getScreenContent(fileId);
-    // A refetch can repaint stale bytes after the optimistic overlay retires;
-    // an unchanged server revision is still the same publication. A changed
-    // server revision with different bytes is an authoritative peer update.
     if (
       serverSnapshot &&
       initialServerSnapshot &&
@@ -1467,12 +1362,7 @@ export function runCrossScreenElementDrop(
   };
 
   const finalizePublication = () => {
-    // Save completion is asynchronous. Do not append stale whole-document
-    // history; selection restoration is guarded separately below.
     if (!canFinalizePublication()) return;
-    // History must replay the bytes the publisher accepted. Canonical identity
-    // publication may stamp IDs into submitted HTML, and the post-action
-    // selection snapshot must resolve against those same final documents.
     crossScreenHistoryChanges[0].after = sourcePublication.content;
     crossScreenHistoryChanges[1].after = targetPublication.content;
     recordContentHistoryEntry({ changes: crossScreenHistoryChanges });
@@ -1482,8 +1372,6 @@ export function runCrossScreenElementDrop(
       selectionFingerprintAtPublication === getCurrentSelectionFingerprint?.();
     if (!selectionStillCurrent) return;
 
-    // Switch active screen to the target and select the moved node; viewMode
-    // stays "overview" (no setViewMode call).
     pendingOverviewScreenSelectionRef.current =
       targetScreenId === boardFileId ? null : targetScreenId;
     pendingOverviewLayerSelectionRef.current = destNodeAttrId;
@@ -1562,10 +1450,6 @@ export function runCrossScreenElementDrop(
     fileId: string,
     content: string,
   ): boolean => {
-    // Offline saves remain in the outbox, but a two-file move has no safe way
-    // to finalize one history entry when only a later replay succeeds. Restore
-    // both optimistic files and cancel only the publication still visible in
-    // the editor; a newer edit must remain untouched.
     if (!isCurrentPublication(fileId, publication)) return true;
     return (
       applyFileContentUpdate(fileId, content, {

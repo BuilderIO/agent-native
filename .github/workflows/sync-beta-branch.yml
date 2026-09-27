@@ -1,8 +1,5 @@
 name: Sync framework beta branch
 
-# The dedicated beta Netlify projects all build the beta branch. Mirroring
-# main here keeps beta current for every merged app change, not only package
-# changes handled by beta-publish.yml.
 on:
   push:
     branches: [main]

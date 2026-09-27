@@ -23,18 +23,6 @@ export function meta() {
   ];
 }
 
-/**
- * Run the redirect on both the server and the client. A client-only
- * `<Navigate>` can drop during hydration (before the route tree is fully
- * attached), leaving the user stranded on `/` with a blank main area while
- * the layout chrome around it still renders. A `loader` redirect runs as
- * part of the server response and the navigation completes before the app
- * hydrates; `clientLoader` covers SPA-style navigations to `/`.
- *
- * We preserve `?` and `#` so deep-links like `?thread=<id>` from a Slack
- * "Open thread" button survive the bounce — `useThreadDeepLink` in
- * `root.tsx` reads them after the redirect lands and opens `/chat`.
- */
 function buildTarget(url: URL): string {
   return appPath(`/overview${url.search}${url.hash}`);
 }

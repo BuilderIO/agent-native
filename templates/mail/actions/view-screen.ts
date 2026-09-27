@@ -49,8 +49,6 @@ import type { InboxThreadItem } from "../shared/inbox-threads.js";
 import type { EmailMessage, Label } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
-// Keep automatic screen context within the page-tool budget; list-emails is
-// the full inventory path when the agent needs more than this preview.
 const SCREEN_EMAIL_LIMIT = 10;
 // ponytail: stop after three pages; use list-emails for exhaustive filtered inventory.
 const SCREEN_EMAIL_MAX_PAGES = 3;
@@ -288,8 +286,6 @@ async function fetchEmailList(
       const listOptions: NonNullable<Parameters<typeof listGmailMessages>[4]> =
         {
           mode: "threads" as const,
-          // Metadata responses omit MIME parts. Saved-filter partitioning
-          // needs attachment filenames for has:attachment/filename queries.
           threadFormat: needsSavedFilterParts ? "full" : "metadata",
           threadCandidateLimit: effectiveSearch ? 500 : undefined,
           threadRecentMessageCandidateLimit:
@@ -348,7 +344,6 @@ async function fetchEmailList(
       };
     }
 
-    // Fallback: local store
     let emails = await readLocalEmails(ownerEmail);
     switch (effectiveView) {
       case "inbox":
@@ -452,12 +447,6 @@ async function fetchThreadMessages(threadId: string): Promise<any> {
   }
 }
 
-/**
- * Inbox tab bar + active tab id, from the same backend-specific rows and
- * partition `list-inbox-threads` uses — bounded to counts (no row bodies) so
- * it's cheap to include on every inbox screen snapshot. Never throws: a store
- * hiccup just omits `tabs` from the screen rather than failing view-screen.
- */
 async function buildInboxTabsSummary(
   ownerEmail: string,
   requestedTab: string | undefined,
@@ -540,7 +529,6 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
 
-    // Fetch queued drafts when the user is on the draft queue.
     const nav = navigation as any;
     if (nav?.view === "draft-queue") {
       try {
@@ -636,7 +624,6 @@ export default defineAction({
       }
     }
 
-    // Fetch thread messages directly via Gmail API if the user is viewing a thread
     if (nav?.threadId) {
       const thread = await fetchThreadMessages(nav.threadId);
       if (thread) screen.thread = thread;

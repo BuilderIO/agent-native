@@ -20,10 +20,6 @@ function canManageRole(role: EffectiveRole) {
   return role === "owner" || role === "admin";
 }
 
-// Mirrors the core access model (assertAccess/resolveAccess), which compares
-// emails with `lower(column) = lowercased-input` so a share or ownership
-// grant survives casing differences between the stored principal and the
-// caller's session email.
 function normalizeEmail(email: string | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
   return normalized || null;
@@ -34,10 +30,6 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   return current;
 }
 
-/**
- * Builder-reported indexed document count cached on the row. Undefined means
- * "not measured yet", which is not the same as a system with zero documents.
- */
 function cachedBuilderDocCount(data: string | null): number | undefined {
   if (!data) return undefined;
   let parsed: unknown;
@@ -73,9 +65,6 @@ export default defineAction({
     const db = getDb();
     const userEmail = normalizeEmail(getRequestUserEmail());
     const orgId = getRequestOrgId();
-    // Project only the columns this list returns. The default path returns
-    // `data`, but neither path returns the heavy `assets` blob — a bare
-    // `.select()` would load it off every row for nothing.
     const rows = await db
       .select({
         id: schema.designSystems.id,
@@ -97,16 +86,10 @@ export default defineAction({
       return { count: 0, designSystems: [] };
     }
 
-    // The row-level isDefault column is per-owner, so a shared system owned by
-    // someone else can carry isDefault: true for them. Compute the caller's
-    // own effective default once and report that instead of the raw column.
     const effectiveDefaultId = userEmail
       ? await resolveDefaultDesignSystemId(userEmail)
       : null;
 
-    // Resolve every row's role from a single batched shares query instead of
-    // calling resolveAccess() per row, which would re-load each resource and
-    // its shares (N+1) and fan out an unbounded Promise.all as the list grows.
     const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
     if (userEmail) {
       principalClauses.push(

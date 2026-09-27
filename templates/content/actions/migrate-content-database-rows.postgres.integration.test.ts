@@ -823,10 +823,6 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
           scopeToken: purgePlan.scopeToken,
         }),
       );
-      // The losing deletion rejects while the awaits below are still pending,
-      // and Node reports a rejection with no handler attached at that moment as
-      // a run-level unhandled rejection even though the assertion arrives a few
-      // lines later. Capture the outcome as it settles, then assert on it.
       const deletionOutcome = deletion.then(
         () => null,
         (error: unknown) => error,

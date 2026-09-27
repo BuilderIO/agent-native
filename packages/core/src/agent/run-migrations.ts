@@ -2,11 +2,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 
 export const AGENT_RUN_MIGRATIONS_TABLE = "_agent_run_migrations";
 
-/**
- * Authoritative release-time schema for durable agent runs and their ledgers.
- * The run store keeps a guarded ensure path for local development and older
- * databases, but production request functions cannot own schema setup.
- */
 export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

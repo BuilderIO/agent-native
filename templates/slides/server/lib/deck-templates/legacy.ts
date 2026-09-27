@@ -1,7 +1,5 @@
 import type { DeckTemplate, DeckTemplateCategory } from "../deck-templates.js";
 
-// The original generated starters, kept after the authored decks so existing
-// template ids (and decks copied from them) stay valid.
 type Palette = {
   background: string;
   ink: string;

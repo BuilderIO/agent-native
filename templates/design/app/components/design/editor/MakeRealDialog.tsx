@@ -25,7 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 
-/** Result of `migrate-inline-design-to-app`, including the not-configured CTA. */
 export interface DesignMigrationResult {
   branchName?: string;
   url?: string;

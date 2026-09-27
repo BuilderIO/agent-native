@@ -71,9 +71,6 @@ export async function ensureTables(): Promise<void> {
         `;
 
       {
-        // PG-guard: probe information_schema / pg_indexes first (no lock) and
-        // only issue DDL when the table/index is actually missing, wrapped in
-        // a transaction-scoped lock_timeout so a contended lock fails fast.
         await ensureTableExists(SESSION_TABLE, createSessionsSql);
         await ensureIndexExists(
           "agent_native_browser_sessions_owner_seen_idx",
@@ -87,8 +84,6 @@ export async function ensureTables(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Don't cache a transient init failure — otherwise every browser-session
-      // call re-awaits the same rejected promise until the process restarts.
       initPromise = undefined;
       throw err;
     });

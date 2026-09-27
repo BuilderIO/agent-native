@@ -135,9 +135,6 @@ function callerScope(ctx: ActionRunContext): string {
       { errorCode: "CALLER_SCOPE_REQUIRED", statusCode: 401 },
     );
   }
-  // The surface and authenticated authority are durable retry identity.
-  // Network request/run/peer IDs describe one delivery attempt and therefore
-  // must not split identical retries into separate receipt scopes.
   const organization = ctx.orgId ? `:org:${ctx.orgId}` : "";
   return `${ctx.caller}:user:${ctx.userEmail.toLowerCase()}${organization}`;
 }
@@ -687,9 +684,6 @@ export async function mutateDocumentBody(
       return result;
     });
   } catch (error) {
-    // Concurrent duplicate deliveries may both miss the receipt before one
-    // commits. Re-read after rollback so the loser returns the winner's durable
-    // outcome instead of surfacing a false stale/unique-key failure.
     const replay = await readReplay(db);
     if (!replay) throw error;
     await assertAccess("document", args.documentId, "editor", {

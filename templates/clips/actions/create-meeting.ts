@@ -1,12 +1,3 @@
-/**
- * Create a meeting — manually or from a calendar event.
- *
- * Two flows:
- *   1. From a calendar event — pass `calendarEventId`, we copy fields from
- *      the event row.
- *   2. Manual / ad-hoc — pass title and optional scheduledStart/End.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserName } from "@agent-native/core/server/request-context";
@@ -100,7 +91,6 @@ export default defineAction({
       args.source ?? (args.title ? "manual" : "adhoc");
 
     if (args.calendarEventId) {
-      // Verify the user owns the calendar account that hosts this event.
       const [event] = await db
         .select()
         .from(schema.calendarEvents)
@@ -118,7 +108,6 @@ export default defineAction({
           "You don't have access to the calendar account for this event",
         );
       }
-      // Re-use existing meeting if we already linked one.
       if (event.meetingId) {
         const [existing] = await db
           .select()
@@ -128,10 +117,6 @@ export default defineAction({
         if (existing) return { meeting: existing, created: false };
       }
 
-      // Claim the event row atomically before inserting a meetings row below
-      // — mirrors materializeCalendarMeetingFromVirtualId's TOCTOU fix, so
-      // two concurrent create-meeting calls for the same calendarEventId
-      // can't both insert a duplicate meeting.
       const claimed = await db
         .update(schema.calendarEvents)
         .set({ meetingId: id, updatedAt: new Date().toISOString() })
@@ -144,7 +129,6 @@ export default defineAction({
         .returning({ id: schema.calendarEvents.id });
 
       if (!claimed.length) {
-        // Someone else claimed it first — re-read and return their meeting.
         const [winnerEvent] = await db
           .select({ meetingId: schema.calendarEvents.meetingId })
           .from(schema.calendarEvents)
@@ -191,14 +175,6 @@ export default defineAction({
       }
     }
 
-    // Backfill a missing display name onto the owner's own attendee row —
-    // but only when they're already a genuine calendar attendee. Inserting
-    // a synthetic row for a non-attendee owner would put their email in
-    // meeting_participants indistinguishably from a real attendee, and that
-    // table is what the public share payload returns; a meeting made public
-    // later would leak an email the owner never actually disclosed. When the
-    // owner isn't an attendee, speaker resolution already has a safe
-    // fallback (the generic "Me" label) — no snapshot needed for that case.
     const ownerName = getRequestUserName()?.trim() || undefined;
     const ownerParticipant = participantsToInsert.find(
       (participant) =>
@@ -251,9 +227,6 @@ export default defineAction({
         );
       }
     } catch (err) {
-      // Roll back the calendar_events claim (only if it still points at our
-      // own id) so a future call can retry instead of leaving the event
-      // permanently pointed at a meeting that was never created.
       if (calendarEventIdLink) {
         await db
           .update(schema.calendarEvents)

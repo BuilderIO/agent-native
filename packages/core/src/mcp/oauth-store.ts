@@ -16,10 +16,6 @@ let _initPromise: Promise<void> | undefined;
 
 export const MCP_OAUTH_CODE_TTL_MS = 10 * 60_000;
 
-/**
- * Parse a duration string like "30d", "1h", "7d" into seconds.
- * Returns `null` when the input is not a valid recognised pattern.
- */
 function parseDurationSeconds(raw: string): number | null {
   const trimmed = raw.trim();
   const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([smhd])$/i);
@@ -47,7 +43,6 @@ function resolveAccessTokenTtl(): { str: string; seconds: number } {
   if (env) {
     const secs = parseDurationSeconds(env);
     if (secs !== null) return { str: env, seconds: secs };
-    // Garbage value — fall back to default rather than silently breaking.
     console.warn(
       `[mcp-oauth] Invalid MCP_OAUTH_ACCESS_TOKEN_TTL="${env}", using default "${DEFAULT_ACCESS_TOKEN_TTL}"`,
     );
@@ -60,16 +55,8 @@ function resolveAccessTokenTtl(): { str: string; seconds: number } {
 
 const _accessTokenTtl = resolveAccessTokenTtl();
 
-/**
- * Access-token TTL as a jose-compatible duration string.
- * Defaults to "30d"; override with MCP_OAUTH_ACCESS_TOKEN_TTL env var.
- */
 export const MCP_OAUTH_ACCESS_TOKEN_TTL: string = _accessTokenTtl.str;
 
-/**
- * Access-token TTL in seconds (derived from the same env var).
- * Used to populate the OAuth `expires_in` response field.
- */
 export const MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: number =
   _accessTokenTtl.seconds;
 

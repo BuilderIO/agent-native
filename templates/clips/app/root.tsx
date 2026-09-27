@@ -413,12 +413,6 @@ function PrivateAppContent() {
   );
 }
 
-/**
- * Public share/embed/download/invite paths must SSR real content for
- * first-visit signed-out users and bots. AppProviders' isPublicPath prop
- * removes the ClientOnly gate for these paths so entry.server.tsx streams
- * actual markup and loader-fed OG meta instead of a bare spinner.
- */
 export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();

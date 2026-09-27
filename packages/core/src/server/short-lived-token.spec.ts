@@ -62,7 +62,6 @@ describe("short-lived-token", () => {
   it("rejects a tampered payload (signature no longer matches)", () => {
     const token = signShortLivedToken({ resourceId: "rec_abc" });
     const [, sig] = token.split(".");
-    // Forge a payload claiming a different resource — old sig won't match.
     const forged =
       Buffer.from(JSON.stringify({ resourceId: "rec_xyz", exp: 9e12 }))
         .toString("base64")
@@ -82,7 +81,6 @@ describe("short-lived-token", () => {
       resourceId: "rec_abc",
       ttlSeconds: 60,
     });
-    // Advance past expiry.
     vi.setSystemTime(new Date("2026-04-30T12:02:00Z"));
     const result = verifyShortLivedToken(token, "rec_abc");
     expect(result).toEqual({ ok: false, reason: "expired" });
@@ -276,7 +274,6 @@ describe("realtime subscribe token", () => {
     expect(() =>
       signRealtimeSubscribeToken({ projectId: "proj_a" }, KEY_A),
     ).toThrow(/owner or orgId/);
-    // orgId alone is sufficient.
     expect(() =>
       signRealtimeSubscribeToken(
         { projectId: "proj_a", orgId: "org-1" },
@@ -288,7 +285,6 @@ describe("realtime subscribe token", () => {
   it("rejects a token past its absolute ceiling even when exp is live", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    // exp deliberately outlives the ceiling: the ceiling must be what stops it.
     const absExp = Math.floor(Date.now() / 1000) + 60;
     const token = signRealtimeSubscribeToken(
       {
@@ -412,7 +408,7 @@ describe("gateway access-check token", () => {
   });
 
   it("binds the projectId channel when an expected value is provided", () => {
-    const token = signGatewayAccessToken(claims, KEY_A); // projectId proj_a
+    const token = signGatewayAccessToken(claims, KEY_A);
     expect(verifyGatewayAccessToken(token, KEY_A, "proj_a")).toMatchObject({
       ok: true,
       projectId: "proj_a",

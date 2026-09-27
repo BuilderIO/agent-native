@@ -73,8 +73,6 @@ describe("importUploadedDeckIntoDeck", () => {
         deckId: "deck-1",
         importIntoDeck: true,
       },
-      // A large PDF routinely outruns the 60s default, and this is the path
-      // the create-from-upload flow uses before generation starts.
       { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
     );
   });

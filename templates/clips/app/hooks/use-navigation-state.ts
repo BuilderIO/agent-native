@@ -64,32 +64,6 @@ function decodePathSegment(value: string | undefined): string | null {
   }
 }
 
-/**
- * Derive a navigation-state shape from the current URL.
- *
- * Route conventions (keep in sync with the route files in app/routes):
- *
- *   /home                       -> library
- *   /library                    -> library
- *   /library?q=...              -> library (with search)
- *   /library/folder/:folderId   -> library (with folderId)
- *   /shared                     -> shared
- *   /spaces                     -> spaces
- *   /spaces/:spaceId            -> space
- *   /archive                    -> archive
- *   /trash                      -> trash
- *   /record                     -> record
- *   /bug-report                 -> bug-report
- *   /bug-report/done            -> bug-report-done
- *   /r/:recordingId             -> recording (or insights with ?panel=insights)
- *   /share/:shareId             -> share
- *   /embed/:shareId             -> embed
- *   /notifications              -> notifications
- *   /settings[/*]               -> settings
- *   /meetings                   -> meetings (meetingsTab: agenda)
- *   /meetings?tab=past          -> meetings (meetingsTab: past)
- *   /meetings/:meetingId        -> meeting
- */
 export function stateFromLocation(
   pathname: string,
   search: string,
@@ -98,7 +72,6 @@ export function stateFromLocation(
   const searchTerm = params.get("q") || undefined;
   const p = pathname.replace(/\/+$/, "") || "/";
 
-  // /r/:recordingId
   const recordingMatch = p.match(/^\/r\/([^/]+)$/);
   if (recordingMatch) {
     const recordingId = decodePathSegment(recordingMatch[1]);
@@ -126,7 +99,6 @@ export function stateFromLocation(
     };
   }
 
-  // /share/:shareId and /embed/:shareId
   const shareMatch = p.match(/^\/(share|embed)\/([^/]+)$/);
   if (shareMatch) {
     const shareId = decodePathSegment(shareMatch[2]);
@@ -137,14 +109,12 @@ export function stateFromLocation(
     };
   }
 
-  // /spaces/:spaceId
   const spaceMatch = p.match(/^\/spaces\/([^/]+)$/);
   if (spaceMatch) {
     const spaceId = decodePathSegment(spaceMatch[1]);
     return spaceId ? { view: "space", spaceId } : { view: "library" };
   }
 
-  // /library/folder/:folderId
   const folderMatch = p.match(/^\/library\/folder\/([^/]+)$/);
   if (folderMatch) {
     const folderId = decodePathSegment(folderMatch[1]);
@@ -156,15 +126,12 @@ export function stateFromLocation(
     };
   }
 
-  // /meetings and /meetings/:meetingId
   const meetingMatch = p.match(/^\/meetings(?:\/([^/]+))?$/);
   if (meetingMatch) {
     if (meetingMatch[1]) {
       const meetingId = decodePathSegment(meetingMatch[1]);
       return meetingId ? { view: "meeting", meetingId } : { view: "library" };
     }
-    // ?tab= is absent on the default Agenda tab, so report it explicitly
-    // rather than leaving the agent to infer which list the user is looking at.
     return {
       view: "meetings",
       meetingsTab: params.get("tab") === "past" ? "past" : "agenda",
@@ -172,7 +139,6 @@ export function stateFromLocation(
     };
   }
 
-  // /dictate?dictationId=:dictationId (optionally /dictate/:dictationId in the future)
   const dictateMatch = p.match(/^\/dictate(?:\/([^/]+))?$/);
   if (dictateMatch) {
     const pathDictationId = decodePathSegment(dictateMatch[1]);
@@ -206,14 +172,9 @@ export function stateFromLocation(
     };
   }
 
-  // Fallback — unknown route, default to library.
   return { view: "library" };
 }
 
-/**
- * Turn a navigate-command payload (from the agent) into a URL path.
- * If the command includes `path`, prefer that — otherwise map view+ids.
- */
 export function pathFromCommand(cmd: NavigateCommand): string {
   if (cmd.path) return cmd.path;
   switch (cmd.view) {
@@ -229,8 +190,6 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         recordingParams.set("panel", cmd.panel);
       }
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
-        // Viewer routes use the public `at` query parameter in seconds while
-        // navigation commands expose timestamps in milliseconds.
         recordingParams.set(
           "at",
           String(Math.max(0, Math.round(cmd.atMs) / 1000)),
@@ -296,14 +255,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState, NavigateCommand>({
-    // Scope navigation to this browser tab so the agent reads the clip THIS
-    // tab is showing, not whichever tab navigated last. Without this, the
-    // global `navigation` key is shared across tabs and a chat in tab B can
-    // summarize the clip open in tab A.
     browserTabId: getBrowserTabId(),
-    // Commit navigation immediately so the agent never reads a stale
-    // recordingId after the user switches clips. The only high-frequency URL
-    // change (meetings ?q=) is already debounced where it is written.
     getNavigationState: ({ pathname, search }) =>
       stateFromLocation(pathname, search),
     getCommandPath: (cmd) => pathFromCommand(cmd),

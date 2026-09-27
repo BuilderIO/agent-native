@@ -11,8 +11,6 @@ const resolveCredentialDetailed = vi.fn(async (key: string) => {
     : { value, scope: "org" as const, scopeId: "org-1" };
 });
 
-// Stub the credential infrastructure so the spec can exercise the pure
-// transform functions without dragging in OTel/SQL via the request context.
 vi.mock("./credentials", () => ({
   resolveCredential,
   resolveCredentialDetailed,
@@ -113,8 +111,8 @@ describe("serializePanelDescriptorInput", () => {
 
 describe("defaultStep", () => {
   it("aims for ~250 points across the range", () => {
-    expect(defaultStep(3600)).toBe(15); // 1h / 240 ≈ 15s, clamped to minimum
-    expect(defaultStep(86400)).toBe(345); // 1d / 250
+    expect(defaultStep(3600)).toBe(15);
+    expect(defaultStep(86400)).toBe(345);
   });
   it("clamps to 15s minimum", () => {
     expect(defaultStep(60)).toBe(15);

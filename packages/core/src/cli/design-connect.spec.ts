@@ -58,9 +58,6 @@ function liveEditRegistrationAuth(
   };
 }
 
-// ── Bridge helpers ──────────────────────────────────────────────────────────
-
-/** Pick an ephemeral port that is likely free by binding momentarily. */
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = http.createServer();
@@ -1886,11 +1883,6 @@ describe("design connect bridge endpoints", () => {
         marker: `MARK_${i}_ONLY`,
       }));
 
-      // All N frames register their screen-specific bridge script AT THE SAME
-      // TIME, mirroring N iframes mounting together in an overview. If
-      // registration were serialized behind shared mutable state (rather than
-      // each landing independently in the keyed map), a late arrival could
-      // clobber an earlier one before it's ever read back.
       await Promise.all(
         frames.map((frame) =>
           postJson(
@@ -1905,9 +1897,6 @@ describe("design connect bridge endpoints", () => {
         ),
       );
 
-      // All N frames fetch their live-edit document AT THE SAME TIME. Each
-      // response must contain only its own marker and route — never another
-      // frame's, and never blank/hung.
       const liveEditResults = await Promise.all(
         frames.map((frame) =>
           getText(
@@ -1926,9 +1915,6 @@ describe("design connect bridge endpoints", () => {
         }
       });
 
-      // All N frames also request an ordinary proxied asset AT THE SAME TIME
-      // (simulating each iframe's own JS/CSS module graph loading in
-      // parallel). None should starve behind another.
       const assetResults = await Promise.all(
         frames.map((frame) =>
           getText(
@@ -1943,9 +1929,6 @@ describe("design connect bridge endpoints", () => {
         );
       });
 
-      // All N frames open their Vite HMR WebSocket tunnel AT THE SAME TIME.
-      // Every upgrade must independently reach the upstream dev server and
-      // come back 101 — none should hang waiting on another frame's tunnel.
       const upgradeStatuses = await Promise.all(
         frames.map(
           (frame, i) =>
@@ -2024,10 +2007,6 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // A bridgeKey that was never registered against THIS bridge process —
-      // e.g. the client remembers registering it before the bridge process
-      // restarted (crash, machine sleep/wake, manual restart), which silently
-      // empties the in-memory liveEditBridgeScripts map.
       const unregistered = await getJson(
         `${base}/live-edit?path=/a&bridgeKey=never-registered&previewToken=${bridge.previewToken}`,
       );
@@ -2036,11 +2015,6 @@ describe("design connect bridge endpoints", () => {
       expect(unregistered.body.bridgeKey).toBe("never-registered");
       expect(unregistered.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
 
-      // The registration endpoint echoes the same instance id, so a client
-      // that registers, then later hits the 409 above with a DIFFERENT
-      // bridgeInstanceId than what it got back here, knows the process
-      // restarted (safe to silently re-register) rather than distrust its
-      // own bridgeKey.
       const registration = await postJson(
         `${base}/live-edit-bridge`,
         {
@@ -2053,7 +2027,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(registration.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
 
-      // /health exposes the same id for a lightweight out-of-band check.
       const health = await getJson(`${base}/health`);
       expect(health.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
     } finally {
@@ -2499,8 +2472,6 @@ describe("design connect bridge endpoints", () => {
     const assetServer = http.createServer((req, res) => {
       if (req.url === "/third-party.js") {
         externalAssetRequests += 1;
-        // Deliberately omit both CORP and CORS: this models a normal CDN
-        // script that was valid before the preview was embedded in Design.
         res.writeHead(200, { "content-type": "application/javascript" });
         res.end("window.__thirdPartyPreviewAssetLoaded = true;");
         return;
@@ -2543,7 +2514,6 @@ describe("design connect bridge endpoints", () => {
     const hostServer = http.createServer((_req, res) => {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
-        // Model the production Design page that embeds the loopback frame.
         "cross-origin-embedder-policy": "require-corp",
       });
       res.end(
@@ -2590,10 +2560,6 @@ describe("design connect bridge endpoints", () => {
   it("proxies a query-string-suffixed asset request to the dev server byte-for-byte, without dropping or rewriting the query", async () => {
     const root = tmpDir();
     const devPort = await freePort();
-    // Vite's `?url` module convention is recognized only for the EXACT
-    // valueless query `?url`; a proxy bug that turns it into `?url=` (or
-    // drops it) makes Vite fall back to serving a completely different
-    // response for the same asset path.
     const tinyModule = 'export default "/app/global.css"';
     const rawFallback = "/* raw unprocessed source, not the ?url module */";
     const devServer = http.createServer((req, res) => {
@@ -2622,8 +2588,6 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // previewToken supplied via header: the query string reaching the
-      // bridge never contains "previewToken" at all.
       const viaHeader = await getText(`${base}/app/global.css?url`, {
         "x-design-preview-token": bridge.previewToken,
       });
@@ -2631,10 +2595,6 @@ describe("design connect bridge endpoints", () => {
       expect(viaHeader.body).toBe(tinyModule);
       expect(viaHeader.headers["content-type"]).toContain("text/javascript");
 
-      // previewToken supplied via query string alongside the valueless
-      // `url` flag: only the previewToken pair may be removed, and the
-      // remaining query must reach the dev server as the bare `?url`
-      // Vite expects, not `?url=` or `?url=&...`.
       const viaQuery = await getText(
         `${base}/app/global.css?url&previewToken=${bridge.previewToken}`,
       );
@@ -2651,9 +2611,6 @@ describe("design connect bridge endpoints", () => {
   it("survives a client resetting a proxied WebSocket upgrade", async () => {
     const root = tmpDir();
     const devPort = await freePort();
-    // A dev server that accepts the upgrade and then holds the socket open,
-    // so the reset comes from the bridge's client side while both proxied
-    // sockets are live.
     const devServer = http.createServer((_req, res) => {
       res.writeHead(404);
       res.end();
@@ -2702,8 +2659,6 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         client.once("data", () => resolve()),
       );
-      // RST instead of FIN: this is what an abruptly closed tab produces and
-      // what surfaced as `read ECONNRESET` in the bridge.
       client.resetAndDestroy();
       await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -2711,8 +2666,6 @@ describe("design connect bridge endpoints", () => {
       expect(health.status).toBe(200);
       expect(health.body["ok"]).toBe(true);
     } finally {
-      // The dev server still holds the proxied upstream socket open; drop
-      // every connection so close() does not wait on it.
       for (const socket of devSockets) socket.destroy();
       bridge.server.closeAllConnections();
       devServer.closeAllConnections();
@@ -2761,7 +2714,6 @@ describe("design connect bridge endpoints", () => {
         },
         auth,
       );
-      // Registered last: this is what the unkeyed slot would hand out.
       await postJson(
         `${base}/live-edit-bridge`,
         {
@@ -2772,8 +2724,6 @@ describe("design connect bridge endpoints", () => {
         },
         auth,
       );
-      // Frame A follows a link to /home. The browser tags it as an iframe
-      // navigation and its referer is the keyed /live-edit URL it came from.
       const navigated = await fetch(`${base}/home`, {
         redirect: "manual",
         headers: {
@@ -2794,14 +2744,10 @@ describe("design connect bridge endpoints", () => {
       expect(landed.body).toContain("page /home");
       expect(landed.body).toContain('window.__screenBridge="A"');
       expect(landed.body).not.toContain('window.__screenBridge="B"');
-      // The pre-boot shim rewrites the frame URL to the app route; the key
-      // rides along so the NEXT navigation's referer still carries it.
       expect(landed.body).toContain(
         JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
       );
 
-      // Second hop: the frame now sits on the rewritten app route, not on
-      // /live-edit, and follows another link.
       const secondHop = await fetch(`${base}/settings`, {
         redirect: "manual",
         headers: {
@@ -2817,7 +2763,6 @@ describe("design connect bridge endpoints", () => {
         `http://127.0.0.1:${devPort}/settings`,
       );
 
-      // A keyed target with a valueless Vite-style flag keeps it byte-identical.
       const flagged = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/page?url`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -2827,8 +2772,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(flagged.body).not.toContain("?url=&");
 
-      // A form POST navigation cannot be redirected without dropping its
-      // body, so it is proxied with the frame's own keyed script instead.
       const posted = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -2848,8 +2791,6 @@ describe("design connect bridge endpoints", () => {
         JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
       );
 
-      // The bridge-only identity param never reaches the dev server, even on
-      // a POST whose form action kept the rewritten route's query.
       const postedWithKey = await fetch(
         `${base}/submit?agentNativeBridgeKey=screen-a`,
         {
@@ -2869,8 +2810,6 @@ describe("design connect bridge endpoints", () => {
         seenByDevServer.some((entry) => entry.includes("agentNativeBridgeKey")),
       ).toBe(false);
 
-      // A keyed POST whose key this bridge no longer knows is refused rather
-      // than booted with the last registered screen's script.
       const stale = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -2888,8 +2827,6 @@ describe("design connect bridge endpoints", () => {
         bridgeKey: "screen-gone",
       });
 
-      // A target that already carries a stale key gets exactly one, the
-      // requested one.
       const restamped = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?agentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -2899,8 +2836,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(restamped.body).not.toContain("agentNativeBridgeKey=screen-b");
 
-      // A stale keyed POST is refused with its body drained, so the same
-      // keep-alive connection serves the next request normally.
       const keepAlive = new http.Agent({ keepAlive: true, maxSockets: 1 });
       const onSameConnection = (
         options: http.RequestOptions,
@@ -2947,7 +2882,6 @@ describe("design connect bridge endpoints", () => {
         keepAlive.destroy();
       }
 
-      // A percent-encoded spelling of the identity param is still a duplicate.
       const encodedStale = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?%61gentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -2957,9 +2891,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(encodedStale.body).not.toContain("screen-b");
 
-      // The keyed page remembers its screen in window.name, and an unkeyed
-      // frame navigation (no referer: Referrer-Policy no-referrer) carries a
-      // recovery snippet that goes back through /live-edit with that key.
       expect(landed.body).toContain(
         'window.name="agent-native-bridge:"+"screen-a"',
       );
@@ -2976,8 +2907,6 @@ describe("design connect bridge endpoints", () => {
         `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
       );
 
-      // A no-referer POST that already reached the app keeps its response:
-      // recovery would re-issue it as a GET, so it is never injected there.
       const noRefererPost = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -2992,11 +2921,8 @@ describe("design connect bridge endpoints", () => {
       const noRefererPostHtml = await noRefererPost.text();
       expect(noRefererPostHtml).toContain("page /submit");
       expect(noRefererPostHtml).not.toContain("location.replace(");
-      // …and, with keyed screens registered, it boots with no bridge rather
-      // than with whichever screen registered last.
       expect(noRefererPostHtml).not.toContain("__screenBridge");
 
-      // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",
         headers: { ...auth, "sec-fetch-dest": "iframe" },
@@ -3008,8 +2934,6 @@ describe("design connect bridge endpoints", () => {
         `http://127.0.0.1:${devPort}/home`,
       );
 
-      // A navigation with no keyed referer still gets the proxied page with
-      // the unkeyed bridge, as before.
       const unkeyed = await fetch(`${base}/home`, {
         redirect: "manual",
         headers: { ...auth, "sec-fetch-dest": "iframe" },
@@ -3053,16 +2977,12 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // Control-plane callers never send Sec-Fetch-Dest: the bare root keeps
-      // returning the bridge manifest for them.
       const controlPlane = await getJson(`${base}/`, {
         "x-design-preview-token": bridge.previewToken,
       });
       expect(controlPlane.status).toBe(200);
       expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
 
-      // A live frame that navigates to "/" (router redirect, home link) is a
-      // document/iframe navigation and must get the app's own root.
       const framed = await fetch(`${base}/`, {
         headers: {
           "x-design-preview-token": bridge.previewToken,
@@ -3079,8 +2999,6 @@ describe("design connect bridge endpoints", () => {
       );
       const framedHtml = await framed.text();
       expect(framedHtml).toContain("app root");
-      // The frame keeps live editing after navigating: the proxy must inject
-      // the bridge into iframe navigations, not only top-level documents.
       expect(framedHtml).toContain("data-agent-native-live-edit-location");
     } finally {
       await new Promise<void>((resolve) =>
@@ -3281,9 +3199,6 @@ describe("design connect bridge endpoints", () => {
         "preview_session=server-session",
       );
 
-      // A second URL-backed screen shares the bridge's isolated upstream jar.
-      // A client-side document.cookie update and localStorage bearer token are
-      // merged only for this same-origin app request.
       const me = await fetch(`${base}/api/me`, {
         headers: {
           "sec-fetch-site": "same-origin",
@@ -3485,7 +3400,7 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       expect(typeof bridge.bridgeToken).toBe("string");
-      expect(bridge.bridgeToken.length).toBe(64); // 32 bytes hex
+      expect(bridge.bridgeToken.length).toBe(64);
       expect(typeof bridge.previewToken).toBe("string");
       expect(bridge.previewToken).toHaveLength(64);
       expect(bridge.previewToken).not.toBe(bridge.bridgeToken);
@@ -3823,7 +3738,6 @@ describe("design connect bridge endpoints", () => {
       const base = `http://127.0.0.1:${port}`;
       const authHeader = { "x-bridge-token": bridgeToken };
 
-      // Write a new file.
       const writeResult = await postJson(
         `${base}/write-file`,
         { relPath: "index.html", content: "<h1>Hello</h1>" },
@@ -3832,7 +3746,6 @@ describe("design connect bridge endpoints", () => {
       expect(writeResult.status).toBe(200);
       expect(writeResult.body["ok"]).toBe(true);
 
-      // Read it back.
       const readResult = await postJson(
         `${base}/read-file`,
         { relPath: "index.html" },
@@ -3841,7 +3754,6 @@ describe("design connect bridge endpoints", () => {
       expect(readResult.status).toBe(200);
       expect(readResult.body["content"]).toBe("<h1>Hello</h1>");
 
-      // Verify it is actually on disk.
       expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
         "<h1>Hello</h1>",
       );
@@ -4043,8 +3955,6 @@ describe("design connect bridge endpoints", () => {
         { relPath: "../../etc/passwd" },
         authHeader,
       );
-      // Must be an error (status 500 with traversal message or 404 if OS resolves
-      // to a non-existent file that still escapes the root — we just want not-200).
       expect(result.status).not.toBe(200);
     } finally {
       await new Promise<void>((resolve) =>
@@ -4058,7 +3968,6 @@ describe("design connect bridge endpoints", () => {
     const outsideDir = tmpDir();
     const secretPath = path.join(outsideDir, "id_dsa_secret");
     fs.writeFileSync(secretPath, "super-secret-key-material", "utf8");
-    // The symlink itself lives inside root — only its target escapes.
     fs.symlinkSync(secretPath, path.join(root, "link.css"));
 
     const port = await freePort();
@@ -4113,7 +4022,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(result.status).not.toBe(200);
       expect(result.body["ok"]).toBe(false);
-      // The file outside root must remain untouched.
       expect(fs.readFileSync(targetPath, "utf8")).toBe("body { color: red; }");
     } finally {
       await new Promise<void>((resolve) =>
@@ -4132,7 +4040,6 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     try {
-      // Spin up a small HTTP server to capture the registration payload.
       let captured: Record<string, unknown> | null = null;
       const captureServer = http.createServer((req, res) => {
         const chunks: Buffer[] = [];
@@ -4164,7 +4071,6 @@ describe("design connect bridge endpoints", () => {
           bridge,
           "test-auth-token",
         );
-        // Give the async handler a tick to finish.
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         expect(captured).not.toBeNull();
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);

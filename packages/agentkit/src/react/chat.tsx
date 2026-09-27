@@ -11,7 +11,6 @@ import {
 
 export type AgentChatClientSource =
   | {
-      /** Caller-owned client. AgentChat loads threads but never disposes it. */
       client: AgentKitClient;
       endpoint?: never;
       transport?: never;
@@ -19,7 +18,6 @@ export type AgentChatClientSource =
       clientOptions?: never;
     }
   | {
-      /** Caller-owned transport wrapped in an AgentChat-owned client. */
       transport: AgentTransport;
       endpoint?: never;
       client?: never;
@@ -27,7 +25,6 @@ export type AgentChatClientSource =
       clientOptions?: AgentKitManagedClientOptions;
     }
   | {
-      /** Endpoint wrapped in an AgentChat-owned HTTP transport and client. */
       endpoint: string;
       http?: Omit<AgentKitHttpTransportOptions, "baseUrl">;
       client?: never;
@@ -39,10 +36,6 @@ export type AgentChatProps = Omit<AgentKitRootBaseProps, "children"> &
   AgentChatClientSource &
   AgentKitChatProps;
 
-/**
- * Batteries-included AgentKit surface. Pass an endpoint and thread id for the
- * common path; use `AgentKitRoot` when a product needs a custom composition.
- */
 export function AgentChat(props: AgentChatProps) {
   const {
     client,

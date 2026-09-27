@@ -1,12 +1,3 @@
-/**
- * Specs for the tool-call result ledger (P1 fix):
- *
- *   1. Late zombie completion writes a ledger entry.
- *   2. Continuation with matching (toolName + inputHash) returns the ledger
- *      result without re-executing the action.
- *   3. Different input executes normally (no ledger match).
- *   4. Read-only tools never consult the ledger.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
@@ -18,7 +9,8 @@ import {
   type ActionEntry,
 } from "./production-agent.js";
 
-// ─── Mock run-store so DB is never touched ───────────────────────────────────
+const recoveredResultPrefix =
+  "(Recovered from prior interrupted chunk — action already completed.)\n\n";
 
 const writeLedgerMock = vi.hoisted(() =>
   vi.fn<
@@ -57,7 +49,6 @@ vi.mock("./run-store.js", () => ({
   readLedgerEntry: readLedgerMock,
   clearLedgerForThread: clearLedgerMock,
   getCurrentTurnEventsForThread: currentTurnEventsMock,
-  // Other run-store functions used by production-agent during abort handling:
   insertRun: vi.fn(),
   updateRunHeartbeat: vi.fn(),
   getRunAbortState: vi.fn(async () => ({ aborted: false, reason: null })),
@@ -77,8 +68,6 @@ vi.mock("./run-store.js", () => ({
     details: "",
   },
 }));
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeWriteAction(): ActionEntry {
   return {
@@ -102,7 +91,6 @@ function makeReadAction(): ActionEntry {
   };
 }
 
-/** Engine that emits a single tool call then ends. */
 function singleToolEngine(
   toolName: string,
   input: Record<string, unknown> = {},
@@ -141,12 +129,9 @@ function singleToolEngine(
   };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 describe("tool-call result ledger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no prior ledger entry
     readLedgerMock.mockResolvedValue(null);
     clearLedgerMock.mockResolvedValue(undefined);
     writeLedgerMock.mockResolvedValue(undefined);
@@ -172,8 +157,6 @@ describe("tool-call result ledger", () => {
       threadId: "thread-zombie",
     });
 
-    // writeLedgerEntry must have been called with the thread and a key
-    // that encodes the tool name + stable input hash.
     expect(writeLedgerMock).toHaveBeenCalledWith(
       "thread-zombie",
       expect.stringContaining("save-data"),
@@ -382,7 +365,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("returns the ledger result without re-executing on continuation match", async () => {
-    // readLedgerEntry returns a cached result — the action must NOT run again.
     const PRIOR_RESULT =
       `{"payload":"${"x".repeat(8_000)}` +
       "\n...[ledger truncated at 8000 chars]";
@@ -403,8 +385,6 @@ describe("tool-call result ledger", () => {
     const action = makeWriteAction();
     const events: any[] = [];
 
-    // Build a continuation turn: the same save-data was interrupted once,
-    // so priorInterruptions > 0, which triggers the ledger check.
     await runAgentLoop({
       engine: singleToolEngine("save-data", { content: "big" }),
       model: "test-model",
@@ -451,15 +431,14 @@ describe("tool-call result ledger", () => {
       threadId: "thread-resume",
     });
 
-    // The action must NOT have been called again — the ledger result was used.
     expect(action.run).not.toHaveBeenCalled();
 
-    // The recovered result stays intact so renderers can parse it.
+    // Recovery context does not trim the stored result.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
         tool: "save-data",
-        result: PRIOR_RESULT,
+        result: `${recoveredResultPrefix}${PRIOR_RESULT}`,
       }),
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
@@ -634,7 +613,7 @@ describe("tool-call result ledger", () => {
 
     const toolDone = events.find((event: any) => event.type === "tool_done");
     expect(action.run).not.toHaveBeenCalled();
-    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.result).toBe(`${recoveredResultPrefix}${result}`);
     expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
     expect(toolDone?.chatUIResult).toBe(result);
   });
@@ -704,7 +683,7 @@ describe("tool-call result ledger", () => {
 
     const toolDone = events.find((event: any) => event.type === "tool_done");
     expect(action.run).not.toHaveBeenCalled();
-    expect(toolDone?.result).toBe(result);
+    expect(toolDone?.result).toBe(`${recoveredResultPrefix}${result}`);
     expect(toolDone?.chatUI).toBeUndefined();
     expect(events.some((event: any) => event.type === "widget.created")).toBe(
       false,
@@ -784,12 +763,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("does not re-execute a write tool when the run is aborted during the ledger wait", async () => {
-    // Regression: waitForInterruptedToolLedgerEntry returns null both when no
-    // entry exists AND when the run is aborted mid-wait. The caller must not
-    // treat an aborted wait as a cache miss and start a fresh execution — that
-    // would spawn a duplicate zombie side effect (e.g. a second image
-    // generation / double charge). Abort the run while the ledger is being
-    // polled and assert the action never runs.
     const controller = new AbortController();
     readLedgerMock.mockImplementation(async () => {
       controller.abort();
@@ -893,7 +866,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("executes normally when the ledger has no entry for the tool input", async () => {
-    // readLedgerEntry returns null → action must run as usual.
     readLedgerMock.mockResolvedValue(null);
 
     const action = makeWriteAction();
@@ -945,14 +917,10 @@ describe("tool-call result ledger", () => {
       threadId: "thread-resume-no-match",
     });
 
-    // Action should have run once since ledger returned null (cache miss).
     expect(action.run).toHaveBeenCalledOnce();
   });
 
   it("records a write tool rejected by a run abort as interrupted, not failed", async () => {
-    // The request may already have reached the provider when the run stops
-    // waiting on it. An "Error running" result tells the resuming chunk the
-    // write did not happen, and it re-dispatches it.
     const controller = new AbortController();
     const action = makeWriteAction();
     (action.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
@@ -981,9 +949,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("does not count an aborted write toward the repeated-error breaker", async () => {
-    // Two earlier chunks of this turn recorded the same abort as an error
-    // (the pre-fix history shape). A third identical error trips the breaker;
-    // an interruption is not an error and must not.
     const priorAbort = [
       { type: "tool_start", tool: "save-data", input: { content: "x" } },
       {
@@ -1049,8 +1014,6 @@ describe("tool-call result ledger", () => {
   });
 
   it("never consults the ledger for read-only tools", async () => {
-    // Even if readLedger were to return something, read-only tools should
-    // bypass the ledger entirely — they have no side effects to protect.
     readLedgerMock.mockResolvedValue({
       result: "should-not-be-used",
       artifacts: [],
@@ -1059,8 +1022,6 @@ describe("tool-call result ledger", () => {
     const action = makeReadAction();
     const events: any[] = [];
 
-    // Simulate a continuation with an "interrupted" read-only tool result
-    // (unusual, but the ledger must not be consulted regardless).
     await runAgentLoop({
       engine: singleToolEngine("get-data", { id: "123" }),
       model: "test-model",
@@ -1107,11 +1068,8 @@ describe("tool-call result ledger", () => {
       threadId: "thread-read-only",
     });
 
-    // readLedgerEntry must never be called for read-only tools.
     expect(readLedgerMock).not.toHaveBeenCalled();
 
-    // The read-only per-turn cache handles the retry instead of the durable
-    // write-tool ledger, so the read action is not re-executed either.
     expect(action.run).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({

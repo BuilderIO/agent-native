@@ -84,7 +84,6 @@ async function indexHtml(page: Page, designId: string): Promise<string> {
   );
 }
 
-/** The open tag of one node, where every stamped annotation lives. */
 function openTag(html: string, nodeId: string): string {
   const at = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
   if (at === -1) return "";

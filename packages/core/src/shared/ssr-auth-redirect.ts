@@ -1,10 +1,3 @@
-/**
- * Inline browser handoff for the public root entry.
- *
- * The server only decides whether this script belongs on the root shell. The
- * browser owns the session check and redirect so the root shell stays
- * anonymous and safe for a shared CDN cache.
- */
 export function getSsrAuthRedirectScript(
   sessionHintCookieName = "an_session_hint",
   appHomePath = "/home",

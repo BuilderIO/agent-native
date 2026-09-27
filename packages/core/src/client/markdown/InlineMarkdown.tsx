@@ -46,13 +46,6 @@ export interface InlineMarkdownProtectedSpan {
   title?: string;
 }
 
-/**
- * Render user-authored Markdown for compact text surfaces.
- *
- * Compact renders omit block-level Markdown by default. Callers that own a
- * block surface can opt into ordered and unordered lists; headings, quotes,
- * and raw HTML stay omitted.
- */
 export function InlineMarkdown({
   content,
   className,

@@ -1,9 +1,5 @@
 name: Cancel active Netlify previews
 
-# Manual queue drain for the shared Netlify build pool. Preview deploy fan-out
-# can starve production deploys across the hosted template fleet; this cancels
-# active deploy-preview builds only, leaving production deploys untouched.
-
 on:
   workflow_dispatch:
     inputs:

@@ -40,14 +40,11 @@ function isHttpsRequest(event: H3Event): boolean {
 }
 
 function capabilityCookiePath(appBasePath?: string): string {
-  // The browser only replays this cookie on the URL it actually requests,
-  // which carries the public prefix.
   return publicFrameworkPath(
     `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
   );
 }
 
-/** Verify the server-minted browser capability for an authenticated owner. */
 export function hasUiActionCapability(
   event: H3Event,
   ownerEmail?: string,
@@ -93,7 +90,6 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   return { ok: true };
 }
 
-/** Mount the authenticated endpoint that seeds the HttpOnly UI capability. */
 export function mountUiActionCapabilityRoute(
   nitroApp: any,
   routePrefix = "/_agent-native",

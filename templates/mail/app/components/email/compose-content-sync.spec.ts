@@ -69,7 +69,6 @@ describe("shouldApplyComposeContent", () => {
   });
 
   it("ignores recent typing when the editor is not focused", () => {
-    // A blurred editor can't be "typing right now" even if lastTypedAt is recent
     expect(
       shouldApplyComposeContent({
         currentMarkdown: "Old body",

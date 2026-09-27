@@ -72,29 +72,6 @@ import { cn } from "@/lib/utils";
 const MIN_TIMELINE_ZOOM = 1;
 const MAX_TIMELINE_ZOOM = 50;
 
-/**
- * Keep a menu inside the room it has, and let it scroll there.
- *
- * The shared menu is `overflow-hidden` with no height limit of its own, so a
- * long one opening upwards near the top of its space simply loses its first
- * items — no scrollbar, no indication, nothing to reach them with. Radix
- * publishes the space it found as a CSS variable; this spends exactly that.
- */
-/**
- * Labels that give way to their icons when the bar gets tight.
- *
- * Shrinking beats both hiding and scrolling: play, undo, redo and the zoom
- * controls are icon-only already and nobody misses their names, while "Cut
- * selection", "Redact" and "Edit" spend about 200px between them on words the
- * icons and tooltips already carry. Dropping them is what makes everything fit
- * a laptop at full screen — no control disappears, and nothing has to be
- * discovered behind a menu or off the end of a scroll.
- *
- * Measured against the bar's own width with a container query, not the window:
- * the editor's panels change how much room this has. Unlike the menu items
- * that made the same trick fail before, these labels are inside the bar, so a
- * container query can reach them.
- */
 const LABEL_WHEN_ROOMY = "hidden @min-[900px]/bar:inline";
 
 const CONTENT_SCROLL =
@@ -112,20 +89,14 @@ export interface EditorToolbarProps {
   onZoomChange: (zoom: number) => void;
   timelineActive?: boolean;
   edits: EditsJson;
-  /** The highlighted timeline section (original ms), if any. */
   selectionRange?: { startMs: number; endMs: number } | null;
-  /** Remove a range. Owned by the layout so it lands in the undo history. */
-  /** Resolves false when the edit did not save, so nothing claims it did. */
   onCutRange: (range: { startMs: number; endMs: number }) => Promise<boolean>;
   onSplit: () => Promise<boolean>;
-  /** The Redact tool: while it is armed, dragging on the video draws a box. */
   redactMode?: boolean;
   onToggleRedact?: () => void;
-  /** Redactions placed but not yet rendered into the file. */
   pendingRedactions?: number;
   onBurnRedactions?: () => Promise<void>;
   burningRedactions?: boolean;
-  /** 0-99 while a burn is running. */
   burnPercent?: number;
   onUndo: () => void;
   onRedo: () => void;
@@ -185,27 +156,9 @@ export function EditorToolbar({
   const clear = useActionMutation("clear-edits");
   const [busy, setBusy] = useState(false);
 
-  /**
-   * The scrolling strip of controls, and which of its edges has more to see.
-   *
-   * The row used to clip: `overflow-hidden` on a flex line drops whatever does
-   * not fit, and what did not fit was the Export button on the right — or, when
-   * the row was wide enough to lay everything out but not wide enough to show
-   * it, the Burn button sitting underneath Export. Folding controls into the
-   * menu by measured width was worse: it has to predict how much room a set of
-   * translated labels needs, and it made the menu tall enough to run off the
-   * top of the screen.
-   *
-   * So the controls scroll, and Export is pinned outside the strip. Nothing can
-   * be covered by anything, and nothing has to be predicted. The only thing
-   * measured is which edge to shade, because a strip that scrolls with no sign
-   * that it does is the original complaint in a new costume — and a shade is
-   * paint, not layout, so measuring it cannot feed back into what it measured.
-   */
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [moreAt, setMoreAt] = useState({ start: false, end: false });
 
-  /** One press moves most of a screenful, the way a scroll bar's track does. */
   const scrollStrip = (direction: 1 | -1) => {
     const el = stripRef.current;
     if (!el) return;
@@ -222,8 +175,6 @@ export function EditorToolbar({
     setMoreAt({ start: el.scrollLeft > 1, end: el.scrollLeft < max - 1 }); // i18n-ignore — comparisons, not copy
   };
 
-  // After layout, and again whenever the set of controls changes: a control
-  // appearing or disappearing changes what overflows without resizing anything.
   useLayoutEffect(readEdges, [
     burningRedactions,
     pendingRedactions,
@@ -259,7 +210,6 @@ export function EditorToolbar({
 
   const effectiveMs = effectiveDuration(durationMs, edits);
 
-  /** Run one of the layout's edit callbacks with the button held disabled. */
   const runEdit = async (fn: () => Promise<boolean>) => {
     setBusy(true);
     try {
@@ -356,9 +306,6 @@ export function EditorToolbar({
   };
 
   const handleExportClick = () => {
-    // A box that has not been burned in is not in the file, so it will not be
-    // in the export either. Saying so here is the difference between someone
-    // sending out a redacted clip and someone thinking they did.
     if (pendingRedactions > 0) {
       setExportUnredactedOpen(true);
       return;
@@ -372,7 +319,6 @@ export function EditorToolbar({
 
   const handleDownloadOriginal = () => {
     if (!video.videoUrl) return;
-    // The original is the unredacted file, by definition.
     if (pendingRedactions > 0) {
       setExportUnredactedOpen(true);
       return;
@@ -431,15 +377,8 @@ export function EditorToolbar({
         ) : null}
         <div
           ref={stripRef}
-          // `overflow-y-hidden` as well: the row is 44px tall and a control
-          // with a ring on it would otherwise give it a vertical scrollbar.
           className={cn(
-            // `clips-toolbar-strip` (app/global.css) is what makes the
-            // scrollbar visible at all on a Mac. The vertical padding is small
-            // because the bar is drawn inside this box and the row is 44px.
             "clips-toolbar-strip flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden py-0.5",
-            // Room for whichever button is showing, so it never covers a
-            // control rather than the gap beside one.
             moreAt.start && "ps-7",
             moreAt.end && "pe-7",
           )}
@@ -667,8 +606,6 @@ export function EditorToolbar({
                   size="sm"
                   variant={redactMode ? "default" : "ghost"}
                   aria-pressed={redactMode}
-                  // An armed tool changes what a drag on the video does, so it
-                  // says so in colour rather than in a shade of grey.
                   className={cn(
                     redactMode &&
                       // guard:allow-raw-color — black on a fixed amber chip: following the theme here would put light text on it.

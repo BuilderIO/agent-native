@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * SQL persistence for the agent observability system.
- *
- * Creates and manages tables for traces, feedback, evals, experiments,
- * and satisfaction scores. Follows the same raw-SQL pattern as
- * run-store.ts and usage/store.ts — framework tables use getDbExec()
- * rather than Drizzle ORM (which is for template-level schemas).
- */
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -118,10 +110,6 @@ function parseHumanReviewSummaryRow(
   };
 }
 
-// Tables whose rows are owned by an end user — drives the boot-time
-// user_id ALTER loop and the per-user composite indexes below. Every
-// new user-owned observability table must be added here so the upgrade
-// path and the per-user query plan stay in sync.
 const USER_SCOPED_TABLES = [
   "agent_trace_spans",
   "agent_trace_summaries",
@@ -135,11 +123,6 @@ const MAX_REVIEW_THREAD_BYTES = 1_000_000;
 export const MAX_REVIEW_TOOL_SPANS = 20;
 const MAX_REVIEW_TOOL_METADATA_BYTES = 100_000;
 
-/**
- * Append an `AND user_id = ?` clause when a userId filter is requested.
- * Returns the fully-bound WHERE clause + args ready to splice into the
- * caller's SQL. Centralizes the pattern so tests can assert one shape.
- */
 function withUserFilter(
   baseWhere: string,
   baseArgs: any[],
@@ -332,7 +315,6 @@ export async function ensureObservabilityTables(): Promise<void> {
       `;
 
       {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
         await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
         await ensureTableExists(
           "agent_trace_summaries",
@@ -498,8 +480,6 @@ export async function ensureObservabilityTables(): Promise<void> {
   return _initPromise;
 }
 
-// ─── Trace span CRUD ─────────────────────────────────────────────────
-
 export async function insertTraceSpan(span: TraceSpan): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -535,8 +515,6 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
 export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  // user_id and org_id are intentionally NOT updated on conflict — once a run's
-  // owner is recorded it shouldn't change under us.
   {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
@@ -1022,7 +1000,6 @@ export async function upsertHumanReviewSummary(
   return Number(result.rowsAffected ?? 0) > 0;
 }
 
-/** Latest completed response in a thread, always scoped to its owner. */
 export async function getLatestTraceSummaryForThread(
   threadId: string,
   opts: { userId: string; excludeRunId: string },
@@ -1039,8 +1016,6 @@ export async function getLatestTraceSummaryForThread(
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
 }
-
-// ─── Feedback CRUD ───────────────────────────────────────────────────
 
 export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   await ensureObservabilityTables();
@@ -1346,8 +1321,6 @@ export async function getInstructionUpdates(opts: {
   return (rows as any[]).map(rowToInstructionUpdate);
 }
 
-// ─── Satisfaction scores CRUD ────────────────────────────────────────
-
 export async function upsertSatisfactionScore(
   score: SatisfactionScore,
 ): Promise<void> {
@@ -1412,8 +1385,6 @@ export async function getSatisfactionScores(opts: {
   });
   return (rows as any[]).map(rowToSatisfaction);
 }
-
-// ─── Evals CRUD ──────────────────────────────────────────────────────
 
 export async function insertEvalResult(result: EvalResult): Promise<void> {
   await ensureObservabilityTables();
@@ -1491,8 +1462,6 @@ export async function getEvalStats(
   };
 }
 
-// ─── Eval datasets CRUD ──────────────────────────────────────────────
-
 export async function insertEvalDataset(dataset: EvalDataset): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -1560,8 +1529,6 @@ export async function updateEvalDataset(
   });
 }
 
-// ─── Experiments CRUD ────────────────────────────────────────────────
-
 export async function insertExperiment(exp: Experiment): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -1603,9 +1570,6 @@ export async function updateExperiment(
     sets.push("status = ?");
     args.push(updates.status);
     if (updates.status === "running" && !updates.endedAt) {
-      // Preserve the original exposure window when a paused experiment
-      // resumes; resetting it would silently discard the first run period from
-      // the results.
       sets.push("started_at = COALESCE(started_at, ?)");
       args.push(Date.now());
     }
@@ -1649,8 +1613,6 @@ export async function getExperiment(id: string): Promise<Experiment | null> {
   if (rows.length === 0) return null;
   return rowToExperiment(rows[0] as any);
 }
-
-// ─── Experiment assignments CRUD ────────────────────────────────────
 
 export async function upsertAssignment(
   assignment: ExperimentAssignment,
@@ -1696,8 +1658,6 @@ export async function getAssignment(
   };
 }
 
-// ─── Experiment results CRUD ─────────────────────────────────────────
-
 export async function insertExperimentResult(
   result: ExperimentMetricResult,
 ): Promise<void> {
@@ -1736,8 +1696,6 @@ export async function getExperimentResults(
   return (rows as any[]).map(rowToExperimentResult);
 }
 
-// ─── Aggregate queries for dashboard ─────────────────────────────────
-
 export async function getObservabilityOverview(
   sinceMs: number,
   opts: { userId?: string } = {},
@@ -1753,10 +1711,6 @@ export async function getObservabilityOverview(
   await ensureObservabilityTables();
   const client = getDbExec();
 
-  // Three of the four sub-queries time-key on `created_at`; satisfaction
-  // uses `computed_at`. Each gets its own `withUserFilter` invocation so
-  // the args array isn't aliased across calls (some drivers mutate args
-  // for prepared-statement caching).
   const created = withUserFilter("created_at >= ?", [sinceMs], opts.userId);
   const computed = withUserFilter("computed_at >= ?", [sinceMs], opts.userId);
 
@@ -1811,8 +1765,6 @@ export async function getObservabilityOverview(
     avgEvalScore: Number(e.avg_score ?? 0),
   };
 }
-
-// ─── Row mappers ─────────────────────────────────────────────────────
 
 function rowToTraceSpan(row: Record<string, any>): TraceSpan {
   const storedMetadata = safeJsonParse<Record<string, unknown> | null>(

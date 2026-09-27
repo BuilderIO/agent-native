@@ -32,10 +32,6 @@ const builderImageGenerationEnabled = isBuilderImageGenerationEnabled();
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
 
-  // Register the S3-compatible upload provider. It self-checks env vars
-  // (ASSETS_STORAGE_* / legacy IMAGES_STORAGE_* / S3_*) and only activates when configured. The
-  // framework falls through to Builder.io storage when BUILDER_PRIVATE_KEY
-  // is set, then to the SQL fallback in dev.
   registerFileUploadProvider(s3FileUploadProvider);
 
   registerOnboardingStep({

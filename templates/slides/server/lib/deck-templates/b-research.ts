@@ -20,7 +20,6 @@ const SMALLCAPS = `font-size:14px;font-weight:600;letter-spacing:0.12em;text-tra
 const CAPTION = `margin:0;font-size:14px;line-height:1.45;color:var(--deck-muted);`;
 const NOTE = `font-size:14px;line-height:1.45;color:var(--deck-muted);`;
 
-/** Content slides share a running head and folio, like pages of the paper. */
 const page = (n: number, style: string, body: string, footnote = "") =>
   bRoot(
     TOKENS,
@@ -36,7 +35,6 @@ const page = (n: number, style: string, body: string, footnote = "") =>
 const sup = (mark: string) =>
   `<sup style="font-size:0.62em;color:var(--deck-accent);">${mark}</sup>`;
 
-// Illustrative bar heights (px) for four waves; not data.
 const WAVES: [string, number, number][] = [
   ["Week 0", 118, 116],
   ["Week 1", 150, 128],

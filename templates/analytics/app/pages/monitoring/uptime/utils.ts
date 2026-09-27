@@ -1,7 +1,3 @@
-/**
- * Formatting + presentation helpers for the uptime monitoring UI. Pure
- * functions only so they can be reused across the list, detail, and dialog.
- */
 import { fmt } from "./i18n";
 import type { Assertion, MonitorStatus, StatusMatcher } from "./types";
 
@@ -13,11 +9,6 @@ export function hostFromUrl(url: string): string {
   }
 }
 
-/**
- * Derive a friendly default monitor name from a URL: the host without a leading
- * `www.` (e.g. `example.com` from `https://www.example.com/health`). Falls back
- * to a best-effort parse for partial input so it still works while typing.
- */
 export function deriveMonitorName(url: string): string {
   const raw = (url ?? "").trim();
   if (!raw) return "";
@@ -96,7 +87,6 @@ export function formatUptime(pct: number | null): string {
   return `${pct.toFixed(pct >= 99.9 ? 2 : 1)}%`;
 }
 
-/** Health bucket for coloring: 3 states surfaced in the UI. */
 export type HealthTone = "up" | "down" | "degraded" | "neutral";
 
 export function statusTone(status: MonitorStatus | null): HealthTone {
