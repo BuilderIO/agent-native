@@ -77,8 +77,8 @@ const BETA_OVERVERIFICATION_RE = {
         if (betaIndex < 0) return false;
 
         const context = clause.slice(
-          Math.max(0, betaIndex - 100),
-          betaIndex + 120,
+          Math.max(0, betaIndex - 35),
+          betaIndex + 80,
         );
         return (
           /\b(?:test(?:ing)?|checks?|verify|verifying|smoke|e2e|end[- ]to[- ]end)\b/i.test(
@@ -106,6 +106,7 @@ const BETA_OVERVERIFICATION_REGEX_CASES = [
   [true, "Don't test beta E2E on every small change."],
   [false, "Don't skip beta E2E checks for every task."],
   [false, "Don't run production tests but always run beta E2E for every page."],
+  [false, "Don't run production tests and always run beta E2E for every page."],
   [false, "Beta E2E is required for every auth callback."],
   [false, "All beta E2E checks passed."],
   [false, "Production tests are unnecessary; the beta check passed."],
