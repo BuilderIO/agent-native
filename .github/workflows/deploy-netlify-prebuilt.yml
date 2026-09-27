@@ -1569,6 +1569,66 @@ jobs:
             }
             core.setOutput('current', 'true');
 
+      - name: Place Functions near the database
+        id: functions_region
+        if: >-
+          inputs.deploy &&
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          (inputs.target == 'beta' || inputs.target == 'production') &&
+          (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true')
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          DATABASE_URL_SECRET: ${{ secrets[format('NETLIFY_PREVIEW_DATABASE_URL_{0}', steps.target.outputs.source_template)] }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+          const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+          const { parseNeonDatabaseRegion } = await import("./scripts/netlify-database-region.ts");
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          // Never log DATABASE_URL_SECRET or any substring of it below; only
+          // the derived region is safe to print.
+          const databaseUrl = process.env.DATABASE_URL_SECRET || "";
+          const region = databaseUrl ? parseNeonDatabaseRegion(databaseUrl) : null;
+          if (!region) {
+            console.log("::notice::Database region is unknown for this site; leaving its Netlify functions region unchanged.");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "region=\n");
+            return;
+          }
+
+          const url = `https://api.netlify.com/api/v1/sites/${siteId}`;
+          const headers = { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` };
+          async function siteRequest(method, body) {
+            const response = await requestNetlifyApi(url, {
+              method,
+              headers: body ? { ...headers, "Content-Type": "application/json" } : headers,
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            });
+            if (!response.ok) throw new Error(`Netlify functions region ${method} failed: HTTP ${response.status}`);
+            return response.json();
+          }
+          const site = await siteRequest("GET");
+          if (site.id !== siteId || site.account_slug !== "builder-io") {
+            throw new Error(`Refusing to change region for unexpected Netlify site ${siteId}`);
+          }
+          if (site.functions_region !== region) {
+            await siteRequest("PATCH", { functions_region: region });
+          }
+          const verified = await siteRequest("GET");
+          if (verified.functions_region !== region) {
+            throw new Error(`Netlify functions region did not persist for ${siteId}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `region=${region}\n`);
+          console.log(`Site ${siteId} functions region: ${region}`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: >-
@@ -1713,6 +1773,45 @@ jobs:
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
           });
+          NODE
+
+      - name: Verify Functions deployed near the database
+        if: >-
+          inputs.deploy &&
+          steps.functions_region.outputs.region != '' &&
+          steps.deploy.outputs.deploy_id != ''
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          REGION: ${{ steps.functions_region.outputs.region }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+
+          const response = await requestNetlifyApi(
+            `https://api.netlify.com/api/v1/deploys/${process.env.DEPLOY_ID}`,
+            { headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` } },
+          );
+          if (!response.ok) throw new Error(`Netlify deploy lookup failed: HTTP ${response.status}`);
+          const deploy = await response.json();
+          const region = process.env.REGION;
+          const functions = Array.isArray(deploy.available_functions) ? deploy.available_functions : [];
+          const name = (fn) => fn.n ?? fn.name;
+          const regionOf = (fn) => fn.rg ?? fn.region;
+          const isTracked = (fn) => {
+            const fnName = name(fn);
+            return fnName === "server" || (typeof fnName === "string" && fnName.endsWith("-background"));
+          };
+          if (!functions.some((fn) => name(fn) === "server")) {
+            throw new Error(`Deploy ${process.env.DEPLOY_ID} has no "server" function to verify.`);
+          }
+          for (const fn of functions.filter(isTracked)) {
+            if (regionOf(fn) !== region) {
+              throw new Error(`Function ${name(fn)} is not deployed in ${region} (got ${regionOf(fn) ?? "unknown"}).`);
+            }
+          }
+          console.log(`Deploy ${process.env.DEPLOY_ID} functions are in ${region}.`);
           NODE
 
       - name: Verify first beta deploy source immediately before publish
