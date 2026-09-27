@@ -1,4 +1,8 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  decryptSecretValue,
+  encryptSecretValue,
+} from "@agent-native/core/secrets/crypto";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -842,10 +846,16 @@ function fingerprint(value: unknown): string {
   return hash.toString(36);
 }
 
+// Sealed so a cursor that resumes past withheld rows never shows the caller
+// that row's id or sort values.
+function encodeCursor(payload: CursorPayload): string {
+  return encryptSecretValue(JSON.stringify(payload));
+}
+
 function decodeCursor(cursor: string, expected: string): CursorPayload {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(cursor) as unknown;
+    parsed = JSON.parse(decryptSecretValue(cursor)) as unknown;
   } catch {
     throw new CrmCursorError("CRM list cursor is not readable.");
   }
@@ -1391,23 +1401,17 @@ export async function queryCrmRecords(
   const hasMore = kept.length > limit;
   const pageRows = kept.slice(0, limit);
   const last = pageRows[pageRows.length - 1];
+  const cursorFor = (row: RawRow) =>
+    encodeCursor({
+      f: shape,
+      v: keys.map((_, index) => normalizeCursorValue(row[`sortKey${index}`])),
+      id: row.id,
+    });
   const nextCursor =
     hasMore && last
-      ? JSON.stringify({
-          f: shape,
-          v: keys.map((_, index) =>
-            normalizeCursorValue(last[`sortKey${index}`]),
-          ),
-          id: last.id,
-        } satisfies CursorPayload)
+      ? cursorFor(last)
       : !exhausted && lastRawRow
-        ? JSON.stringify({
-            f: shape,
-            v: keys.map((_, index) =>
-              normalizeCursorValue(lastRawRow![`sortKey${index}`]),
-            ),
-            id: lastRawRow.id,
-          } satisfies CursorPayload)
+        ? cursorFor(lastRawRow)
         : undefined;
 
   const columnNames = view?.columns.map((column) => column.attributeId);

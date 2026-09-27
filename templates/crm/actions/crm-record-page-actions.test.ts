@@ -348,6 +348,124 @@ describe("get-crm-record-page", () => {
     ).rejects.toThrow(/not found/i);
   });
 
+  it("does not show a list membership whose list connection the caller cannot see", async () => {
+    const SHARE_ORG = "org_record_page_membership";
+    const SHARED_CONNECTION_ID = "conn_record_page_membership_shared";
+    const now = new Date().toISOString();
+    const orgVisible = {
+      ownerEmail: OWNER,
+      orgId: SHARE_ORG,
+      visibility: "org" as const,
+    };
+    await getDb()
+      .insert(schema.crmConnections)
+      .values({
+        id: SHARED_CONNECTION_ID,
+        provider: "native",
+        label: "Org Shared Connection",
+        mode: "native",
+        status: "connected",
+        accessScopeKey: "native",
+        ...orgVisible,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmConnectionShares)
+      .values({
+        id: `share_${++counter}`,
+        resourceId: SHARED_CONNECTION_ID,
+        principalType: "user",
+        principalId: OTHER,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: now,
+      });
+    await getDb()
+      .insert(schema.crmObjects)
+      .values({
+        id: `obj_${++counter}`,
+        connectionId: SHARED_CONNECTION_ID,
+        provider: "native",
+        objectType: OBJECT_TYPE,
+        kind: "account",
+        label: "Company",
+        pluralLabel: "Companies",
+        ...orgVisible,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const { resolveNativeCrmAccessScope } =
+      await import("../server/crm/native-adapter.js");
+    const scope = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        resolveNativeCrmAccessScope({
+          connectionId: SHARED_CONNECTION_ID,
+          objectType: OBJECT_TYPE,
+        }),
+    );
+    const recordId = `rec_page_${++counter}`;
+    await getDb()
+      .insert(schema.crmRecords)
+      .values({
+        id: recordId,
+        connectionId: SHARED_CONNECTION_ID,
+        provider: "native",
+        objectType: OBJECT_TYPE,
+        kind: "account",
+        remoteId: recordId,
+        displayName: "Cross-Connection Member Co",
+        remoteRevision: "1",
+        accessScopeKey: scope!.key,
+        accessScopeJson: JSON.stringify(scope),
+        ...orgVisible,
+        createdAt: now,
+        updatedAt: now,
+      });
+    // The list lives on CONNECTION_ID, which OTHER cannot see, while the list
+    // and its entry are org-visible.
+    const listId = `list_page_${++counter}`;
+    await getDb()
+      .insert(schema.crmLists)
+      .values({
+        id: listId,
+        connectionId: CONNECTION_ID,
+        name: "Private Connection List",
+        apiSlug: "private_connection_list",
+        parentObjectType: OBJECT_TYPE,
+        ...orgVisible,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await getDb()
+      .insert(schema.crmListEntries)
+      .values({
+        id: `entry_page_${++counter}`,
+        listId,
+        recordId,
+        position: 0,
+        createdByActorType: "user",
+        createdByActorId: OWNER,
+        ...orgVisible,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const page = await runWithRequestContext(
+      { userEmail: OTHER, orgId: SHARE_ORG },
+      () =>
+        getRecordPage.run(
+          { recordId },
+          { caller: "frontend", userEmail: OTHER, orgId: SHARE_ORG },
+        ),
+    );
+    expect(page.record.id).toBe(recordId);
+    expect(page.lists.map((list: { id: string }) => list.id)).not.toContain(
+      listId,
+    );
+  });
+
   it("withholds a record whose stored scope the connection no longer grants", async () => {
     const recordId = await createRecord("Revoked Co", {
       ...NATIVE_SCOPE,

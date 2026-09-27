@@ -208,12 +208,19 @@ export default defineAction({
         schema.crmLists,
         eq(schema.crmLists.id, schema.crmListEntries.listId),
       )
+      .innerJoin(
+        schema.crmConnections,
+        eq(schema.crmConnections.id, schema.crmLists.connectionId),
+      )
       .where(
         and(
           eq(schema.crmListEntries.recordId, record.id),
           eq(schema.crmLists.archived, false),
           accessFilter(schema.crmListEntries, schema.crmListEntryShares),
           accessFilter(schema.crmLists, schema.crmListShares),
+          // A list may hold records from another connection; its metadata
+          // and entry values stay behind the list's own connection.
+          accessFilter(schema.crmConnections, schema.crmConnectionShares),
         ),
       )
       .orderBy(

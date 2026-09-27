@@ -855,6 +855,33 @@ describe("cursor pagination", () => {
     expect(result.records.map((record) => record.id)).toEqual([visible]);
     expect(result.complete).toBe(true);
   });
+
+  it("resumes past withheld rows without revealing them in the cursor", async () => {
+    const withheld: string[] = [];
+    // Enough withheld rows to exhaust every fill batch for a one-row page.
+    for (let index = 0; index < 10; index += 1) {
+      withheld.push(
+        await createRecord(`Zcur A${index} Withheld`, {
+          accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-cur-key" }),
+        }),
+      );
+    }
+    const visible = await createRecord("Zcur B Visible");
+    const sort = [{ field: "displayName" as const, direction: "asc" as const }];
+    const first = await run({ limit: 1, query: "Zcur", sort });
+    expect(first.records).toHaveLength(0);
+    expect(first.nextCursor).toBeTruthy();
+    for (const id of withheld) expect(first.nextCursor).not.toContain(id);
+    expect(first.nextCursor).not.toContain("Withheld");
+
+    const second = await run({
+      limit: 1,
+      query: "Zcur",
+      sort,
+      cursor: first.nextCursor,
+    });
+    expect(second.records.map((record) => record.id)).toEqual([visible]);
+  });
 });
 
 describe("relative date tokens", () => {
