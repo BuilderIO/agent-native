@@ -2233,7 +2233,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   });
   await draftLink.waitFor({ state: "visible" });
   assert.equal(
-    new URL((await draftLink.getAttribute("href")) ?? "").pathname,
+    new URL((await draftLink.getAttribute("href")) ?? "", page.url()).pathname,
     "/_agent-native/open",
     "the draft widget must keep its Review link",
   );
