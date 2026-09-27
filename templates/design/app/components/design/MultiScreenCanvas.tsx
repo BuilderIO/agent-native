@@ -7044,7 +7044,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 (left.target.geometry.z ?? 0) -
                   (right.target.geometry.z ?? 0) || left.index - right.index,
             );
-          const duplicateResults = duplicateTargets.map(({ target }, index) => {
+          const duplicateStackSourceIds = duplicateTargets.map(
+            ({ target }) => target.screen.id,
+          );
+          const duplicateResults = duplicateTargets.map(({ target }) => {
             const canvasPosition = {
               x: target.geometry.x + delta.x,
               y: target.geometry.y + delta.y,
@@ -7055,7 +7058,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               canvasPosition,
               preserveCamera: true,
               historyBatchId,
-              duplicateStackIndex: index,
+              duplicateStackSourceIds,
               canvasOffset: {
                 x: dropCanvasPosition.x - canvasPosition.x,
                 y: dropCanvasPosition.y - canvasPosition.y,
@@ -9300,10 +9303,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           z: frameGeometryRef.current[targetId]?.z ?? 0,
         }))
         .sort((left, right) => left.z - right.z || left.index - right.index);
-      for (const [
-        duplicateStackIndex,
-        { targetId },
-      ] of orderedFrameIds.entries()) {
+      const duplicateStackSourceIds = orderedFrameIds.map(
+        ({ targetId }) => targetId,
+      );
+      for (const { targetId } of orderedFrameIds) {
         const screen = screens.find((s) => s.id === targetId);
         if (!screen) continue;
         const sourceGeometry = frameGeometryRef.current[targetId];
@@ -9317,9 +9320,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             mode: "alt-click",
             screen,
             canvasPosition,
+            canvasFrameGeometryById: frameGeometryRef.current,
             preserveCamera: true,
             historyBatchId,
-            duplicateStackIndex,
+            duplicateStackSourceIds,
             dropCanvasPosition: canvasPosition,
           }),
         );

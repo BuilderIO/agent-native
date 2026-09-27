@@ -378,6 +378,103 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("moves focus outside Home when its hidden context picker closes", async () => {
+    const contextMenuItems = [
+      {
+        id: "source",
+        label: "Source",
+        picker: {
+          presentation: {
+            type: "dialog" as const,
+            mode: "multiple" as const,
+            onAttach: vi.fn(),
+          },
+          searchPlaceholder: "Search sources",
+          scopeKey: "account",
+          load: async () => ({ items: [], hasMore: false }),
+        },
+      },
+    ];
+
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement("button", { id: "visible-page-target" }, "Next"),
+          React.createElement(
+            "div",
+            { hidden: disabled },
+            React.createElement(TiptapComposer, {
+              disabled,
+              contextMenuItems,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              toolbarSlot: React.createElement(
+                "button",
+                { type: "button" },
+                "Model selector",
+              ),
+              voiceEnabled: false,
+            }),
+          ),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: false }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const addContext = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(addContext).not.toBeNull();
+    await act(async () => {
+      addContext!.focus();
+      addContext!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const clickMenuItem = async (label: string) => {
+      const item = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((element) => element.textContent?.trim() === label);
+      expect(item, label).toBeDefined();
+      await act(async () => {
+        item!.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await clickMenuItem("Add context");
+    await clickMenuItem("Source");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(
+      async () =>
+        new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+    );
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector("#visible-page-target"),
+    );
+  });
+
   it("syncs identical text after switching draft scopes", async () => {
     const runs: Array<ReadonlyArray<{ content?: unknown }>> = [];
     const recordingAdapter: ChatModelAdapter = {
@@ -1176,6 +1273,33 @@ describe("createTiptapComposerExtensions", () => {
     expect(prevented).toBe(true);
     expect(stopped).toBe(true);
     expect(added).not.toHaveBeenCalled();
+  });
+
+  it("reports the filename of a rejected dropped attachment", async () => {
+    const file = new File(["fake"], "unsupported.xlsm", {
+      type: "application/vnd.ms-excel.sheet.macroEnabled.12",
+    });
+    const onError = vi.fn();
+    handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as unknown as DragEvent,
+      addAttachment: async () => {
+        throw new Error("File type .xlsm is not accepted.");
+      },
+      onError,
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "File type .xlsm is not accepted.",
+        }),
+        "unsupported.xlsm",
+      );
+    });
   });
 
   it("caps the model picker height without forcing empty vertical space", () => {

@@ -49,6 +49,7 @@ export interface DeleteFilesArgs {
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
+  onFileHistoryMutationSettled?: () => void;
   clearPendingHistory?: () => void;
   files: DesignFile[];
   geometryRedoStackRef: RefObject<GeometryHistoryEntry[]>;
@@ -94,6 +95,7 @@ export async function runDeleteFiles(
     fileCreationUndoStackRef,
     fileDeletionUndoStackRef,
     fileHistoryMutationPendingRef,
+    onFileHistoryMutationSettled,
     clearPendingHistory,
     files,
     geometryRedoStackRef,
@@ -416,6 +418,9 @@ export async function runDeleteFiles(
     failedFiles,
     serverDeletedFileSnapshots,
   );
+  if (!fileHistoryMutationPendingRef.current) {
+    onFileHistoryMutationSettled?.();
+  }
   syncUndoRedoState();
 
   syncUndoRedoState();

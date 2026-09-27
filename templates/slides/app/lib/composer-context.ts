@@ -25,6 +25,22 @@ export type SlidesPromptSubmitOptions = PromptComposerSubmitOptions & {
   slidesContext?: SlidesComposerContext;
 };
 
+export function composerSourceErrorMessage(
+  error: unknown,
+  fallback: string,
+  figmaFallback: string,
+): string {
+  const details = (error as { details?: unknown } | undefined)?.details;
+  if (
+    details &&
+    typeof details === "object" &&
+    (details as { source?: unknown }).source === "figma"
+  ) {
+    return figmaFallback;
+  }
+  return actionErrorMessage(error) ?? fallback;
+}
+
 export function composerSourceKey(source: ComposerSource) {
   if (source.source === "figma") {
     const url = source.figmaUrl ?? source.url ?? "";
@@ -71,6 +87,7 @@ export function formatSlidesComposerContext(
 export async function readSlidesComposerContext(
   selection: SlidesComposerContext,
   emptySource: string,
+  figmaReadFailed: string = emptySource,
 ): Promise<AgentChatContextItem[]> {
   const readers = selection.references.map((source) => ({
     key: composerSourceKey(source),
@@ -120,7 +137,11 @@ export async function readSlidesComposerContext(
           title,
           context: "",
           status: "error" as const,
-          statusMessage: actionErrorMessage(error) ?? emptySource,
+          statusMessage: composerSourceErrorMessage(
+            error,
+            emptySource,
+            figmaReadFailed,
+          ),
         };
       }
     }),

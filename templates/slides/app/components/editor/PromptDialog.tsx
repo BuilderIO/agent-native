@@ -27,8 +27,14 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
 import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
   deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -45,6 +51,8 @@ import {
   type PromptImportSelection,
   type PromptImportSource,
 } from "./use-prompt-import";
+
+const slidesPromptAttachmentAdapter = createSlidesPromptAttachmentAdapter();
 
 export type {
   PromptImportSelection,
@@ -145,6 +153,7 @@ export interface PromptPopoverHandle {
 
 interface PromptPopoverProps {
   open: boolean;
+  active?: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
@@ -188,6 +197,7 @@ interface PromptPopoverProps {
 
 export default function PromptPopover({
   open,
+  active = true,
   onOpenChange,
   title,
   placeholder = "Describe what you want...",
@@ -214,7 +224,7 @@ export default function PromptPopover({
   children,
 }: PromptPopoverProps) {
   const t = useT();
-  const storageQuery = useSlideFileStorageStatus(open);
+  const storageQuery = useSlideFileStorageStatus(open && active);
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
@@ -320,6 +330,11 @@ export default function PromptPopover({
   }, [inline, open, onOpenChange, anchorRef]);
 
   const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
 
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
@@ -344,7 +359,7 @@ export default function PromptPopover({
     uploading,
     reset: resetEagerUploads,
     syncFiles,
-  } = useEagerFileUploads(uploadPromptFiles, {
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
     onDiscard: deleteUploadedFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
@@ -377,11 +392,22 @@ export default function PromptPopover({
         const storageSetupRequired = isStorageSetupRequiredError(error);
         if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("raw.uploadFailed"), {
-          description: storageSetupRequired
-            ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("raw.uploadAttachedFailed"),
+          ),
         });
       });
     },
@@ -494,11 +520,22 @@ export default function PromptPopover({
         const storageSetupRequired = isStorageSetupRequiredError(error);
         if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("raw.uploadFailed"), {
-          description: storageSetupRequired
-            ? t("home.fileStorageSetupRequired")
-            : error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("raw.uploadAttachedFailed"),
+          ),
         });
         throw error;
       }
@@ -705,7 +742,8 @@ export default function PromptPopover({
                 className={
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
-                attachmentsEnabled={fileStorageConfigured}
+                attachmentsEnabled={active && fileStorageConfigured}
+                attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
                 submissionDisabled={submissionDisabled}

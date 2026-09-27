@@ -672,6 +672,8 @@ describe("screen deletion history identity", () => {
           })),
         } as any,
         designDataJsonRef,
+        fileCreationRedoStackRef,
+        fileCreationUndoStackRef,
         fileDeletionRedoStackRef,
         fileDeletionUndoStackRef,
         fileHistoryMutationPendingRef,
@@ -959,6 +961,9 @@ describe("screen deletion history identity", () => {
     const localContentRedoStackRef = ref(localRedoEntries);
     const fileDeletionUndoStackRef = ref<FileDeletionHistoryEntry[]>([]);
     const fileHistoryMutationPendingRef = ref(false);
+    const onFileHistoryMutationSettled = vi.fn(() => {
+      expect(fileHistoryMutationPendingRef.current).toBe(false);
+    });
     const historyOrderRef = ref(historyOrder);
     const redoOrderRef = ref(redoOrder);
     const pendingFailedScreenContent: ClipboardContentLineage = {
@@ -1060,6 +1065,7 @@ describe("screen deletion history identity", () => {
         fileCreationUndoStackRef: ref([]),
         fileDeletionUndoStackRef,
         fileHistoryMutationPendingRef,
+        onFileHistoryMutationSettled,
         files: [deletedScreen, failedScreen, remainingScreen],
         geometryRedoStackRef,
         geometryUndoStackRef,
@@ -1093,6 +1099,7 @@ describe("screen deletion history identity", () => {
     expect(result.deleted.map((file) => file.id)).toEqual([deletedScreen.id]);
     expect(result.failed.map((file) => file.id)).toEqual([failedScreen.id]);
     expect(fileHistoryMutationPendingRef.current).toBe(false);
+    expect(onFileHistoryMutationSettled).toHaveBeenCalledOnce();
     expect(designDataJsonRef.current.canvasFrames).toEqual(initialCanvasFrames);
     expect(queryClient.setQueryData).toHaveBeenLastCalledWith(
       ["action", "get-design", { id: "design" }],

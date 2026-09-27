@@ -23,12 +23,12 @@ test.describe("reparenting rules", () => {
     const designId = await newDesign(
       page,
       `<!doctype html><html><body style="margin:0;min-height:700px">
-        <main data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:40px;top:40px;width:700px;height:400px;display:flex;flex-direction:row;align-items:flex-start;gap:16px;background:#eee">
-          <section data-an-primitive="frame" data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="display:flex;flex-direction:row;width:180px;height:140px;background:#ccc">
+        <main data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:40px;top:40px;width:700px;height:400px;background:#eee">
+          <section data-an-primitive="frame" data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" style="position:absolute;left:0;top:0;display:flex;flex-direction:row;width:180px;height:140px;background:#ccc">
             <div data-agent-native-node-id="dragme" data-agent-native-layer-name="Dragged layer" style="width:80px;height:60px;background:#6366f1">Dragged layer</div>
           </section>
-          <div data-agent-native-node-id="candidate" data-agent-native-layer-name="Candidate" style="width:100px;height:100px;background:#9ca3af">Candidate</div>
-          <div data-agent-native-node-id="overlap" data-agent-native-layer-name="Later layer" style="width:120px;height:100px;background:#ef4444">Later layer</div>
+          <div data-agent-native-node-id="candidate" data-agent-native-layer-name="Candidate" style="position:absolute;left:220px;top:20px;width:100px;height:100px;background:#9ca3af">Candidate</div>
+          <div data-agent-native-node-id="overlap" data-agent-native-layer-name="Later layer" style="position:absolute;left:340px;top:20px;width:120px;height:100px;background:#ef4444">Later layer</div>
         </main>
       </body></html>`,
     );
@@ -123,7 +123,7 @@ test.describe("reparenting rules", () => {
       await page.mouse.move(start.x, start.y, { steps: 8 });
       await page.mouse.move(release.x, release.y, { steps: 12 });
 
-      // Figma places a child dropped in the receiving parent's empty area
+      // In a plain frame, Figma places a child dropped in empty parent space
       // immediately after the frame it left, before later overlapping siblings.
       // Assert that live insertion target before mouseup commits it.
       await expect

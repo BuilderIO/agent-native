@@ -512,7 +512,7 @@ export function handleComposerFileDrop(options: {
   event: Pick<DragEvent, "dataTransfer" | "preventDefault" | "stopPropagation">;
   addAttachment: (file: File) => Promise<unknown>;
   attachmentsEnabled?: boolean;
-  onError?: (error: unknown) => void;
+  onError?: (error: unknown, fileName: string) => void;
 }): boolean {
   const droppedFiles = Array.from(options.event.dataTransfer?.files ?? []);
   if (droppedFiles.length === 0) return false;
@@ -521,11 +521,18 @@ export function handleComposerFileDrop(options: {
   options.event.stopPropagation();
   if (options.attachmentsEnabled === false) return true;
   const attachments = droppedFiles.map(uniquifyComposerImageFile);
+  let errorReported = false;
   void Promise.all(
-    attachments.map((file) => options.addAttachment(file)),
-  ).catch((error) => {
-    options.onError?.(error);
-  });
+    attachments.map(async (file) => {
+      try {
+        await options.addAttachment(file);
+      } catch (error) {
+        if (errorReported) return;
+        errorReported = true;
+        options.onError?.(error, file.name);
+      }
+    }),
+  );
   return true;
 }
 
@@ -2707,7 +2714,7 @@ export function TiptapComposer({
           event: event as DragEvent,
           addAttachment: addAttachmentForCurrentScope,
           attachmentsEnabled,
-          onError: (error) => {
+          onError: (error, fileName) => {
             const msg = formatAttachmentError(
               error,
               t("agentChat.composer.droppedFileError", {
@@ -2715,7 +2722,7 @@ export function TiptapComposer({
                   "Could not attach the dropped file. Try a different format.",
               }),
             );
-            onAttachmentErrorRef.current?.(msg);
+            onAttachmentErrorRef.current?.(`${fileName}: ${msg}`);
           },
         });
       },
@@ -4089,6 +4096,29 @@ export function TiptapComposer({
             }
             attachmentAccept={composerRuntime.getState().attachmentAccept}
             onAttachmentError={onAttachmentError}
+            onDisabledFocus={() => {
+              const root = editor?.view.dom.closest<HTMLElement>(
+                '[data-agent-composer-slot="root"]',
+              );
+              const localTarget = Array.from(
+                root?.querySelectorAll<HTMLElement>(
+                  '[data-agent-composer-slot="stop-button"]:not(:disabled), button:not(:disabled)',
+                ) ?? [],
+              ).find((element) => !element.closest("[hidden]"));
+              if (localTarget) {
+                localTarget.focus();
+                return;
+              }
+              const pageTarget = Array.from(
+                document.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled), a[href], input:not([type="hidden"]):not(:disabled), textarea:not(:disabled)',
+                ),
+              ).find(
+                (element) =>
+                  !root?.contains(element) && !element.closest("[hidden]"),
+              );
+              pageTarget?.focus();
+            }}
             disabled={disabled}
           />
         ) : disabled || plusMenuMode === "hidden" ? null : (
