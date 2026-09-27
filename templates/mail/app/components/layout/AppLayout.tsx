@@ -863,7 +863,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           tab.kind === "all"
             ? t("mail.views.all")
             : (aiTagDisplayNames.get(tab.id) ?? tab.name),
-        fullLabel: aiTagDisplayNames.get(tab.id) ?? label?.name,
+        fullLabel: label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,

@@ -105,6 +105,7 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("href: inboxTabHref(tab.id)");
     expect(source).toContain("aiTagDisplayNames.get(tab.id) ?? tab.name");
     expect(source).toContain("labelAliases[tag.id]?.trim() || tag.name");
+    expect(source).toContain("fullLabel: label?.name");
     expect(source).toContain(
       "label={labelAliases[tag.id]?.trim() || tag.name}",
     );
