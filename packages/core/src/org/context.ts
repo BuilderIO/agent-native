@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { setCookie, type H3Event } from "h3";
 
@@ -23,6 +23,7 @@ import {
   cachedActiveOrgSetting,
   cachedMemberships,
   invalidateMemberOrgCaches,
+  newOrgSelection,
   ORG_SELECTION_COOKIE,
   orgSelectionFromCookieHeader,
   requestMemberOrgIds,
@@ -214,16 +215,11 @@ function loadActiveOrgSettingForEvent(
  * instance. Call after the caller's own preference was written in this request.
  */
 export function markActiveOrgSelectionChanged(event: H3Event): void {
-  setCookie(
-    event,
-    ORG_SELECTION_COOKIE,
-    randomBytes(18).toString("base64url"),
-    {
-      ...crossSiteCookieAttrs(event),
-      httpOnly: true,
-      path: "/",
-    },
-  );
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    ...crossSiteCookieAttrs(event),
+    httpOnly: true,
+    path: "/",
+  });
 }
 
 function loadMembershipsForEvent(
@@ -479,7 +475,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   }
 
   if (memberships.length === 0 && autoCreateDefaultOrgEnabled()) {
-    const created = await tryCreateDefaultOrg(exec, email, session);
+    const created = await tryCreateDefaultOrg(exec, email, session, event);
     if (created) return created;
     // Creation failed (race / DB error); fall through with an empty org context
     // so non-blocking invite/domain UI can still surface recovery options.
@@ -679,6 +675,7 @@ export async function createOrganization(
 
 export async function bootstrapAdminOrganization(
   rawEmail: string,
+  event?: H3Event,
 ): Promise<boolean> {
   const email = rawEmail.trim().toLowerCase();
   if (!email || !isBootstrapAdmin(email)) return false;
@@ -703,7 +700,7 @@ export async function bootstrapAdminOrganization(
     const identity = config.app.workspaceId ?? config.app.id ?? name;
     const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
     try {
-      await createOrganization(name, email, "owner", { id });
+      await createOrganization(name, email, "owner", { id, event });
       return true;
     } catch (error) {
       const existing = await exec.execute({
@@ -724,7 +721,12 @@ export async function bootstrapAdminOrganization(
     args: [nanoid(), orgId, email, now],
   });
   invalidateMemberOrgCaches();
-  await setActiveOrgId(email, orgId, "bootstrap admin organization access");
+  await setActiveOrgId(
+    email,
+    orgId,
+    "bootstrap admin organization access",
+    event,
+  );
   return true;
 }
 
@@ -827,6 +829,7 @@ async function tryCreateDefaultOrg(
   exec: ReturnType<typeof getDbExec>,
   email: string,
   session: { name?: string } | null,
+  event: H3Event,
 ): Promise<OrgContext | null> {
   await getSetting("__init").catch(() => null);
 
@@ -863,7 +866,12 @@ async function tryCreateDefaultOrg(
     });
     invalidateMemberOrgCaches();
 
-    await setActiveOrgId(email, orgId, "auto-created default organization");
+    await setActiveOrgId(
+      email,
+      orgId,
+      "auto-created default organization",
+      event,
+    );
     if (shouldWriteFirstRunOnboardingEligibility()) {
       try {
         await appStatePut(

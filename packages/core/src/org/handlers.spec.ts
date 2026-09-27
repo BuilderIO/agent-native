@@ -373,6 +373,7 @@ describe("org handlers", () => {
     ).resolves.toEqual({ success: true });
     expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
       "member@example.test",
+      expect.objectContaining({ _url: expect.any(String) }),
     );
     expect(createOrganization).not.toHaveBeenCalled();
   });
@@ -395,6 +396,7 @@ describe("org handlers", () => {
     ).resolves.toEqual({ success: true });
     expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
       "member@example.test",
+      expect.objectContaining({ _url: expect.any(String) }),
     );
     expect(createOrganization).not.toHaveBeenCalled();
   });
@@ -766,13 +768,15 @@ describe("org handlers", () => {
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
     mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
 
+    const leaveEvent = makeEvent(
+      "/_agent-native/org/federation-removal/retry",
+      {
+        orgId: "org-1",
+        transferTo: "successor@example.test",
+      },
+    );
     await expect(
-      retryPendingFederatedRemovalHandler(
-        makeEvent("/_agent-native/org/federation-removal/retry", {
-          orgId: "org-1",
-          transferTo: "successor@example.test",
-        }),
-      ),
+      retryPendingFederatedRemovalHandler(leaveEvent),
     ).resolves.toEqual({ success: true, orgId: "org-1" });
     expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
       expect.anything(),
@@ -788,6 +792,9 @@ describe("org handlers", () => {
       "active-org-id",
       { orgId: null },
     );
+    // The member's own request: its next requests read the cleared selection
+    // on every instance.
+    expect(mockMarkActiveOrgSelectionChanged).toHaveBeenCalledWith(leaveEvent);
     expect(mockOffboardMember).toHaveBeenCalledWith(
       expect.anything(),
       "member@example.test",

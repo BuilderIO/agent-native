@@ -141,10 +141,16 @@ export interface UseOnboardingResult {
 }
 
 export function useOnboarding(
-  options: { preview?: boolean; initialFirstRun?: boolean } = {},
+  options: {
+    preview?: boolean;
+    initialFirstRun?: boolean;
+    /** The consumer renders first run itself when the server reports it. */
+    firstRunSurface?: boolean;
+  } = {},
 ): UseOnboardingResult {
   const preview = options.preview === true;
   const initialFirstRun = options.initialFirstRun === true;
+  const firstRunSurface = options.firstRunSurface === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
   const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -237,15 +243,14 @@ export function useOnboarding(
     [preview],
   );
 
-  // The first-run surface is the page itself; everywhere else the summary only
-  // feeds setup hints, so it waits until startup reads have had the server.
-  // An unreadable first-run cookie is the one case where the startup gate cannot
-  // own that surface and the sidebar fallback may, so that read stays prompt.
-  const [firstRunCookieUnreadable] = useState(
-    () => readFirstRunOnboardingCookieState() === "unreadable",
+  // Setup hints wait until startup reads have had the server. A first-run
+  // surface reads at paint whenever first run is possible; with the first-run
+  // cookie absent the server always answers `firstRun: false`, so it waits too.
+  const [firstRunCookieAbsent] = useState(
+    () => readFirstRunOnboardingCookieState() === "absent",
   );
   const deferUntilStartup =
-    !preview && !initialFirstRun && !firstRunCookieUnreadable;
+    !preview && !initialFirstRun && !(firstRunSurface && !firstRunCookieAbsent);
 
   useEffect(() => {
     mountedRef.current = true;

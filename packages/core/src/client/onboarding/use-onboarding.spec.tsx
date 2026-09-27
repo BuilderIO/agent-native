@@ -666,17 +666,52 @@ describe("useOnboarding — one summary for every mounted consumer", () => {
     expect(results.get("panel")?.steps[0]?.complete).toBe(true);
   });
 
-  it("stays prompt where the first-run cookie is unreadable, so the sidebar fallback can own first run", async () => {
-    vi.spyOn(document, "cookie", "get").mockImplementation(() => {
-      throw new DOMException("cookies are blocked", "SecurityError");
-    });
-    await act(async () => {
-      root.render(<Consumers labels={["sidebar-fallback"]} />);
-    });
-    await advance(600);
+  describe("the sidebar first-run fallback", () => {
+    function Fallback() {
+      results.set("sidebar-fallback", useOnboarding({ firstRunSurface: true }));
+      return null;
+    }
 
-    expect(summaryCalls).toBe(1);
-    expect(results.get("sidebar-fallback")?.loading).toBe(false);
+    async function summaryReadsAtPaint(cookie: () => string) {
+      vi.spyOn(document, "cookie", "get").mockImplementation(cookie);
+      await act(async () => {
+        root.render(<Fallback />);
+      });
+      await advance(600);
+      return summaryCalls;
+    }
+
+    it("reads at paint while the first-run cookie is present", async () => {
+      expect(await summaryReadsAtPaint(() => "agent-native-first-run=1")).toBe(
+        1,
+      );
+    });
+
+    it("reads at paint where the first-run cookie is unreadable", async () => {
+      expect(
+        await summaryReadsAtPaint(() => {
+          throw new DOMException("cookies are blocked", "SecurityError");
+        }),
+      ).toBe(1);
+    });
+
+    it("waits for startup once the first-run cookie is gone, since the server then reports no first run", async () => {
+      expect(await summaryReadsAtPaint(() => "an_session_hint=1")).toBe(0);
+      await advance(3_000);
+      expect(summaryCalls).toBe(1);
+    });
+
+    it("leaves setup hints waiting even while the first-run cookie is present", async () => {
+      vi.spyOn(document, "cookie", "get").mockImplementation(
+        () => "agent-native-first-run=1",
+      );
+      await act(async () => {
+        root.render(<Consumers labels={["setup-button"]} />);
+      });
+      await advance(600);
+
+      expect(summaryCalls).toBe(0);
+    });
   });
 
   it("keeps the first-run surface on the paint-aligned read", async () => {

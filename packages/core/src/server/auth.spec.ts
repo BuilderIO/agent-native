@@ -11006,6 +11006,28 @@ describe("server/auth", () => {
     });
   });
 
+  describe("org selection on a new session", () => {
+    it("starts every new session from a fresh org selection", async () => {
+      const { setFrameworkSessionCookie } = await import("./auth.js");
+      const selection = (event: any) =>
+        event.res.headers
+          .getSetCookie()
+          .find((cookie: string) => cookie.startsWith("an_org_selection="));
+
+      const first = createMockEvent();
+      setFrameworkSessionCookie(first, "session-token-1");
+      const second = createMockEvent();
+      setFrameworkSessionCookie(second, "session-token-2");
+
+      expect(selection(first)).toMatch(
+        /^an_org_selection=[\w-]{16,64}; Path=\/; HttpOnly/,
+      );
+      expect(selection(second)?.split(";")[0]).not.toBe(
+        selection(first)?.split(";")[0],
+      );
+    });
+  });
+
   describe("legacy cookie session user reads", () => {
     async function resolveLegacySession(userRows: {
       combined: Record<string, unknown> | undefined;

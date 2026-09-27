@@ -146,7 +146,11 @@ export function FirstRunOnboarding({
     profile,
     completeFirstRun,
     completeFirstRunError,
-  } = useOnboarding({ preview: previewMode, initialFirstRun });
+  } = useOnboarding({
+    preview: previewMode,
+    initialFirstRun,
+    firstRunSurface: true,
+  });
   const [screen, setScreen] = useState<FirstRunScreen>(() =>
     previewStep === "references" ? "extension" : (previewStep ?? "role"),
   );

@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { getRequestContext } from "../server/request-context.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 
@@ -83,27 +85,37 @@ export const ACTIVE_ORG_SETTING_KEY = "active-org-id";
 export type ActiveOrgSetting = { orgId: string | null } | null;
 
 /**
- * Rotated by every request that changes its caller's `active-org-id`, and part
- * of the cache key below. A browser that switched organizations carries the new
- * value on its next request, so every instance misses and reads the switch,
- * while an instance that still holds the previous answer serves it only to
- * requests that never saw the switch. The value selects a cache entry and
- * nothing else: a forged one can only cause a miss.
+ * Rotated by every request that changes its caller's `active-org-id` and by
+ * every new session, and part of the cache key below. A browser that switched
+ * organizations or signed in carries the new value on its next request, so
+ * every instance misses and reads the current selection, while an instance
+ * that still holds the previous answer serves it only to requests that never
+ * saw the change. The value selects a cache entry and nothing else: a forged
+ * one can only cause a miss.
  */
 export const ORG_SELECTION_COOKIE = "an_org_selection";
 const ORG_SELECTION_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
+export function newOrgSelection(): string {
+  return randomBytes(18).toString("base64url");
+}
+
+/**
+ * Every well-formed copy, joined: a partitioned and an unpartitioned copy can
+ * both arrive, and a rotation of either must change the key.
+ */
 export function orgSelectionFromCookieHeader(
   header: string | null | undefined,
 ): string {
+  const values: string[] = [];
   for (const part of header?.split(";") ?? []) {
     const separator = part.indexOf("=");
     if (separator < 0) continue;
     if (part.slice(0, separator).trim() !== ORG_SELECTION_COOKIE) continue;
     const value = part.slice(separator + 1).trim();
-    return ORG_SELECTION_PATTERN.test(value) ? value : "";
+    if (ORG_SELECTION_PATTERN.test(value)) values.push(value);
   }
-  return "";
+  return values.join(".");
 }
 
 /**

@@ -425,6 +425,7 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
       email,
       nextOrgId,
       "completed pending organization removal",
+      event,
     );
 
     return { success: true, orgId };
@@ -476,7 +477,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
       const bootstrapped =
         emailVerified &&
         isBootstrapAdmin(email) &&
-        (await bootstrapAdminOrganization(email));
+        (await bootstrapAdminOrganization(email, event));
       if (!bootstrapped) {
         throw createError({
           statusCode: 403,
@@ -494,7 +495,7 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
           message: "Verify your email before bootstrapping this workspace.",
         });
       }
-      if (!(await bootstrapAdminOrganization(email))) {
+      if (!(await bootstrapAdminOrganization(email, event))) {
         throw createError({
           statusCode: 403,
           message:

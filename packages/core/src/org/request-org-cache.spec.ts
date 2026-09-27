@@ -241,6 +241,21 @@ describe("cross-request active-org preference cache", () => {
     expect(orgSelectionFromCookieHeader(null)).toBe("");
   });
 
+  it("changes the key when either of two copies rotates", () => {
+    const older = "an_org_selection=unpartitioned-copy-0123456789";
+    const key = (partitioned: string) =>
+      orgSelectionFromCookieHeader(
+        `${older}; an_session=abc; an_org_selection=${partitioned}`,
+      );
+
+    expect(key("partitioned-before-0123456789")).not.toBe(
+      key("partitioned-after-0123456789"),
+    );
+    expect(key("partitioned-after-0123456789")).toContain(
+      "partitioned-after-0123456789",
+    );
+  });
+
   it("never caches a failed read", async () => {
     const failure = new Error("settings unreadable");
     await expect(

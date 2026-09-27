@@ -16,6 +16,10 @@ import type { H3Event } from "h3";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
+  newOrgSelection,
+  ORG_SELECTION_COOKIE,
+} from "../org/request-org-cache.js";
+import {
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
@@ -4665,6 +4669,13 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     maxAge: sessionMaxAge,
   });
   setFrameworkSessionHintCookie(event);
+  // Signing in can assign an organization (invitations, domain join, SSO), so
+  // a new session starts from a fresh org selection on every instance.
+  setCookie(event, ORG_SELECTION_COOKIE, newOrgSelection(), {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+  });
 }
 
 export function redirectWithStagedCookies(
