@@ -83,9 +83,7 @@ describe("new deck generation flow", () => {
     const generatingRouteIndex = flow.indexOf(
       "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
@@ -93,6 +91,9 @@ describe("new deck generation flow", () => {
       "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
     );
     expect(flow).toContain("submitMessageId: generationSubmitMessageId");
+    expect(flow).toContain("if (!submission.delivered)");
+    expect(flow).toContain('"agent_submit_failed"');
+    expect(flow).toContain("submission.reason ??");
   });
 
   it("carries hidden prompt context through generation retries", () => {
@@ -198,9 +199,7 @@ describe("new deck generation flow", () => {
 
   it("blocks generation when an attached reference cannot be read", () => {
     const hydrateIndex = flow.indexOf("await hydrateReferenceDocuments(");
-    const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(prompt)",
-    );
+    const submitIndex = flow.indexOf("const submission = await agentSubmit(");
 
     expect(hydrateIndex).toBeGreaterThan(-1);
     expect(hydrateIndex).toBeLessThan(submitIndex);

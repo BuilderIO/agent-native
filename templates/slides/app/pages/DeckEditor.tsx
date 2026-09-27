@@ -580,8 +580,9 @@ export default function DeckEditor() {
   const { generating } = useAgentGenerating();
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const isNewDeckGenerationRoute = searchParams.get("generating") === "1";
   const generationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRoute =
+    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
@@ -627,14 +628,14 @@ export default function DeckEditor() {
     },
     [addSlideAgentSubmit],
   );
-  const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const wasNewDeckCreation = useRef(isNewDeckGenerationRoute);
   const generationStartedAtRef = useRef<number | null>(null);
   const generationRunStartedRef = useRef(false);
   const generationSawActiveRef = useRef(false);
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
-  if (searchParams.get("generating") === "1") {
+  if (isNewDeckGenerationRoute) {
     wasNewDeckCreation.current = true;
   }
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -892,9 +893,6 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
-  const generationFailed =
-    slideCount === 0 &&
-    typeof generationContext?.generationFailureCode === "string";
   const generationRetryPending =
     retryEmptyGenerationPending ||
     (generationContext !== null &&
@@ -1797,6 +1795,11 @@ export default function DeckEditor() {
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
+  const generationFailed =
+    slideCount === 0 &&
+    generationContext !== null &&
+    (typeof generationContext.generationFailureCode === "string" ||
+      (isNewDeckCreation && newDeckGenerationPhase === "abandoned"));
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,
@@ -3927,6 +3930,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
+          !generationFailed &&
           !generatingSlideVisible &&
           !showQuestionFlow && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
