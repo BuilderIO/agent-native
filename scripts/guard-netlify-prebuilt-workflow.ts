@@ -106,12 +106,13 @@ export function validateReusableWorkflowPermissions(
   const permissions = asRecord(workflow.permissions);
   if (
     permissions?.contents !== "read" ||
+    permissions?.["pull-requests"] !== "read" ||
     Object.keys(permissions ?? {}).some(
-      (permission) => permission !== "contents",
+      (permission) => !["contents", "pull-requests"].includes(permission),
     )
   ) {
     return [
-      `${reusablePath} must declare only the read permissions used by the reusable deploy job`,
+      `${reusablePath} must declare only contents: read and pull-requests: read for the reusable deploy job`,
     ];
   }
   return [];
@@ -142,6 +143,15 @@ export function validateReusableCallerPermissions(
         `${path} ${jobName} reusable deploy job must explicitly retain contents access`,
       );
     }
+    if (
+      asRecord(job.with)?.target === "preview" &&
+      asRecord(job.with)?.deploy === true &&
+      permissions?.["pull-requests"] !== "read"
+    ) {
+      issues.push(
+        `${path} ${jobName} preview caller must grant pull-requests: read for the trusted PR recheck`,
+      );
+    }
   }
   return issues;
 }
@@ -156,14 +166,42 @@ export function validateReusablePreviewRecordPlacement(
   const recordIndex = stepIndex("Prepare the trusted PR preview deploy record");
   const previewSmokeIndex = stepIndex("Smoke-test the uploaded PR preview");
   const docsSmokeIndex = stepIndex("Smoke-test the static docs deploy");
+  const sourceIndex = stepIndex("Validate the source revision");
+  const prRecheckIndex = stepIndex(
+    "Revalidate the internal PR before preview upload",
+  );
+  const trustedPreviewBuildIndex = stepIndex(
+    "Build trusted preview Functions for the PR artifact",
+  );
+  const prRecheck = steps[prRecheckIndex];
+  const prRecheckEnv = asRecord(prRecheck?.env);
+  const prRecheckScript = String(asRecord(prRecheck?.with)?.script ?? "");
   if (
     recordIndex < 0 ||
     previewSmokeIndex < 0 ||
     docsSmokeIndex < 0 ||
-    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex)
+    recordIndex <= Math.max(previewSmokeIndex, docsSmokeIndex) ||
+    sourceIndex < 0 ||
+    prRecheckIndex <= sourceIndex ||
+    trustedPreviewBuildIndex <= prRecheckIndex ||
+    !String(prRecheck?.if ?? "").includes("inputs.target == 'preview'") ||
+    !String(prRecheck?.if ?? "").includes("inputs.deploy") ||
+    !String(prRecheck?.if ?? "").includes("inputs.pull_request_number > 0") ||
+    prRecheckEnv?.PULL_REQUEST_NUMBER !== "${{ inputs.pull_request_number }}" ||
+    prRecheckEnv?.SOURCE_REF !== "${{ steps.source.outputs.source_ref }}" ||
+    !prRecheckScript.includes("github.rest.pulls.get") ||
+    !prRecheckScript.includes("pullRequest.state !== 'open'") ||
+    !prRecheckScript.includes("pullRequest.base.ref !== 'main'") ||
+    !prRecheckScript.includes("pullRequest.base.repo?.full_name") ||
+    !prRecheckScript.includes("pullRequest.author_association") ||
+    !prRecheckScript.includes(
+      "pullRequest.head.sha !== process.env.SOURCE_REF",
+    ) ||
+    !prRecheckScript.includes("pullRequest.head.repo?.full_name") ||
+    !prRecheckScript.includes("pullRequest.user?.type !== 'User'")
   ) {
     return [
-      `${reusablePath} must publish PR preview records only after every preview smoke check`,
+      `${reusablePath} must revalidate the current internal PR before trusted preview deploy steps and publish records only after smoke checks`,
     ];
   }
   return [];
@@ -237,10 +275,6 @@ export function validateNetlifyPrPreviewWorkflow(
   const issueCommentTypes = issueComment?.types;
   const pullRequestTarget = asRecord(triggers?.pull_request_target);
   const pullRequestTargetTypes = pullRequestTarget?.types;
-  const concurrency = asRecord(workflow.concurrency);
-  const previewCommands = JSON.stringify(
-    previewEligibleSiteNames().map((site) => `/preview ${site}`),
-  );
   const authorize = asRecord(jobs?.authorize);
   const authorizeSteps =
     (authorize?.steps as Array<Record<string, unknown>> | undefined) ?? [];
@@ -260,6 +294,7 @@ export function validateNetlifyPrPreviewWorkflow(
   const buildPermissions = asRecord(build?.permissions);
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
+  const deployConcurrency = asRecord(deploy?.concurrency);
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -297,21 +332,9 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
     );
   }
-  if (
-    typeof concurrency?.group !== "string" ||
-    !concurrency.group.includes("github.event.pull_request.number") ||
-    !concurrency.group.includes("github.event.issue.number") ||
-    !concurrency.group.includes("github.event.issue.pull_request") ||
-    !concurrency.group.includes("github.event.issue.state == 'open'") ||
-    !concurrency.group.includes("github.event.issue.author_association") ||
-    !concurrency.group.includes("github.event.comment.author_association") ||
-    !concurrency.group.includes("github.event.comment.user.type == 'User'") ||
-    !concurrency.group.includes(`fromJSON('${previewCommands}')`) ||
-    concurrency["cancel-in-progress"] !==
-      "${{ github.event_name == 'pull_request_target' }}"
-  ) {
+  if (workflow.concurrency !== undefined) {
     issues.push(
-      `${pullRequestPath} previews and closed-PR cleanup must share a PR queue that lets cleanup cancel an upload`,
+      `${pullRequestPath} must coordinate preview deploys and cleanup per PR and app at the job level`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
@@ -460,6 +483,17 @@ export function validateNetlifyPrPreviewWorkflow(
   if (deployWith?.target !== "preview") {
     issues.push(`${pullRequestPath} deploy job must pass target=preview`);
   }
+  if (
+    !deployConcurrency ||
+    deployConcurrency.group !==
+      "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}" ||
+    deployConcurrency["cancel-in-progress"] !== false ||
+    asRecord(deploy.permissions)?.["pull-requests"] !== "read"
+  ) {
+    issues.push(
+      `${pullRequestPath} deploy job must retain each app request in its PR-and-app queue and permit the trusted PR recheck`,
+    );
+  }
   if (deployWith?.build_context !== "deploy-preview") {
     issues.push(
       `${pullRequestPath} deploy job must pass build_context=deploy-preview`,
@@ -506,6 +540,8 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   const cleanup = asRecord(jobs?.cleanup);
+  const cleanupConcurrency = asRecord(cleanup?.concurrency);
+  const cleanupMatrix = asRecord(asRecord(cleanup?.strategy)?.matrix);
   if (
     !cleanup ||
     cleanup["timeout-minutes"] !== 15 ||
@@ -515,6 +551,19 @@ export function validateNetlifyPrPreviewWorkflow(
     )
   ) {
     issues.push(`${pullRequestPath} must define closed-PR preview cleanup`);
+  }
+  if (
+    !Array.isArray(cleanupMatrix?.site) ||
+    JSON.stringify(cleanupMatrix.site) !==
+      JSON.stringify(previewEligibleSiteNames()) ||
+    cleanupConcurrency?.group !==
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
+    cleanupConcurrency["cancel-in-progress"] !== true ||
+    !source.includes('--site "$SITE_NAME"')
+  ) {
+    issues.push(
+      `${pullRequestPath} cleanup must cancel each eligible PR-and-app deploy queue and target that app`,
+    );
   }
   if (
     !source.includes("cleanup-netlify-pr-previews.ts") ||

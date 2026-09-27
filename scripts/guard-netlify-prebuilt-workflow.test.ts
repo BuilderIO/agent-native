@@ -213,32 +213,25 @@ describe("Netlify PR preview workflow guard", () => {
       ["created"],
     );
     assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
-    assert.match(
-      String(preview.concurrency.group),
-      /github\.event\.issue\.number/,
-    );
-    assert.match(
-      String(preview.concurrency.group),
-      /github\.event\.pull_request\.number/,
-    );
-    assert.match(
-      String(preview.concurrency.group),
-      /github\.event\.issue\.state == 'open'/,
-    );
-    assert.match(
-      String(preview.concurrency.group),
-      /github\.event\.issue\.author_association/,
-    );
+    assert.equal(preview.concurrency, undefined);
+    assert.deepEqual(previewDeploy.concurrency, {
+      group:
+        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
+      "cancel-in-progress": false,
+    });
     assert.equal(
-      String(preview.concurrency.group).includes(
-        `fromJSON('${JSON.stringify(previewEligibleSiteNames().map((site) => `/preview ${site}`))}')`,
-      ),
-      true,
+      (previewDeploy.permissions as Workflow)["pull-requests"],
+      "read",
     );
-    assert.equal(
-      preview.concurrency["cancel-in-progress"],
-      "${{ github.event_name == 'pull_request_target' }}",
+    assert.deepEqual(
+      ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
+      previewEligibleSiteNames(),
     );
+    assert.deepEqual(previewJobs.cleanup.concurrency, {
+      group:
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+      "cancel-in-progress": true,
+    });
     const authorize = previewJobs.authorize;
     assert.match(
       String(authorize.if),
@@ -326,18 +319,14 @@ describe("Netlify PR preview workflow guard", () => {
       ],
       ["issue_comment:", "workflow_dispatch:"],
       [
-        "${{ github.event_name == 'pull_request_target' }}",
-        "${{ github.event_name == 'issue_comment' }}",
+        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
+        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-all",
       ],
-      ["github.event.issue.state == 'open'", "false"],
-      [
-        "github.event.issue.author_association",
-        "github.event.comment.author_association",
-      ],
-      ["/preview analytics", "/preview unknown"],
+      ["cancel-in-progress: true", "cancel-in-progress: false"],
+      ["          - fw", "          - unknown"],
       ["types: [closed]", "types: [opened]"],
     ]) {
-      assert.notDeepEqual(mutate(needle, replacement), []);
+      assert.notDeepEqual(mutate(needle, replacement), [], needle);
     }
   });
 });
@@ -350,11 +339,29 @@ describe("Reusable workflow permission guard", () => {
     assert.deepEqual(validateReusableWorkflowPermissions(reusable), []);
     assert.deepEqual(validateReusablePreviewRecordPlacement(reusable), []);
     assert.match(
+      validateReusablePreviewRecordPlacement(
+        parse(
+          reusableSource.replace(
+            "Revalidate the internal PR before preview upload",
+            "Skip the internal PR recheck",
+          ),
+        ) as Workflow,
+      ).join("\n"),
+      /revalidate the current internal PR/,
+    );
+    assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
         permissions: { contents: "read", issues: "write" },
       }).join("\n"),
-      /must declare only the read permissions used by the reusable deploy job/,
+      /must declare only contents: read and pull-requests: read/,
+    );
+    assert.match(
+      validateReusableWorkflowPermissions({
+        ...reusable,
+        permissions: { contents: "read" },
+      }).join("\n"),
+      /pull-requests: read/,
     );
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",

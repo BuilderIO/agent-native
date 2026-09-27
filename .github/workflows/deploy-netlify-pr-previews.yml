@@ -10,11 +10,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: >-
-    netlify-pr-preview-${{ github.event.pull_request.number || github.event.issue.number }}-${{ (github.event_name == 'pull_request_target' || (github.event.issue.pull_request && github.event.issue.state == 'open' && contains(fromJSON('["OWNER","MEMBER"]'), github.event.issue.author_association) && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) && github.event.comment.user.type == 'User' && contains(fromJSON('["/preview analytics","/preview assets","/preview calendar","/preview clips","/preview content","/preview design","/preview dispatch","/preview forms","/preview mail","/preview plan","/preview slides","/preview starter","/preview fw"]'), github.event.comment.body))) && 'shared' || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
-
 jobs:
   authorize:
     name: Authorize internal PR preview
@@ -123,8 +118,12 @@ jobs:
     name: ${{ needs.authorize.outputs.site }} PR preview
     needs: [authorize, build]
     if: needs.authorize.result == 'success' && needs.build.result == 'success'
+    concurrency:
+      group: netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}
+      cancel-in-progress: false
     permissions:
       contents: read
+      pull-requests: read
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: preview
@@ -264,12 +263,32 @@ jobs:
             });
 
   cleanup:
-    name: Remove closed PR previews
+    name: Remove closed PR preview for ${{ matrix.site }}
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        site:
+          - analytics
+          - assets
+          - calendar
+          - clips
+          - content
+          - design
+          - dispatch
+          - forms
+          - mail
+          - plan
+          - slides
+          - starter
+          - fw
+    concurrency:
+      group: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -296,7 +315,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ github.token }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE_NAME: ${{ matrix.site }}
         run: |
           set -euo pipefail
           node --experimental-strip-types scripts/cleanup-netlify-pr-previews.ts \
-            --pr "${{ github.event.pull_request.number }}"
+            --pr "${{ github.event.pull_request.number }}" \
+            --site "$SITE_NAME"
