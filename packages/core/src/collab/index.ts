@@ -16,6 +16,7 @@ export {
   getDoc,
   withPreparedYDocMutation,
   applyUpdate,
+  seedXmlFragmentIfEmpty,
   applyText,
   getText,
   getState,

@@ -103,6 +103,7 @@ export const documentVersions = table(
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),
     content: text("content").notNull(),
+    bodyRevision: integer("body_revision"),
     chatContext: text("chat_context"),
     actorEmail: text("actor_email"),
     actorKind: text("actor_kind"),
@@ -127,6 +128,11 @@ export const documentVersions = table(
       version.groupId,
       version.createdAt,
       version.id,
+    ),
+    index("document_versions_owner_document_body_revision_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.bodyRevision,
     ),
   ],
 );
@@ -174,6 +180,7 @@ export const documentPreviewDraftSettlements = table(
     documentId: text("document_id").notNull(),
     editorSessionId: text("editor_session_id").notNull(),
     settledGeneration: integer("settled_generation").notNull(),
+    discardedGeneration: integer("discarded_generation"),
     updatedAt: text("updated_at").notNull().default(now()),
   },
   (settlement) => [
@@ -779,6 +786,68 @@ export const documentEditReceipts = table(
     index("document_edit_receipts_owner_document_idx").on(
       receipt.ownerEmail,
       receipt.documentId,
+    ),
+  ],
+);
+
+export const documentBrowserSaveAttempts = table(
+  "document_browser_save_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("document_browser_save_attempts_scope_unique").on(
+      attempt.documentId,
+      attempt.actorEmail,
+      attempt.orgId,
+      attempt.attemptId,
+    ),
+    index("document_browser_save_attempts_owner_document_idx").on(
+      attempt.ownerEmail,
+      attempt.documentId,
+    ),
+  ],
+);
+
+export const documentBodyIntents = table(
+  "document_body_intents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    writerId: text("writer_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    candidateHash: text("candidate_hash"),
+    metadataHash: text("metadata_hash"),
+    generation: integer("generation"),
+    authoredBaseRevision: integer("authored_base_revision").notNull(),
+    committedRevision: integer("committed_revision").notNull(),
+    displacedCheckpointId: text("displaced_checkpoint_id"),
+    affectedBlockIndexesJson: text("affected_block_indexes_json")
+      .notNull()
+      .default("[]"),
+    canonicalChanged: boolean("canonical_changed").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (intent) => [
+    uniqueIndex("document_body_intents_document_writer_operation_unique").on(
+      intent.documentId,
+      intent.writerId,
+      intent.operationId,
+    ),
+    index("document_body_intents_owner_document_revision_idx").on(
+      intent.ownerEmail,
+      intent.documentId,
+      intent.committedRevision,
     ),
   ],
 );
