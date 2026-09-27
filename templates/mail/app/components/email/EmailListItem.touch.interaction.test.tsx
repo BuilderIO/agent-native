@@ -145,9 +145,23 @@ describe("EmailListItem touch swipe interactions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "mail.aiFilter.importantMode" }),
     );
+
+    expect(
+      screen.queryByRole("button", { name: "mail.aiFilter.importantMode" }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
     fireEvent.click(
       screen.getByRole("button", { name: "mail.aiFilter.notImportantMode" }),
     );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.notImportantMode",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
     fireEvent.click(
       screen.getByRole("link", { name: "mail.sort.priorityEditRules" }),
     );

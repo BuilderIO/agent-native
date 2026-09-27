@@ -155,6 +155,8 @@ export const EmailListItem = memo(function EmailListItem({
 
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [priorityScorePopoverOpen, setPriorityScorePopoverOpen] =
+    useState(false);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
@@ -625,7 +627,10 @@ export const EmailListItem = memo(function EmailListItem({
             {formatEmailDate(email.date)}
           </span>
           {importanceScore !== undefined && (
-            <Popover>
+            <Popover
+              open={priorityScorePopoverOpen}
+              onOpenChange={setPriorityScorePopoverOpen}
+            >
               <PopoverTrigger asChild>
                 <button
                   type="button"
@@ -657,7 +662,10 @@ export const EmailListItem = memo(function EmailListItem({
                 </p>
                 <button
                   type="button"
-                  onClick={() => onImportanceFeedback?.("important")}
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("important");
+                  }}
                   className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
                 >
                   <IconThumbUp aria-hidden="true" className="size-3.5" />
@@ -665,7 +673,10 @@ export const EmailListItem = memo(function EmailListItem({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onImportanceFeedback?.("not-important")}
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("not-important");
+                  }}
                   className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
                 >
                   <IconThumbDown aria-hidden="true" className="size-3.5" />
