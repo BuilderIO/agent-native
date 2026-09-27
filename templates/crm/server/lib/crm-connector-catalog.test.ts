@@ -49,4 +49,13 @@ describe("CRM MCP connector catalog", () => {
       );
     }
   });
+
+  it("keeps the overview off every external surface, full catalog included", () => {
+    const action = readFileSync(
+      join(process.cwd(), "actions", "get-crm-overview.ts"),
+      "utf8",
+    );
+    expect(action).toContain("mcpTool: false");
+    expect(action).not.toContain("publicAgent");
+  });
 });

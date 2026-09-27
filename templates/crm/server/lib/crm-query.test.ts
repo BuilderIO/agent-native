@@ -856,6 +856,23 @@ describe("cursor pagination", () => {
     expect(result.complete).toBe(true);
   });
 
+  it("keeps the cursor small when sort values are long", async () => {
+    const long = "Zlong ".padEnd(2_000, "x");
+    const first = await createRecord(`${long}1`);
+    const second = await createRecord(`${long}2`);
+    const sort = [{ field: "displayName" as const, direction: "asc" as const }];
+    const page1 = await run({ limit: 1, query: "Zlong", sort });
+    expect(page1.records.map((record) => record.id)).toEqual([first]);
+    expect(page1.nextCursor!.length).toBeLessThan(1_000);
+    const page2 = await run({
+      limit: 1,
+      query: "Zlong",
+      sort,
+      cursor: page1.nextCursor,
+    });
+    expect(page2.records.map((record) => record.id)).toEqual([second]);
+  });
+
   it("resumes past withheld rows without revealing them in the cursor", async () => {
     const withheld: string[] = [];
     // Enough withheld rows to exhaust every fill batch for a one-row page.

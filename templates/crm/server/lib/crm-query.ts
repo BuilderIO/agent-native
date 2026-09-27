@@ -833,6 +833,10 @@ interface SortKey {
 
 interface CursorPayload {
   f: string;
+  id: string;
+}
+
+interface KeysetAnchor {
   v: Array<string | number | boolean | null>;
   id: string;
 }
@@ -846,8 +850,9 @@ function fingerprint(value: unknown): string {
   return hash.toString(36);
 }
 
-// Sealed so a cursor that resumes past withheld rows never shows the caller
-// that row's id or sort values.
+// Sealed so a cursor that resumes past a withheld row never shows the caller
+// that row's id. It carries no sort values, so its size stays fixed; the
+// anchor row's sort values are read back from SQL on the next page.
 function encodeCursor(payload: CursorPayload): string {
   return encryptSecretValue(JSON.stringify(payload));
 }
@@ -863,7 +868,6 @@ function decodeCursor(cursor: string, expected: string): CursorPayload {
   if (
     !payload ||
     typeof payload.id !== "string" ||
-    !Array.isArray(payload.v) ||
     typeof payload.f !== "string"
   ) {
     throw new CrmCursorError("CRM list cursor is not readable.");
@@ -878,7 +882,7 @@ function decodeCursor(cursor: string, expected: string): CursorPayload {
 
 function keysetPredicate(
   keys: SortKey[],
-  cursor: CursorPayload,
+  cursor: KeysetAnchor,
 ): SQL | undefined {
   let predicate: SQL = sql`${schema.crmRecords.id} > ${cursor.id}`;
   for (let index = keys.length - 1; index >= 0; index -= 1) {
@@ -1312,7 +1316,30 @@ export async function queryCrmRecords(
   const pageConditions = [...conditions];
   if (input.cursor) {
     const cursor = decodeCursor(input.cursor, shape);
-    const predicate = keysetPredicate(keys, cursor);
+    const anchorSelection: Record<string, unknown> = {
+      id: schema.crmRecords.id,
+    };
+    keys.forEach((key, index) => {
+      anchorSelection[`sortKey${index}`] = key.expression.as(
+        `sort_key_${index}`,
+      );
+    });
+    const [anchor] = (await db
+      .select(anchorSelection as never)
+      .from(schema.crmRecords)
+      .where(eq(schema.crmRecords.id, cursor.id))
+      .limit(1)) as unknown as Array<Record<string, unknown>>;
+    if (!anchor) {
+      throw new CrmCursorError(
+        "CRM list cursor points at a record that no longer exists. Restart the list without a cursor.",
+      );
+    }
+    const predicate = keysetPredicate(keys, {
+      v: keys.map((_, index) =>
+        normalizeCursorValue(anchor[`sortKey${index}`]),
+      ),
+      id: cursor.id,
+    });
     if (predicate) pageConditions.push(predicate);
   }
 
@@ -1360,7 +1387,6 @@ export async function queryCrmRecords(
 
   const cursorAfter = (row: RawRow): SQL | undefined =>
     keysetPredicate(keys, {
-      f: shape,
       v: keys.map((_, index) => normalizeCursorValue(row[`sortKey${index}`])),
       id: row.id,
     });
@@ -1401,12 +1427,7 @@ export async function queryCrmRecords(
   const hasMore = kept.length > limit;
   const pageRows = kept.slice(0, limit);
   const last = pageRows[pageRows.length - 1];
-  const cursorFor = (row: RawRow) =>
-    encodeCursor({
-      f: shape,
-      v: keys.map((_, index) => normalizeCursorValue(row[`sortKey${index}`])),
-      id: row.id,
-    });
+  const cursorFor = (row: RawRow) => encodeCursor({ f: shape, id: row.id });
   const nextCursor =
     hasMore && last
       ? cursorFor(last)

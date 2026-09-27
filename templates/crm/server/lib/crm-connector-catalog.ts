@@ -11,7 +11,8 @@
  * `listCrmRecords` path in server/db/crm-store.ts, which resolves provider
  * scope without the caller's identity (no `ActionRunContext`). A resolver
  * failure there becomes a partial success instead of a caller-scoped read, so
- * it stays off the external catalog until that path takes a context.
+ * it stays off the external surface (`mcpTool: false`, so not even the full
+ * catalog serves it) until that path takes a context.
  */
 export const CRM_CONNECTOR_CATALOG = [
   "list-crm-records",

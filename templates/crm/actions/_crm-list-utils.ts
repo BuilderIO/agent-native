@@ -1,4 +1,8 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  decryptSecretValue,
+  encryptSecretValue,
+} from "@agent-native/core/secrets/crypto";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   aliasedTable,
@@ -824,6 +828,29 @@ export function decodeCrmCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   const value = Number.parseInt(cursor, 10);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+// A list-entry offset counts withheld rows it skipped, so it is sealed rather
+// than handed back as a plain number.
+export function encodeSealedCrmCursor(offset: number): string {
+  return encryptSecretValue(String(offset));
+}
+
+export function decodeSealedCrmCursor(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  let value = Number.NaN;
+  try {
+    value = Number(decryptSecretValue(cursor));
+  } catch {
+    // Falls through to the error below.
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new CrmListError(
+      "crm-list-cursor-invalid",
+      "CRM list entry cursor is not readable. Restart without a cursor.",
+    );
+  }
+  return value;
 }
 
 export function attributeSummary(attribute: CrmListAttribute) {

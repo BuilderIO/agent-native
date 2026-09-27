@@ -951,7 +951,9 @@ describe("list-crm-list-entries filtering, sorting, and pagination", () => {
     expect(first.entries).toHaveLength(1);
     expect(first.entries[0].recordId).toBe(wonRecordIds[0]);
     expect(first.complete).toBe(false);
-    expect(first.nextCursor).toBe("1");
+    expect(first.nextCursor).toBeTruthy();
+    // Sealed: the raw scan offset is not readable by the caller.
+    expect(first.nextCursor).not.toMatch(/^\d+$/);
 
     const second = await asOwner(() =>
       listCrmListEntries.run(

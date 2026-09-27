@@ -15,7 +15,8 @@ import {
   CRM_ENTRY_BUILTIN_FIELDS,
   CRM_ENTRY_FILTER_OPERATORS,
   CrmEntryFieldResolver,
-  decodeCrmCursor,
+  decodeSealedCrmCursor,
+  encodeSealedCrmCursor,
   indexAttributes,
   loadCrmEntryValues,
   loadCrmListAttributes,
@@ -71,7 +72,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(MAX_LIST_ENTRY_LIMIT).default(50),
     cursor: z
       .string()
-      .regex(/^\d+$/)
+      .max(500)
       .optional()
       .describe("Cursor returned by a previous page."),
   }),
@@ -92,7 +93,7 @@ export default defineAction({
       buildEntryOrder(resolver, sort),
     );
 
-    const offset = decodeCrmCursor(args.cursor);
+    const offset = decodeSealedCrmCursor(args.cursor);
     const limit = Math.min(args.limit, MAX_LIST_ENTRY_LIMIT);
 
     const selectEntries = (at: number, size: number) => {
@@ -227,7 +228,8 @@ export default defineAction({
           valuesSince: entryValues.valuesSince,
         };
       }),
-      nextCursor: nextAt === undefined ? undefined : String(nextAt),
+      nextCursor:
+        nextAt === undefined ? undefined : encodeSealedCrmCursor(nextAt),
       complete: nextAt === undefined,
     };
   },
