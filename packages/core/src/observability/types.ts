@@ -86,6 +86,7 @@ export interface OutputReviewListRow {
   inlineAppTitle?: string;
   threadTitle: string;
   summary: HumanReviewSummaryPayload | null;
+  summaryUpdatedAt?: number;
   artifacts: HumanReviewArtifactRef[];
   runs: OutputReviewRun[];
   runCount: number;

@@ -237,6 +237,7 @@ describe("listOutputReviews", () => {
       ask: "Build a report",
       answer: "Created the weekly dashboard",
       runId: "run-1",
+      summaryUpdatedAt: 2,
     });
     expect(mockGetHumanReviewSummariesForThreads).toHaveBeenCalledWith([
       { orgId: "org-a", threadId: "thread-1" },

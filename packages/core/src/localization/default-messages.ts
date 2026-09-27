@@ -1846,6 +1846,8 @@ const messages = {
     summaryQueued:
       "Request queued. The summary will appear here after the agent saves it.",
     summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
     readOnlyTenant: "Cross-organization review is read-only.",
     showReviewDetails: "Show review details",
     hideReviewDetails: "Hide review details",

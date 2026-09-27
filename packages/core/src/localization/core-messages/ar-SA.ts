@@ -60,6 +60,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "لم يتم الالتقاط",
   "observability.openFullConversation": "فتح المحادثة الكاملة",
   "observability.learnAboutTab": "تعرّف على علامة التبويب",
+  "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
+  "observability.regenerateSummary": "إعادة إنشاء الملخص",
+  "observability.summarizeWithAgentHelp":
+    "اطلب من الوكيل قراءة هذا الموضوع وتلخيص الطلب والنتيجة وربط العناصر التي تم التحقق منها فقط.",
+  "observability.regenerateSummaryHelp":
+    "اطلب من الوكيل تحديث هذا الملخص استنادًا إلى أحدث رسائل الموضوع والعناصر التي تم التحقق منها.",
+  "observability.summarySending": "جارٍ إرسال الطلب إلى الوكيل…",
+  "observability.summaryQueued":
+    "وُضع الطلب في قائمة الانتظار. سيظهر الملخص هنا بعد أن يحفظه الوكيل.",
+  "observability.summaryFailed": "تعذّر إرسال الطلب. حاول مرة أخرى.",
+  "observability.summaryExpired":
+    "لم يظهر ملخص بعد. يمكنك إعادة المحاولة، لكن قد يكون الوكيل لا يزال يعمل.",
   "onboarding.back": "رجوع",
   "onboarding.chooseRole": "اختر دورك",
   "onboarding.customizeRole": "لنخصص هذه التجربة لك.",

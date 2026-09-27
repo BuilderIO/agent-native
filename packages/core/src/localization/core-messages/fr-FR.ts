@@ -64,6 +64,18 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Non capturé",
   "observability.openFullConversation": "Ouvrir la conversation complète",
   "observability.learnAboutTab": "En savoir plus sur cet onglet",
+  "observability.summarizeWithAgent": "Résumer avec l’agent",
+  "observability.regenerateSummary": "Régénérer le résumé",
+  "observability.summarizeWithAgentHelp":
+    "Demander à l’agent de lire ce fil, de résumer la demande et le résultat, et de ne lier que des artefacts vérifiés.",
+  "observability.regenerateSummaryHelp":
+    "Demander à l’agent d’actualiser ce résumé à partir du fil le plus récent et des artefacts vérifiés.",
+  "observability.summarySending": "Envoi de la demande à l’agent…",
+  "observability.summaryQueued":
+    "Demande mise en file d’attente. Le résumé apparaîtra ici lorsque l’agent l’aura enregistré.",
+  "observability.summaryFailed": "Impossible d’envoyer la demande. Réessayez.",
+  "observability.summaryExpired":
+    "Aucun résumé n’est encore apparu. Vous pouvez réessayer, mais l’agent est peut-être toujours en train de travailler.",
   "onboarding.back": "Retour",
   "onboarding.chooseRole": "Choisissez votre rôle",
   "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",

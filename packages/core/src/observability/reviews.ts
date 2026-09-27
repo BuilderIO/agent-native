@@ -714,6 +714,7 @@ export async function listOutputReviews(opts: {
         hasInlineApp: Boolean(inlineApp),
         threadTitle: threadTitle ?? "",
         summary: reviewSummary,
+        ...(savedSummary ? { summaryUpdatedAt: savedSummary.updatedAt } : {}),
         artifacts,
         runs: (runsByThread.get(key) ?? [summary]).map((run) => ({
           runId: run.runId,

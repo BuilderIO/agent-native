@@ -26,7 +26,11 @@ export interface ObservabilityReviewSummaryButtonProps {
   refresh?: boolean;
 }
 
-export type ObservabilityReviewSummaryStatus = "sending" | "queued" | "failed";
+export type ObservabilityReviewSummaryStatus =
+  | "sending"
+  | "queued"
+  | "failed"
+  | "expired";
 
 export function ObservabilityReviewSummaryButton({
   runId,
@@ -50,7 +54,9 @@ export function ObservabilityReviewSummaryButton({
           ? "observability.summarySending"
           : status === "queued"
             ? "observability.summaryQueued"
-            : "observability.summaryFailed",
+            : status === "expired"
+              ? "observability.summaryExpired"
+              : "observability.summaryFailed",
       )
     : null;
   const tooltipLabel =
@@ -115,6 +121,8 @@ export function ObservabilityReviewSummaryButton({
                 <IconClock size={16} />
               ) : status === "failed" ? (
                 <IconAlertCircle size={16} />
+              ) : status === "expired" ? (
+                <IconAlertCircle size={16} />
               ) : compact ? (
                 refresh ? (
                   <IconRefresh size={16} />
@@ -138,7 +146,7 @@ export function ObservabilityReviewSummaryButton({
           aria-live="polite"
           aria-atomic="true"
           className={
-            status === "failed"
+            status === "failed" || status === "expired"
               ? "text-xs text-destructive"
               : "text-xs text-muted-foreground"
           }
