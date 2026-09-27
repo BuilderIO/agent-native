@@ -609,7 +609,7 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Label badges */}
         {displayLabels.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0 me-2">
+          <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
               const style = getLabelStyle(labelId);
               const labelName =

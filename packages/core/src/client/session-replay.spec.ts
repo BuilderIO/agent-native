@@ -1447,7 +1447,7 @@ describe("session replay", () => {
 
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
-      "https://app.agent-native.com/inbox?code=secret&keep=1",
+      "https://app.agent-native.com/all?code=secret&q=private.sender%40example.com&keep=1",
     );
     let recordOptions: any;
     const stop = vi.fn();
@@ -1461,9 +1461,12 @@ describe("session replay", () => {
     const result = await startSessionReplay({
       publicKey: "anpk_test",
       endpoint: "https://analytics.example.test/session-replay",
+      sensitiveQueryParams: ["q"],
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
-      extraProperties: { route: "/inbox?token=private" },
+      extraProperties: {
+        route: "/all?token=private&q=private.sender%40example.com",
+      },
     });
 
     expect(result).toMatchObject({ started: true, sampled: true });
@@ -1491,7 +1494,7 @@ describe("session replay", () => {
       type: 3,
       timestamp: eventTimestamp,
       data: {
-        href: "https://app.agent-native.com/path?token=secret&ok=1",
+        href: "https://app.agent-native.com/path?token=secret&q=private.sender%40example.com&ok=1",
         source: "/oauth/callback?code=private",
       },
     });
@@ -1519,14 +1522,14 @@ describe("session replay", () => {
       startedAt: expect.any(String),
       endedAt: new Date(eventTimestamp).toISOString(),
       durationMs: expect.any(Number),
-      url: "https://app.agent-native.com/inbox?code=%3Credacted%3E&keep=1",
-      properties: { route: "/inbox?token=%3Credacted%3E" },
+      url: "https://app.agent-native.com/all?code=%3Credacted%3E&q=%3Credacted%3E&keep=1",
+      properties: { route: "/all?token=%3Credacted%3E&q=%3Credacted%3E" },
     });
     expect(Date.parse(body.startedAt)).toBeLessThanOrEqual(
       Date.parse(body.endedAt),
     );
     expect(body.events[0].data.href).toBe(
-      "https://app.agent-native.com/path?token=%3Credacted%3E&ok=1",
+      "https://app.agent-native.com/path?token=%3Credacted%3E&q=%3Credacted%3E&ok=1",
     );
     expect(body.events[0].data.source).toBe(
       "/oauth/callback?code=%3Credacted%3E",

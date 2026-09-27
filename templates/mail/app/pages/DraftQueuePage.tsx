@@ -462,13 +462,16 @@ function DraftDetail({
             >
               {statusLabel(draft.status, t)}
             </span>
-            <span className="truncate text-xs text-muted-foreground">
+            <span
+              data-an-mask
+              className="truncate text-xs text-muted-foreground"
+            >
               {t("mail.draftQueue.requestedBy", {
                 name: draft.requesterName || draft.requesterEmail,
               })}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground/55">
+          <p data-an-mask className="mt-1 text-[11px] text-muted-foreground/55">
             {t("mail.draftQueue.queuedFor", {
               time: formatTime(draft.createdAt),
               owner: draft.ownerEmail,

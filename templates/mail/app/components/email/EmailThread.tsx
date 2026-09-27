@@ -1402,6 +1402,7 @@ export function EmailThread({
                 return (
                   <span
                     key={labelId}
+                    data-an-mask
                     className={cn(
                       "label-badge shrink-0 mt-1",
                       style.bg,
@@ -2244,7 +2245,9 @@ const ExpandedMessageCard = forwardRef<
                           />
                         </a>
                       </TooltipTrigger>
-                      <TooltipContent>{att.filename}</TooltipContent>
+                      <TooltipContent data-an-block>
+                        {att.filename}
+                      </TooltipContent>
                     </Tooltip>
                   );
                 })}

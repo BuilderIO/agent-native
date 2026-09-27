@@ -191,6 +191,7 @@ function AliasPopover({
   return createPortal(
     <div
       ref={panelRef}
+      data-an-block
       className="fixed z-[9999] w-72 rounded-xl border border-border bg-popover shadow-xl"
       style={{ top: pos.top, left: pos.left }}
     >
@@ -673,6 +674,7 @@ export function RecipientInput({
                   return (
                     <button
                       key={contact.email}
+                      data-an-block
                       id={`${suggestionListId}-option-${globalIndex}`}
                       role="option"
                       aria-selected={globalIndex === selectedIndex}

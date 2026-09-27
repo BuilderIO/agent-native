@@ -231,6 +231,8 @@ export interface SessionReplayOptions {
   samplingSalt?: string;
   allowUrls?: SessionReplayUrlMatcher[];
   blockUrls?: SessionReplayUrlMatcher[];
+  /** Extra app-specific query keys to redact from replay URLs at record time. */
+  sensitiveQueryParams?: string[];
   flushIntervalMs?: number;
   /** Optional maximum lifetime for one replay id, in milliseconds. */
   maxDurationMs?: number;
@@ -312,6 +314,7 @@ interface NormalizedSessionReplayOptions {
   samplingSalt: string;
   allowUrls: SessionReplayUrlMatcher[];
   blockUrls: SessionReplayUrlMatcher[];
+  sensitiveQueryParams: string[];
   flushIntervalMs: number;
   maxDurationMs?: number;
   maxEventsPerBatch: number;
@@ -1034,6 +1037,7 @@ function normalizeOptions(
     samplingSalt: options.samplingSalt || DEFAULT_SAMPLING_SALT,
     allowUrls: options.allowUrls ?? [],
     blockUrls: options.blockUrls ?? [],
+    sensitiveQueryParams: options.sensitiveQueryParams ?? [],
     flushIntervalMs: Math.max(
       250,
       options.flushIntervalMs ??
@@ -1130,7 +1134,11 @@ function normalizeCaptureToggle(
   };
 }
 
-function scrubStringValue(key: string, value: string): string {
+function scrubStringValue(
+  key: string,
+  value: string,
+  sensitiveQueryParams: readonly string[],
+): string {
   const lowerKey = key.toLowerCase();
   const isUrlKey = URL_LIKE_KEYS.has(key) || URL_LIKE_KEYS.has(lowerKey);
   if (
@@ -1139,28 +1147,38 @@ function scrubStringValue(key: string, value: string): string {
     value.startsWith("https://") ||
     value.startsWith("/")
   ) {
-    return scrubUrl(value) ?? value;
+    return scrubUrl(value, sensitiveQueryParams) ?? value;
   }
   return value;
 }
 
 function scrubReplayValue(
   value: unknown,
+  sensitiveQueryParams: readonly string[],
   key = "",
   depth = 0,
   seen = new WeakSet<object>(),
 ): unknown {
-  if (typeof value === "string") return scrubStringValue(key, value);
+  if (typeof value === "string")
+    return scrubStringValue(key, value, sensitiveQueryParams);
   if (!value || typeof value !== "object") return value;
   if (depth > 12) return value;
   if (seen.has(value)) return value;
   seen.add(value);
   if (Array.isArray(value)) {
-    return value.map((item) => scrubReplayValue(item, key, depth + 1, seen));
+    return value.map((item) =>
+      scrubReplayValue(item, sensitiveQueryParams, key, depth + 1, seen),
+    );
   }
   const out: Record<string, unknown> = {};
   for (const [childKey, childValue] of Object.entries(value)) {
-    out[childKey] = scrubReplayValue(childValue, childKey, depth + 1, seen);
+    out[childKey] = scrubReplayValue(
+      childValue,
+      sensitiveQueryParams,
+      childKey,
+      depth + 1,
+      seen,
+    );
   }
   return out;
 }
@@ -1269,6 +1287,7 @@ function replayPreservedResourceAttributes(
  */
 function createReplayScrubReplacer(
   resourceNodes: Map<number, ReplayResourceNode>,
+  sensitiveQueryParams: readonly string[],
 ): (this: unknown, key: string, value: unknown) => unknown {
   const preservedAttributes = new WeakMap<object, ReadonlySet<string>>();
 
@@ -1321,7 +1340,9 @@ function createReplayScrubReplacer(
     ) {
       return value;
     }
-    return typeof value === "string" ? scrubStringValue(key, value) : value;
+    return typeof value === "string"
+      ? scrubStringValue(key, value, sensitiveQueryParams)
+      : value;
   };
 }
 
@@ -1333,10 +1354,14 @@ function createReplayScrubReplacer(
 function serializeReplayEvent(
   event: ReplayEvent,
   resourceNodes: Map<number, ReplayResourceNode>,
+  sensitiveQueryParams: readonly string[],
 ): string {
   try {
     if (event.type === 2) resourceNodes.clear();
-    return JSON.stringify(event, createReplayScrubReplacer(resourceNodes));
+    return JSON.stringify(
+      event,
+      createReplayScrubReplacer(resourceNodes, sensitiveQueryParams),
+    );
   } catch {
     return "";
   }
@@ -1385,7 +1410,11 @@ function enqueueReplayEvent(
       state.awaitingFullSnapshot = false;
     }
   }
-  const serialized = serializeReplayEvent(event, state.resourceNodes);
+  const serialized = serializeReplayEvent(
+    event,
+    state.resourceNodes,
+    state.options.sensitiveQueryParams,
+  );
   if (!serialized) return;
   const estimatedBytes = replaySerializedBytes(serialized);
   if (
@@ -1412,7 +1441,10 @@ function replayExtraProperties(
   try {
     const props = typeof source === "function" ? source() : source;
     if (!props || typeof props !== "object") return undefined;
-    return scrubReplayValue(props) as Record<string, unknown>;
+    return scrubReplayValue(props, options.sensitiveQueryParams) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return undefined;
   }
@@ -1513,7 +1545,7 @@ function buildReplayBody(
     privacyMode: "mask-inputs-and-selected-text",
     url:
       typeof window !== "undefined"
-        ? scrubUrl(window.location.href)
+        ? scrubUrl(window.location.href, options.sensitiveQueryParams)
         : undefined,
     timestamp: new Date().toISOString(),
     properties,
@@ -2841,9 +2873,11 @@ function emitReplayCustomEvent(
   }
 }
 
-function captureCurrentUrl(): string | undefined {
+function captureCurrentUrl(
+  sensitiveQueryParams: readonly string[],
+): string | undefined {
   try {
-    return scrubUrl(window.location.href);
+    return scrubUrl(window.location.href, sensitiveQueryParams);
   } catch {
     return undefined;
   }
@@ -2929,7 +2963,7 @@ function installConsoleCapture(
               MAX_CONSOLE_STACK_LENGTH,
             )
           : undefined;
-      const url = captureCurrentUrl();
+      const url = captureCurrentUrl(state.options?.sensitiveQueryParams ?? []);
       const payload: Record<string, unknown> = {
         level,
         source,
@@ -3162,7 +3196,7 @@ function installNetworkCapture(
     try {
       if (isCaptureExcludedUrl(rawUrl, ingestEndpoint)) return;
       const absolute = new URL(rawUrl, window.location.href).toString();
-      const url = scrubUrl(absolute) ?? absolute;
+      const url = scrubUrl(absolute, options.sensitiveQueryParams) ?? absolute;
       emitPayload({
         api,
         method: method.toUpperCase(),

@@ -1695,6 +1695,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
+                      data-an-block
                       aria-label={t("mail.toolbar.accounts")}
                       className="flex items-center hover:opacity-90 transition-opacity ms-1"
                     >
@@ -1900,6 +1901,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             return (
                               <button
                                 key={account.email}
+                                data-an-block
                                 onClick={() => {
                                   setActiveAccounts((prev) => {
                                     const next = new Set(prev);
@@ -3057,6 +3059,7 @@ function AccountPopover({
           return (
             <div
               key={account.email}
+              data-an-block
               className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors group"
             >
               {/* Checkbox */}

@@ -2,7 +2,7 @@
  * Query parameters that may carry sensitive values in the URL bar. Browser
  * telemetry and feedback integrations must not copy OAuth codes, share tokens,
  * password params, email-confirm tokens, or similar secrets into downstream
- * systems.
+ * systems. Callers may opt into additional app-specific query parameters.
  */
 const SENSITIVE_QUERY_PARAMS = new Set([
   "password",
@@ -15,14 +15,22 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   "bridge",
 ]);
 
-export function scrubUrl(url: string | undefined): string | undefined {
+export function scrubUrl(
+  url: string | undefined,
+  additionalSensitiveParams: readonly string[] = [],
+): string | undefined {
   if (!url || typeof url !== "string") return url;
   try {
     // Parse using a base origin so relative URLs still work.
     const u = new URL(url, "http://placeholder.local");
     let mutated = false;
     for (const key of Array.from(u.searchParams.keys())) {
-      if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+      if (
+        SENSITIVE_QUERY_PARAMS.has(key.toLowerCase()) ||
+        additionalSensitiveParams.some(
+          (param) => param.toLowerCase() === key.toLowerCase(),
+        )
+      ) {
         u.searchParams.set(key, "<redacted>");
         mutated = true;
       }
@@ -31,7 +39,12 @@ export function scrubUrl(url: string | undefined): string | undefined {
       const hashParams = new URLSearchParams(u.hash.slice(1));
       let hashMutated = false;
       for (const key of Array.from(hashParams.keys())) {
-        if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+        if (
+          SENSITIVE_QUERY_PARAMS.has(key.toLowerCase()) ||
+          additionalSensitiveParams.some(
+            (param) => param.toLowerCase() === key.toLowerCase(),
+          )
+        ) {
           hashParams.set(key, "<redacted>");
           mutated = true;
           hashMutated = true;

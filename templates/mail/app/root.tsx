@@ -57,6 +57,7 @@ configureTracking({
   sessionReplay: {
     console: false,
     network: false,
+    sensitiveQueryParams: ["q"],
   },
   getDefaultProps: (_name, properties) => ({
     ...properties,

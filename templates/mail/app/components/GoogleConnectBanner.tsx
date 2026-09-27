@@ -742,7 +742,9 @@ export function GoogleConnectBanner({
                 key={account.email}
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
-                <span className="truncate">{account.email}</span>
+                <span data-an-mask className="truncate">
+                  {account.email}
+                </span>
                 {!account.shared && (
                   <button
                     onClick={() => disconnectGoogle.mutate(account.email)}
@@ -1080,7 +1082,10 @@ function GoogleAuthIssuePanel({
               ? t("mail.googleConnect.ownerMismatch")
               : t("mail.googleConnect.connectionFailed")}
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p
+            data-an-mask
+            className="mt-1 text-xs leading-relaxed text-muted-foreground"
+          >
             {detail}
           </p>
           {shouldOfferSignOut && (
