@@ -1487,6 +1487,20 @@ export function ResourcesPanel({
     [uploadResourceFile],
   );
   useEffect(() => {
+    const resumePendingUploads = () => {
+      resumePendingResourceUploadsRef.current = true;
+    };
+    window.addEventListener(
+      "agent-engine:configured-changed",
+      resumePendingUploads,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        resumePendingUploads,
+      );
+  }, []);
+  useEffect(() => {
     if (
       !fileUploadStatus.isSuccess ||
       !resumePendingResourceUploadsRef.current
@@ -1854,9 +1868,6 @@ export function ResourcesPanel({
         open={fileStorageSetupOpen}
         onOpenChange={(open, reason) => {
           setFileStorageSetupOpen(open);
-          if (!open && reason === "setup") {
-            resumePendingResourceUploadsRef.current = true;
-          }
           if (shouldClearPendingResourceUploads(open, reason)) {
             uploadProbeEpochRef.current += 1;
             resumePendingResourceUploadsRef.current = false;

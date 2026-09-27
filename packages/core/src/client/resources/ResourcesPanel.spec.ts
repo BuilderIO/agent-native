@@ -483,6 +483,28 @@ describe("ResourcesPanel storage retries", () => {
     ).toEqual(["success.png", "retry.png"]);
   });
 
+  it("resumes queued uploads after storage is configured in settings", async () => {
+    storageMocks.refetch.mockResolvedValueOnce({ isError: true });
+    renderPanel();
+    await chooseFile(new File(["notes"], "notes.png", { type: "image/png" }));
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    storageMocks.status = {
+      data: { configured: true },
+      isError: false,
+      isSuccess: true,
+    };
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+    });
+    renderPanel();
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+    expect(
+      (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
+    ).toBe("notes.png");
+  });
+
   it("ignores an upload probe after its attempt was dismissed", async () => {
     let resolveDismissedProbe!: (result: {
       isError: boolean;
