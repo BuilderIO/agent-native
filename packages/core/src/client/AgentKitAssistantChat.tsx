@@ -3034,7 +3034,11 @@ function AgentKitComposerSurface({
   return (
     <div
       ref={fileStorageAnchorRef}
-      className={cn("agentkit-host-composer", props.composerAreaClassName)}
+      className={cn(
+        "agentkit-host-composer",
+        setupMissing && "agent-composer-area--attached-above",
+        props.composerAreaClassName,
+      )}
     >
       <FileStorageSetupPopover
         open={fileStoragePromptOpen && !fileStorageConfigured}
@@ -3063,9 +3067,6 @@ function AgentKitComposerSurface({
           bouncePulse={setupBouncePulse}
           layout={props.missingApiKeySetupLayout ?? "default"}
           onConnected={() =>
-            window.dispatchEvent(new Event("agent-engine:configured-changed"))
-          }
-          onRetry={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }
         />

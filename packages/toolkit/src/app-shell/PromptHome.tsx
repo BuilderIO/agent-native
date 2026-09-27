@@ -33,7 +33,11 @@ export function PromptHome({
         >
           {title}
         </h2>
-        <div className="agent-prompt-home-composer mt-4 text-start">
+        <div
+          className={`agent-prompt-home-composer mt-4 text-start${
+            connection ? " agent-composer-area--attached-above" : ""
+          }`}
+        >
           <div
             className="agent-prompt-home-connection"
             data-visible={connection ? "true" : undefined}

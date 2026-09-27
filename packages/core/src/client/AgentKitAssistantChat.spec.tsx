@@ -1852,6 +1852,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.addEventListener("agent-chat:missing-api-key", onBlocked);
     await mount(baseProps({ providerStatusChecksEnabled: true }));
 
+    expect(
+      container
+        .querySelector(".agentkit-host-composer")
+        ?.classList.contains("agent-composer-area--attached-above"),
+    ).toBe(true);
+    expect(chatMocks.setupCardProps.onRetry).toBeUndefined();
     const stopButton = chatMocks.composerProps.stopButton as React.ReactElement;
     expect(stopButton.props).toMatchObject({
       "aria-label": "agentChat.composer.stopResponse",

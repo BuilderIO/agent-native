@@ -649,6 +649,9 @@ describe("run recovery surfaces", () => {
       (button) => button.textContent?.trim() === "Retry",
     );
     expect(retryButton).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__panel"),
+    ).toBeTruthy();
 
     await act(async () => {
       retryButton?.click();
@@ -715,7 +718,7 @@ describe("run recovery surfaces", () => {
   // once a 401 started fingerprinting and skipping that credential, so the
   // setup flow and a retry now ship together.
   //
-  // The setup state keeps the retry action available below the card.
+  // The setup state keeps retry inside the card so attached spacing stays intact.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {
@@ -746,6 +749,9 @@ describe("run recovery surfaces", () => {
       (button) => button.textContent?.trim() === "Retry",
     );
     expect(retryButton).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__panel"),
+    ).toBeTruthy();
     await act(async () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
