@@ -161,12 +161,28 @@ function collect([since, documentId]) {
     timeOrigin: performance.timeOrigin,
     visibility: document.visibilityState,
     elementTimingUnsupported: Boolean(trace.elementTimingUnsupported),
-    bodyVisible: at(first("content-body")),
+    bodyElement: at(first("content-body")),
+    bodyPainted: at(mark("content-body-dom:painted")),
     bodyDom: at(mark("content-body-dom")),
-    sidebarUsable: at(first("sidebar-files-row")),
+    sidebarElement: at(first("sidebar-files-row")),
+    sidebarPainted: at(mark("sidebar-files-rows-dom:painted")),
+    sidebarDom: at(mark("sidebar-files-rows-dom")),
     editable: at(mark("content-editable")),
     requests,
   };
+}
+
+// Element Timing is the headline; the next-frame and DOM-commit marks cover
+// elements Chromium does not report and hidden tabs that never paint.
+function bestSignal(name, element, painted, dom) {
+  const [value, source] =
+    element != null
+      ? [element, "element-timing"]
+      : painted != null
+        ? [painted, "next-frame-mark"]
+        : [dom, dom != null ? "dom-mark" : "missing"];
+  const key = name === "body" ? "bodyVisible" : "sidebarUsable";
+  return { [key]: value ?? null, [`${name}MeasuredBy`]: source };
 }
 
 function summarizeRun(result) {
@@ -177,9 +193,18 @@ function summarizeRun(result) {
       Number(new URLSearchParams(request.search).get("offset") ?? 0) > 0,
   ).length;
   return {
-    bodyVisible: result.bodyVisible ?? result.bodyDom,
-    bodyMeasuredBy: result.bodyVisible != null ? "element-timing" : "dom-mark",
-    sidebarUsable: result.sidebarUsable,
+    ...bestSignal(
+      "body",
+      result.bodyElement,
+      result.bodyPainted,
+      result.bodyDom,
+    ),
+    ...bestSignal(
+      "sidebar",
+      result.sidebarElement,
+      result.sidebarPainted,
+      result.sidebarDom,
+    ),
     editable: result.editable,
     frameworkRequests: requests.length,
     sessionRequests: requests.filter(
@@ -264,9 +289,8 @@ for (let run = 0; run < runs; run += 1) {
     const targetId = clickPath.split("/").pop();
     const since = await page.evaluate(() => performance.now());
     await page
-      .locator(
-        `nav a[href="${clickPath}"], nav [data-document-id="${targetId}"]`,
-      )
+      .locator(`nav a[href="${clickPath}"]`)
+      .filter({ visible: true })
       .first()
       .click();
     await waitForBody(page, since, targetId);
@@ -285,7 +309,15 @@ for (let run = 0; run < runs; run += 1) {
       Math.round(result.timeOrigin - navigationStartedAt),
     );
     result.redirectOffset = offset;
-    for (const key of ["bodyVisible", "bodyDom", "sidebarUsable", "editable"]) {
+    for (const key of [
+      "bodyElement",
+      "bodyPainted",
+      "bodyDom",
+      "sidebarElement",
+      "sidebarPainted",
+      "sidebarDom",
+      "editable",
+    ]) {
       if (result[key] != null) result[key] += offset;
     }
   }

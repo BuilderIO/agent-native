@@ -37,8 +37,11 @@ export function createBodyElementTimingPlugin(documentId?: string) {
       decorations(state) {
         const block = firstTextBlock(state.doc);
         if (!block) return DecorationSet.empty;
+        // Element Timing reports text only through the element that directly
+        // owns the text nodes, so wrap the inline content rather than tagging
+        // the block, whose text may sit inside marks or links.
         return DecorationSet.create(state.doc, [
-          Decoration.node(block.pos, block.pos + block.size, {
+          Decoration.inline(block.pos + 1, block.pos + block.size - 1, {
             elementtiming: CONTENT_BODY_ELEMENT_TIMING,
           }),
         ]);
@@ -47,8 +50,8 @@ export function createBodyElementTimingPlugin(documentId?: string) {
   });
 }
 
-// Tags the first non-empty text block with an Element Timing identifier so the
-// browser reports when the document body first paints.
+// Tags the text of the first non-empty block with an Element Timing identifier
+// so the browser reports when the document body first paints.
 export const BodyElementTiming = Extension.create<{ documentId?: string }>({
   name: "bodyElementTiming",
   addOptions() {

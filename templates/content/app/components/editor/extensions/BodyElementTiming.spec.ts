@@ -34,6 +34,7 @@ function timedBlocks(state: EditorState) {
   const decorations = plugin.props.decorations!.call(plugin, state) as any;
   return decorations.find().map((decoration: any) => ({
     from: decoration.from,
+    to: decoration.to,
     attribute: decoration.type.attrs.elementtiming,
   }));
 }
@@ -43,14 +44,14 @@ afterEach(() => {
 });
 
 describe("BodyElementTiming", () => {
-  it("tags only the first non-empty text block", () => {
+  it("tags only the text of the first non-empty block", () => {
     const state = EditorState.create({
       doc: doc("", "First words", "Later words"),
       plugins: [createBodyElementTimingPlugin("doc-1")],
     });
 
     expect(timedBlocks(state)).toEqual([
-      { from: 2, attribute: CONTENT_BODY_ELEMENT_TIMING },
+      { from: 3, to: 14, attribute: CONTENT_BODY_ELEMENT_TIMING },
     ]);
   });
 

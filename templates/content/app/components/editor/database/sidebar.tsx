@@ -67,7 +67,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SIDEBAR_FILES_ROW_ELEMENT_TIMING } from "@/lib/startup-timing";
+import {
+  SIDEBAR_FILES_ROW_ELEMENT_TIMING,
+  SIDEBAR_FILES_ROWS_DOM_MARK,
+  markStartupMilestone,
+} from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -234,6 +238,11 @@ function PagedContentFilesBranch({
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)
       : undefined;
+  const rootRowsShown =
+    props.depth === 0 && !cursor && Boolean(data?.items.length);
+  useEffect(() => {
+    if (rootRowsShown) markStartupMilestone(SIDEBAR_FILES_ROWS_DOM_MARK);
+  }, [rootRowsShown]);
 
   if (query.isLoading) {
     return (

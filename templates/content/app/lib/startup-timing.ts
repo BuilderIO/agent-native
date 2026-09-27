@@ -4,11 +4,22 @@
 export const CONTENT_BODY_ELEMENT_TIMING = "content-body";
 export const SIDEBAR_FILES_ROW_ELEMENT_TIMING = "sidebar-files-row";
 export const CONTENT_BODY_DOM_MARK = "content-body-dom";
+export const SIDEBAR_FILES_ROWS_DOM_MARK = "sidebar-files-rows-dom";
 export const CONTENT_EDITABLE_MARK = "content-editable";
+export const PAINTED_MARK_SUFFIX = ":painted";
 
-// Element Timing entries need a painted frame, which hidden tabs never produce,
-// so the DOM-commit marks below are the fallback a background trace can read.
+// Element Timing does not report every app-rendered element, and hidden tabs
+// never paint, so each milestone is also marked at DOM commit and again after
+// the next frame.
 export function markStartupMilestone(name: string, documentId?: string) {
   if (typeof performance === "undefined" || !performance.mark) return;
-  performance.mark(name, { detail: documentId ? { documentId } : undefined });
+  const detail = documentId ? { documentId } : undefined;
+  performance.mark(name, { detail });
+  if (typeof requestAnimationFrame !== "function") return;
+  requestAnimationFrame(() => {
+    setTimeout(
+      () => performance.mark(`${name}${PAINTED_MARK_SUFFIX}`, { detail }),
+      0,
+    );
+  });
 }
