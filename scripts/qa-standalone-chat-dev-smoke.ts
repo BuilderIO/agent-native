@@ -42,13 +42,20 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import type { APIResponse, Browser, Locator, Page } from "playwright";
+import type {
+  APIResponse,
+  Browser,
+  Locator,
+  Page,
+  Request as PlaywrightRequest,
+} from "playwright";
 
 import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
 import {
+  isPersistenceReloadPollReset,
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
@@ -1062,6 +1069,8 @@ interface BrowserNetworkState {
   allowInitialEphemeralThread404: boolean;
   allowExpectedIncompleteStreamFailure: boolean;
   navigationCancellationUntil: number;
+  inFlightRequests: Set<PlaywrightRequest>;
+  requestsInFlightAtPersistenceReload: Set<PlaywrightRequest>;
 }
 
 function isBenignHttpError(
@@ -2800,6 +2809,10 @@ async function assertAgentKitChatAcceptance(
     "streamed assistant messages must retain rich markdown parts",
   );
 
+  network.requestsInFlightAtPersistenceReload.clear();
+  for (const request of network.inFlightRequests) {
+    network.requestsInFlightAtPersistenceReload.add(request);
+  }
   await page.reload({ waitUntil: "domcontentloaded" });
   await chat.waitFor({ state: "visible" });
   await composer.waitFor({ state: "visible" });
@@ -3021,6 +3034,8 @@ async function main(): Promise<void> {
     allowInitialEphemeralThread404: true,
     allowExpectedIncompleteStreamFailure: false,
     navigationCancellationUntil: 0,
+    inFlightRequests: new Set(),
+    requestsInFlightAtPersistenceReload: new Set(),
   };
 
   const captureCleanupError = (error: unknown) => {
@@ -3103,6 +3118,9 @@ async function main(): Promise<void> {
     });
 
     page.on("request", (request) => {
+      if (request.url().startsWith(running.baseUrl)) {
+        network.inFlightRequests.add(request);
+      }
       if (request.frame() !== page.mainFrame()) return;
       if (request.resourceType() !== "document") return;
       browserDiagnostics.push(
@@ -3132,9 +3150,25 @@ async function main(): Promise<void> {
       }
       browserErrors.push(text);
     });
+    page.on("requestfinished", (request) => {
+      network.inFlightRequests.delete(request);
+      network.requestsInFlightAtPersistenceReload.delete(request);
+    });
     page.on("requestfailed", (request) => {
+      network.inFlightRequests.delete(request);
+      const wasInFlightAtPersistenceReload =
+        network.requestsInFlightAtPersistenceReload.delete(request);
       const url = request.url();
       if (!url.startsWith(running.baseUrl)) return;
+      if (
+        wasInFlightAtPersistenceReload &&
+        request.failure()?.errorText === "net::ERR_ABORTED"
+      ) {
+        recordSuppressedNoise(
+          `persistence reload canceled ${request.method()} ${url}`,
+        );
+        return;
+      }
       if (
         new URL(url).pathname === "/_agent-native/agent-chat/runs/active" &&
         request.method() === "GET" &&
@@ -3187,19 +3221,47 @@ async function main(): Promise<void> {
         return;
       }
       const error = `${status} ${url}`;
-      const errorIndex = httpErrors.push(error) - 1;
-      if (status >= 500 && new URL(url).pathname === "/_agent-native/poll") {
+      const request = response.request();
+      const wasInFlightAtPersistenceReload =
+        network.requestsInFlightAtPersistenceReload.has(request);
+      if (
+        status >= 500 &&
+        new URL(url).pathname === "/_agent-native/poll" &&
+        request.method() === "GET"
+      ) {
         pendingHttpErrorDetails.push(
           response
             .text()
             .then((detail) => {
-              if (detail) {
-                httpErrors[errorIndex] = `${error}: ${detail.slice(0, 500)}`;
+              if (
+                isPersistenceReloadPollReset(
+                  status,
+                  detail,
+                  wasInFlightAtPersistenceReload,
+                )
+              ) {
+                recordSuppressedNoise(
+                  `persistence reload canceled ${request.method()} ${url}: ${detail.slice(0, 500)}`,
+                );
+                return;
               }
+              httpErrors.push(
+                `${error}${detail ? `: ${detail.slice(0, 500)}` : ""}`,
+              );
             })
-            .catch(() => {}),
+            .catch((bodyError) => {
+              const message =
+                bodyError instanceof Error
+                  ? bodyError.message
+                  : String(bodyError);
+              httpErrors.push(
+                `${error}: response body unavailable: ${message}`,
+              );
+            }),
         );
+        return;
       }
+      httpErrors.push(error);
     });
 
     await runBrowserSmoke(

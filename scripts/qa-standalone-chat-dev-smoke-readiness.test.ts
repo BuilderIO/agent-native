@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  isPersistenceReloadPollReset,
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
   isTransientStartupPollResponse,
@@ -71,6 +72,31 @@ describe("standalone chat startup poll readiness", () => {
     );
     assert.equal(
       isRetryableSessionReadErrorMessage("session JSON is malformed"),
+      false,
+    );
+  });
+});
+
+describe("standalone chat persistence reload poll errors", () => {
+  it("ignores only reset responses from polls in flight when reload began", () => {
+    assert.equal(
+      isPersistenceReloadPollReset(500, "Error: read ECONNRESET", true),
+      true,
+    );
+    assert.equal(
+      isPersistenceReloadPollReset(500, "Error: read ECONNRESET", false),
+      false,
+    );
+    assert.equal(
+      isPersistenceReloadPollReset(
+        500,
+        "Error: database migration failed",
+        true,
+      ),
+      false,
+    );
+    assert.equal(
+      isPersistenceReloadPollReset(502, "Error: read ECONNRESET", true),
       false,
     );
   });

@@ -16,6 +16,16 @@ export function isTransientCommittedNavigationResponse(
   return status === 504 || isTransientStartupPollResponse(status, body);
 }
 
+export function isPersistenceReloadPollReset(
+  status: number,
+  body: string,
+  requestWasInFlightAtReload: boolean,
+): boolean {
+  return (
+    requestWasInFlightAtReload && status === 500 && /\bECONNRESET\b/i.test(body)
+  );
+}
+
 export function isRetryableSessionReadErrorMessage(message: string): boolean {
   return (
     message.includes("apiRequestContext.get: Timeout") ||
