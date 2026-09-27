@@ -1,6 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 
-const STOP_DEADLINE_MS = 400;
+const STOP_FALLBACK_TIMEOUT_MS = 250;
 
 type StopOutcome =
   | { type: "pill" }
@@ -28,7 +28,7 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
       resolve(handled);
     };
 
-    timeout = setTimeout(() => finish(false), STOP_DEADLINE_MS);
+    timeout = setTimeout(() => finish(false), STOP_FALLBACK_TIMEOUT_MS);
     void listen<string>("clips:tray-stop-ack", (event) => {
       if (event.payload === requestId) finish(true);
     })
@@ -36,13 +36,19 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
         unlisten = stopListening;
         if (settled) {
           stopListening();
-          return;
         }
-        void emit("clips:tray-stop-request", { requestId }).catch(() =>
-          finish(false),
-        );
       })
-      .catch(() => finish(false));
+      .catch((error) => {
+        console.error(
+          "[clips-tray] stop acknowledgement listener failed:",
+          error,
+        );
+        finish(false);
+      });
+    void emit("clips:tray-stop-request", { requestId }).catch((error) => {
+      console.error("[clips-tray] stop request event failed:", error);
+      finish(false);
+    });
   });
 
   if (!(await pillHandledRequest)) {

@@ -38,7 +38,7 @@ describe("requestRecordingShortcutStop", () => {
     );
   });
 
-  it("keeps the stop deadline when listener registration is slow", async () => {
+  it("sends the tray request before slow listener registration and falls back by 250ms", async () => {
     let registerListener!: (unlisten: () => void) => void;
     listen.mockImplementation(
       () =>
@@ -49,15 +49,14 @@ describe("requestRecordingShortcutStop", () => {
 
     const stopRequest = requestRecordingShortcutStop();
     await vi.advanceTimersByTimeAsync(150);
-    expect(emit).not.toHaveBeenCalled();
-
-    registerListener(vi.fn());
-    await vi.advanceTimersByTimeAsync(0);
-    expect(emit).toHaveBeenCalledWith(
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
       "clips:tray-stop-request",
       expect.objectContaining({ requestId: expect.any(String) }),
     );
-    await vi.advanceTimersByTimeAsync(249);
+
+    registerListener(vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(99);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
     await vi.advanceTimersByTimeAsync(1);
     await stopRequest;
@@ -69,12 +68,18 @@ describe("requestRecordingShortcutStop", () => {
     listen.mockImplementation(() => new Promise(() => {}));
 
     const stopRequest = requestRecordingShortcutStop();
-    await vi.advanceTimersByTimeAsync(399);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
+      "clips:tray-stop-request",
+      expect.objectContaining({ requestId: expect.any(String) }),
+    );
+    await vi.advanceTimersByTimeAsync(249);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
     await vi.advanceTimersByTimeAsync(1);
     await stopRequest;
 
-    expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenNthCalledWith(2, "clips:recorder-stop");
   });
 
   it("stops directly when the pill does not acknowledge the request", async () => {
@@ -86,7 +91,7 @@ describe("requestRecordingShortcutStop", () => {
       requestId: expect.any(String),
     });
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(400);
+    await vi.advanceTimersByTimeAsync(250);
     await stopRequest;
 
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
