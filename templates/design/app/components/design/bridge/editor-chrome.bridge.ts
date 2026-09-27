@@ -150,7 +150,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       !intent ||
       Date.now() > intent.expiresAt ||
       !target ||
-      (intent.kind === "pointer" &&
+      (intent.kind !== "tab" &&
         (intent.target === null ||
           (intent.target !== target &&
             !event.composedPath().includes(intent.target) &&

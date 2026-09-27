@@ -973,7 +973,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
       var target = getCanvasFocusTarget(event);
-      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind === "pointer" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
+      if (!intent || Date.now() > intent.expiresAt || !target || intent.kind !== "tab" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
         trustedFocusIntent = null;
         userFocusedElement = null;
         return;

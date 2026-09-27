@@ -472,13 +472,10 @@ test.describe("URL-backed live auto-layout probe", () => {
     if (!sourceBounds || !targetBounds) {
       throw new Error("live focus probe drag targets have no bounds");
     }
-    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(primaryModifier);
     await page.mouse.click(
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
     );
-    await page.keyboard.up(primaryModifier);
     await expect
       .poll(() =>
         focusFrame
@@ -486,6 +483,7 @@ test.describe("URL-backed live auto-layout probe", () => {
           .evaluate((element) => getComputedStyle(element).display !== "none"),
       )
       .toBe(true);
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
@@ -556,7 +554,12 @@ test.describe("URL-backed live auto-layout probe", () => {
     const shell = page.locator("[data-screen-shell]").first();
     const interact = shell.locator("[data-frame-full-view]");
     await expect(interact).toBeVisible({ timeout: 90_000 });
-    await interact.click();
+    const interactBounds = await interact.boundingBox();
+    if (!interactBounds) throw new Error("Interact button has no bounds");
+    await page.mouse.click(
+      interactBounds.x + Math.min(8, interactBounds.width / 2),
+      interactBounds.y + interactBounds.height / 2,
+    );
     await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
 
     const frame = page.locator("iframe[data-design-preview-iframe]").first();

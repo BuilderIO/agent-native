@@ -251,6 +251,38 @@ describe("editor-chrome bridge — focus ownership", () => {
 
     expect(focusTracker.focused()).toBe(shadowHost);
   });
+
+  it("does not treat unrelated autofocus after keyboard activation as user intent", () => {
+    const activatedButton = { contains: () => false } as unknown as Element;
+    const autoFocusedInput = { contains: () => false } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: activatedButton,
+      kind: "activation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: autoFocusedInput,
+      composedPath: () => [autoFocusedInput],
+    });
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("keeps focus on the control the user activated from the keyboard", () => {
+    const input = {} as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: input,
+      kind: "activation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({ target: input, composedPath: () => [input] });
+
+    expect(focusTracker.focused()).toBe(input);
+  });
 });
 
 describe("editor-chrome bridge — resize transform preservation", () => {
