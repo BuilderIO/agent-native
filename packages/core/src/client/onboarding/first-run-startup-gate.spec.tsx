@@ -140,8 +140,10 @@ describe("FirstRunOnboardingStartupGate", () => {
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
     expect(
-      container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+      container
+        .querySelector("[data-first-run-startup-loading]")
+        ?.hasAttribute("inert"),
+    ).toBe(true);
     expect(
       container.querySelector("[data-first-run-app-hidden]"),
     ).not.toBeNull();

@@ -147,6 +147,7 @@ function FirstRunOnboardingStartupLoading({
     <div
       data-first-run-startup-loading="true"
       aria-busy="true"
+      inert
       className="fixed inset-0 z-[110] bg-background"
     >
       {fallback}
