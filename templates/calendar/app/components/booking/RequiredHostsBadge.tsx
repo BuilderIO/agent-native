@@ -9,8 +9,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 
-// Fast enough to feel immediate on hover, but not so fast that moving the
-// mouse across the badge on the way to somewhere else opens it.
 const HOVER_OPEN_DELAY_MS = 100;
 
 export function RequiredHostsBadge({
@@ -95,10 +93,6 @@ export function RequiredHostsBadge({
           if (!pinned) event.preventDefault();
         }}
         onPointerDownOutside={(event) => {
-          // Radix treats the anchor as "outside" the content, so a click on
-          // the badge itself would otherwise dismiss the popover a moment
-          // before our own onClick handler runs, undoing the pin. Let our
-          // handler own that click instead.
           if (anchorRef.current?.contains(event.target as Node)) {
             event.preventDefault();
           }

@@ -1,10 +1,3 @@
-// Compares two directories of slide-NN.png renders: a full-resolution
-// pixelmatch ratio (catches per-glyph rendering drift) plus a blurred,
-// downscaled "layout" ratio (catches moved/re-wrapped/overlapping text while
-// ignoring glyph anti-aliasing noise). Writes a montage (ref | candidate |
-// diff) per slide plus report.json, and prints a summary table.
-//
-// Usage: pnpm exec tsx diff.ts <refDir> <candDir> --out <dir>
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -45,8 +38,6 @@ function magick(args: string[]) {
   execFileSync("magick", args, { stdio: ["ignore", "ignore", "inherit"] });
 }
 
-/** Returns a path to a PNG at exactly width x height — the input unchanged if
- * it already matches (so a self-diff never round-trips through re-encoding). */
 function ensureSize(
   inputPath: string,
   width: number,
@@ -84,8 +75,6 @@ async function main() {
   }
 
   const rows: Row[] = [];
-  // A slide the candidate rendered and the reference never had is a difference
-  // too; walking only the reference list would pass over it in silence.
   for (const fname of readdirSync(candDir)
     .filter((f) => /^slide-\d+\.png$/.test(f))
     .sort()) {
@@ -131,8 +120,6 @@ async function main() {
     const diffPath = path.join(workDir, `${slide}-diff.png`);
     writeFileSync(diffPath, PNG.sync.write(diffImg));
 
-    // Layout-level: downscale + light blur strips glyph-AA noise so this
-    // catches moved/re-wrapped/overlapping text instead of font rendering.
     const refLayoutPath = path.join(workDir, `${slide}-ref-layout.png`);
     const candLayoutPath = path.join(workDir, `${slide}-cand-layout.png`);
     magick([
@@ -163,9 +150,6 @@ async function main() {
     );
     const layoutRatio = layoutMismatchedPixels / (LAYOUT_WIDTH * LAYOUT_HEIGHT);
 
-    // `montage` draws a filename label under each tile by default, which
-    // needs a system font and fails headless on machines without one. A
-    // plain `+append` (ref | candidate | diff, side by side) needs no font.
     const comparePath = path.join(outDir, `${slide}-compare.png`);
     magick([
       refPath,
@@ -224,8 +208,6 @@ async function main() {
   console.log(
     `[diff] max pixelRatio=${summary.maxPixelRatio} max layoutRatio=${summary.maxLayoutRatio}`,
   );
-  // A slide that never got compared — no candidate render, or a candidate the
-  // reference never had — is not a slide that matched.
   if (summary.missing.length) {
     console.error(
       `[diff] FAILED: ${summary.missing.length} slide(s) with no usable pair: ${summary.missing.join(", ")}`,

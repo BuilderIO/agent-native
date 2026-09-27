@@ -50,9 +50,6 @@ describe("migrate-learnings script", () => {
   });
 
   it("writes the file to the SHARED scope at path LEARNINGS.md", async () => {
-    // This exact owner/path pair is what loadResourcesForPrompt reads via an
-    // exact-match lookup — lowercase "learnings.md" or a personal owner would
-    // never reach the production agent's prompt.
     const content = "# Learnings\n\n- Something worth keeping\n";
     fs.writeFileSync(path.join(tempDir, "learnings.md"), content);
 

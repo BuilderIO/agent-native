@@ -169,11 +169,6 @@ function mergePlainParagraph(
   };
 }
 
-/**
- * Resolve block replacements only where the original block identity and every
- * intervening canonical writer are known. Inserts, moves, and duplicate target
- * blocks need a richer identity proof and remain recoverable instead.
- */
 export function mergeDocumentBodyIntents(args: {
   authoredBaseContent: string;
   authoredCandidateContent: string;

@@ -1,12 +1,6 @@
-/**
- * Shared types between client and server
- */
-
 export interface DemoResponse {
   message: string;
 }
-
-// --- Default Style References ---
 
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
 
@@ -23,16 +17,14 @@ export function normalizeReferenceUrls(
   return normalized;
 }
 
-// --- Image Generation ---
-
 export type ImageGenModel = "gemini" | "openai" | "auto";
 
 export interface ImageGenRequest {
   prompt: string;
   model: ImageGenModel;
   size?: string;
-  referenceImageUrls?: string[]; // URLs of reference images
-  uploadedReferenceImages?: string[]; // base64 data URLs
+  referenceImageUrls?: string[];
+  uploadedReferenceImages?: string[];
 }
 
 export interface ImageGenStatusResponse {
@@ -40,8 +32,6 @@ export interface ImageGenStatusResponse {
   openai: boolean;
   preferredProvider: string | null;
 }
-
-// --- AI Slide Generation ---
 
 export interface SlideGenerateRequest {
   topic: string;
@@ -57,14 +47,12 @@ export interface GeneratedSlide {
   layout: "title" | "content" | "two-column" | "image" | "blank";
   notes: string;
   background?: string;
-  imagePrompt?: string; // prompt to generate an image for this slide
+  imagePrompt?: string;
 }
 
 export interface SlideGenerateResponse {
   slides: GeneratedSlide[];
 }
-
-// --- Share Links ---
 
 export interface ShareDeckRequest {
   deck: {
@@ -82,7 +70,6 @@ export interface SharedDeckResponse {
   title: string;
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
-  /** Resolved at share creation so public links keep the deck's styling. */
   designSystem?: DesignSystemData;
 }
 
@@ -128,7 +115,6 @@ export interface SharedDeckSlide {
 }
 
 export interface SharedDeckSlideOptions {
-  /** Include presenter-only notes for an authenticated internal read. */
   includeNotes?: boolean;
 }
 
@@ -199,14 +185,6 @@ function normalizeSlideAnimation(
   const byParagraph =
     typeof value.byParagraph === "boolean" ? value.byParagraph : undefined;
 
-  // When an explicit `elementIndex` is present, trust it. Otherwise derive
-  // from the last segment of `elementPath` - keeps the index correlated
-  // with the path's actual leaf so consumers that fall back to
-  // `elementIndex` target the right element instead of silently defaulting
-  // to slide-element 0 (which created an ambiguity between 'animation
-  // explicitly targets element 0' and 'animation only had elementPath').
-  // At least one of the two must be present (guarded above by the
-  // `!hasElementIndex && !elementPath` early return).
   const resolvedElementIndex = hasElementIndex
     ? rawElementIndex
     : (elementPath![elementPath!.length - 1] ?? 0);
@@ -269,8 +247,6 @@ export function toSharedDeckSlide(
   return shared;
 }
 
-// --- Deck Version History ---
-
 export interface DeckVersionSlidePreview {
   slideNumber: number;
   id: string | null;
@@ -306,8 +282,6 @@ export interface DeckVersion extends DeckVersionSummary {
     background?: string;
   }>;
 }
-
-// --- Design Systems ---
 
 export interface DesignSystemData {
   colors: {
@@ -348,8 +322,6 @@ export interface DesignSystemAsset {
   url: string;
   mimeType: string;
 }
-
-// --- Question Flow ---
 
 export interface QuestionFlowQuestion {
   id: string;

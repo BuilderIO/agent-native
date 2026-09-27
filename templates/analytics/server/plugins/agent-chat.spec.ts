@@ -81,7 +81,6 @@ const {
       tool: { description: "Test a provider connection", parameters: {} },
       run: async () => "ok",
     },
-    // A shipped source action the guard's retired name list never named.
     prometheus: {
       readOnly: true,
       grounding: true,
@@ -853,11 +852,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not demand a connect-sources link when data-source-status never ran", () => {
-    // A draft that ends in a question counts as a safe no-data response, and
-    // this turn only saved a panel. Nothing here shows a source is missing, so
-    // the guard must not instruct the model to say one is unavailable — the
-    // model recognizes that instruction as a prompt injection and refuses it
-    // out loud to the user.
     const result = realDataFinalGuard(
       guardContext({
         userText: "yes add conversion rate",
@@ -1123,9 +1117,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not demand a connect-sources link when the status result could not be read", () => {
-    // A failed workspace-connection lookup hides exactly the workspace-held
-    // connections it would take to prove a provider is missing, so the empty
-    // provider list is "we could not look", not "nothing is connected".
     const result = realDataFinalGuard(
       guardContext({
         userText: "what were our HubSpot deals last week",
@@ -1449,10 +1440,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("still retries a mutation-turn draft that also states an invented metric", () => {
-    // A completed mutation is not a license to also assert a number the
-    // mutation itself did not compute — see agent-chat.dashboard-edit.spec.ts
-    // A completed mutation is real work, and a claim-free summary of it is
-    // not asserting anything the guard has to ground.
     const result = realDataFinalGuard(
       guardContext({
         userText: "How many signups did we get this week?",

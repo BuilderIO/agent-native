@@ -105,7 +105,6 @@ export default function BookingPage() {
   const isRedirecting =
     !!bookingLink && (!!bookingLink.redirectPath || !!bookingLink.redirect);
 
-  // Handle slug redirects (old URL → new URL)
   useEffect(() => {
     if (bookingLink?.redirectPath) {
       void navigate(bookingLink.redirectPath, { replace: true });
@@ -121,11 +120,7 @@ export default function BookingPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [showTimeZones, setShowTimeZones] = useState(false);
-  // Lifted here (rather than owned by TimeZoneGrid) so it survives toggling
-  // "Hide time zones", which unmounts TimeZoneGrid in favor of TimeSlotPicker.
   const [extraTimezones, setExtraTimezones] = useState<string[]>([]);
-  // Resolved after mount only — the browser's timezone can differ from the
-  // server's, so computing it during render would cause a hydration mismatch.
   const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
   useEffect(() => {
     try {

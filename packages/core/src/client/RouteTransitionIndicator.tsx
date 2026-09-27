@@ -4,22 +4,6 @@ import { useNavigation } from "react-router";
 export const ROUTE_TRANSITION_INDICATOR_DELAY_MS = 180;
 export const ROUTE_TRANSITION_INDICATOR_MAX_DURATION_MS = 15_000;
 
-/**
- * A top progress bar while the next route loads.
- *
- * This used to be a floating card in the bottom-right corner that printed the
- * destination pathname. Users read it as a bug rather than a loading state —
- * the old page stays fully interactive while a little box in the corner shows
- * a URL, so it looks like the click did nothing and something else broke
- * ("it takes you back to the grid page with a spinner in the corner ... the
- * spinner shows the new route"). A top bar is the convention precisely because
- * it reads as "this page is on its way" without competing for attention or
- * exposing routing internals.
- *
- * The delay is the part worth keeping: fast navigations never paint anything,
- * so the common case stays silent. It only appears once a transition is slow
- * enough that the user has started to wonder.
- */
 export function RouteTransitionIndicator() {
   const navigation = useNavigation();
   const destination =

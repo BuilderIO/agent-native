@@ -1,11 +1,3 @@
-/**
- * The document shell every built-in preset shares: fonts, palette tokens, and
- * an artboard sized exactly to the canvas frame. The preset's own markup and
- * CSS are hand-authored per file — do not grow this into a layout generator.
- *
- * The body centers the artboard so the same file renders correctly in a
- * width x height canvas frame (no margin) and in a larger preview viewport.
- */
 export function presetDocument({
   title,
   width,
@@ -19,7 +11,6 @@ export function presetDocument({
   title: string;
   width: number;
   height: number;
-  /** Google Fonts css2 `family=` query, without the leading `?`. */
   fonts: string;
   palette: Record<string, string>;
   css: string;

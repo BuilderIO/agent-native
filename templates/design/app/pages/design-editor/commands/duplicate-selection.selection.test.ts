@@ -110,8 +110,6 @@ describe("runDuplicateSelection selection tracking", () => {
     expect(requests[1]?.duplicateStackSourceIds).toEqual(["first", "second"]);
   });
 
-  // The editor re-derives a single selection from selectedElement a render
-  // later, so e2e cannot see this command selecting the wrong node.
   it("selects the newly inserted copy, not the pre-duplication original", () => {
     const designId = "design-title";
     const fileId = "screen-title";
@@ -194,7 +192,6 @@ describe("runDuplicateSelection selection tracking", () => {
       (candidate) =>
         candidate.dataAttributes["data-agent-native-node-id"] === "title",
     );
-    // Selection holds projection ids, not data-agent-native-node-id values.
     const copyNode = after.nodes.find(
       (candidate) =>
         candidate.dataAttributes["data-agent-native-layer-name"] ===

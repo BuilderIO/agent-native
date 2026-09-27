@@ -45,9 +45,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
       json: async () => ({}),
     }) as unknown as typeof fetch;
 
-    // invalidateQueries is called once per queryKey (two calls total), each
-    // returning its own pending promise — collect every resolver so the test
-    // can release all of them together instead of only the last one.
     const pendingResolvers: Array<() => void> = [];
     const invalidateQueries = vi.fn(
       () =>
@@ -68,8 +65,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
       requestSettled = true;
     });
 
-    // Flush the microtasks tied to the fetch/json resolution, but leave the
-    // invalidateQueries promise pending.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -81,10 +76,6 @@ describe("installExtensionRequest — duplicate-install race", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["design-editor-extension-slot-available"],
     });
-    // Regression guard: before the fix, the function resolved here — before
-    // the lists had refetched — which is exactly the race that let a second
-    // install fire while the just-installed extension still showed as
-    // "Available".
     expect(requestSettled).toBe(false);
 
     resolveInvalidate();

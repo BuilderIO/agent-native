@@ -225,9 +225,6 @@ test("Selection colors replaces a grouped SVG fill without stale inspector color
           .evaluate((node) => getComputedStyle(node).fill),
       )
       .toBe("rgb(204, 51, 153)");
-    // The trigger button is a swatch only (its hex value lives in the
-    // adjacent inline field, not the button's own text) — see
-    // DesignColorPicker's solid-paint row in #5752.
     await expect(
       fillSection.getByRole("button", { name: "Open color picker" }),
     ).toBeVisible();

@@ -1,10 +1,3 @@
-/**
- * Presentational public status page. Pure/client-safe: it takes an already-
- * resolved, sanitized `PublicStatusPage` payload (from the
- * `get-public-status-page` action / SSR loader) and renders the branded status
- * banner, overall uptime cards, per-monitor colored uptime timelines, optional
- * response-time charts, and an incidents section.
- */
 import {
   IconActivity,
   IconAlertCircle,

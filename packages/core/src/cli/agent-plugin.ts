@@ -108,7 +108,6 @@ export interface LoadedAgentPlugin {
 
 export interface AgentPluginImportOptions {
   targetDir?: string;
-  /** Optional skills root used by hosts whose agent cwd is a child workspace. */
   skillsTargetDir?: string;
   force?: boolean;
   dryRun?: boolean;

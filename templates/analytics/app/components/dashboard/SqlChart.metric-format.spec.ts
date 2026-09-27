@@ -15,13 +15,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-// Postgres/Neon returns numeric and bigint columns as strings. The metric
-// renderer used to only format `typeof raw === "number"`,
-// so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
-// of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {
-    // 21-decimal string exactly like the live "Viral Signup Share" panel showed
     expect(formatMetricValue("0.000000000000000000000", "percent")).toBe(
       "0.00%",
     );
@@ -53,7 +48,7 @@ describe("formatMetricValue", () => {
 
   it("leaves genuinely non-numeric strings untouched", () => {
     expect(formatMetricValue("n/a", "number")).toBe("n/a");
-    expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
+    expect(formatMetricValue("", "number")).toBe("");
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
   });

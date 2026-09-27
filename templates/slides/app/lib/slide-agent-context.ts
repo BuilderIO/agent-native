@@ -30,10 +30,6 @@ function getSlidesWindow(): SlidesSelectionWindow | null {
     : (window as SlidesSelectionWindow);
 }
 
-/**
- * Keep the visible scope chip responsive without making the browser event the
- * source of truth for agent context. The app-state write remains canonical.
- */
 export function publishSlidesSelection(
   selection: SlidesAgentSelection | null,
 ): void {
@@ -67,7 +63,6 @@ function selectionItemKey(item: unknown, index: number): string {
   return `item-${index}`;
 }
 
-/** Build the small, stable target description sent with Slides chat prompts. */
 export function buildSlidesAgentContext(
   selection: SlidesAgentSelection | null,
   deckId: string,

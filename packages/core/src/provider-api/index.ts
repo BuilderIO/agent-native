@@ -104,31 +104,11 @@ export type ProviderApiMethod =
   | "DELETE"
   | "HEAD";
 
-/** Cursor-pagination config for fetchAllPages. */
 export interface FetchAllPagesConfig {
-  /**
-   * Dot-path into the JSON response body where the next-page cursor lives,
-   * e.g. "meta.next_cursor" or "pagination.next_page_token".
-   */
   cursorPath: string;
-  /**
-   * Query parameter name to pass the cursor on the next request,
-   * e.g. "cursor" or "page_token".
-   */
   cursorParam?: string;
-  /**
-   * Dot-path in the JSON request body to set to the cursor on the next request.
-   * Use this for POST-body pagination, e.g. Gong's top-level `cursor`.
-   */
   cursorBodyPath?: string;
-  /**
-   * Dot-path to the items array in each response body.
-   * When omitted, the whole response body is appended to the items array.
-   */
   itemsPath?: string;
-  /**
-   * Maximum number of pages to fetch. Default 10, max 50.
-   */
   maxPages?: number;
 }
 
@@ -141,22 +121,11 @@ export interface ProviderApiRequestArgs {
   body?: unknown;
   auth?: "default" | "none";
   timeoutMs?: number;
-  /** Internal cancellation signal for trusted server-side callers. */
   signal?: AbortSignal;
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
-  /**
-   * When set, write the full response body to this workspace file path instead
-   * of returning it in context. Returns a compact summary with status, bytes,
-   * path, and a preview. Allows up to 20 MB (vs the normal 4 MB context limit).
-   */
   saveToFile?: string;
-  /**
-   * When set, automatically paginate by cursor until the cursor field is empty
-   * or maxPages is reached. Accumulates items from itemsPath (or whole bodies)
-   * across all pages. Combine with saveToFile to write the full dataset.
-   */
   fetchAllPages?: FetchAllPagesConfig;
 }
 
@@ -409,15 +378,6 @@ export interface ProviderApiConfig {
   accessErrorGuidance?: string;
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
-  /**
-   * Some provider APIs (Slack's Web API is the documented case) answer every
-   * request with HTTP 200 and encode the real outcome as a boolean field in
-   * the JSON body instead. When set, a response with this field explicitly
-   * `false` is treated as a failed request — `response.ok` is flipped to
-   * `false` — so a caller (or the agent) that only checks the transport-level
-   * `ok`, the same signal every other provider uses for success, can't
-   * mistake a rejected send for a delivered one.
-   */
   bodyOkField?: string;
 }
 
@@ -499,22 +459,11 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   providerIds?: readonly (ProviderApiId | string)[];
-  /** App-owned definitions replace matching built-ins by id without dropping other providers. */
   providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
-  /**
-   * Template-specific OAuth token provider overrides for built-in provider API
-   * configs. Use when an app stores a provider's OAuth grant under a narrower
-   * local provider id, e.g. Google Drive scoped to a "google-docs" connection.
-   */
   oauthProviderOverrides?: Record<string, string>;
-  /**
-   * Optional loader for custom providers registered at runtime. When provided,
-   * custom providers are merged with the static built-in registry for catalog,
-   * docs, and request operations. Custom providers cannot shadow built-in ids.
-   */
   getCustomProviders?: () => Promise<CustomProviderConfig[]>;
 }
 
@@ -615,9 +564,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const MAX_MAX_BYTES = 4 * 1024 * 1024;
-/** When saveToFile is used, allow a much larger per-page response since the
- *  content won't enter the model's context window. */
-const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+const SAVE_TO_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_ALL_PAGES_MAX = 50;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const BLOCKED_OUTBOUND_HEADERS = new Set([
@@ -1563,10 +1510,6 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "slack",
     label: "Slack Web API",
     defaultBaseUrl: "https://slack.com/api",
-    // Slack answers every call with HTTP 200, success or failure — see
-    // bodyOkField's doc comment. Without this, a rejected chat.postMessage
-    // (not_in_channel, channel_not_found, msg_too_long, …) looks identical to
-    // a delivered one at the transport level.
     bodyOkField: "ok",
     auth: {
       type: "bearer",
@@ -1777,7 +1720,6 @@ export async function fetchProviderApiDocs(
 ) {
   await assertProviderAllowedAsync(options.provider, runtime);
 
-  // Resolve config — may be a built-in or a custom provider.
   const builtIn = isProviderApiId(options.provider)
     ? getProviderApiConfig(options.provider, runtime.providerOverrides)
     : null;
@@ -1807,8 +1749,6 @@ export async function fetchProviderApiDocs(
     };
   }
 
-  // Open docs fetching: allow ANY public https/http URL.
-  // The SSRF guard still applies — private/internal addresses are blocked.
   let url: URL;
   try {
     url = new URL(options.url);
@@ -1871,7 +1811,6 @@ export async function executeProviderApiRequest(
 ) {
   await assertProviderAllowedAsync(args.provider, runtime);
 
-  // Check whether this is a built-in or custom provider.
   const builtIn = isProviderApiId(args.provider)
     ? getProviderApiConfig(args.provider, runtime.providerOverrides)
     : null;
@@ -1890,7 +1829,6 @@ export async function executeProviderApiRequest(
     return executeCustomProviderApiRequest(args, customConfig, runtime);
   }
 
-  // --- built-in provider path (original code) ---
   const config = builtIn!;
   if (config.requiresConnectionId && !args.connectionId?.trim()) {
     throw new Error(
@@ -1934,7 +1872,6 @@ export async function executeProviderApiRequest(
     ...auth.headers,
   });
 
-  // Allow a much larger maxBytes ceiling when writing to a workspace file.
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
@@ -1947,7 +1884,6 @@ export async function executeProviderApiRequest(
     accountId: args.accountId,
   });
 
-  // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const {
@@ -2038,7 +1974,6 @@ export async function executeProviderApiRequest(
     return { ...metadata, items };
   }
 
-  // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
   const requestKey = createProviderRequestDedupeKey({
     method,
@@ -2065,7 +2000,6 @@ export async function executeProviderApiRequest(
     config,
   );
 
-  // saveToFile: write full body to workspace file and return compact summary.
   if (args.saveToFile) {
     const rawText =
       response.text ??
@@ -2871,10 +2805,6 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-// ---------------------------------------------------------------------------
-// Custom provider execution
-// ---------------------------------------------------------------------------
-
 async function executeCustomProviderApiRequest(
   args: ProviderApiRequestArgs,
   customConfig: CustomProviderConfig,
@@ -2884,8 +2814,6 @@ async function executeCustomProviderApiRequest(
   const method = normalizeMethod(args.method);
   const baseUrl = customConfig.baseUrl;
 
-  // Build a lightweight ProviderApiConfig-like object so we can reuse
-  // buildProviderUrl (which validates allowed hosts).
   const syntheticConfig: ProviderApiConfig = {
     id: customConfig.id as ProviderApiId,
     label: customConfig.label,
@@ -2940,7 +2868,6 @@ async function executeCustomProviderApiRequest(
     accountId: args.accountId,
   });
 
-  // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
     const {
@@ -3179,7 +3106,6 @@ async function resolveCustomAuth(
   return emptyAuth();
 }
 
-/** Resolve a credential by key name (no workspace-provider lookup for custom). */
 async function resolveRequiredCredentialByKey(options: {
   provider: string;
   key: string;
@@ -3221,13 +3147,6 @@ function describeCustomAuth(auth: CustomProviderAuthKind): string {
   return "unknown";
 }
 
-// ---------------------------------------------------------------------------
-// Catalog helpers with custom provider support
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a custom provider to the same catalog shape as built-in providers.
- */
 function customProviderToCatalogEntry(config: CustomProviderConfig) {
   return {
     id: config.id,
@@ -3262,9 +3181,6 @@ function extractCredentialKeysFromCustomAuth(
   return [];
 }
 
-/**
- * List catalog entries including custom providers (merged after built-ins).
- */
 async function listProviderApiCatalogWithCustom(
   provider: ProviderApiId | string | undefined,
   options: {
@@ -3278,11 +3194,9 @@ async function listProviderApiCatalogWithCustom(
     : [];
 
   if (provider) {
-    // Check built-ins first
     if (isProviderApiId(provider)) {
       return listProviderApiCatalog(provider, options) as unknown[];
     }
-    // Check custom
     const custom = customConfigs.find((c) => c.id === provider);
     if (custom) return [customProviderToCatalogEntry(custom)];
     const known = [
@@ -3307,9 +3221,6 @@ async function listProviderApiCatalogWithCustom(
   return [...builtInEntries, ...customEntries];
 }
 
-/**
- * Look up a custom provider by id from the runtime loader.
- */
 async function resolveCustomProvider(
   id: string,
   runtime: ProviderApiRuntimeOptions,
@@ -3319,9 +3230,6 @@ async function resolveCustomProvider(
   return configs.find((c) => c.id === id) ?? null;
 }
 
-/**
- * List all provider ids (built-in + custom) visible to this runtime.
- */
 async function listAllProviderIds(
   runtime: ProviderApiRuntimeOptions,
 ): Promise<string[]> {
@@ -3331,24 +3239,17 @@ async function listAllProviderIds(
   return [...builtIn, ...custom.map((c) => c.id)];
 }
 
-/**
- * Assert that a provider is either a known built-in or a registered custom
- * provider. Throws with a descriptive message listing known providers.
- */
 async function assertProviderAllowedAsync(
   provider: string,
   runtime: ProviderApiRuntimeOptions,
 ): Promise<void> {
-  // Built-in check (fast path)
   if (isProviderApiId(provider)) {
-    // Still check the providerIds whitelist if set
     const allowed = normalizeProviderIds(runtime.providerIds);
     if (!allowed.includes(provider as ProviderApiId)) {
       throw new Error(`Provider API ${provider} is not enabled for this app.`);
     }
     return;
   }
-  // Custom provider check
   const custom = await resolveCustomProvider(provider, runtime);
   if (custom) return;
   const known = await listAllProviderIds(runtime);
@@ -4113,8 +4014,6 @@ async function resolveHybridFallbackCredential(options: {
   ctx: CredentialContext;
   args: ProviderApiRequestArgs;
 }): Promise<ProviderApiResolvedCredential | null> {
-  // App-specific resolvers keep existing provider credentials working when a
-  // caller explicitly selects a connection or account.
   if (!options.runtime.resolveCredential) return null;
   return resolveOptionalCredential({
     provider: options.config.id,
@@ -4250,11 +4149,6 @@ const ALLOWED_GOOGLE_TOKEN_URI_HOSTS = new Set([
   "www.googleapis.com",
 ]);
 
-/**
- * Service-account JSON may carry an attacker-controlled `token_uri`. Only
- * allow HTTPS Google OAuth hosts (and reject anything the shared SSRF guard
- * blocks) before using the URI as JWT `aud` or as a fetch target.
- */
 async function resolveGoogleServiceAccountTokenUri(
   tokenUri: string | undefined,
 ): Promise<string> {
@@ -5470,13 +5364,6 @@ function providerQuotaExhaustedResponse(
   };
 }
 
-/**
- * Flip transport-level `ok` to `false` when the provider's own success field
- * (config.bodyOkField) says the call failed. See ProviderApiConfig's
- * bodyOkField doc comment: Slack answers every request with HTTP 200, so
- * without this a rejected send is indistinguishable from a delivered one to
- * any caller — including the agent — that trusts `response.ok`.
- */
 function applyBodyEnvelopeOutcome(
   response: ProviderApiHttpResponse,
   config: ProviderApiConfig,
@@ -5720,7 +5607,6 @@ function clampMaxBytes(maxBytes: number | undefined): number {
   return Math.max(1_000, Math.min(MAX_MAX_BYTES, Math.floor(maxBytes!)));
 }
 
-/** Resolve a dot-path from a parsed JSON object, e.g. "meta.next_cursor". */
 function dotGet(obj: unknown, path: string): unknown {
   if (!path) return obj;
   let current: unknown = obj;
@@ -5731,10 +5617,6 @@ function dotGet(obj: unknown, path: string): unknown {
   return current;
 }
 
-/**
- * Handle saveToFile: write the full provider-api response body to a workspace
- * file and return a compact summary.
- */
 async function handleSaveToFile(
   filePath: string,
   responseText: string,
@@ -5792,16 +5674,10 @@ async function handleSaveToFile(
     bytes,
     contentType: mimeType,
     preview: preview.length < responseText.length ? `${preview}…` : preview,
-    // A durable (non-scratch) file renders a download card the moment it's
-    // created — no separate show-workspace-file call needed to get a link.
     ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
   };
 }
 
-/**
- * Execute paginated requests, accumulating items across pages.
- * Returns the accumulated items array and the last response for metadata.
- */
 async function fetchAllPages(
   config: FetchAllPagesConfig,
   executeOnePage: (extra?: {
@@ -5879,7 +5755,6 @@ async function fetchAllPages(
       body = page.text;
     }
 
-    // Extract items
     if (config.itemsPath) {
       const extracted = dotGet(body, config.itemsPath);
       if (Array.isArray(extracted)) {
@@ -5891,7 +5766,6 @@ async function fetchAllPages(
       items.push(body);
     }
 
-    // Extract next cursor
     const nextCursor = dotGet(body, config.cursorPath);
     if (
       !nextCursor ||

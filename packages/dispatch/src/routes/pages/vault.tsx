@@ -889,8 +889,6 @@ export default function VaultRoute() {
   const accessMode: VaultAccessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
-  // Dispatch's own registered API-key secrets, offered in the "+ New" menu
-  // alongside keys the workspace apps declare.
   const [registeredSecrets, setRegisteredSecrets] = useState<
     Array<{ key: string; label: string; kind: string; required?: boolean }>
   >([]);

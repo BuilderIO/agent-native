@@ -79,8 +79,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.waitForTimeout(1500);
 }
 
-/** Frames are taller than the window, so the drag surface's own centre is
- *  routinely off-screen and a mouse gesture there lands on <html>. */
 async function visibleCentre(page: Page, locator: Locator) {
   const box = (await locator.boundingBox())!;
   const view = page.viewportSize()!;
@@ -124,7 +122,6 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
   const { designId, fileIds } = await createDesign(request, 1);
   try {
     await openOverview(page, designId, 1);
-    // Only the label row selects the frame itself; the card body drills in.
     await page.locator("[data-frame-label]").first().click();
     const dragSurface = page.locator("[data-frame-drag-surface]");
     await expect(dragSurface).toBeVisible();
@@ -137,8 +134,6 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
       (id) => id !== fileIds[0],
     );
     if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
-    // Shell insertion and the geometry snapshot are separate React updates;
-    // wait for the duplicate's translated frame before asserting its drop.
     await expect
       .poll(
         async () => {

@@ -4,9 +4,6 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const DOCS_ROOT = path.resolve(import.meta.dirname, "..");
-// `dist/` is the flat Netlify publish dir: prerendered HTML at the top level,
-// hashed client chunks under assets/. The server function is emitted outside it
-// by the Nitro preset.
 const CLIENT_DIR = path.join(DOCS_ROOT, "dist");
 const SERVER_DIR = path.join(
   DOCS_ROOT,
@@ -27,9 +24,6 @@ function walk(dir: string): string[] {
   });
 }
 
-// A skipped suite is not a passing one. Anything that reads the build output
-// has to say so out loud, or "0 failures" on a machine that never ran the
-// build looks exactly like a verified bundle.
 describe("hero background bundle assertions", () => {
   it("names the build it needs when the output is absent", () => {
     if (!built || !serverBuilt) {
@@ -60,9 +54,6 @@ describeBuilt("client bundle", () => {
     const chunks = walk(path.join(CLIENT_DIR, "assets")).filter((file) =>
       file.endsWith(".js"),
     );
-    // The homepage route chunk loads for every visitor. Anything that names a
-    // vgpu internal here means a value import reached ./renderer from the
-    // static graph -- see ocean-colors.ts for the shape that prevents it.
     const homepage = chunks.filter((file) =>
       path.basename(file).startsWith("_index-"),
     );
@@ -84,10 +75,6 @@ describeBuilt("client bundle", () => {
 
 describeServer("server bundle", () => {
   it("keeps the Dawn native adapter out of the docs function", () => {
-    // Scoped to vgpu/Dawn on purpose. The docs build legitimately copies a
-    // resvg native binary for OG image rendering, so asserting "no .node file
-    // anywhere" fails on Linux for a reason that has nothing to do with this
-    // change -- and passes on macOS, where that binary is not emitted.
     const offenders = walk(SERVER_DIR).filter((file) => {
       if (/(?:vgpu|dawn)/i.test(file) && file.endsWith(".node")) return true;
       if (!/\.(js|mjs|cjs)$/.test(file)) return false;
@@ -96,13 +83,6 @@ describeServer("server bundle", () => {
     expect(offenders.map((file) => path.relative(DOCS_ROOT, file))).toEqual([]);
   });
 
-  // The SSR build walks dynamic imports, so the browser runtime and the WGSL
-  // strings do reach the server graph even though nothing there can execute
-  // them. That is tolerated -- measured at ~0.2MB against a 25MB function --
-  // and it is why the two assertions above are scoped to the Dawn adapter and
-  // native binaries, which are the parts that actually cost cold-start time.
-  // This assertion holds the tolerance to one chunk so a future change that
-  // spreads vgpu across the function is visible.
   it("confines the browser runtime to a single server chunk", () => {
     const withRuntime = walk(SERVER_DIR)
       .filter((file) => /\.(js|mjs|cjs)$/.test(file))

@@ -65,8 +65,6 @@ interface SqlChartCardProps {
   resolvedSql?: string;
   onRemove: () => void;
   onEdit?: () => void;
-  /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
-   *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
@@ -279,8 +277,6 @@ export function SqlChartCard({
       setShouldLoadData(true);
       return;
     }
-    // Sections are layout-only and extensions render their own iframe — neither
-    // waits on the intersection observer that gates SQL panels.
     if (panel.chartType === "section" || panel.chartType === "extension") {
       setShouldLoadData(true);
       return;
@@ -328,9 +324,6 @@ export function SqlChartCard({
     setMenuOpen(false);
   }, []);
 
-  // Section panels render as a flush header row (no card chrome, full width)
-  // so they read as dividers between groups of panels rather than as another
-  // tile in the grid.
   if (panel.chartType === "section") {
     return (
       <div
@@ -423,10 +416,6 @@ export function SqlChartCard({
     );
   }
 
-  // Extension panels render their sandboxed iframe full-bleed with no card chrome
-  // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen and refresh); editable
-  // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
       <div
@@ -593,8 +582,6 @@ export function SqlChartCard({
     );
   }
 
-  // Every non-section panel exposes at least the Full screen view action, so the
-  // options menu always renders — including on read-only / shared dashboards.
   const showPanelMenu = true;
 
   return (

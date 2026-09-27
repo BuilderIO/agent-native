@@ -54,12 +54,6 @@ type Destination = {
   context: string | null;
 };
 
-/**
- * Pick a new place for a Page: a Content space, then its top level or a Page
- * in it. Until the viewer types, it lists the space's top-level Pages; typing
- * searches Page titles there. Moving to another space asks first, because the
- * Page and its sub-pages take on that space's access.
- */
 export function MovePageDialog({
   page,
   spaces,
@@ -113,7 +107,6 @@ export function MovePageDialog({
       spaceId: space?.id,
       searchFields: "title",
       documentType: "page",
-      // A page can't move under itself or anything beneath it.
       excludeSubtreeOf: page?.documentId,
       limit: 20,
     },
@@ -176,7 +169,6 @@ export function MovePageDialog({
         className="gap-0 overflow-hidden p-0 sm:max-w-md"
         aria-describedby={undefined}
         onOpenAutoFocus={(event) => {
-          // Start in the search field rather than on the close button.
           event.preventDefault();
           searchRef.current?.focus();
         }}

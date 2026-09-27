@@ -1,8 +1,3 @@
-// Canonical English catalog used by core UI for translation fallbacks.
-// Lives under src/ so tsc emits it to dist/*.js and Node's strict ESM resolver
-// can load it during SSR. Do not import core runtime code from src/templates:
-// templates ship as verbatim copy-only scaffolding (.ts), so their compiled
-// .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";

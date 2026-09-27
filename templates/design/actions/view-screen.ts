@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads navigation state and design context from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
@@ -342,9 +333,6 @@ export default defineAction({
           liveCollaborationEnabled:
             (access.resource as { liveCollaborationEnabled?: unknown })
               .liveCollaborationEnabled === true,
-          // The design's own linked system, not the template's. Picking one on
-          // an empty design writes it here and nowhere else, so leaving it out
-          // meant the first read after the choice could not see it.
           designSystemId:
             typeof (access.resource as { designSystemId?: unknown })
               .designSystemId === "string"
@@ -519,7 +507,7 @@ export default defineAction({
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
     if (generationSession) {
-      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000;
       const startedAt =
         typeof (generationSession as { startedAt?: unknown }).startedAt ===
         "string"

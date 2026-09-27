@@ -431,7 +431,6 @@ describe("builderFileUploadProvider", () => {
     await builderFileUploadProvider.upload({ data: new Uint8Array([1]) });
 
     const [url, init] = fetchMock.mock.calls[0];
-    // No filename -> no name search param.
     expect(new URL(url.toString()).searchParams.has("name")).toBe(false);
     expect(init.headers["Content-Type"]).toBe("application/octet-stream");
   });
@@ -456,7 +455,6 @@ describe("builderFileUploadProvider", () => {
     const promise = builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
     });
-    // Advance past the first backoff delay (600ms) so the retry fires.
     await vi.advanceTimersByTimeAsync(600);
     const result = await promise;
 
@@ -489,11 +487,9 @@ describe("builderFileUploadProvider", () => {
       data: new Uint8Array([1]),
     });
     const expectation = expect(promise).rejects.toThrow(/\(503\): Unavailable/);
-    // Two backoff windows: 600ms then 1800ms.
     await vi.advanceTimersByTimeAsync(600);
     await vi.advanceTimersByTimeAsync(1800);
     await expectation;
-    // 1 initial + 2 retries = 3 attempts.
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

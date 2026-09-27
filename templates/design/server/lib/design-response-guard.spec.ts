@@ -677,8 +677,6 @@ describe("Design final response guard", () => {
   });
 
   it("does not read a bare mention of a design as a request to change one", () => {
-    // `design` is the only token in both the verb and the object pattern, so
-    // testing them independently let one word stand in for both halves.
     expect(looksLikeDesignMutationRequest("nice design")).toBe(false);
     expect(looksLikeDesignMutationRequest("I love design")).toBe(false);
     expect(
@@ -697,8 +695,6 @@ describe("Design final response guard", () => {
   });
 
   it("lets `design` supply the verb only where a verb can stand", () => {
-    // The noun is the common use in this app, so a mention must not supply
-    // the verb even when some other word supplies the object.
     expect(looksLikeDesignMutationRequest("I love this design")).toBe(false);
     expect(looksLikeDesignMutationRequest("this design looks good")).toBe(
       false,
@@ -764,10 +760,6 @@ describe("Design final response guard", () => {
   });
 
   it("labels an unproven draft instead of replacing it with a save failure", () => {
-    // Intent is read from prose, so it misfires on text that only describes
-    // design work — the app's own action guide says "create a new design".
-    // No pattern separates that from a request, so a miss must stay
-    // recoverable: the user keeps the answer and is told nothing was saved.
     const selfReferential = [
       "# Design — Agent Guide",
       "",

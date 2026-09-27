@@ -340,9 +340,6 @@ describe("design-system contract", () => {
   });
 
   it("resolves a Radix asChild Popover trigger's ref to the real IconButton DOM node", async () => {
-    // Radix positions a popover by measuring the DOM node its `asChild`
-    // Slot clones a ref onto. If that ref is dropped, Radix has nothing to
-    // measure and falls back to an unpositioned, off-screen placement.
     let node: HTMLButtonElement | null = null;
 
     await act(async () => {
@@ -373,9 +370,6 @@ describe("design-system contract", () => {
   ])(
     "opens a Radix asChild Popover trigger built on %s when clicked",
     async (_name, trigger) => {
-      // Radix passes its toggle handler down as `onClick`. An adapter that
-      // spreads props and then sets its own `onClick` silently drops it, so
-      // the trigger renders correctly and never opens.
       await act(async () => {
         root.render(
           <Popover>

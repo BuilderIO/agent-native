@@ -307,9 +307,6 @@ describe("cross-screen destination failure recovery", () => {
       sourceId: "inserted-id",
       idempotent: true,
     };
-    // If the destination reloaded while unmounted, its transient insertion is
-    // already gone. Treat that no-op rollback as complete instead of wedging
-    // the transaction and blocking subsequent moves.
     expect(
       crossScreenRollbackIsComplete(rollback!, {
         applied: false,

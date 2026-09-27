@@ -1,16 +1,3 @@
-/**
- * Export fidelity run: design HTML -> Figma SVG -> pixels, compared against the
- * design's own render.
- *
- * This is the offline half of the export round trip. It answers "does the SVG
- * we hand Figma still look like the design?" without needing a Figma account.
- * The second half - "does Figma's own SVG importer agree?" - is `push-to-figma`,
- * which imports the same SVG into a real file through the Figma MCP.
- *
- * Usage:
- *   pnpm figma-fidelity:export             # every built-in preset case
- *   pnpm figma-fidelity:export social      # cases whose id contains "social"
- */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -45,8 +32,6 @@ try {
         `${((outcome.diffRatio ?? 0) * 100).toFixed(3)}% differing pixels\n`,
       );
     } catch (error) {
-      // A case that cannot be exported is a failure to report, never a case to
-      // quietly drop from the table - a shrinking corpus reads as progress.
       const message = error instanceof Error ? error.message : String(error);
       outcomes.push({
         id: testCase.id,

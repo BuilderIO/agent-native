@@ -8,10 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentNativeI18nProvider } from "../i18n.js";
 import { ConnectionsTab } from "./AgentTabsPage.js";
 
-// The Connections tab is directly navigable, so it reads the MCP server list
-// eagerly: during the load window it must show a pending state, never the
-// "no integrations yet" empty sections that a deferred (idle, dataless)
-// query used to produce.
 describe("ConnectionsTab direct render", () => {
   let container: HTMLDivElement;
   let root: Root;

@@ -93,10 +93,6 @@ function HtmlDiagram({
   const style = designMode ? "clean" : preferredStyle;
   const showFrame = resolveVisualFrame(data.frame, ctx);
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  // Sanitize author HTML/CSS at the render point (defense-in-depth against
-  // stored XSS). Self-contained in core via the shared block sanitizer (DOM-based
-  // in the browser, regex fallback on the server) so diagrams render in any app
-  // without the host wiring a sanitizer hook.
   const safeHtml = useMemo(() => sanitizeDiagramHtml(data.html), [data.html]);
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
@@ -151,10 +147,6 @@ function resolveVisualFrame(
     frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
   return resolved !== "hide";
 }
-
-/* -------------------------------------------------------------------------- */
-/* Legacy node-graph paths                                                     */
-/* -------------------------------------------------------------------------- */
 
 function clampDiagramPercent(value: number) {
   if (!Number.isFinite(value)) return 50;
@@ -531,13 +523,6 @@ function SequenceDiagram({
   );
 }
 
-/**
- * The diagram body. Routes to the preferred HTML/SVG path (when `data.html` is
- * set) and otherwise to a legacy node-graph path (positioned canvas when nodes
- * carry x/y, else an ordered sequence). Used both inline and, scaled up, inside
- * the expand lightbox — so every variant (html/css, positioned, sequence)
- * enlarges through the same code path.
- */
 function DiagramBody({
   data,
   ctx,
@@ -573,23 +558,6 @@ function DiagramBody({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Expand / lightbox                                                           */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Enlarge overlay for a rendered diagram. Mirrors the image lightbox contract
- * used by the composer's `ImagePreviewLightbox` (PromptComposer.tsx) so the
- * expand affordance feels identical to viewing an image full-size: a fixed
- * `bg-black/80` backdrop, Escape to close, click-the-backdrop to close, and a
- * top-right close button. Unlike the image variant this renders arbitrary
- * children (the diagram body re-rendered larger) rather than an `<img>`, since a
- * diagram is live HTML/SVG/node-graph markup, not an image URL.
- *
- * Exported so the separate Mermaid block (`MermaidBlock.tsx`, which renders its
- * diagram to an SVG through a different runtime) can reuse the exact same
- * lightbox contract — one expand affordance shared across both diagram types.
- */
 export function DiagramLightbox({
   children,
   onClose,
@@ -636,13 +604,6 @@ export function DiagramLightbox({
   );
 }
 
-/**
- * The diagram body plus a hover-revealed top-right "expand" button (like the
- * image attachment zoom). Opening the button re-renders the exact same
- * `DiagramBody` inside `DiagramLightbox` at a larger size, so html/css and
- * mermaid/legacy node-graph diagrams alike enlarge through one path. The inline
- * (non-expanded) render is otherwise unchanged.
- */
 function ExpandableDiagramBody({
   data,
   ctx,
@@ -715,11 +676,6 @@ function ExpandableDiagramBody({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Read + Edit                                                                 */
-/* -------------------------------------------------------------------------- */
-
-/** Read-only renderer: the diagram body wrapped in the standard titled block. */
 export function DiagramRead({
   data,
   blockId,
@@ -741,14 +697,6 @@ export function DiagramRead({
   );
 }
 
-/**
- * Edit form (panel surface). The block can be an HTML/SVG fragment or a legacy
- * node/edge/note graph, so this exposes html/css/caption plus a collapsible
- * legacy node-graph JSON editor, each with an AI-edit affordance via
- * `ctx.renderAiFieldAction` (through `AiEditableFieldLabel`). `editSurface:
- * "panel"` means the registry renders the `Read` view with a corner edit button
- * that opens this form in the app-provided popover.
- */
 export function DiagramEdit({
   data,
   onChange,
@@ -939,7 +887,6 @@ export function DiagramEdit({
   );
 }
 
-/** Full client spec for the shared `diagram` block (schema + MDX + Read/Edit). */
 export const diagramBlock = defineBlock<DiagramData>({
   type: "diagram",
   schema: diagramSchema,
@@ -947,13 +894,9 @@ export const diagramBlock = defineBlock<DiagramData>({
   Read: DiagramRead,
   Edit: DiagramEdit,
   placement: ["block"],
-  // Config-driven: the rendered diagram differs from its raw html/css source, so
-  // edit from a corner button + panel rather than inline.
   editSurface: "panel",
   label: "Diagram",
   description:
     "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use renderMode design for UI-like blocks such as cards, logo walls, tables, and controls, or .diagram-* primitives and --wf-* tokens for actual diagrams that need theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
-  // Seed the legacy fallback shape so a fresh block validates while agents can
-  // replace it with html/css when layout quality matters.
   empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),
 });

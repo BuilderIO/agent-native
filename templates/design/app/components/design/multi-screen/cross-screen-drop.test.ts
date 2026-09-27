@@ -12,9 +12,6 @@ import { SURFACE_PADDING } from "./overview-layout";
 
 describe("isPointerInsideSourceIframe", () => {
   it("treats a pointer past the iframe's own reported viewport as OUTSIDE", () => {
-    // 1480 is past viewportW (1600) is impossible by construction, so use a
-    // pointer that has genuinely left the iframe's own internal viewport —
-    // the one boundary that is always in iframeX/iframeY's own space.
     expect(
       isPointerInsideSourceIframe({
         iframeX: 1650,
@@ -51,13 +48,6 @@ describe("isPointerInsideSourceIframe", () => {
     ).toBe(true);
   });
 
-  // HIGH-severity review finding: iframeX/iframeY are always reported in the
-  // iframe's own unscaled viewport (viewportW/viewportH), but frameWidth/
-  // frameHeight are the rendered board-space card size, which a scaled-down
-  // overview card (zoom 0.5: a 1280-wide screen rendered as a 640-wide card)
-  // shrinks independently of that viewport. An ordinary drag still well
-  // inside the artboard's real content must not be misread as having left
-  // the smaller rendered card.
   it("does not classify a pointer near the content's real edge as outside a 0.5x-scaled card", () => {
     expect(
       isPointerInsideSourceIframe({
@@ -134,10 +124,6 @@ describe("cross-screen source HTML snapshots", () => {
   });
 });
 
-// Clip B 21:10 (7xCLOlVaAj3n): dragging a section between two screens at 10%
-// zoom showed "just this dot" instead of a preview. The compact ghost's
-// 16-unit fallback was scaled by zoom and floored at 1px, and its centring
-// offset was a raw 8 mixed into a `* scale` expression.
 describe("getCrossScreenGhostStyle", () => {
   const pan = { x: 0, y: 0 };
 

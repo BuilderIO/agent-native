@@ -54,13 +54,6 @@ async function installBridge(page: Page): Promise<void> {
   });
 }
 
-// Selects `selector` directly via the bridge's `select-element` postMessage
-// instead of a plain click. Plain clicks resolve container-first (Figma
-// parity — containerFirstSelectionTarget): clicking a descendant nested more
-// than one level below the current container scope selects that scope's
-// direct child on the path to the pointer, not the descendant itself. Copied
-// from bridge.guard.spec.ts's selectElementDirect — see that file for the
-// full rationale.
 async function selectElementDirect(
   page: Page,
   selector: string,
@@ -94,10 +87,6 @@ async function dragCenterTo(
   expect(box).not.toBeNull();
   const startX = box!.x + box!.width / 2;
   const startY = box!.y + box!.height / 2;
-  // A plain mouse.click() here would resolve container-first for a nested
-  // drag target, and dragTargetForPointerDown's selectedEl-contains-hit fast
-  // path would then drag that container instead of the intended descendant.
-  // Select the real target explicitly so the drag operates on it.
   await selectElementDirect(page, selector);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
@@ -323,10 +312,6 @@ describe("Chromium reparent matrix", () => {
         expect(result.dropMode, layout.name).toBe(layout.expectedDropMode);
         if (layout.expectedPosition === "absolute") {
           expect(result.position, layout.name).toBe("absolute");
-          // Reparenting into a new containing block must not add a one-frame
-          // jump: the last dragged geometry is the post-drop geometry. Smart
-          // guides may legitimately snap that geometry by up to 6px before
-          // release, so compare the two rendered states directly.
           expect(result.rect.left, layout.name).toBeCloseTo(
             beforeRelease.left,
             5,
@@ -651,13 +636,6 @@ describe("Chromium reparent matrix", () => {
     "strips flex-item-only styling (flex-grow/shrink/basis, align-self, order) when a flow child is dragged out to the freeform screen root",
     { timeout: 30_000 },
     async () => {
-      // Regression: prepareFlowMembersForAbsoluteDrop converted a flow child
-      // to position:absolute at the drag release point but left its
-      // flex-item-only inline styling (flex-grow/shrink/basis, align-self,
-      // order — meaningless outside a flex/grid parent) in place. Live DOM
-      // repro: drag a flex child carrying those properties onto the freeform
-      // screen root and confirm they're gone from the live element once it
-      // becomes absolute, while unrelated styling (background) survives.
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
@@ -696,7 +674,6 @@ describe("Chromium reparent matrix", () => {
       expect(result.flexBasis).toBe("");
       expect(result.alignSelf).toBe("");
       expect(result.order).toBe("");
-      // Non-flex-item inline styling on the same element must survive the strip.
       expect(result.background, result.cssText).toContain("rgb(99, 102, 241)");
       await page.close();
     },
@@ -819,8 +796,6 @@ describe("Chromium reparent matrix", () => {
       </body></html>`);
       await installBridge(page);
 
-      // Grid row 2, left-side padding immediately before C. An X-only nearest
-      // child resolver ties A and C and incorrectly chooses A from row 1.
       await dragCenterTo(page, "#source", { x: 306, y: 185 });
       const result = await page.locator("#grid").evaluate((grid) => ({
         order: Array.from(grid.children).map((child) => child.id),
@@ -857,9 +832,6 @@ describe("Chromium reparent matrix", () => {
       </body></html>`);
       await installBridge(page);
 
-      // Drop on the second item in row 2. A Y-only wrapped-flex resolver
-      // ties every item in that row and anchors against C, while the visual
-      // two-dimensional resolver must keep the source after D.
       await dragCenterTo(page, "#source", { x: 430, y: 179 });
       const result = await page.locator("#wrap").evaluate((wrap) => ({
         order: Array.from(wrap.children).map((child) => child.id),
@@ -1038,9 +1010,6 @@ describe("Chromium reparent matrix", () => {
         dropMode: "absolute-container",
       });
 
-      // A rejected host persistence round-trip uses the same pre-gesture
-      // snapshot kept for Cmd+Z history: parent/order and position styles must
-      // return atomically, never leaving a half-flow/half-absolute member.
       await page.evaluate((requestId) => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -1156,8 +1125,6 @@ describe("Chromium reparent matrix", () => {
       });
       expect(after.parent).toBe("target");
       expect(after.position).toBe("absolute");
-      // Whole authored offsets cost up to a scaled half-pixel of drop accuracy
-      // under a rotate+scale parent. That trade is deliberate.
       expect(Number.isInteger(after.inlineLeft)).toBe(true);
       expect(Number.isInteger(after.inlineTop)).toBe(true);
       expect(Math.abs(after.left - beforeRelease.left)).toBeLessThan(1);
@@ -1173,8 +1140,6 @@ describe("Chromium reparent matrix", () => {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
-      // No data-agent-native-node-id anywhere: this is the real localhost
-      // shape, where the hit-test can only hand back a minted pending id.
       await page.setContent(`<!doctype html><html><head><style>
         html,body { margin:0;width:100%;height:100%; }
         #host { display:flex;gap:12px;padding:16px;background:#eef2ff; }
@@ -1225,19 +1190,11 @@ describe("Chromium reparent matrix", () => {
       expect(inserted.parent).toBe("host");
       expect(inserted.order).toEqual(["existing", "board-rect"]);
       expect(inserted.structures).toHaveLength(1);
-      // The host's runtime-insert request id must survive the bridge hop so a
-      // later Cmd+Z ack can find and remove the optimistic clone. Generating a
-      // fresh move id here leaves the pending ledger clear while the DOM copy
-      // remains in the running app.
       expect(String(inserted.structures[0]!.requestId)).toBe("41");
-      // insertedHtml is what tells the host (and then the coding agent) this is
-      // new markup to add, not an existing element to relocate.
       expect(inserted.structures[0]!.insertedHtml).toContain(
         'data-agent-native-node-id="board-rect"',
       );
 
-      // Cmd+Z on a pending live insert rejects the round-trip. There is no
-      // pre-insert position to restore, so the only correct revert is removal.
       await page.evaluate((requestId) => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -1560,8 +1517,6 @@ describe("cross-screen source and runtime matrix", () => {
       expect(moved.destHtml).not.toMatch(/(?:^|\s)absolute(?:\s|$)/);
       expect(moved.destHtml).not.toContain("md:!fixed");
 
-      // The editor's source history is a one-snapshot mutation: undo returns
-      // both documents exactly, redo returns the exact moved pair.
       const history = [
         { source, destination },
         { source: moved.sourceHtml, destination: moved.destHtml },
@@ -1583,10 +1538,6 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenId: "screen-a",
       }),
     ).toBe("screen-bridge");
-    // A board primitive dropped into a live localhost screen: the live anchor
-    // has no stored layer owner, so without targetScreenIsLive this resolves to
-    // "source-edit" and the move is written as an HTML document over the
-    // destination screen's bridge URL.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: true,
@@ -1597,9 +1548,6 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
-    // Only the board may be reinterpreted as an insert. This also covers a
-    // runtime-only node copied from a live screen onto the board: the board is
-    // the source surface, and the destination live DOM must receive the copy.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,
@@ -1618,7 +1566,6 @@ describe("cross-screen source and runtime matrix", () => {
         sourceScreenIsBoard: true,
       }),
     ).toBe("source-edit");
-    // Same-screen live reorders keep the existing bridge move path.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: true,

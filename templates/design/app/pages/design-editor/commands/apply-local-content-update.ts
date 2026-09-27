@@ -128,12 +128,6 @@ export function runApplyLocalContentUpdate(
   inputContent: string,
   options: {
     refreshPreview?: boolean;
-    /**
-     * Requires the caller to own the preview: it already patched the live
-     * iframe, or its target is not the rendered document. Set on a
-     * host-computed edit to the active screen and the canvas renders stale
-     * content until a reload.
-     */
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
@@ -146,11 +140,6 @@ export function runApplyLocalContentUpdate(
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
     awaitSave?: boolean;
-    /** Figma-parity undo selection restore for when this write lands on the
-     * non-Yjs local fallback stack (e.g. `!isSynced` yet) — see
-     * ContentHistoryChange.selectionBefore's doc comment. Ignored on the
-     * overview/global history path, which restores selection from its own
-     * parallel GeometryHistorySelection stack instead. */
     selectionBefore?: YjsUndoSelectionSnapshot;
   } = {},
 ): ApplyLocalContentUpdateResult {
@@ -198,9 +187,6 @@ export function runApplyLocalContentUpdate(
   const shouldRecordHistory =
     options.recordHistory !== false && !options.updatedAt;
 
-  // No implicit authority from `recordHistory`: save/query/Yjs echoes can
-  // traverse this same function with history enabled. Only a publication
-  // allocated synchronously at a user-action boundary may advance lineage.
   acknowledgeAuthoritativeClipboardMutation({
     fileId: activeFile.id,
     nextContent,
@@ -243,12 +229,6 @@ export function runApplyLocalContentUpdate(
     yjsHistoryAvailable &&
     previousContent !== nextContent
   ) {
-    // The Yjs UndoManager is the primary undo path here, but it (and its
-    // whole undo stack) is destroyed on every view-mode switch and zoom
-    // (docId goes null -> ydoc changes). Mirror the same before/after into
-    // the local fallback stack so handleUndo can still recover the edit
-    // once the Yjs stack is gone; it is only consulted when Yjs itself has
-    // nothing left to undo, so this never causes a double-undo.
     recordLocalContentHistoryChangeFallback({
       fileId: activeFile.id,
       before: previousContent,
@@ -281,12 +261,7 @@ export function runApplyLocalContentUpdate(
         ...old,
         files: old.files.map((file: DesignFile) =>
           file.id === activeFile.id
-            ? // Update content optimistically but keep the file's prior
-              // (server-clock) updatedAt. Seeding the reconcile watermark
-              // from a client-clock timestamp can, under clock skew, make a
-              // later server-authored agent edit look "older" and get
-              // dropped by the watermark gate (agent edit silently lost).
-              {
+            ? {
                 ...file,
                 content: nextContent,
                 ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
@@ -297,23 +272,6 @@ export function runApplyLocalContentUpdate(
     });
   }
   const forceRefresh = options.refreshPreview === true;
-  // Holistic flash pipeline: `forcePreviewFullDocument` tells the bridge
-  // to use its whole-document innerHTML replace (needed when the change
-  // isn't scoped to the currently selected element's subtree — e.g. an
-  // undo/redo that can touch anywhere in the document), NOT to force a
-  // full iframe srcdoc rebuild here. `replaceRuntimeDocument`'s full-body
-  // branch already swaps content inside the SAME live iframe document (no
-  // navigation, no onload refire, persistent overlay nodes preserved —
-  // see that function's module doc) — it is exactly as flash-free as the
-  // scoped single-element patch, just broader. Previously this always
-  // bumped contentRenderRevision whenever forcePreviewFullDocument was
-  // set, even after replacePreviewContent already applied the update in
-  // place, forcing a completely redundant full srcdoc rebuild (real
-  // iframe reload, white flash, lost scroll/CSS-transition/Alpine state)
-  // on top of a change that had already rendered correctly. Only fall
-  // back to the expensive srcdoc rebuild when the live patch genuinely
-  // couldn't run (bridge not registered for this surface yet, or an
-  // explicit forceRefresh request).
   const replacedPreview = options.skipPreview
     ? "skipped-caller-owns-preview"
     : forceRefresh
@@ -340,10 +298,6 @@ export function runApplyLocalContentUpdate(
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
-        // Untracked write (recordHistory:false callers such as the
-        // code-layer id-stamping effect, or history-suppressed replays) —
-        // see U1 note above: clear the undo stack so a stale tracked
-        // delta can't be replayed against content it no longer matches.
         undoManagerRef.current?.clear(true, false);
       }
       writeCollabText(

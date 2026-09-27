@@ -84,8 +84,6 @@ describe("opening templates does not open what is not markup", () => {
   });
 
   it("does not add a row for the template element itself", () => {
-    // A <template> measures 0x0 and both bridges refuse to select it, so a
-    // row for one is a layer the canvas can never show.
     expect(treeNames(X_FOR)).not.toContain("frame:template");
     expect(treeNames(X_IF).some((name) => name.endsWith(":template"))).toBe(
       false,
@@ -110,7 +108,6 @@ describe("a move never lands inside a template's markup range", () => {
     });
 
     if (patch.result.status === "applied") {
-      // A redirect is acceptable; landing inside the template body is not.
       const tplStart = patch.content.indexOf(
         'data-agent-native-node-id="an-tpl"',
       );

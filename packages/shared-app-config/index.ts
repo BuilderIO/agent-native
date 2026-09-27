@@ -16,48 +16,32 @@ export type { TemplateMeta } from "./templates.js";
 export interface AppDefinition {
   id: string;
   name: string;
-  /** Icon alias key resolved by app shells */
   icon: string;
   description: string;
-  /** Dev server port (used in development mode) */
   devPort: number;
-  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
   color?: string;
   colorRgb?: string;
-  /** Whether this app is a placeholder (no real server yet) */
   placeholder?: boolean;
 }
 
-/** User-configured app entry (persisted on-device) */
 export interface AppConfig {
   id: string;
   name: string;
   icon: string;
   description: string;
-  /** The production URL this app is deployed at */
   url: string;
-  /** Dev server port (for local development) */
   devPort: number;
-  /** Optional dev server URL override */
   devUrl?: string;
-  /** Optional shell command to start the dev server */
   devCommand?: string;
-  /** Optional local folder used to configure this dev app */
   localPath?: string;
-  /** Legacy accent color — kept on built-in templates for the docs site; unused in electron/mobile UI. */
   color?: string;
   colorRgb?: string;
-  /** Whether this is a built-in default app */
   isBuiltIn: boolean;
-  /** Whether the app is enabled/visible */
   enabled: boolean;
-  /** Whether to load the dev or production URL. Default: "prod" */
   mode?: "dev" | "prod";
-  /** Explicitly opt a custom production app into Desktop workspace SSO. */
   workspaceSso?: boolean;
 }
 
-/** Stable server-side key for the native workspace app inventory rollout. */
 export const WORKSPACE_APP_LIST_FLAG_KEY = "dispatch.workspace-app-list";
 
 const WORKSPACE_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i;
@@ -87,12 +71,6 @@ function workspaceAppUrl(
   }
 }
 
-/**
- * Convert the Dispatch workspace registry response into safe app entries for
- * native shells. Pending, archived, invalid, and agent-card-only records do
- * not become launchable apps, and no registry metadata or credentials cross
- * the shell boundary.
- */
 export function normalizeWorkspaceAppConfigs(
   payload: unknown,
   options: { baseUrl?: string; excludeDispatch?: boolean } = {},
@@ -172,10 +150,8 @@ export function normalizeWorkspaceAppConfigs(
   );
 }
 
-/** Frame UI port */
 export const FRAME_PORT = 3334;
 
-/** The first five apps shown in the chat-first rail on every client. */
 export const CHAT_FIRST_DEFAULT_APP_IDS = [
   "content",
   "design",
@@ -208,18 +184,10 @@ export const TEMPLATE_APPS: AppConfig[] = TEMPLATES.map((template) =>
   templateToAppConfig(template),
 );
 
-/**
- * Default apps derived from the template registry. Only core templates are
- * included — non-core apps can still be added manually via "Add app".
- */
 export const DEFAULT_APPS: AppConfig[] = coreTemplates().map((template) =>
   templateToAppConfig(template, { isBuiltIn: true, enabled: true }),
 );
 
-/**
- * Convert an AppConfig to AppDefinition (for backward compatibility
- * with desktop app code that expects the old shape).
- */
 export function toAppDefinition(config: AppConfig): AppDefinition {
   return {
     id: config.id,
@@ -232,12 +200,10 @@ export function toAppDefinition(config: AppConfig): AppDefinition {
   };
 }
 
-/** Generate a unique ID for user-added apps */
 export function generateAppId(): string {
   return `custom-${Date.now().toString(36)}`;
 }
 
-/** Returns the frame URL for the given app (terminal + iframe) */
 export function getAppUrl(app: AppDefinition | AppConfig): string {
   return `http://localhost:${FRAME_PORT}?app=${app.id}`;
 }
@@ -292,8 +258,4 @@ export function getAppById(
   return apps.find((a) => a.id === id);
 }
 
-/**
- * The original APP_REGISTRY for backward compatibility.
- * Desktop app code that imports APP_REGISTRY will still work.
- */
 export const APP_REGISTRY: AppDefinition[] = DEFAULT_APPS.map(toAppDefinition);

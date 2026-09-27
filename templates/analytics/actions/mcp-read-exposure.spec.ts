@@ -27,8 +27,6 @@ describe("Analytics authenticated MCP read actions", () => {
   });
 
   it("keeps query-agent-native-analytics internal to the Analytics agent", () => {
-    // Raw SQL must never mount a GET route or appear in the direct connector
-    // catalog. Sibling agents ask Analytics, which owns the schema and query.
     expect(queryAgentNativeAnalytics.http).toBe(false);
     expect(queryAgentNativeAnalytics.readOnly).toBe(true);
     expect(queryAgentNativeAnalytics.publicAgent).toEqual({

@@ -28,7 +28,6 @@ const slide = (page: number, body: string) =>
 const delta = (value: string, up = true) =>
   `<span style="${mono}display:inline-block;padding:2px 7px;border-radius:4px;font-size:14px;font-weight:700;background:color-mix(in srgb,${up ? "var(--deck-accent)" : "var(--qt-loss)"} 16%,transparent);color:${up ? "var(--deck-accent)" : "var(--qt-loss)"};">${value}</span>`;
 
-/** A polyline drawn as a thin clip-path band, since the slide sanitizer drops inline SVG. */
 function band(points: readonly number[], w: number, h: number, t: number) {
   const xy = points.map((v, i) => [(i / (points.length - 1)) * w, h - v * h]);
   const top = xy.map(

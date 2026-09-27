@@ -44,7 +44,6 @@ interface AgentCardCacheEntry {
 const agentCardCache = new Map<string, AgentCardCacheEntry>();
 const agentCardRequests = new Map<string, Promise<AgentCard>>();
 
-/** Clear card discovery state after a hosted-agent card or auth change. */
 export function clearA2ACardCache(): void {
   agentCardCache.clear();
   agentCardRequests.clear();
@@ -76,10 +75,8 @@ export type A2AProtocolErrorCode =
   | "a2a_no_jsonrpc_interface"
   | "a2a_insecure_endpoint";
 
-/** A response that violates the JSON-RPC envelope required by A2A. */
 export class A2AProtocolError extends Error {
   readonly errorCode: A2AProtocolErrorCode;
-  /** Alias for callers that use the conventional error-code field. */
   readonly code: A2AProtocolErrorCode;
   readonly url?: string;
   readonly responseText?: string;
@@ -98,7 +95,6 @@ export class A2AProtocolError extends Error {
   }
 }
 
-/** A successful HTTP response had no JSON-RPC response envelope. */
 export class A2AMissingJsonRpcResponseError extends A2AProtocolError {
   constructor(url: string, responseText?: string) {
     super(
@@ -110,7 +106,6 @@ export class A2AMissingJsonRpcResponseError extends A2AProtocolError {
   }
 }
 
-/** Invalid JSON-RPC envelopes are kept distinct from transport failures. */
 export class A2AJsonRpcResponseError extends A2AProtocolError {
   constructor(
     message: string,
@@ -121,7 +116,6 @@ export class A2AJsonRpcResponseError extends A2AProtocolError {
   }
 }
 
-/** A v1.0 card advertised transports this client cannot invoke. */
 export class A2ANoJsonRpcInterfaceError extends A2AProtocolError {
   readonly interfaces: string[];
 
@@ -136,7 +130,6 @@ export class A2ANoJsonRpcInterfaceError extends A2AProtocolError {
   }
 }
 
-/** A credentialed A2A request cannot be sent over cleartext HTTP. */
 export class A2AInsecureEndpointError extends A2AProtocolError {
   constructor(url: string) {
     super(
@@ -154,12 +147,6 @@ export type A2ATerminalTaskErrorState =
   | "input-required"
   | "completed";
 
-/**
- * Preserves a receiver's terminal protocol state across the text-oriented
- * callAgent convenience boundary. Callers can distinguish a real answer from
- * failure, cancellation, approval/input, and an invalid empty completion
- * without parsing English prose.
- */
 export class A2ATaskTerminalError extends Error {
   readonly taskId: string;
   readonly state: A2ATerminalTaskErrorState;
@@ -186,7 +173,6 @@ export class A2ATaskTerminalError extends Error {
   }
 }
 
-/** Keep both the answer lead and artifact/source tail within caller context. */
 export function boundA2ACallerResponseText(value: string): string {
   if (value.length <= MAX_A2A_CALLER_RESPONSE_CHARS) return value;
   const marker =
@@ -196,15 +182,6 @@ export function boundA2ACallerResponseText(value: string): string {
   return value.slice(0, headChars) + marker + value.slice(-tailChars);
 }
 
-/**
- * Sign a JWT for A2A cross-app identity verification.
- *
- * Uses an org-level secret by default for direct org-secret workflows. Callers
- * that are doing ordinary hosted cross-app delegation can set
- * `preferGlobalSecret` so deployments with a shared A2A_SECRET don't depend on
- * every app database having an identical org row. The token contains the
- * caller's email as `sub`, so the receiving app can verify who's calling.
- */
 export async function signA2AToken(
   email: string,
   orgDomain?: string,
@@ -236,8 +213,6 @@ export async function signA2AToken(
 
   const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),
-    // `sub` / `org_domain` are spread AFTER extraClaims so a caller-supplied
-    // map can never override the verified identity claims.
     sub: email,
     ...(orgDomain ? { org_domain: orgDomain } : {}),
   })
@@ -281,13 +256,9 @@ export class A2AClient {
       requestTimeoutMs?: number;
       fallbackApiKeys?: string[];
       transportHeaders?: Record<string, string>;
-      /** Explicit agent-card URL when discovery is not at the base URL. */
       cardUrl?: string;
-      /** Alias accepted for integrations that call this the agent card URL. */
       agentCardUrl?: string;
-      /** Explicit A2A protocol version for endpoints without a card. */
       protocolVersion?: A2AProtocolVersion;
-      /** Alias for protocolVersion. */
       a2aVersion?: A2AProtocolVersion;
     },
   ) {
@@ -322,10 +293,6 @@ export class A2AClient {
     this.endpointResolved = Boolean(explicitEndpoint && !this.cardUrl);
   }
 
-  /**
-   * Detect which A2A path the target agent uses.
-   * Agent-Native apps use /_agent-native/a2a, external agents may use /a2a.
-   */
   async resolveEndpoint(): Promise<void> {
     await this.ensureEndpointCandidates();
     if (this.endpointCandidates.length <= 1) return;
@@ -362,7 +329,6 @@ export class A2AClient {
     }
   }
 
-  /** Resolve the card-advertised endpoint without sending an RPC request. */
   async resolveEndpointUrl(timeoutMs?: number): Promise<string> {
     await this.ensureEndpointCandidates(timeoutMs);
     const endpoint = this.endpointCandidates[0]?.url;
@@ -370,7 +336,6 @@ export class A2AClient {
     return endpoint;
   }
 
-  /** Replace caller credentials without discarding resolved endpoint fallbacks. */
   setAuthentication(apiKey?: string, fallbackApiKeys: string[] = []): void {
     this.apiKey = apiKey;
     this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
@@ -547,14 +512,7 @@ export class A2AClient {
 
   async getAgentCard(options?: {
     timeoutMs?: number;
-    /**
-     * Identity token for the card fetch. The anonymous card can only advertise
-     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
-     * runs — so a sibling that discovers anonymously is told there is nothing
-     * callable. Pass a token to see the invocable set.
-     */
     token?: string;
-    /** Override the configured card URL for this discovery request. */
     cardUrl?: string;
   }): Promise<AgentCard> {
     const cardUrl =
@@ -632,18 +590,8 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Per-request transport cap, bounded by deadlineMs when both exist. */
       requestTimeoutMs?: number;
-      /** Absolute end-to-end deadline shared with async polling. */
       deadlineMs?: number;
-      /**
-       * If true, ask the server to return the task immediately in `working`
-       * state and process the handler in the background. The caller should
-       * then poll `getTask(taskId)` until `completed` / `failed` / `canceled`.
-       *
-       * Use this when you expect the handler may exceed a synchronous
-       * serverless request budget.
-       */
       async?: boolean;
     },
   ): Promise<Task> {
@@ -676,9 +624,6 @@ export class A2AClient {
     return normalizeA2ATaskResult(response.result, response.id);
   }
 
-  /**
-   * Poll for a task by id. Used in async mode after `send({ async: true })`.
-   */
   async getTask(
     taskId: string,
     opts?: { requestTimeoutMs?: number; deadlineMs?: number },
@@ -699,11 +644,6 @@ export class A2AClient {
     return normalizeA2ATaskResult(response.result, response.id);
   }
 
-  /**
-   * Execute one receiver-approved read-only action without starting the
-   * receiver's agent loop. The receiver still owns validation, credentials,
-   * request scoping, and the explicit action exposure decision.
-   */
   async invokeAction(
     action: string,
     input: Record<string, unknown> = {},
@@ -723,15 +663,6 @@ export class A2AClient {
     return response.result as A2AReadOnlyActionResult;
   }
 
-  /**
-   * Send a message in async mode and poll until the task reaches a terminal
-   * state. This is the recommended path on serverless hosts with short
-   * function timeouts (Netlify, Vercel) where a synchronous LLM-driven A2A
-   * call can exceed the gateway limit.
-   *
-   * Each individual fetch returns quickly; long-running work happens on the
-   * receiving side and is checked via `tasks/get`.
-   */
   async sendAndWait(
     message: Message,
     opts?: {
@@ -739,17 +670,9 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Time to wait after submission for completion. Default 5 min. */
       timeoutMs?: number;
-      /**
-       * Optional separate budget for agent-card discovery and the initial
-       * async message submission. When omitted, timeoutMs remains the shared
-       * end-to-end deadline for backwards compatibility.
-       */
       submissionTimeoutMs?: number;
-      /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
-      /** Called with each polled task — useful for surfacing progress. */
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
@@ -781,19 +704,11 @@ export class A2AClient {
     });
   }
 
-  /**
-   * Continue waiting for an existing async task without submitting a second
-   * message. Use this after a bounded caller-side wait expires but the remote
-   * task is still working.
-   */
   async waitForTask(
     taskId: string,
     opts?: {
-      /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
-      /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
-      /** Called with each successfully polled task. */
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
@@ -904,9 +819,6 @@ export class A2AClient {
           );
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
-          // A streaming POST may have reached the receiver before the
-          // connection failed. Retrying another candidate would submit the
-          // same message twice without an idempotency key.
           throw lastError;
         }
         if (res.ok) {
@@ -1821,11 +1733,6 @@ function resolveA2ARequestTimeoutMs(
     : Math.min(configuredMs, remainingMs);
 }
 
-/**
- * Agent-card discovery is only a hint because first-party endpoints have
- * conventional paths. Preserve most of a bounded call's deadline for the
- * actual message instead of letting a cold or unavailable card consume it.
- */
 function resolveA2ADiscoveryTimeoutMs(
   configuredMs: number | undefined,
   deadlineMs: number | undefined,
@@ -1930,78 +1837,33 @@ function isA2AAuthRejectionResponse(status: number, text: string): boolean {
   );
 }
 
-/**
- * One-shot convenience function: send a text message and get a text response.
- *
- * When A2A_SECRET is set and userEmail is provided, outbound calls are signed
- * with a JWT so the receiving app can cryptographically verify the caller's
- * identity (instead of blindly trusting metadata).
- */
 export async function callAgent(
   url: string,
   text: string,
   opts?: {
     apiKey?: string;
-    /** Additional bearer tokens to try in order after apiKey during rotation. */
     apiKeyFallbacks?: string[];
-    /** Additional transport metadata. Receivers must not use it as identity. */
     metadata?: Record<string, unknown>;
-    /** Trusted server-side headers to carry across the A2A transport. */
     transportHeaders?: Record<string, string>;
-    /** Explicit agent-card URL when discovery is not at the base URL. */
     cardUrl?: string;
-    /** Alias accepted by callers that name this the agent card URL. */
     agentCardUrl?: string;
-    /** Explicit A2A protocol version for targets without a card. */
     protocolVersion?: A2AProtocolVersion;
-    /** Alias for protocolVersion. */
     a2aVersion?: A2AProtocolVersion;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
-    /** Origin used to build links back to the receiving app. */
     requestOrigin?: string;
-    /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
-    /** Opaque provenance reference resolved by the receiver through Dispatch. */
     sourceContext?: A2ASourceContextReference;
-    /** Bounded telemetry-only lineage forwarded to the receiving app. */
     correlation?: A2ACorrelationMetadata;
-    /** Stable caller-generated key for one message submission. */
     idempotencyKey?: string;
-    /**
-     * Use async/poll instead of a single blocking POST. Recommended for
-     * cross-app calls that may exceed a synchronous serverless request budget.
-     * Defaults to true so callers get safe behavior out of the box.
-     */
     async?: boolean;
-    /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
-    /** Separate budget for discovery and initial async submission. */
     submissionTimeoutMs?: number;
-    /**
-     * Existing async task to keep polling. When set, no new message is sent.
-     * This prevents a caller-side timeout from duplicating downstream work.
-     */
     taskId?: string;
-    /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
-    /**
-     * Return receiver-verified artifact text from the last polled task when
-     * the call times out. Defaults to true for backwards compatibility.
-     * Callers that can continue polling the remote task separately should set
-     * this to false so the A2ATaskTimeoutError (and its taskId) is preserved.
-     */
     returnRecoverableArtifactsOnTimeout?: boolean;
-    /**
-     * Called with each successfully polled task while an async call is still
-     * in flight (see `A2AClient.sendAndWait`). Fires once per real poll
-     * round-trip that returns a task — including the terminal poll — so
-     * callers can surface genuine remote liveness/progress. Not called when a
-     * poll fetch throws (remote unresponsive) or when the task completes
-     * synchronously on submit. Only threaded through for async calls.
-     */
     onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
@@ -2012,15 +1874,7 @@ export async function callAgent(
   if (opts?.sourceContext) metadata.sourceContext = opts.sourceContext;
   Object.assign(metadata, sanitizeA2ACorrelationMetadata(opts?.correlation));
 
-  // Default to async + poll. The receiving A2A server's `_process-task` route
-  // runs the handler in a fresh function execution (cross-platform queue
-  // pattern), so async mode now works on every host instead of relying on
-  // detached promises that get killed on Netlify/Vercel. Callers that
-  // explicitly want a single-shot blocking POST can pass `async: false`.
   const useAsync = opts?.async ?? true;
-  // A stable per-call key makes retrying a submission safe even when this
-  // invocation has no durable parent turn id. If the receiver committed the
-  // task but the response was lost, the retry reuses the task.
   const effectiveIdempotencyKey =
     opts?.idempotencyKey ?? (opts?.taskId ? undefined : `auto:${randomUUID()}`);
   const message: Message = {
@@ -2076,9 +1930,6 @@ export async function callAgent(
         });
       }
 
-      // Preserve the receiver's typed terminal state. Failed, canceled, and
-      // input-required tasks are not successful text answers, even when the
-      // receiver attached a friendly explanatory message.
       const responseMessage = task.status.message;
       const responseText = responseMessage
         ? extractMessageText(responseMessage)
@@ -2159,13 +2010,9 @@ export async function callAction(
     orgSecret?: string;
     requestTimeoutMs?: number;
     correlation?: A2ACorrelationMetadata;
-    /** Explicit agent-card URL when discovery is not at the base URL. */
     cardUrl?: string;
-    /** Alias accepted by callers that name this the agent card URL. */
     agentCardUrl?: string;
-    /** Explicit A2A protocol version for targets without a card. */
     protocolVersion?: A2AProtocolVersion;
-    /** Alias for protocolVersion. */
     a2aVersion?: A2AProtocolVersion;
   },
 ): Promise<A2AReadOnlyActionResult> {

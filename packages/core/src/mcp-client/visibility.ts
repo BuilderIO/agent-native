@@ -1,15 +1,3 @@
-/**
- * Per-request visibility gate for MCP tools.
- *
- * In a shared-process deployment (one Nitro server handling multiple users)
- * every user's personal MCP servers are registered in the same manager. We
- * want the LLM and the tool-call path to behave as if each user only has
- * their own — no cross-user credential use, no tools from other orgs.
- *
- * Separated from `./index.ts` (which imports `ActionEntry` from
- * `production-agent.js`) so `production-agent.js` can pull in this filter
- * without a circular import.
- */
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -42,13 +30,10 @@ export function isMcpToolAllowedForRequest(toolName: string): boolean {
   const inProduction = process.env.NODE_ENV === "production";
   if (parsed.scope === "user") {
     if (!email) {
-      // No identity in this call chain — block in production, allow in dev
-      // where this commonly happens during startup tool enumeration.
       return !inProduction;
     }
     return hashEmail(email) === parsed.owner;
   }
-  // scope === "org"
   if (!orgId) {
     return !inProduction;
   }

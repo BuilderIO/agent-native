@@ -38,9 +38,8 @@ import {
 import { TimelineTrack, type TrackSelection } from "./timeline-track";
 
 const DURATION = 10_000;
-const WIDTH = 1_000; // 1px = 10ms, which keeps the numbers below readable.
+const WIDTH = 1_000;
 
-/** Dispatch a pointer event React will pick up; happy-dom has no PointerEvent. */
 function pointer(target: Element, type: string, clientX: number) {
   const event = new MouseEvent(type, { bubbles: true, clientX, button: 0 });
   Object.defineProperty(event, "pointerId", { value: 1 });
@@ -76,17 +75,14 @@ describe("TimelineTrack pointer gestures", () => {
     });
   };
 
-  /** Every piece and handle is a positioned child of the track root. */
   const pieces = () =>
     Array.from(container.querySelectorAll('[role="button"]'));
-  /** Drags keep going against the track, not the handle, which may unmount. */
   const track = () => container.firstElementChild!;
   const handles = () =>
     Array.from(container.querySelectorAll("[data-side]")) as HTMLElement[];
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    // happy-dom lays nothing out, so the track needs a box to map x to time.
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,

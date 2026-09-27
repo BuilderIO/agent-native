@@ -29,7 +29,6 @@ const header = (title: string, aside: string) =>
   </div>`;
 
 const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
-/** Left edge and width as fractions of the four-quarter track. */
 const span = (start: number, length: number) =>
   `left:${start * 25}%;width:calc(${length * 25}% - 8px);`;
 

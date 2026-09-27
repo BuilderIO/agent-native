@@ -16,11 +16,6 @@ const SCREEN_HTML = `<!doctype html>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px"></main></body></html>`;
 
-/**
- * A pen path committed on the BOARD, nested in a frame — the shape reported
- * broken. Board elements select through their own iframe surface, so a screen
- * fixture does not exercise the same selection path.
- */
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
@@ -105,7 +100,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, boardFileId };
 }
 
-/** What the inspector reported, and where the paint actually landed. */
 async function boardVectorPaint(page: Page) {
   return page.evaluate(() => {
     for (const iframe of Array.from(document.querySelectorAll("iframe"))) {
@@ -243,11 +237,6 @@ function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
-/**
- * Selects through the Layers panel, which is the same projection-backed
- * selection path a URL-restored board selection uses — a canvas click on the
- * board goes through the bridge instead and hides the defect.
- */
 async function selectLayerRow(page: Page, name: string) {
   const input = page.getByPlaceholder("Search layers...");
   if (!(await input.isVisible().catch(() => false))) {
@@ -294,7 +283,6 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
 
     await selectLayerRow(page, "Vector");
 
-    // The row label and plus affordance both add a paint, like Figma's section.
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(fillSection).toBeVisible();
     await fillSection.locator('button[aria-label="Add fill"]').click();

@@ -16,9 +16,6 @@ describe("frameCommandTargetIds", () => {
   });
 
   it("drops a screen id that is only present because a layer inside it is selected (Cmd+D on 'Card' must not duplicate 'Home')", () => {
-    // Mirrors yt-mobile-landing-1: the Layers-panel selection put "card" in
-    // selectedLayerIdsState, but the overview's own selectedIds still
-    // carries "home" for z-order/"topmost screen" purposes.
     expect(frameCommandTargetIds(["home"], isFrame, "home")).toEqual([]);
   });
 
@@ -36,11 +33,6 @@ describe("frameCommandTargetIds", () => {
 });
 
 describe("findCanvasIframeForScreen board resolution (sender-boundary regression)", () => {
-  // Guards the agent-native:board-selection-rect message listener in
-  // MultiScreenCanvas: a Screen's own preview iframe also matches
-  // `[data-design-preview-iframe]`, so resolving "the board iframe" must
-  // require the `[data-board-surface-layer]` ancestor too, or a sandboxed
-  // Screen could forge the message and plant a spoofed selection rect.
   function buildSurfaceWithScreenAndBoard(): {
     root: HTMLElement;
     screenIframe: HTMLIFrameElement;
@@ -83,7 +75,6 @@ describe("findCanvasIframeForScreen board resolution (sender-boundary regression
       "board-1",
       "board-1",
     );
-    // Mirrors the listener's own check: `boardPreviewIframe.contentWindow !== event.source`.
     expect(
       boardPreviewIframe?.contentWindow === screenIframe.contentWindow,
     ).toBe(false);
@@ -98,10 +89,6 @@ describe("shouldRenderBoardSelectionBox", () => {
   const rect = { left: 0, top: 0, width: 10, height: 10 };
   const renderGeometry = { x: 0, y: 0, width: 100, height: 100 };
 
-  // A Screen can stay selected at the top level while a board element is
-  // independently selected (different selection lists) — this predicate has
-  // no `singleSelectedFrame`/`singleSelectedDraft` input at all, so a top-
-  // level Screen selection can never suppress the board box again.
   it("renders when a board element is selected on the active board file", () => {
     expect(
       shouldRenderBoardSelectionBox({

@@ -287,8 +287,6 @@ describe("Builder CMS source adapter", () => {
         ? result.sourceValues["data.author"]
         : JSON.stringify(result?.sourceValues["data.author"] ?? ""),
     ).not.toContain("@builder.io/core:Reference");
-    // Inlined reference value → use the referenced entry's human name,
-    // whether it lives in `value.data` or at the enriched entry's top level.
     expect(result?.sourceValues["data.coAuthor"]).toBe("Ada Lovelace");
     expect(result?.sourceValues["data.editor"]).toBe("Grace Hopper");
   });

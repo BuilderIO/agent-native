@@ -66,20 +66,12 @@ function normalizedTrend(
   const randomization = 0.012 + volatilityScore * 0.08;
   const shape = [normalized[0]];
 
-  // Preserve the source's actual step pattern (including when and how sharply
-  // it spikes), with just enough seeded variation that otherwise-similar demo
-  // series do not become identical. Smooth sources receive almost no jitter;
-  // volatile sources can vary a little more without moving their events.
   for (let index = 1; index < length; index += 1) {
     const sourceStep = normalized[index] - normalized[index - 1];
     const factor = 1 + (random() * 2 - 1) * randomization;
     shape.push(shape[index - 1] + sourceStep * factor);
   }
 
-  // Add only the linear drift required for the first point to be the global
-  // minimum and the last to be the global maximum. A linear term has zero
-  // second difference, so the source's local acceleration, spikes, and dips
-  // survive instead of being replaced by a synthetic random walk.
   let requiredDrift = 0;
   for (let index = 1; index < length; index += 1) {
     const progress = index / (length - 1);
@@ -104,12 +96,6 @@ function normalizedTrend(
   return candidate.map((value) => (value - candidate[0]) / candidateRange);
 }
 
-/**
- * Replace numeric chart series with a stable, seeded upward trend while
- * retaining the query's original range and every non-series field. This is a
- * presentation-only demo-mode transform: callers keep the real query result
- * and opt individual line/area renderers into the returned rows.
- */
 export function createDemoChartTrendRows(
   rows: Record<string, unknown>[],
   yKeys: string[],

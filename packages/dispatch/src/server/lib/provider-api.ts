@@ -31,7 +31,6 @@ const runtime = createProviderApiRuntime({
   getCustomProviders: async () => {
     const ctx = getCredentialContext();
     if (!ctx) return [];
-    // Load custom providers for both user scope and org scope.
     const results = await Promise.allSettled([
       listCustomProviders("user", ctx.userEmail),
       ctx.orgId ? listCustomProviders("org", ctx.orgId) : Promise.resolve([]),
@@ -40,8 +39,6 @@ const runtime = createProviderApiRuntime({
       results[0].status === "fulfilled" ? results[0].value : [];
     const orgProviders =
       results[1].status === "fulfilled" ? results[1].value : [];
-    // Merge: user-scope providers take precedence over org-scope ones with the
-    // same id, and neither can shadow a built-in id.
     const seen = new Set<string>(PROVIDER_API_IDS as unknown as string[]);
     const merged = [];
     for (const p of [...userProviders, ...orgProviders]) {

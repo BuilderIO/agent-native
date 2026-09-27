@@ -83,8 +83,6 @@ jobs:
           sudo apt-get clean
           df -h
 
-      # postinstall rebuilds any stale/missing dists, including the local CLI
-      # used by qa:standalone-chat-dev.
       - uses: ./.github/actions/setup-pnpm
         if: needs.change-scope.outputs.agentkit_acceptance == 'true'
         with:
@@ -108,14 +106,8 @@ jobs:
 
       - name: Generate, install, and exercise standalone AgentKit Chat
         if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-        # Covers the public Chat CLI path, the complete local AgentKit package
-        # graph, Vite dev SSR, and the browser interaction lifecycle.
         run: pnpm qa:agentkit-chat-acceptance
 
       - name: Cross-surface sign-in matrix
         if: needs.change-scope.outputs.agentkit_acceptance == 'true'
-        # Boots the Chat template at the root base path and again under
-        # /chatapp, and drives the real login document. A matrix nobody runs
-        # stops nothing — the request-level half of this matrix ships as a
-        # vitest spec, but the browser half only exists if it runs here.
         run: pnpm qa:sign-in

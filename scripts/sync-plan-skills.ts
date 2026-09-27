@@ -46,15 +46,10 @@ const designEntry = BUILT_IN_APP_SKILLS.design;
 const agentNativeEntry = BUILT_IN_APP_SKILLS["agent-native"];
 const turnIntoAppEntry = BUILT_IN_APP_SKILLS["turn-into-app"];
 
-/** One exported app skill's source body, reference files, and target dirs. */
 type GeneratedSkill = {
-  /** Logical skill name, used to key into `entry.extraFiles`. */
   skill: string;
-  /** SKILL.md body, written verbatim. */
   body: string;
-  /** Reference files: skill-relative path -> content. */
   references: Record<string, string>;
-  /** Repo-relative directories where this skill should be materialized. */
   targetDirs: string[];
 };
 
@@ -102,10 +97,6 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
     skill: "visual-edit",
     body: designEntry.extraSkills?.["visual-edit"] ?? "",
     references: designEntry.extraFiles?.["visual-edit"] ?? {},
-    // The Design template keeps a real copy rather than a symlink because a
-    // scaffolded app gets this directory copied, not the repo's symlink tree.
-    // It is generated here so it cannot drift back into teaching the
-    // deprecated connect-localhost/create-design/add-localhost-screens flow.
     targetDirs: [
       join("skills", "visual-edit"),
       join("templates", "design", ".agents", "skills", "visual-edit"),
@@ -121,7 +112,6 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
 
 const check = process.argv.includes("--check");
 
-/** A file the script wants committed: repo-relative path -> contents. */
 type ExpectedFile = { rel: string; content: string };
 type ExpectedSymlink = { rel: string; target: string };
 
@@ -156,7 +146,6 @@ const REPO_SKILL_SYMLINKS: ExpectedSymlink[] = [
   },
 ];
 
-/** Skill-relative file paths (SKILL.md + references), sorted for determinism. */
 function skillRelPaths(
   skill: GeneratedSkill,
 ): { rel: string; content: string }[] {
@@ -174,7 +163,6 @@ function skillRelPaths(
   return files;
 }
 
-/** On-disk target dirs (absolute) for a generated app skill. */
 function targetDirs(skill: GeneratedSkill): string[] {
   return skill.targetDirs.map((dir) => join(rootDir, dir));
 }
@@ -207,7 +195,6 @@ function generateSymlinks(): void {
   }
 }
 
-/** Existing files inside a skill dir's `references/` subdir, repo-relative. */
 function existingReferenceFiles(skillDir: string): string[] {
   const refDir = join(skillDir, "references");
   if (!existsSync(refDir)) return [];
@@ -224,9 +211,6 @@ function existingReferenceFiles(skillDir: string): string[] {
 }
 
 function generate(files: ExpectedFile[]): void {
-  // Prune stale reference files (a removed reference must not linger), but only
-  // within each skill's `references/` subdir — never SKILL.md and never anything
-  // outside these target dirs.
   const expectedSet = new Set(files.map((file) => file.rel));
   for (const skill of GENERATED_SKILLS) {
     for (const dir of targetDirs(skill)) {
@@ -259,7 +243,6 @@ function checkInSync(files: ExpectedFile[]): void {
     )
     .map((file) => file.rel);
 
-  // Unexpected extra files only matter inside the `references/` subdirs we own.
   const extra: string[] = [];
   for (const skill of GENERATED_SKILLS) {
     for (const dir of targetDirs(skill)) {

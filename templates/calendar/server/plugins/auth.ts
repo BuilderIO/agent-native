@@ -1,9 +1,5 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
-// Calendar keeps Google as the primary auth surface, but the first sign-in is
-// identity-only. The template-owned `/_agent-native/google/*` routes request
-// Calendar/Contacts/Directory scopes only after there is a signed-in owner, so
-// basic login stays isolated from product API verification/blocking issues.
 export default createAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
