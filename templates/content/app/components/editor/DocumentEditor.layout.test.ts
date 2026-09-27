@@ -2025,7 +2025,8 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "suggestionDraftOperations(base, suggestionDraft)",
     );
-    expect(source).toContain("createSuggestionProposal.mutateAsync({");
+    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
+    expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
     expect(source).toContain("baseRevision: base.baseRevision");
   });

@@ -72,6 +72,11 @@ export type SuggestionPersistenceEntry = {
 
 export function suggestionOperationKey(operation: SuggestionOperation) {
   const { ordinal: _ordinal, ...stableOperation } = operation;
+  if (stableOperation.kind === "replace_text") {
+    const { siblingRanges: _siblingRanges, ...stableAnchor } =
+      stableOperation.anchor as Record<string, unknown>;
+    return JSON.stringify({ ...stableOperation, anchor: stableAnchor });
+  }
   return JSON.stringify(stableOperation);
 }
 
