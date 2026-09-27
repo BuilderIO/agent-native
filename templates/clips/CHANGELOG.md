@@ -38,6 +38,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
 - Clips checks storage before upload and offers Builder.io or your own S3-compatible keys when storage is missing.
 - Clips desktop sign-in now accepts authenticator codes when two-step verification is enabled.
 - Keep Builder login state after blocked popups and show feedback while retrying storage connection checks

@@ -3,6 +3,22 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-27
+
+### Improved
+
+- Add AI inbox triage to Mail's first-run onboarding.
+- Scheduled-send cards show the subject and local send time
+- Successful draft, filter, and inbox rule changes now appear as concise action cards in chat.
+
+### Fixed
+
+- Fixed the inbox crash when the sidebar is pinned
+- Inbox navigation stays in a hamburger drawer, and filter tabs use available toolbar space before scrolling.
+- Inbox sorting finishes reliably across larger mailboxes
+- Scheduled email cards keep subjects that match the default label
+- Scheduled sends reject timestamps outside the supported date range before saving.
+
 ## 2026-09-26
 
 ### Improved
@@ -40,6 +56,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Fix Google sign-in and connect popups that stayed blank and asked you to allow pop-ups
 - Slack conversations can now use all available Mail actions
 - Editing importance rules preserves disabled instructions and recovers from duplicate-rule deletion failures
 - Handle astral Unicode letters in autocomplete word boundaries
