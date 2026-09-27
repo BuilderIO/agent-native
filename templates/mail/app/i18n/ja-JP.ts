@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "返信が必要、または期限のあるメール。GitHub の人からのコメントを含み、ボットのコメントは除きます。",
       aiSetupArchiveSpamPrompt:
-        "自動アーカイブ：ボットのコメントや自動ステータス更新を含む GitHub 通知。\n迷惑メール：依頼していない明らかな宣伝や不要なメール。",
+        "受信トレイをスキップ：ボットのコメントや自動ステータス更新を含む GitHub 通知。\n迷惑メール：依頼していない明らかな宣伝や不要なメール。",
       aiSetupCustomTag: "カスタム",
       aiSetupDone: "完了",
       aiSetupRunAgain: "設定をやり直す",
@@ -581,8 +581,16 @@ const messages = {
       spamMode: "スパム",
       tagMode: "タグ",
       aiTagsTitle: "AIタグ",
+      ruleHelpLabel: "{{mode}}ルールの説明",
+      aiTagRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールにこのタグを付けます。",
+      importantRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールを重要としてマークします。",
+      skipInboxRuleHelp:
+        "自然な言葉で指示を書きます。一致したメールをアーカイブして受信トレイをスキップします。",
+      spamRuleHelp:
+        "自然な言葉で指示を書きます。Jev は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
       filteredMode: "フィルター済み",
-      autoArchiveMode: "自動アーカイブ",
       manageSettings: "管理",
       askJev: "Jev に相談",
       askJevPrompt:
@@ -637,7 +645,7 @@ const messages = {
       promptRulesCleared: "トリアージルールを削除しました。",
       tagTabsHelp: "各タグが受信トレイのタブになります",
       addTag: "タグを追加",
-      triageTitle: "トリアージ",
+      triageTitle: "AIトリアージ",
       connectJev: "Jevを接続",
       connectJevToRunTriage: "トリアージを実行するにはJevを接続",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
@@ -826,7 +834,7 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
-    aiFilter: "トリアージ",
+    aiFilter: "AIトリアージ",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",

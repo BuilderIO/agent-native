@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "الرسائل التي تحتاج إلى رد أو لها موعد نهائي، بما فيها تعليقات الأشخاص على GitHub. تخطَّ تعليقات الروبوتات.",
       aiSetupArchiveSpamPrompt:
-        "أرشفة تلقائية: إشعارات GitHub التي نشر فيها روبوت تعليقًا أو تحديثًا آليًا.\nالرسائل المزعجة: الرسائل الترويجية بوضوح أو غير المرغوب فيها التي لم أطلبها.",
+        "تجاوز صندوق الوارد: إشعارات GitHub التي نشر فيها روبوت تعليقًا أو تحديثًا آليًا.\nالرسائل المزعجة: الرسائل الترويجية بوضوح أو غير المرغوب فيها التي لم أطلبها.",
       aiSetupCustomTag: "مخصص",
       aiSetupDone: "تم",
       aiSetupRunAgain: "تشغيل الإعداد مرة أخرى",
@@ -576,8 +576,16 @@ const messages = {
       spamMode: "مزعج",
       tagMode: "وسم",
       aiTagsTitle: "وسوم الذكاء الاصطناعي",
+      ruleHelpLabel: "شرح قواعد {{mode}}",
+      aiTagRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev هذه العلامة إلى الرسائل المطابقة.",
+      importantRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضع Jev علامة مهم على الرسائل المطابقة.",
+      skipInboxRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يؤرشف Jev الرسائل المطابقة لتجاوز صندوق الوارد.",
+      spamRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
       filteredMode: "مصفّى",
-      autoArchiveMode: "أرشفة تلقائية",
       manageSettings: "إدارة",
       askJev: "اسأل Jev",
       askJevPrompt:
@@ -629,7 +637,7 @@ const messages = {
       promptRulesCleared: "تمت إزالة قواعد الفرز.",
       tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
       addTag: "إضافة وسم",
-      triageTitle: "إعداد الفرز",
+      triageTitle: "الفرز بالذكاء الاصطناعي",
       connectJev: "ربط Jev",
       connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
@@ -816,7 +824,7 @@ const messages = {
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
     automations: "الأتمتة",
-    aiFilter: "الفرز",
+    aiFilter: "الفرز بالذكاء الاصطناعي",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",

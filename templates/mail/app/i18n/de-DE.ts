@@ -59,7 +59,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
       aiSetupArchiveSpamPrompt:
-        "Automatisch archivieren: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+        "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
       aiSetupCustomTag: "Benutzerdefiniert",
       aiSetupDone: "Fertig",
       aiSetupRunAgain: "Einrichtung erneut starten",
@@ -594,8 +594,16 @@ const messages = {
       spamMode: "Unerwünscht",
       tagMode: "Tag",
       aiTagsTitle: "KI-Tags",
+      ruleHelpLabel: "{{mode}}-Regeln erklären",
+      aiTagRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+      importantRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+      skipInboxRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+      spamRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
       filteredMode: "Gefiltert",
-      autoArchiveMode: "Automatisch archivieren",
       manageSettings: "Verwalten",
       askJev: "Jev fragen",
       askJevPrompt:
@@ -656,7 +664,7 @@ const messages = {
       promptRulesCleared: "Triage-Regeln entfernt.",
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
-      triageTitle: "Triage",
+      triageTitle: "KI-Triage",
       connectJev: "Jev verbinden",
       connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
       freeBuilderOrApiKey:
@@ -855,7 +863,7 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
-    aiFilter: "Triage",
+    aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
