@@ -39,13 +39,18 @@ export function buildPasses(input: {
   full: boolean;
   filters: readonly string[];
   prerenderPackages: readonly string[];
+  /**
+   * An exclusion filter pulls the workspace root into `pnpm -r`, and the
+   * root's own `build` is `pnpm -r build`, which would rebuild everything,
+   * prerendering apps included, inside the first pass.
+   */
+  rootPackage: string;
 }): string[][] {
   const mode = input.full ? [] : ["--no-bail", "--if-present"];
   const selection = input.filters.flatMap((filter) => ["--filter", filter]);
-  const excluded = input.prerenderPackages.flatMap((name) => [
-    "--filter",
-    `!${name}`,
-  ]);
+  const excluded = [input.rootPackage, ...input.prerenderPackages].flatMap(
+    (name) => ["--filter", `!${name}`],
+  );
   const passes = [["-r", ...mode, ...selection, ...excluded, "run", "build"]];
   if (input.prerenderPackages.length) {
     passes.push([
@@ -97,7 +102,13 @@ function main(): void {
     : parseWorkspaceFilters(process.env.CI_WORKSPACE_FILTERS);
   const prerenderPackages = selectedPrerenderPackages(filters);
   let failed = false;
-  for (const args of buildPasses({ full, filters, prerenderPackages })) {
+  const rootPackage = JSON.parse(readFileSync("package.json", "utf8")).name;
+  for (const args of buildPasses({
+    full,
+    filters,
+    prerenderPackages,
+    rootPackage,
+  })) {
     console.log(`\n$ pnpm ${args.join(" ")}`);
     const result = spawnSync("pnpm", args, { stdio: "inherit" });
     if (result.status === 0) continue;

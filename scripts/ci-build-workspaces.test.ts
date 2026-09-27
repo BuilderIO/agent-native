@@ -21,10 +21,13 @@ test("builds prerendering apps last and one at a time", () => {
       full: true,
       filters: [],
       prerenderPackages: ["@agent-native/docs", "clips"],
+      rootPackage: "agentnative",
     }),
     [
       [
         "-r",
+        "--filter",
+        "!agentnative",
         "--filter",
         "!@agent-native/docs",
         "--filter",
@@ -52,6 +55,7 @@ test("keeps the affected selection and no-bail mode in both passes", () => {
       full: false,
       filters: ["...{packages/core}..."],
       prerenderPackages: ["clips"],
+      rootPackage: "agentnative",
     }),
     [
       [
@@ -60,6 +64,8 @@ test("keeps the affected selection and no-bail mode in both passes", () => {
         "--if-present",
         "--filter",
         "...{packages/core}...",
+        "--filter",
+        "!agentnative",
         "--filter",
         "!clips",
         "run",
@@ -85,6 +91,7 @@ test("runs a single pass when nothing selected prerenders", () => {
       full: false,
       filters: ["...{templates/mail}..."],
       prerenderPackages: [],
+      rootPackage: "agentnative",
     }),
     [
       [
@@ -93,6 +100,8 @@ test("runs a single pass when nothing selected prerenders", () => {
         "--if-present",
         "--filter",
         "...{templates/mail}...",
+        "--filter",
+        "!agentnative",
         "run",
         "build",
       ],
