@@ -15,6 +15,7 @@ import {
 } from "@shared/ai-filter-rules";
 import type { AutomationRule } from "@shared/types";
 import {
+  IconChevronDown,
   IconDotsVertical,
   IconGripVertical,
   IconInfoCircle,
@@ -159,17 +160,17 @@ function RuleRow({
           <IconGripVertical className="size-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">
+          <p className="line-clamp-2 break-words text-sm font-medium text-foreground">
             {mode === "tag" ? aiFilterRuleLabelName(rule) : rule.condition}
           </p>
           {mode === "tag" && (
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="line-clamp-2 min-w-0 text-xs text-muted-foreground">
                 {rule.condition}
               </p>
               {rule.actions.some((action) => action.type === "archive") && (
                 <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {t("mail.aiFilter.skipInboxMode")}
+                  {t("mail.aiFilter.autoArchiveMode")}
                 </span>
               )}
             </div>
@@ -463,6 +464,7 @@ export function AiFilterSection() {
   const [newRuleCondition, setNewRuleCondition] = useState("");
   const [newRuleTagName, setNewRuleTagName] = useState("");
   const [savingNewRule, setSavingNewRule] = useState(false);
+  const [manageSettingsOpen, setManageSettingsOpen] = useState(false);
   const [thresholdDraft, setThresholdDraft] = useState("92");
   const [setupAgainOpen, setSetupAgainOpen] = useState(false);
   const [queueingBackfillRuleId, setQueueingBackfillRuleId] = useState<
@@ -566,8 +568,8 @@ export function AiFilterSection() {
   const modeLabel = (mode: RuleMode) => {
     if (mode === "important") return t("mail.aiFilter.importantMode");
     if (mode === "tag") return t("mail.aiFilter.aiTagsTitle");
-    if (mode === "filtered") return t("mail.aiFilter.spamMode");
-    return t("mail.aiFilter.skipInboxMode");
+    if (mode === "filtered") return t("mail.aiFilter.filteredMode");
+    return t("mail.aiFilter.autoArchiveMode");
   };
 
   const askJevAboutRule = (rule: AutomationRule) => {
@@ -968,176 +970,198 @@ export function AiFilterSection() {
                     </h4>
                     <RuleModeHelp mode={mode} label={modeLabel(mode)} />
                   </div>
-                  {modeRules.length > 0 && (
-                    <div className="overflow-hidden rounded-lg border border-border/50">
-                      {modeRules.map((rule) => {
-                        const status = recentBackfills.data?.find((run) =>
-                          run.perRule.some(
-                            (progress) => progress.ruleId === rule.id,
-                          ),
-                        );
-                        return (
-                          <div key={rule.id} className="overflow-hidden">
-                            <RuleRow
-                              rule={rule}
-                              mode={mode}
-                              editing={editingRuleId === rule.id}
-                              editDisabled={!jevConfigured}
-                              toggleDisabled={!jevConfigured && !rule.enabled}
-                              onEdit={() => setEditingRuleId(rule.id)}
-                              onSave={(condition, tagName) =>
-                                void saveRule(rule, condition, tagName)
-                              }
-                              onCancel={() => setEditingRuleId(null)}
-                              onAskJev={() => askJevAboutRule(rule)}
-                              onToggle={(enabled) => toggleRule(rule, enabled)}
-                              onDelete={() => void removeRule(rule)}
-                              onDragStart={(event) =>
-                                event.dataTransfer.setData(
-                                  "text/plain",
-                                  rule.id,
-                                )
-                              }
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                void reorderTags(
-                                  event.dataTransfer.getData("text/plain"),
-                                  rule.id,
-                                );
-                              }}
-                            />
-                            {(queueingBackfillRuleId === rule.id || status) && (
-                              <RuleBackfillStatus
-                                ruleId={rule.id}
-                                status={status}
-                                loading={!status && recentBackfills.isLoading}
-                                starting={queueingBackfillRuleId === rule.id}
-                                failed={!status && recentBackfills.isError}
-                                undoing={undoingBackfill}
-                                reviewHref={reviewHrefForRule(rule)}
-                                onUndo={(runId, undoToken) =>
-                                  void undoRuleBackfill(runId, undoToken)
-                                }
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {mode === "filtered" && (
-                    <details className="rounded-lg border border-border/50">
-                      <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-foreground">
-                        {t("mail.aiFilter.manageSettings")}
-                      </summary>
-                      <div className="space-y-4 border-t border-border/40 p-3">
-                        <div className="flex items-center justify-between gap-4">
-                          <span className="text-sm font-medium text-foreground">
-                            {t("mail.aiFilter.autoFilterTitle")}
-                          </span>
-                          <Switch
-                            checked={state.autoFilter}
-                            onCheckedChange={(autoFilter) =>
-                              updateAiSettings({ autoFilter })
+                  <div className="overflow-hidden rounded-lg border border-border/50">
+                    {mode === "filtered" && modeRules.length === 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                        onClick={() => {
+                          setNewRuleMode("filtered");
+                          setNewRuleOpen(true);
+                        }}
+                      >
+                        <IconPlus className="size-4" />
+                        {t("mail.aiFilter.newRule")}
+                      </Button>
+                    )}
+                    {modeRules.map((rule) => {
+                      const status = recentBackfills.data?.find((run) =>
+                        run.perRule.some(
+                          (progress) => progress.ruleId === rule.id,
+                        ),
+                      );
+                      return (
+                        <div key={rule.id} className="overflow-hidden">
+                          <RuleRow
+                            rule={rule}
+                            mode={mode}
+                            editing={editingRuleId === rule.id}
+                            editDisabled={!jevConfigured}
+                            toggleDisabled={!jevConfigured && !rule.enabled}
+                            onEdit={() => setEditingRuleId(rule.id)}
+                            onSave={(condition, tagName) =>
+                              void saveRule(rule, condition, tagName)
                             }
-                            aria-label={t("mail.aiFilter.autoFilterToggle")}
-                            disabled={!jevConfigured}
+                            onCancel={() => setEditingRuleId(null)}
+                            onAskJev={() => askJevAboutRule(rule)}
+                            onToggle={(enabled) => toggleRule(rule, enabled)}
+                            onDelete={() => void removeRule(rule)}
+                            onDragStart={(event) =>
+                              event.dataTransfer.setData("text/plain", rule.id)
+                            }
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              void reorderTags(
+                                event.dataTransfer.getData("text/plain"),
+                                rule.id,
+                              );
+                            }}
                           />
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <label
-                            htmlFor="ai-filter-auto-threshold"
-                            className="text-sm text-foreground"
-                          >
-                            {t("mail.aiFilter.thresholdLabel")}
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              id="ai-filter-auto-threshold"
-                              type="number"
-                              inputMode="numeric"
-                              min={50}
-                              max={100}
-                              step={1}
-                              value={thresholdDraft}
-                              onChange={(event) =>
-                                setThresholdDraft(event.target.value)
+                          {(queueingBackfillRuleId === rule.id || status) && (
+                            <RuleBackfillStatus
+                              ruleId={rule.id}
+                              status={status}
+                              loading={!status && recentBackfills.isLoading}
+                              starting={queueingBackfillRuleId === rule.id}
+                              failed={!status && recentBackfills.isError}
+                              undoing={undoingBackfill}
+                              reviewHref={reviewHrefForRule(rule)}
+                              onUndo={(runId, undoToken) =>
+                                void undoRuleBackfill(runId, undoToken)
                               }
-                              onBlur={saveThreshold}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  event.currentTarget.blur();
-                                }
-                              }}
-                              aria-label={t("mail.aiFilter.thresholdLabel")}
-                              className="w-20"
-                              disabled={!jevConfigured}
                             />
-                            <span className="text-sm text-muted-foreground">
-                              %
-                            </span>
-                          </div>
-                        </div>
-                        <div className="space-y-2 border-t border-border/40 pt-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <h5 className="text-sm font-medium text-foreground">
-                              {t("mail.aiFilter.activityTitle")}
-                            </h5>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7"
-                              asChild
-                            >
-                              <Link to={labelTabHref(state.labelName)}>
-                                {t("mail.aiFilter.reviewLabel")}
-                              </Link>
-                            </Button>
-                          </div>
-                          {decisions.length > 0 ? (
-                            <ul className="divide-y divide-border/40">
-                              {decisions.map((decision) => (
-                                <li
-                                  key={decision.id}
-                                  className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
-                                >
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm text-foreground">
-                                      {decision.subject ||
-                                        t("mail.aiFilter.noSubject")}
-                                    </p>
-                                    <p className="truncate text-xs text-muted-foreground">
-                                      {decision.sender ||
-                                        t("mail.aiFilter.unknownSender")}
-                                    </p>
-                                    {decision.reason && (
-                                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                                        {decision.reason}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
-                                    {decision.disposition === "filtered"
-                                      ? t("mail.aiFilter.filterButton")
-                                      : decision.disposition === "kept"
-                                        ? t("mail.aiFilter.keepButton")
-                                        : t("mail.aiFilter.suggestionCount", {
-                                            count: 1,
-                                          })}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              {t("mail.aiFilter.noActivity")}
-                            </p>
                           )}
                         </div>
+                      );
+                    })}
+                    {mode === "filtered" && (
+                      <div className="border-t border-border/40">
+                        <button
+                          type="button"
+                          aria-expanded={manageSettingsOpen}
+                          aria-controls="ai-filter-management-settings"
+                          onClick={() => setManageSettingsOpen((open) => !open)}
+                          className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium text-foreground"
+                        >
+                          {t("mail.aiFilter.manageSettings")}
+                          <IconChevronDown
+                            className={`size-4 shrink-0 text-muted-foreground transition-transform ${manageSettingsOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <div
+                          id="ai-filter-management-settings"
+                          hidden={!manageSettingsOpen}
+                          className="space-y-4 border-t border-border/40 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-sm font-medium text-foreground">
+                              {t("mail.aiFilter.autoFilterTitle")}
+                            </span>
+                            <Switch
+                              checked={state.autoFilter}
+                              onCheckedChange={(autoFilter) =>
+                                updateAiSettings({ autoFilter })
+                              }
+                              aria-label={t("mail.aiFilter.autoFilterToggle")}
+                              disabled={!jevConfigured}
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <label
+                              htmlFor="ai-filter-auto-threshold"
+                              className="text-sm text-foreground"
+                            >
+                              {t("mail.aiFilter.thresholdLabel")}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id="ai-filter-auto-threshold"
+                                type="number"
+                                inputMode="numeric"
+                                min={50}
+                                max={100}
+                                step={1}
+                                value={thresholdDraft}
+                                onChange={(event) =>
+                                  setThresholdDraft(event.target.value)
+                                }
+                                onBlur={saveThreshold}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.currentTarget.blur();
+                                  }
+                                }}
+                                aria-label={t("mail.aiFilter.thresholdLabel")}
+                                className="w-20"
+                                disabled={!jevConfigured}
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          </div>
+                          <div className="space-y-2 border-t border-border/40 pt-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <h5 className="text-sm font-medium text-foreground">
+                                {t("mail.aiFilter.activityTitle")}
+                              </h5>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7"
+                                asChild
+                              >
+                                <Link to={labelTabHref(state.labelName)}>
+                                  {t("mail.aiFilter.reviewLabel")}
+                                </Link>
+                              </Button>
+                            </div>
+                            {decisions.length > 0 ? (
+                              <ul className="divide-y divide-border/40">
+                                {decisions.map((decision) => (
+                                  <li
+                                    key={decision.id}
+                                    className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm text-foreground">
+                                        {decision.subject ||
+                                          t("mail.aiFilter.noSubject")}
+                                      </p>
+                                      <p className="truncate text-xs text-muted-foreground">
+                                        {decision.sender ||
+                                          t("mail.aiFilter.unknownSender")}
+                                      </p>
+                                      {decision.reason && (
+                                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                          {decision.reason}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+                                      {decision.disposition === "filtered"
+                                        ? t("mail.aiFilter.filterButton")
+                                        : decision.disposition === "kept"
+                                          ? t("mail.aiFilter.keepButton")
+                                          : t("mail.aiFilter.suggestionCount", {
+                                              count: 1,
+                                            })}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                {t("mail.aiFilter.noActivity")}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </details>
-                  )}
+                    )}
+                  </div>
                 </section>
               );
             })}

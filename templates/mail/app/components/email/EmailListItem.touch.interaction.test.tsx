@@ -18,29 +18,6 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-vi.mock("@/components/ui/popover", async () => {
-  const { createPortal } = await import("react-dom");
-  return {
-    Popover: ({ children }: { children: React.ReactNode }) => children,
-    PopoverTrigger: ({ children }: { children: React.ReactNode }) => children,
-    PopoverContent: ({
-      children,
-      className,
-      onClick,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      onClick?: React.MouseEventHandler<HTMLDivElement>;
-    }) =>
-      createPortal(
-        <div className={className} onClick={onClick}>
-          {children}
-        </div>,
-        document.body,
-      ),
-  };
-});
-
 import { EmailListItem } from "./EmailListItem";
 
 const email = {
@@ -129,40 +106,41 @@ describe("EmailListItem touch swipe interactions", () => {
     expect(screen.queryByLabelText("mail.actions.moveToTrash")).toBeNull();
   });
 
-  it.each([
-    ["button", "mail.aiFilter.importantMode", "important"],
-    ["button", "mail.aiFilter.notImportantMode", "not-important"],
-    ["link", "mail.sort.priorityEditRules", undefined],
-  ] as const)(
-    "keeps the row closed when the score popover's %s is selected",
-    (role, name, decision) => {
-      const onImportanceFeedback = vi.fn();
-      const { props } = renderRow({
-        importanceScore: 0.91,
-        onImportanceFeedback,
-      });
+  it("hides scores while keeping importance feedback available", () => {
+    const labelId = "Label_Important";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    const { row } = renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([[labelId, "agent-native-important"]]),
+      onImportanceFeedback: vi.fn(),
+    });
 
-      fireEvent.click(
-        screen.getByRole("button", { name: "mail.sort.priority 0.91" }),
-      );
-      const control = screen.getByRole(role, { name });
-      fireEvent.click(control);
-
-      expect(props.onSelect).not.toHaveBeenCalled();
-      if (decision) expect(onImportanceFeedback).toHaveBeenCalledWith(decision);
-    },
-  );
-
-  it("keeps both score feedback labels on one line", () => {
-    renderRow({ importanceScore: 0.91 });
-    fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.priority 0.91" }),
-    );
-
+    expect(row.textContent).not.toMatch(/\b0\.\d+\b/);
+    expect(row.textContent).not.toContain("agent-native-important");
+    const marker = screen.getByText("mail.aiFilter.importantMode");
+    expect(marker.classList.contains("bg-muted")).toBe(true);
+    expect(marker.classList.contains("text-muted-foreground")).toBe(true);
     expect(
-      screen.getByRole("button", { name: "mail.aiFilter.notImportantMode" })
-        .className,
-    ).toContain("whitespace-nowrap");
+      screen.getByRole("button", { name: "mail.sort.priorityFeedbackLabel" }),
+    ).toBeTruthy();
+  });
+
+  it("sizes the automated notifications label to its full text", () => {
+    const labelId = "label:automated-notifications";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([
+        [labelId, "[Superhuman]/AI/Automated_notifications"],
+      ]),
+    });
+
+    const label = screen.getByText("automated notifications");
+    expect(label.textContent).toBe("automated notifications");
+    expect((label as HTMLElement).style.maxWidth).toBe("max-content");
+    expect(label.classList.contains("shrink-0")).toBe(true);
   });
 
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {

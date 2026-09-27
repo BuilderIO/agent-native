@@ -1,3 +1,4 @@
+import { AI_FILTER_LABEL } from "@shared/ai-filter.js";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import {
@@ -21,6 +22,7 @@ const COLLAPSIBLE_VIEW_IDS = new Set([
   "drafts",
   "archive",
   "trash",
+  AI_FILTER_LABEL,
 ]);
 
 const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {

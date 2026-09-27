@@ -69,6 +69,7 @@ const messages = {
       aiSetupArchiveExample: "GitHub、Vercel 和 Dependabot 的机器人与 CI 通知",
       aiSetupFilteredExample: "我尚未回复的陌生销售邮件和招聘信息",
       aiSetupSortingHeadline: "正在整理收件箱",
+      aiSetupFindingRecentMail: "正在查找近期邮件…",
       aiSetupSortingProgress:
         "正在整理近期邮件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在撤销收件箱更改…",
@@ -556,6 +557,7 @@ const messages = {
       settingsFailed: "无法保存 AI 筛选设置。",
       automationRulesLoadFailed: "无法加载分流规则。",
       instructionFailed: "无法保存 AI 筛选指令。",
+      autoArchiveMode: "自动归档",
       skipInboxMode: "跳过收件箱",
       spamMode: "垃圾邮件",
       tagMode: "标签",
@@ -573,6 +575,9 @@ const messages = {
       askJevPrompt:
         "帮我优化这条 Mail 规则：{{condition}}。先询问我想如何修改，再更新规则。",
       composerPlaceholder: "让 Jev 帮你整理收件箱…",
+      chatSuggestionFilter: "过滤类似这样的邮件",
+      chatSuggestionPriority: "优先处理来自…的邮件",
+      chatSuggestionArchive: "自动归档机器人通知",
       ruleBackfillStarting: "正在将此规则应用于近期邮件…",
       ruleBackfillProgress:
         "正在应用于近期邮件：{{total}} 封中的 {{processed}} 封",
@@ -683,6 +688,9 @@ const messages = {
     suggestionSummarize: "总结我的未读邮件",
     suggestionReplies: "今天哪些邮件需要我回复？",
     suggestionWidget: "为我的收件箱创建自定义小组件",
+    ruleSuggestionFilter: "过滤掉这类邮件",
+    ruleSuggestionImportant: "优先处理来自我老板的邮件",
+    ruleSuggestionArchive: "自动归档机器人通知邮件",
   },
   settings: {
     openAgentSettings: "管理代理",

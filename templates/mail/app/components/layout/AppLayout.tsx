@@ -19,6 +19,7 @@ import {
   RouterSidebarLink,
 } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   aiFilterRuleLabelName,
   aiFilterRuleMode,
@@ -126,6 +127,7 @@ import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
   resolveDefaultMailHref,
+  labelTabHref,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -313,6 +315,10 @@ const collapsibleViews = [
   { id: "archive", labelKey: "mail.views.archive" },
   { id: "trash", labelKey: "mail.views.trash" },
 ];
+const filteredView = {
+  id: AI_FILTER_LABEL,
+  labelKey: "mail.aiFilter.filteredMode",
+};
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
@@ -338,10 +344,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       agentPageHref="/settings/agent"
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
+      dynamicSuggestions={false}
       suggestions={[
-        t("agent.suggestionSummarize"),
-        t("agent.suggestionReplies"),
-        t("agent.suggestionWidget"),
+        t("agent.ruleSuggestionFilter"),
+        t("agent.ruleSuggestionImportant"),
+        t("agent.ruleSuggestionArchive"),
       ]}
     >
       {content}
@@ -518,6 +525,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const { data: labelsData } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
+  // The Filtered shortcut describes the whole connected mailbox, regardless
+  // of which accounts are selected for the current label list.
+  const {
+    data: connectedLabelsData,
+    accountErrors: connectedLabelErrors,
+    isError: connectedLabelsFailed,
+  } = useLabels();
   const labels = labelsData ?? EMPTY_LABELS;
   const labelDisplayNames = useMemo(
     () => buildLabelDisplayNames(labels),
@@ -560,6 +574,34 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     return [...tags.values()];
   }, [automations, labels]);
+  const aiTagDisplayNames = useMemo(
+    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
+    [aiTags],
+  );
+  const hasFilteredRule = automations.some(
+    (rule) =>
+      rule.domain === "mail" &&
+      rule.kind === "ai-filter" &&
+      aiFilterRuleMode(rule) === "filtered",
+  );
+  const hasFilteredLabel =
+    connectedLabelsFailed ||
+    Boolean(connectedLabelErrors?.length) ||
+    [connectedLabelsData ?? EMPTY_LABELS, labels].some((labelSet) =>
+      labelSet.some(
+        (label) =>
+          normalizedAiFilterLabelId(label.name) ===
+          normalizedAiFilterLabelId(AI_FILTER_LABEL),
+      ),
+    );
+  const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;
+  const systemViews = useMemo(
+    () =>
+      hasFilteredRule || hasFilteredLabel || hasFilteredPin
+        ? [...collapsibleViews, filteredView]
+        : collapsibleViews,
+    [hasFilteredLabel, hasFilteredPin, hasFilteredRule],
+  );
 
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
@@ -725,28 +767,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const systemViewTabs = useMemo<RenderedTab[]>(() => {
     if (combineInbox) return [];
     return pinnedLabels
-      .filter((id) => collapsibleViews.some((v) => v.id === id))
+      .filter((id) => systemViews.some((v) => v.id === id))
       .map((id) => {
-        const sysView = collapsibleViews.find((v) => v.id === id)!;
+        const sysView = systemViews.find((v) => v.id === id)!;
         return {
           id: sysView.id,
           label: t(sysView.labelKey),
-          href: `/${sysView.id}`,
-          isActive: view === sysView.id,
+          href:
+            sysView.id === AI_FILTER_LABEL
+              ? labelTabHref(AI_FILTER_LABEL)
+              : `/${sysView.id}`,
+          isActive:
+            sysView.id === AI_FILTER_LABEL
+              ? view === "all" && activeLabel === AI_FILTER_LABEL
+              : view === sysView.id,
           isSystemView: true,
         };
       });
-  }, [combineInbox, pinnedLabels, view, t]);
+  }, [activeLabel, combineInbox, pinnedLabels, systemViews, view, t]);
 
   const dataTabs = useMemo<RenderedTab[]>(() => {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
+      const aiTagName = aiTagDisplayNames.get(tab.id);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
         filterId: tab.kind === "filter" ? tab.id : undefined,
-        label: tab.kind === "all" ? t("mail.views.all") : tab.name,
-        fullLabel: label?.name,
+        label:
+          tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
+        fullLabel: aiTagName ?? label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,
@@ -756,7 +806,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxTabs, activeInboxTabId, labels, t, view]);
+  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
@@ -764,24 +814,32 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 
   const hiddenViews = useMemo(
-    () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
-    [pinnedLabels],
+    () => systemViews.filter((v) => !pinnedLabels.includes(v.id)),
+    [pinnedLabels, systemViews],
   );
 
   const mobileInboxTabs = dataTabs;
 
-  const currentInHidden = hiddenViews.some((v) => v.id === view);
+  // Is current view one of the hidden ones? If so force-show it
+  const currentHiddenView = hiddenViews.find(
+    (v) =>
+      v.id === view ||
+      (v.id === AI_FILTER_LABEL &&
+        view === "all" &&
+        activeLabel === AI_FILTER_LABEL),
+  );
+  const currentInHidden = currentHiddenView !== undefined;
 
   const userLabels = useMemo(() => {
     const aiTagIds = new Set(aiTags.map((tag) => tag.id));
     const filtered = labels.filter(
       (l) =>
-        !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id) &&
+        !["inbox", ...systemViews.map((v) => v.id)].includes(l.id) &&
         !aiTagIds.has(l.id) &&
         !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
     );
     return filtered;
-  }, [aiTags, labels]);
+  }, [aiTags, labels, systemViews]);
 
   const handleCompose = useCallback(() => {
     trackEvent("compose_opened", {
@@ -1435,10 +1493,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
                 {currentInHidden && (
                   <span className="flex shrink-0 items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                    {t(
-                      collapsibleViews.find((v) => v.id === view)?.labelKey ??
-                        "mail.views.inbox",
-                    )}
+                    {t(currentHiddenView?.labelKey ?? "mail.views.inbox")}
                   </span>
                 )}
               </nav>
@@ -1491,7 +1546,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <IconArrowUpRight className="size-3.5 text-muted-foreground" />
                   </Link>
                   <TabSettingsPopover
-                    systemViews={collapsibleViews}
+                    systemViews={systemViews}
                     aiTags={aiTags}
                     labels={labels}
                     userLabels={userLabels}
@@ -2757,7 +2812,7 @@ function TabSettingsPopover({
                 <CheckboxRow
                   key={tag.id}
                   checked={pinnedLabels.includes(tag.id)}
-                  label={labelAliases[tag.id] || tag.name}
+                  label={labelAliases[tag.id]?.trim() || tag.name}
                   color={labels.find((label) => label.id === tag.id)?.color}
                   onToggle={() => onToggle(tag.id)}
                 />
