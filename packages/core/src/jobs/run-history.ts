@@ -532,6 +532,7 @@ async function setFailureAlertOutcome(
   provider: "resend" | "sendgrid" | null,
   firstAttemptAt: number | null,
   now: number,
+  claimedAt: number,
 ): Promise<void> {
   const withinResendWindow =
     provider !== "resend" ||
@@ -557,8 +558,9 @@ async function setFailureAlertOutcome(
     sql: `UPDATE ${TABLE}
           SET failure_alert_state = ?, failure_alert_next_attempt_at = ?,
               failure_alert_claimed_at = NULL
-          WHERE id = ? AND failure_alert_state = 'sending'`,
-    args: [nextState, nextAttemptAt, id],
+          WHERE id = ? AND failure_alert_state = 'sending'
+            AND failure_alert_claimed_at = ?`,
+    args: [nextState, nextAttemptAt, id, claimedAt],
   });
 }
 
@@ -580,18 +582,29 @@ export async function processPendingAutomationFailureAlerts(options?: {
   await db.execute({
     sql: `UPDATE ${TABLE}
           SET failure_alert_state = CASE
+                WHEN failure_alert_attempts >= ? THEN
+                  CASE WHEN failure_alert_provider IS NULL THEN 'failed'
+                    ELSE 'uncertain' END
                 WHEN failure_alert_provider IS NULL OR
                   (failure_alert_provider = 'resend' AND
                     (failure_alert_first_attempt_at IS NULL OR failure_alert_first_attempt_at > ?))
                 THEN 'pending' ELSE 'uncertain' END,
               failure_alert_next_attempt_at = CASE
-                WHEN failure_alert_provider IS NULL OR
+                WHEN failure_alert_attempts < ? AND
+                  (failure_alert_provider IS NULL OR
                   (failure_alert_provider = 'resend' AND
-                    (failure_alert_first_attempt_at IS NULL OR failure_alert_first_attempt_at > ?))
+                    (failure_alert_first_attempt_at IS NULL OR failure_alert_first_attempt_at > ?)))
                 THEN ? ELSE NULL END,
               failure_alert_claimed_at = NULL
           WHERE failure_alert_state = 'sending' AND failure_alert_claimed_at <= ?`,
-    args: [resendCutoff, resendCutoff, now, now - FAILURE_ALERT_LEASE_MS],
+    args: [
+      FAILURE_ALERT_MAX_ATTEMPTS,
+      resendCutoff,
+      FAILURE_ALERT_MAX_ATTEMPTS,
+      resendCutoff,
+      now,
+      now - FAILURE_ALERT_LEASE_MS,
+    ],
   });
 
   const limit = Math.min(Math.max(options?.limit ?? 10, 1), 50);
@@ -615,31 +628,21 @@ export async function processPendingAutomationFailureAlerts(options?: {
 
   for (const row of rows) {
     const id = stringifyValue(row.id);
-    if (row.failure_alert_state === "evaluating") {
-      const claim = await claimEvaluatingFailureAlert(row, now);
-      if (claim === "suppressed") {
-        suppressed += 1;
+    try {
+      if (row.failure_alert_state === "evaluating") {
+        const claim = await claimEvaluatingFailureAlert(row, now);
+        if (claim === "suppressed") {
+          suppressed += 1;
+          continue;
+        }
+        if (claim === "lost") continue;
+      } else if (!(await claimPendingFailureAlert(row, now))) {
         continue;
       }
-      if (claim === "lost") continue;
-    } else if (!(await claimPendingFailureAlert(row, now))) {
+    } catch {
+      console.warn("[automations] Failure alert claim failed.");
+      deferred += 1;
       continue;
-    }
-
-    const email = stringifyValue(row.notification_email);
-    const appId = row.app_id == null ? null : stringifyValue(row.app_id);
-    let unsubscribeToken: string;
-    if (row.failure_alert_unsubscribe_token) {
-      unsubscribeToken = decryptSecretValue(
-        stringifyValue(row.failure_alert_unsubscribe_token),
-      );
-    } else {
-      unsubscribeToken = createAutomationFailureUnsubscribeToken(email, appId);
-      await db.execute({
-        sql: `UPDATE ${TABLE} SET failure_alert_unsubscribe_token = ?
-              WHERE id = ? AND failure_alert_unsubscribe_token IS NULL`,
-        args: [encryptSecretValue(unsubscribeToken), id],
-      });
     }
 
     const attempt = Number(row.failure_alert_attempts ?? 0) + 1;
@@ -651,50 +654,88 @@ export async function processPendingAutomationFailureAlerts(options?: {
         ? null
         : Number(row.failure_alert_first_attempt_at);
     attempted += 1;
-    const outcome = await sendAutomationFailureNotification(
-      {
-        email,
-        appId,
-        automation: stringifyValue(row.automation),
-        path: stringifyValue(row.path),
-        orgId: row.org_id == null ? null : stringifyValue(row.org_id),
-        status: row.status === "interrupted" ? "interrupted" : "error",
-        error: row.error == null ? null : stringifyValue(row.error),
-        errorCode:
-          row.error_code == null ? null : stringifyValue(row.error_code),
-        idempotencyKey: `automation-failure:${id}`,
-        unsubscribeToken,
-      },
-      {
-        onProviderReady: async (nextProvider) => {
-          if (provider && provider !== nextProvider) return false;
-          const readyAt = Date.now();
-          const nextFirstAttemptAt =
-            nextProvider === "resend"
-              ? (firstAttemptAt ?? readyAt)
-              : firstAttemptAt;
-          const recorded = await db.execute({
-            sql: `UPDATE ${TABLE}
-                  SET failure_alert_provider = ?, failure_alert_first_attempt_at = ?
-                  WHERE id = ? AND failure_alert_state = 'sending'
-                    AND failure_alert_claimed_at = ?`,
-            args: [nextProvider, nextFirstAttemptAt, id, now],
-          });
-          if (Number(recorded.rowsAffected ?? 0) === 0) return false;
-          provider = nextProvider;
-          firstAttemptAt = nextFirstAttemptAt;
-          return true;
+    const email = stringifyValue(row.notification_email);
+    const appId = row.app_id == null ? null : stringifyValue(row.app_id);
+    let outcome: Awaited<ReturnType<typeof sendAutomationFailureNotification>>;
+    try {
+      let unsubscribeToken: string;
+      if (row.failure_alert_unsubscribe_token) {
+        unsubscribeToken = decryptSecretValue(
+          stringifyValue(row.failure_alert_unsubscribe_token),
+        );
+      } else {
+        unsubscribeToken = createAutomationFailureUnsubscribeToken(
+          email,
+          appId,
+        );
+        await db.execute({
+          sql: `UPDATE ${TABLE} SET failure_alert_unsubscribe_token = ?
+                WHERE id = ? AND failure_alert_unsubscribe_token IS NULL`,
+          args: [encryptSecretValue(unsubscribeToken), id],
+        });
+      }
+
+      outcome = await sendAutomationFailureNotification(
+        {
+          email,
+          appId,
+          automation: stringifyValue(row.automation),
+          path: stringifyValue(row.path),
+          orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+          status: row.status === "interrupted" ? "interrupted" : "error",
+          error: row.error == null ? null : stringifyValue(row.error),
+          errorCode:
+            row.error_code == null ? null : stringifyValue(row.error_code),
+          idempotencyKey: `automation-failure:${id}`,
+          unsubscribeToken,
         },
-      },
-    );
-    await setFailureAlertOutcome(
-      id,
-      outcome.status,
-      attempt,
-      "provider" in outcome ? outcome.provider : provider,
-      firstAttemptAt,
-      Date.now(),
-    );
+        {
+          onProviderReady: async (nextProvider) => {
+            if (provider && provider !== nextProvider) return false;
+            const readyAt = Date.now();
+            const nextFirstAttemptAt =
+              nextProvider === "resend"
+                ? (firstAttemptAt ?? readyAt)
+                : firstAttemptAt;
+            const recorded = await db.execute({
+              sql: `UPDATE ${TABLE}
+                    SET failure_alert_provider = ?, failure_alert_first_attempt_at = ?
+                    WHERE id = ? AND failure_alert_state = 'sending'
+                      AND failure_alert_claimed_at = ?`,
+              args: [nextProvider, nextFirstAttemptAt, id, now],
+            });
+            if (Number(recorded.rowsAffected ?? 0) === 0) return false;
+            provider = nextProvider;
+            firstAttemptAt = nextFirstAttemptAt;
+            return true;
+          },
+        },
+      );
+    } catch {
+      console.warn("[automations] Failure alert processing failed.");
+      outcome =
+        provider === "sendgrid"
+          ? { status: "uncertain", provider }
+          : provider === "resend"
+            ? { status: "retry", provider }
+            : { status: "not-ready" };
+    }
+
+    try {
+      await setFailureAlertOutcome(
+        id,
+        outcome.status,
+        attempt,
+        "provider" in outcome ? outcome.provider : provider,
+        firstAttemptAt,
+        Date.now(),
+        now,
+      );
+    } catch {
+      console.warn("[automations] Failure alert state update failed.");
+      deferred += 1;
+      continue;
+    }
     if (outcome.status === "sent") delivered += 1;
     else if (outcome.status === "suppressed") suppressed += 1;
     else if (outcome.status === "uncertain") uncertain += 1;

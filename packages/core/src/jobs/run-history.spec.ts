@@ -411,6 +411,35 @@ describe("automation run history", () => {
       }),
       expect.objectContaining({ onProviderReady: expect.any(Function) }),
     );
+    const claim = executeMock.mock.calls
+      .map(([input]) => input)
+      .find(
+        (input) =>
+          typeof input === "object" &&
+          input.sql.includes("SET failure_alert_state = 'sending'"),
+      );
+    const outcome = executeMock.mock.calls
+      .map(([input]) => input)
+      .find(
+        (input) =>
+          typeof input === "object" &&
+          input.sql.includes("SET failure_alert_state = ?"),
+      );
+    expect(outcome.sql).toContain("AND failure_alert_claimed_at = ?");
+    expect(outcome.args[3]).toBe(claim.args[0]);
+  });
+
+  it("enforces the attempt budget while recovering an expired lease", async () => {
+    await processPendingAutomationFailureAlerts();
+
+    const recovery = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(recovery.sql).toContain("failure_alert_attempts >= ?");
+    expect(recovery.sql).toContain("failure_alert_attempts < ?");
+    expect(recovery.args[0]).toBe(12);
+    expect(recovery.args[2]).toBe(12);
   });
 
   it("keeps a failed first delivery queued for a later sweep", async () => {
@@ -484,6 +513,57 @@ describe("automation run history", () => {
     expect(finish.sql).toContain("SET failure_alert_state = ?");
     expect(finish.args[0]).toBe("failed");
     expect(finish.args[1]).toBeNull();
+  });
+
+  it("continues sweeping after one alert delivery throws", async () => {
+    sendAutomationFailureNotificationMock.mockRejectedValueOnce(
+      new Error("provider request failed"),
+    );
+    executeMock
+      .mockResolvedValueOnce({ rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [
+          row({
+            id: "run-1",
+            status: "error",
+            failure_alerted: 1,
+            failure_alert_state: "pending",
+            failure_alert_attempts: 1,
+            failure_alert_next_attempt_at: Date.now() - 1,
+            failure_alert_unsubscribe_token: "sealed:unsubscribe-token",
+          }),
+          row({
+            id: "run-2",
+            status: "error",
+            failure_alerted: 1,
+            failure_alert_state: "pending",
+            failure_alert_attempts: 1,
+            failure_alert_next_attempt_at: Date.now() - 1,
+            failure_alert_unsubscribe_token: "sealed:unsubscribe-token",
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    const result = await processPendingAutomationFailureAlerts();
+
+    expect(result).toMatchObject({ attempted: 2, deferred: 1, delivered: 1 });
+    expect(sendAutomationFailureNotificationMock).toHaveBeenCalledTimes(2);
+    const outcomes = executeMock.mock.calls
+      .map(([input]) => input)
+      .filter(
+        (input) =>
+          typeof input === "object" &&
+          input.sql.includes("SET failure_alert_state = ?"),
+      );
+    expect(outcomes.map((outcome) => outcome.args[2])).toEqual([
+      "run-1",
+      "run-2",
+    ]);
   });
 
   it("keeps an ambiguous SendGrid delivery from being resent", async () => {
