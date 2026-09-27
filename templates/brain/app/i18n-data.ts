@@ -513,15 +513,6 @@ const enUS = {
     reviewRequired: "Review required",
     reviewRequiredDescription: "Queue extracted knowledge before approval",
     cancel: "Cancel",
-    close: "Close",
-    checkBuilder: "Check Builder embeddings",
-    checkBuilderDescription:
-      "Verify Builder with one synthetic request. No source content is sent or indexed.",
-    checkBuilderConfirm:
-      "Run one synthetic Builder embedding request for {{source}}? This may incur provider usage. No source content is sent, and the vector is not stored.",
-    runBuilderCheck: "Run one check",
-    checkBuilderSuccess:
-      "Builder check passed: {{provider}} / {{model}}, {{dimensions}} dimensions. No vector was stored.",
     saveSource: "Save source",
     createSource: "Create source",
     retryAfter: "Retry after {{date}}",
@@ -1055,15 +1046,6 @@ const baseMessagesByLocale = {
       provider: "提供方",
       notRequired: "不需要",
       cancel: "取消",
-      close: "关闭",
-      checkBuilder: "检查 Builder 嵌入服务",
-      checkBuilderDescription:
-        "发送一次模拟请求以验证 Builder。不会发送或索引来源内容。",
-      checkBuilderConfirm:
-        "要为 {{source}} 发送一次模拟的 Builder 嵌入请求吗？这可能产生服务费用。不会发送来源内容，也不会保存向量。",
-      runBuilderCheck: "运行一次检查",
-      checkBuilderSuccess:
-        "Builder 检查通过：{{provider}} / {{model}}，{{dimensions}} 维。未保存向量。",
       saveSource: "保存来源",
       createSource: "创建来源",
       retryAfter: "{{date}} 后重试",
@@ -1290,15 +1272,6 @@ const baseMessagesByLocale = {
       provider: "Proveedor",
       notRequired: "No requerido",
       cancel: "Cancelar",
-      close: "Cerrar",
-      checkBuilder: "Comprobar embeddings de Builder",
-      checkBuilderDescription:
-        "Verifica Builder con una solicitud de prueba. No se envía ni indexa contenido de la fuente.",
-      checkBuilderConfirm:
-        "¿Enviar una solicitud de prueba de embeddings de Builder para {{source}}? Puede generar costes del proveedor. No se envía contenido de la fuente ni se guarda el vector.",
-      runBuilderCheck: "Realizar una comprobación",
-      checkBuilderSuccess:
-        "Comprobación de Builder correcta: {{provider}} / {{model}}, {{dimensions}} dimensiones. No se guardó ningún vector.",
       saveSource: "Guardar fuente",
       createSource: "Crear fuente",
       retryAfter: "Reintentar después de {{date}}",
@@ -1535,15 +1508,6 @@ const baseMessagesByLocale = {
       provider: "Fournisseur",
       notRequired: "Non requis",
       cancel: "Annuler",
-      close: "Fermer",
-      checkBuilder: "Vérifier les embeddings Builder",
-      checkBuilderDescription:
-        "Vérifiez Builder avec une seule requête de test. Aucun contenu de la source n'est envoyé ni indexé.",
-      checkBuilderConfirm:
-        "Envoyer une requête de test d'embedding Builder pour {{source}} ? Cela peut entraîner des frais du fournisseur. Aucun contenu de la source n'est envoyé et le vecteur n'est pas stocké.",
-      runBuilderCheck: "Lancer une vérification",
-      checkBuilderSuccess:
-        "Vérification Builder réussie : {{provider}} / {{model}}, {{dimensions}} dimensions. Aucun vecteur n'a été stocké.",
       saveSource: "Enregistrer la source",
       createSource: "Créer une source",
       retryAfter: "Réessayer après {{date}}",
@@ -1780,15 +1744,6 @@ const baseMessagesByLocale = {
       provider: "Anbieter",
       notRequired: "Nicht erforderlich",
       cancel: "Abbrechen",
-      close: "Schließen",
-      checkBuilder: "Builder-Embeddings prüfen",
-      checkBuilderDescription:
-        "Builder mit einer Testanfrage prüfen. Quellinhalte werden weder gesendet noch indexiert.",
-      checkBuilderConfirm:
-        "Eine Testanfrage für Builder-Embeddings zu {{source}} senden? Dabei können Anbietergebühren anfallen. Quellinhalte werden nicht gesendet und der Vektor wird nicht gespeichert.",
-      runBuilderCheck: "Einmal prüfen",
-      checkBuilderSuccess:
-        "Builder-Prüfung erfolgreich: {{provider}} / {{model}}, {{dimensions}} Dimensionen. Kein Vektor wurde gespeichert.",
       saveSource: "Quelle speichern",
       createSource: "Quelle erstellen",
       retryAfter: "Erneut versuchen nach {{date}}",
@@ -2019,15 +1974,6 @@ const baseMessagesByLocale = {
       provider: "プロバイダー",
       notRequired: "不要",
       cancel: "キャンセル",
-      close: "閉じる",
-      checkBuilder: "Builder の埋め込みを確認",
-      checkBuilderDescription:
-        "テスト用のリクエストを 1 回送信して Builder を確認します。ソースの内容は送信もインデックス登録もされません。",
-      checkBuilderConfirm:
-        "{{source}} に対して Builder の埋め込みテストリクエストを 1 回送信しますか？プロバイダーの利用料金が発生する場合があります。ソースの内容は送信されず、ベクトルも保存されません。",
-      runBuilderCheck: "1 回確認する",
-      checkBuilderSuccess:
-        "Builder の確認に成功しました: {{provider}} / {{model}}、{{dimensions}} 次元。ベクトルは保存されていません。",
       saveSource: "ソースを保存",
       createSource: "ソースを作成",
       retryAfter: "{{date}} 後に再試行",
@@ -2258,15 +2204,6 @@ const baseMessagesByLocale = {
       provider: "제공자",
       notRequired: "필요 없음",
       cancel: "취소",
-      close: "닫기",
-      checkBuilder: "Builder 임베딩 확인",
-      checkBuilderDescription:
-        "테스트 요청 한 번으로 Builder를 확인합니다. 소스 내용은 전송하거나 인덱싱하지 않습니다.",
-      checkBuilderConfirm:
-        "{{source}}에 대해 Builder 임베딩 테스트 요청을 한 번 보내시겠습니까? 제공업체 사용 요금이 발생할 수 있습니다. 소스 내용은 전송하지 않으며 벡터도 저장하지 않습니다.",
-      runBuilderCheck: "한 번 확인하기",
-      checkBuilderSuccess:
-        "Builder 확인 성공: {{provider}} / {{model}}, {{dimensions}}차원. 벡터는 저장되지 않았습니다.",
       saveSource: "소스 저장",
       createSource: "소스 만들기",
       retryAfter: "{{date}} 후 다시 시도",
@@ -2497,15 +2434,6 @@ const baseMessagesByLocale = {
       provider: "Provedor",
       notRequired: "Não obrigatório",
       cancel: "Cancelar",
-      close: "Fechar",
-      checkBuilder: "Verificar embeddings do Builder",
-      checkBuilderDescription:
-        "Verifique o Builder com uma solicitação de teste. O conteúdo da fonte não é enviado nem indexado.",
-      checkBuilderConfirm:
-        "Enviar uma solicitação de teste de embeddings do Builder para {{source}}? Isso pode gerar custos do provedor. O conteúdo da fonte não é enviado e o vetor não é armazenado.",
-      runBuilderCheck: "Executar uma verificação",
-      checkBuilderSuccess:
-        "Verificação do Builder concluída: {{provider}} / {{model}}, {{dimensions}} dimensões. Nenhum vetor foi armazenado.",
       saveSource: "Salvar fonte",
       createSource: "Criar fonte",
       retryAfter: "Tentar novamente após {{date}}",
@@ -2740,15 +2668,6 @@ const baseMessagesByLocale = {
       provider: "प्रदाता",
       notRequired: "आवश्यक नहीं",
       cancel: "रद्द करें",
-      close: "बंद करें",
-      checkBuilder: "Builder एम्बेडिंग जाँचें",
-      checkBuilderDescription:
-        "एक परीक्षण अनुरोध से Builder की जाँच करें। स्रोत की सामग्री भेजी या इंडेक्स नहीं की जाती।",
-      checkBuilderConfirm:
-        "{{source}} के लिए Builder एम्बेडिंग का एक परीक्षण अनुरोध भेजें? प्रदाता का शुल्क लग सकता है। स्रोत की सामग्री नहीं भेजी जाएगी और वेक्टर सहेजा नहीं जाएगा।",
-      runBuilderCheck: "एक बार जाँचें",
-      checkBuilderSuccess:
-        "Builder जाँच सफल: {{provider}} / {{model}}, {{dimensions}} आयाम। कोई वेक्टर सहेजा नहीं गया।",
       saveSource: "स्रोत सहेजें",
       createSource: "स्रोत बनाएं",
       retryAfter: "{{date}} के बाद फिर कोशिश करें",
@@ -2977,15 +2896,6 @@ const baseMessagesByLocale = {
       provider: "المزوّد",
       notRequired: "غير مطلوب",
       cancel: "إلغاء",
-      close: "إغلاق",
-      checkBuilder: "التحقق من تضمينات Builder",
-      checkBuilderDescription:
-        "تحقّق من Builder بطلب اختباري واحد. لن يُرسل محتوى المصدر أو يُفهرس.",
-      checkBuilderConfirm:
-        "هل تريد إرسال طلب اختباري واحد لتضمينات Builder من أجل {{source}}؟ قد تترتب رسوم من المزوّد. لن يُرسل محتوى المصدر ولن يُحفظ المتجه.",
-      runBuilderCheck: "إجراء تحقق واحد",
-      checkBuilderSuccess:
-        "نجح التحقق من Builder: {{provider}} / {{model}}، {{dimensions}} بُعدًا. لم يُحفظ أي متجه.",
       saveSource: "حفظ المصدر",
       createSource: "إنشاء مصدر",
       retryAfter: "إعادة المحاولة بعد {{date}}",
