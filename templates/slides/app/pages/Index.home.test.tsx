@@ -127,7 +127,12 @@ const translate = (key: string) =>
   })[key] ?? key;
 
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
+vi.mock("@agent-native/core/client/notifications", () => ({
+  NotificationsBell: () => null,
+}));
+vi.mock("@agent-native/core/client/progress", () => ({ RunsTray: () => null }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  AgentToggleButton: () => null,
   BuilderSetupCard: ({
     bouncePulse = 0,
     onConnected,
@@ -183,11 +188,12 @@ vi.mock("@agent-native/core/client/ui", () => ({
 }));
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
   const { useEffect } = await import("react");
+  const appShell =
+    await importOriginal<typeof import("@agent-native/toolkit/app-shell")>();
   return {
-    ...(await importOriginal<
-      typeof import("@agent-native/toolkit/app-shell")
-    >()),
-    useHomeSearchShortcut: vi.fn(),
+    ...appShell,
+    useHeaderActions: () => headerActions.current,
+    useHeaderTitle: () => pageTitle.current,
     useSetHeaderActions: (actions: ReactNode) => {
       useEffect(() => {
         headerActions.current = actions;
@@ -307,6 +313,7 @@ vi.mock("@/components/editor/PromptDialog", () => ({
   },
 }));
 
+import { Header } from "@/components/layout/Header";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import Index from "./Index";
@@ -679,14 +686,32 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
-    const header = render(
-      (headerActions.current as ReactElement<{ search: ReactNode }>).props
-        .search,
+    const mountedHeader = render(
+      <MemoryRouter initialEntries={["/home"]}>
+        <Header />
+      </MemoryRouter>,
     );
-    expect(
-      within(header.container).getByRole("searchbox", { name: "Search decks" }),
-    ).toBeTruthy();
-    header.unmount();
+    const search = within(mountedHeader.container).getByRole("searchbox", {
+      name: "Search decks",
+    });
+    Object.defineProperty(search, "getClientRects", {
+      value: () => [{ width: 100, height: 32 }],
+    });
+    for (const candidate of document.querySelectorAll<HTMLInputElement>(
+      "[data-home-search]",
+    )) {
+      if (candidate === search) continue;
+      Object.defineProperty(candidate, "getClientRects", { value: () => [] });
+    }
+    const slash = new KeyboardEvent("keydown", {
+      key: "/",
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(slash);
+    expect(slash.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(search);
+    mountedHeader.unmount();
     expect(
       screen.getByRole("link", { name: /browse all/i }).getAttribute("href"),
     ).toBe("/templates");
