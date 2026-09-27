@@ -259,6 +259,30 @@ describe("in-place text session: entering and ending", () => {
     expect(el.outerHTML).toBe(before);
   });
 
+  it("restores the start bytes when Chrome rewrites a space as a no-break space", () => {
+    vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent ?? "";
+      },
+    );
+    const el = mount('<p id="t">Alpha beta</p>');
+    const before = el.outerHTML;
+    session = startInPlaceTextSession(el);
+    const original = textOf(el, "Alpha beta");
+    caret(original, 6);
+    type(el, "x");
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      false,
+    );
+    const typed = textOf(el, "Alpha xbeta");
+    typed.deleteData(6, 1);
+    typed.data = typed.data.replace(" ", "\u00a0");
+
+    expect(session.changed).toBe(false);
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
   it("keeps an author zero-width space when Chrome replaced its text node", () => {
     const el = mount(`<div id="t" class="box">${ZWSP}</div>`);
     const before = el.outerHTML;

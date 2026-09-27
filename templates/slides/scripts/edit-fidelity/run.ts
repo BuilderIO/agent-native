@@ -47,6 +47,7 @@ import {
   orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
+  resized,
   restyledAddedText,
   slideContentsOf,
   stripSpace,
@@ -815,12 +816,6 @@ function summarizeStyle(d: StyleDiff): StyleSummary {
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Unknown rects count as unchanged, so the strict check still runs. */
-const resized = (a: Rect | null, b: Rect | null) =>
-  !!a &&
-  !!b &&
-  (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1);
 
 interface SlideCtx {
   page: Page;

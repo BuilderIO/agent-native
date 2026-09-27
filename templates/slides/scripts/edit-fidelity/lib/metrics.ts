@@ -102,6 +102,10 @@ export function padRect(r: Rect, pad = 4): Rect {
   };
 }
 
+/** Unknown rects cannot waive the outside-pixel check. */
+export const resized = (a: Rect | null, b: Rect | null) =>
+  !!a && !!b && (a.width !== b.width || a.height !== b.height);
+
 // ---------------------------------------------------------------- styles ---
 
 export interface StyleDelta {

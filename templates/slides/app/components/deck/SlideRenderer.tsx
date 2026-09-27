@@ -440,6 +440,7 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
+    let editingMarkup: string | null = null;
     // Measuring costs a full-document reflow per slide (every descendant is
     // read with getBoundingClientRect, interleaved with style writes). A deck
     // with dozens of slides mounts that many renderers at once, so off-screen
@@ -477,6 +478,12 @@ function useSlideAutofit(
       if (disposed) return;
 
       const isEditing = !!root.querySelector('[contenteditable="true"]');
+      const currentEditingMarkup = isEditing ? root.innerHTML : null;
+      const shouldMeasureEditedMarkup =
+        isEditing &&
+        editingMarkup !== null &&
+        currentEditingMarkup !== editingMarkup;
+      editingMarkup = currentEditingMarkup;
       const rawTargets = ensureRawHtmlFitLayers(root);
       const targets =
         rawTargets.length > 0
@@ -488,12 +495,8 @@ function useSlideAutofit(
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
-        if (isEditing) {
-          // Entering inline edit must not change the canvas geometry. The
-          // contenteditable attribute is observed below, so resetting the fit
-          // transform here made a horizontally fitted slide jump as soon as a
-          // user clicked its text. Freeze the most recent fit until the edit
-          // commits, then measure the saved HTML again.
+        if (isEditing && !shouldMeasureEditedMarkup) {
+          // Keep the transform on entry, then fit changed markup before exit.
           continue;
         }
 
@@ -577,6 +580,7 @@ function useSlideAutofit(
     const mutationObserver = new MutationObserver(scheduleMeasure);
     mutationObserver.observe(root, {
       attributes: true,
+      characterData: true,
       childList: true,
       subtree: true,
       attributeFilter: ["contenteditable", "class", "src"],

@@ -2043,10 +2043,9 @@ export function startInPlaceTextSession(
   }
 
   /**
-   * Chrome's native typing deletes collapsed whitespace (source indentation)
-   * next to the caret and can replace a text node, so typing and deleting back
-   * is not byte-identical on its own. An edit whose net effect is invisible is
-   * no edit: `end()` restores the exact start bytes, so nothing is written.
+   * Chrome's native typing deletes collapsed whitespace next to the caret or
+   * turns a space into a no-break space. An invisible edit is no edit: end()
+   * restores the exact start bytes, so nothing is written.
    */
   function hasVisibleChange() {
     if (el.innerHTML === startHtml) return false;
@@ -2060,12 +2059,16 @@ export function startInPlaceTextSession(
       }
     }
     const squash = (value: string) =>
-      value.replace(/\s+/g, "").replaceAll(ZERO_WIDTH_SPACE, "");
+      value
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, "")
+        .replaceAll(ZERO_WIDTH_SPACE, "");
+    const comparableText = (value: string) =>
+      value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
     return (
       el !== element ||
       squash(live.innerHTML) !== squash(startHtml) ||
-      el.innerText.replaceAll(ZERO_WIDTH_SPACE, "") !==
-        startText.replaceAll(ZERO_WIDTH_SPACE, "")
+      comparableText(el.innerText) !== comparableText(startText)
     );
   }
 

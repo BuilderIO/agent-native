@@ -12,6 +12,7 @@ import {
   lineDiff,
   orphanedBaselineKeys,
   ratchetBaselineEntry,
+  resized,
   restyledAddedText,
   toBaselineEntry,
   type BaselineEntry,
@@ -53,6 +54,16 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
   hardFailures: 0,
   violations: 0,
   ...over,
+});
+
+describe("resized", () => {
+  it("recognizes a one-pixel growth so outside pixels can be attributed to the edit", () => {
+    const before = { ...rect, height: 138 };
+    expect(resized(before, before)).toBe(false);
+    expect(resized(before, { ...before, height: 139 })).toBe(true);
+    expect(resized(before, { ...before, width: 101 })).toBe(true);
+    expect(resized(null, rect)).toBe(false);
+  });
 });
 
 describe("diffSnapshots", () => {

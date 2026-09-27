@@ -586,6 +586,9 @@ describe("SlideInner autofit", () => {
         ) {
           return rect(110, 80, 740, 380);
         }
+        if (this.textContent?.includes("Expanded")) {
+          return rect(110, 80, 1200, 500);
+        }
         if (this.textContent?.includes("Horizontally fitted")) {
           return rect(110, 80, 1000, 500);
         }
@@ -900,6 +903,45 @@ describe("SlideInner autofit", () => {
     // the pre-edit transform rather than reset to 1 and visibly shift content.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+  });
+
+  it("updates the fit during an edit before the editor exits", async () => {
+    const slide: Slide = {
+      id: "raw-editing-growth",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Horizontally fitted title</h2></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fitLayer = await waitFor(() => {
+      const layer = document.querySelector<HTMLElement>(
+        "[data-fmd-autofit-content]",
+      );
+      expect(layer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+      return layer;
+    });
+    const heading = fitLayer?.querySelector<HTMLElement>("h2");
+    expect(heading?.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    heading!.contentEditable = "true";
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+
+    heading!.firstChild!.textContent = "Horizontally fitted title Expanded";
+    const editedScale = await waitFor(() => {
+      const scale = fitLayer?.style.getPropertyValue("--fmd-fit-scale");
+      expect(scale).not.toBe("0.74");
+      return scale;
+    });
+
+    heading!.contentEditable = "false";
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe(
+      editedScale,
+    );
   });
 
   it("keeps the live edit node on a mermaid slide across re-renders", () => {
