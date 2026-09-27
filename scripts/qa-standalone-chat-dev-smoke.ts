@@ -81,6 +81,8 @@ const acceptanceActionFixtures = [
     "response-insights",
     "query-agent-native-analytics",
     "create-event",
+    "find-a-time",
+    "create-booking-link",
   ].map((name) => ({
     name,
     source: path.join(
@@ -1304,8 +1306,10 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
-const widgetPrompt =
-  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, and Calendar event in that order, then summarize them.";
+const widgetFirstBatchPrompt =
+  "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
+const widgetSecondBatchPrompt =
+  "Render the sample booking link, then summarize it.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
 const rejectedSteerPrompt =
@@ -1361,6 +1365,28 @@ const widgetToolCalls: Array<{
       startTimeZone: "America/Los_Angeles",
       location: "Conference room 4A",
     },
+  },
+  {
+    id: "call_agentkit_widget_calendar_time_choice",
+    name: "find-a-time",
+    arguments: { date: "2026-04-23" },
+  },
+  {
+    id: "call_agentkit_widget_calendar_booking_link",
+    name: "create-booking-link",
+    arguments: { duration: 30 },
+  },
+];
+const widgetActionBatches = [
+  {
+    prompt: widgetFirstBatchPrompt,
+    calls: widgetToolCalls.slice(0, 6),
+    response: "The first six local sample widgets are ready.",
+  },
+  {
+    prompt: widgetSecondBatchPrompt,
+    calls: widgetToolCalls.slice(6),
+    response: "All seven local sample widgets are ready.",
   },
 ];
 
@@ -1637,22 +1663,27 @@ async function handleLoopbackCompletion(
     return;
   }
 
-  if (prompt === widgetPrompt) {
-    for (const call of widgetToolCalls) {
+  const widgetBatch = widgetActionBatches.find(
+    (batch) => batch.prompt === prompt,
+  );
+  if (widgetBatch) {
+    for (const call of widgetBatch.calls) {
       assert.ok(
         toolNames.includes(call.name),
         `generated app must expose ${call.name}`,
       );
     }
     const completedCallIds = toolResultIds.filter((id) =>
-      widgetToolCalls.some((call) => call.id === id),
+      widgetBatch.calls.some((call) => call.id === id),
     );
     assert.deepEqual(
       completedCallIds,
-      widgetToolCalls.slice(0, completedCallIds.length).map((call) => call.id),
+      widgetBatch.calls
+        .slice(0, completedCallIds.length)
+        .map((call) => call.id),
       "sample widget actions must complete in the requested order",
     );
-    const nextCall = widgetToolCalls[completedCallIds.length];
+    const nextCall = widgetBatch.calls[completedCallIds.length];
     if (nextCall) {
       state.widgetToolCallIds.push(nextCall.id);
       await streamToolCallResponse(response, requestNumber, nextCall);
@@ -1660,7 +1691,7 @@ async function handleLoopbackCompletion(
     }
 
     state.widgetActionResults.push(
-      ...widgetToolCalls.map((call) => {
+      ...widgetBatch.calls.map((call) => {
         const result = toolResults.find(
           (item) => item.tool_call_id === call.id,
         );
@@ -1673,10 +1704,11 @@ async function handleLoopbackCompletion(
     await streamTextResponse(
       response,
       requestNumber,
-      ["All five local sample widgets are ready."],
+      [widgetBatch.response],
       state,
     );
-    state.widgetRunCompleted = true;
+    state.widgetRunCompleted =
+      state.widgetActionResults.length === widgetToolCalls.length;
     return;
   }
 
@@ -2228,16 +2260,16 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByText("agentkit-recipient@example.test", { exact: false })
     .waitFor({ state: "visible" });
   const draftLink = draftCard.getByRole("link", {
-    name: "Review",
+    name: "Review / edit",
     exact: true,
   });
   await draftLink.waitFor({ state: "visible" });
   assert.equal(
     new URL((await draftLink.getAttribute("href")) ?? "", page.url()).pathname,
     "/_agent-native/open",
-    "the draft widget must keep its Review link",
+    "the draft widget must keep its review and edit link",
   );
-  await draftCard.getByText("Draft", { exact: true }).waitFor({
+  await draftCard.getByText("Awaiting review", { exact: true }).waitFor({
     state: "visible",
   });
 
@@ -2274,6 +2306,33 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
   await eventCard.getByText("Conference room 4A", { exact: false }).waitFor({
+    state: "visible",
+  });
+
+  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  const timeChoiceCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "Best shared time" });
+  await timeChoiceCard.getByText("Suggested", { exact: true }).waitFor({
+    state: "visible",
+  });
+  const useTimeLink = timeChoiceCard.getByRole("link", {
+    name: "Use this time",
+    exact: true,
+  });
+  await useTimeLink.waitFor({ state: "visible" });
+  assert.equal(
+    new URL((await useTimeLink.getAttribute("href")) ?? "", page.url())
+      .pathname,
+    "/_agent-native/open",
+    "the time-choice widget must open its Calendar draft link",
+  );
+
+  await assertActionWidgetOutsideActivity(page, "Booking link");
+  const bookingLinkCard = page
+    .locator("[data-action-card]")
+    .filter({ hasText: "Booking link" });
+  await bookingLinkCard.getByText("30 min", { exact: true }).waitFor({
     state: "visible",
   });
 }
@@ -2652,20 +2711,32 @@ async function assertAgentKitChatAcceptance(
   await page.setViewportSize({ width: 1280, height: 900 });
   await setDarkMode(page, false);
 
-  await fillAndSubmitComposer(page, widgetPrompt);
-  await waitForLoopbackState(
-    "sequential completion of all five sample widget actions",
-    () => provider.widgetRunCompleted,
-    30_000,
-  );
+  for (const [index, batch] of widgetActionBatches.entries()) {
+    await fillAndSubmitComposer(page, batch.prompt);
+    const completedActionCount = widgetActionBatches
+      .slice(0, index + 1)
+      .reduce((total, current) => total + current.calls.length, 0);
+    await waitForLoopbackState(
+      `sequential completion of sample widget batch ${index + 1}`,
+      () => provider.widgetActionResults.length >= completedActionCount,
+      30_000,
+    );
+    assert.deepEqual(
+      provider.widgetToolCallIds,
+      widgetActionBatches
+        .slice(0, index + 1)
+        .flatMap((current) => current.calls.map((call) => call.id)),
+      "sample widget actions must complete sequentially within each batch",
+    );
+  }
   assert.deepEqual(
     provider.widgetToolCallIds,
     widgetToolCalls.map((call) => call.id),
-    "one AgentKit run must call each sample action sequentially",
+    "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
   await page
-    .getByText("All five local sample widgets are ready.", { exact: true })
+    .getByText("All seven local sample widgets are ready.", { exact: true })
     .waitFor({ state: "visible" });
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
@@ -2754,6 +2825,8 @@ async function assertAgentKitChatAcceptance(
     ["AgentKit sample form insights", "agentkit-forms-data-widget-history.png"],
     ["Sample analytics table", "agentkit-analytics-table-widget-history.png"],
     ["AgentKit acceptance event", "agentkit-calendar-event-widget-history.png"],
+    ["Best shared time", "agentkit-calendar-time-choice-widget-history.png"],
+    ["Booking link", "agentkit-calendar-booking-link-widget-history.png"],
   ]) {
     await screenshotActionWidget(
       page,

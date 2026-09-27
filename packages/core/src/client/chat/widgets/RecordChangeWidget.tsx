@@ -20,6 +20,9 @@ import { ActionCard } from "./ActionCard.js";
 const kindIcons = {
   "email-draft": IconMail,
   email: IconMail,
+  "scheduled-email": IconMail,
+  "calendar-time-choice": IconCalendarEvent,
+  "booking-link": IconCalendarEvent,
   "gmail-filter": IconFilter,
   "mail-filter": IconFilter,
   "calendar-event": IconCalendarEvent,
@@ -55,6 +58,16 @@ function undoStateKey(widgetId: string | undefined): string | undefined {
   return widgetId && /^[A-Za-z0-9:_-]{1,200}$/.test(widgetId)
     ? `action-change-undo:${widgetId}`
     : undefined;
+}
+
+function formatScheduledDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(timestamp);
 }
 
 export function ActionCardSkeleton() {
@@ -95,10 +108,38 @@ function ActionChangeCard({
   const status =
     undoState === "undone"
       ? t("agentChat.widget.actionStatus.undone")
-      : change.kind === "email-draft" && change.verb === "created"
-        ? t("agentChat.widget.actionStatus.draft")
-        : t(`agentChat.widget.actionStatus.${change.verb}`);
+      : change.kind === "calendar-time-choice"
+        ? t("agentChat.widget.actionStatus.suggested")
+        : change.kind === "email-draft" && change.verb === "created"
+          ? t("agentChat.widget.actionStatus.draftReview")
+          : t(`agentChat.widget.actionStatus.${change.verb}`);
   const href = safeActionUrl(change.url);
+  const title =
+    change.kind === "calendar-time-choice"
+      ? t("agentChat.widget.actionBestSharedTime")
+      : change.kind === "booking-link" && change.titleIsFallback
+        ? t("agentChat.widget.actionBookingLink")
+        : change.kind === "scheduled-email" && change.titleIsFallback
+          ? t("agentChat.widget.actionScheduledEmail")
+          : change.title;
+  const detail =
+    change.kind === "email-draft" && change.verb === "created"
+      ? change.detail
+        ? t("agentChat.widget.actionDraftSavedDetail", {
+            recipient: change.detail,
+          })
+        : t("agentChat.widget.actionDraftSaved")
+      : change.detail;
+  const formattedDetail =
+    change.kind === "scheduled-email"
+      ? formatScheduledDate(change.detail)
+      : change.kind === "booking-link" &&
+          change.detail &&
+          /^\d+$/.test(change.detail)
+        ? t("agentChat.widget.actionDurationMinutes", {
+            count: Number(change.detail),
+          })
+        : detail;
 
   useEffect(() => {
     if (!stateKey) {
@@ -146,9 +187,11 @@ function ActionChangeCard({
         )}
       >
         {t(
-          change.kind === "email-draft"
-            ? "agentChat.widget.actionReview"
-            : "agentChat.widget.actionOpen",
+          change.kind === "calendar-time-choice"
+            ? "agentChat.widget.actionUseThisTime"
+            : change.kind === "email-draft"
+              ? "agentChat.widget.actionReview"
+              : "agentChat.widget.actionOpen",
         )}
       </a>
     ) : null;
@@ -156,8 +199,8 @@ function ActionChangeCard({
   return (
     <ActionCard
       icon={<Icon aria-hidden="true" className="size-4" />}
-      title={change.title}
-      detail={change.detail}
+      title={title}
+      detail={formattedDetail}
       status={status}
       action={action}
       className={

@@ -172,7 +172,7 @@ describe("scheduled mail actions", () => {
     );
   });
 
-  it("returns a scheduled change after persistence without message content", async () => {
+  it("returns a scheduled confirmation without recipients or body", async () => {
     const runAt = Date.UTC(2027, 0, 3, 4, 5);
     const payload = {
       to: "recipient@example.com",
@@ -205,7 +205,8 @@ describe("scheduled mail actions", () => {
     expect(result.change).toEqual({
       verb: "scheduled",
       kind: "scheduled-email",
-      title: new Date(runAt).toISOString(),
+      title: "Private subject",
+      detail: new Date(runAt).toISOString(),
       url: "/_agent-native/open?app=mail&view=scheduled",
     });
     expect(mocks.buildDeepLink).toHaveBeenCalledWith({
@@ -213,7 +214,7 @@ describe("scheduled mail actions", () => {
       view: "scheduled",
     });
     expect(JSON.stringify(result.change)).not.toContain(payload.to);
-    expect(JSON.stringify(result.change)).not.toContain(payload.subject);
+    expect(JSON.stringify(result.change)).toContain(payload.subject);
     expect(JSON.stringify(result.change)).not.toContain(payload.body);
   });
 

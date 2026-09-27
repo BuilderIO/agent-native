@@ -107,6 +107,11 @@ import {
 } from "@/lib/calendar-event-identity";
 import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
+  calendarSlotDraftId,
+  createOrLoadCalendarSlotDraft,
+  type CalendarSlotPrefill,
+} from "@/lib/calendar-slot-prefill";
+import {
   addCalendarDays,
   dateKeyToDate,
   dateToCalendarDateKey,
@@ -166,7 +171,7 @@ type DraftEventPatch = Partial<CalendarEvent> & {
 };
 
 function safeCalendarDraftId(id: string | undefined): string | null {
-  return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+  return id && /^[a-zA-Z0-9_-]{1,96}$/.test(id) ? id : null;
 }
 
 function calendarDraftEventId(id: string) {
@@ -427,7 +432,11 @@ function deletePersistedCalendarDraft(id: string) {
   ).catch(() => {});
 }
 
-export default function CalendarView() {
+export default function CalendarView({
+  slotPrefill,
+}: {
+  slotPrefill: CalendarSlotPrefill | null;
+}) {
   const t = useT();
   const isMobile = useIsMobile();
   const {
@@ -460,6 +469,7 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const appliedSlotPrefillRef = useRef<string | null>(null);
   const preserveDraftViewRef = useRef(false);
   const committingDraftIdsRef = useRef<Set<string>>(new Set());
   const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
@@ -481,6 +491,41 @@ export default function CalendarView() {
   }, [commandPaletteOpen]);
   const [deleteDialogEvent, setDeleteDialogEvent] =
     useState<CalendarEvent | null>(null);
+
+  useEffect(() => {
+    if (!slotPrefill) {
+      appliedSlotPrefillRef.current = null;
+      return;
+    }
+
+    const prefillKey = `${slotPrefill.start}|${slotPrefill.end}|${slotPrefill.timezone}`;
+    if (appliedSlotPrefillRef.current === prefillKey) return;
+    let cancelled = false;
+    const draftAtStart = eventDraft;
+    const draftId = calendarSlotDraftId(slotPrefill);
+    appliedSlotPrefillRef.current = prefillKey;
+    void createOrLoadCalendarSlotDraft(slotPrefill, draftId)
+      .then((draft) => {
+        if (cancelled || eventDraft !== draftAtStart) return;
+        setEventDraft(draft);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          appliedSlotPrefillRef.current = null;
+          toast.error(t("common.loadFailed"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    setEventDraft,
+    eventDraft,
+    slotPrefill?.end,
+    slotPrefill?.start,
+    slotPrefill?.timezone,
+    t,
+  ]);
 
   useEffect(() => {
     trackEvent("calendar_viewed", {
