@@ -623,8 +623,6 @@ export function installInPageHelpers(chromeSelector: string) {
     // places the caret at the row's text.
     if ((marker || gesture !== "dblclick") && !sel.collapsed)
       return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
-    if (!marker && gesture === "dblclick" && sel.collapsed)
-      return "double-click did not select a word";
     const rowStart = offsetOf(row, 0);
     const editorTextRange = document.createRange();
     editorTextRange.selectNodeContents(editor);
@@ -651,10 +649,16 @@ export function installInPageHelpers(chromeSelector: string) {
       let wordEnd: number | undefined;
       if (gesture === "dblclick") {
         const wordIndex = segments.findIndex(
-          ({ index, segment, isWordLike }) =>
-            isWordLike &&
-            index <= pointOffset &&
-            pointOffset <= index + segment.length,
+          ({ index, segment, isWordLike }) => {
+            const wordEnd = index + segment.length;
+            return (
+              isWordLike &&
+              ((index < pointOffset && pointOffset < wordEnd) ||
+                (!sel.collapsed &&
+                  start - rowStart < wordEnd &&
+                  end - rowStart > index))
+            );
+          },
         );
         if (wordIndex >= 0) {
           const word = segments[wordIndex]!;

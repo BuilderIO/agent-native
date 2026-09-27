@@ -217,10 +217,11 @@ deltas for editing/after, the html diff, and the violation count.
   (a freeform object, an imported text frame) is still the edited element.
   - Every scenario: view→editing outside must be ~0, and after→reload whole
     must be ~0.
-  - Every scenario that edits: typed→after whole must be exactly 0 px. Both
-    shots come from one page load, so no noise floor applies. Leaving edit
-    mode must not change what the editor showed, so a line the save adds or
-    drops, or a style the live element only had while editing, fails here.
+  - Every scenario that edits without resizing the edited element:
+    typed→after whole must be exactly 0 px. Both shots come from one page load,
+    so no noise floor applies. A resized element triggers the renderer's saved-
+    content fit pass on exit; its persistent output must still match after
+    reload, with no stored-content or computed-style changes outside the edit.
   - `noop` / `typedelete` / `clickout`: view→editing and view→after whole
     must be ~0.
   - `append` / `enter3`: view→after outside must be ~0 while the edited

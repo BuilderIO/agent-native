@@ -203,6 +203,28 @@ describe("in-place text session: entering and ending", () => {
     expect(el.outerHTML).toBe(before);
   });
 
+  it("restores the start bytes when editing normalizes a space to NBSP", () => {
+    vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.textContent ?? "";
+      },
+    );
+    const el = mount('<p id="t">Alpha beta</p>');
+    const before = el.outerHTML;
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, 6);
+    type(el, "x");
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      false,
+    );
+    (el.firstChild as Text).deleteData(6, 1);
+    (el.firstChild as Text).data = "Alpha\u00a0beta";
+    expect(session.changed).toBe(false);
+    session.end();
+    expect(el.outerHTML).toBe(before);
+  });
+
   it("recreates edited text nodes so Chrome reshapes them, without changing markup", () => {
     const el = mount('<h2 id="t">مراجعة ربع</h2>');
     const before = el.outerHTML;

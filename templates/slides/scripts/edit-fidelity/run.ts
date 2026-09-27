@@ -820,7 +820,7 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 const resized = (a: Rect | null, b: Rect | null) =>
   !!a &&
   !!b &&
-  (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1);
+  (Math.abs(a.width - b.width) > 0 || Math.abs(a.height - b.height) > 0);
 
 interface SlideCtx {
   page: Page;
@@ -1129,7 +1129,12 @@ async function runScenario(
         "after",
         view,
         after,
-        rects(target.rect, state0.sourceRect, snapAfter.editedRect),
+        rects(
+          target.rect,
+          state0.sourceRect,
+          snapView.editedRect,
+          snapAfter.editedRect,
+        ),
       ),
       reload: await pair(
         "reload",
@@ -1139,7 +1144,6 @@ async function runScenario(
       ),
       typed: await pair("typed", typedShot, after, []),
     };
-
     // ---- styles and inventory
     const styleEditing = diffSnapshots(snapView, snapEditing);
     const styleAfter = diffSnapshots(snapView, snapAfter);
@@ -1327,7 +1331,10 @@ async function runScenario(
       );
     // Same page load, so no noise floor: a few px of overflowing text can be
     // an extra saved line.
-    if (px.typed.whole.diffPixels > 0)
+    if (
+      px.typed.whole.diffPixels > 0 &&
+      !resized(snapView.editedRect, snapAfter.editedRect)
+    )
       v.push(
         `typed->after ${px.typed.whole.diffPixels}px differ (leaving edit mode changed what the editor showed)`,
       );

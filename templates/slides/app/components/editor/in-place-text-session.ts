@@ -2060,12 +2060,17 @@ export function startInPlaceTextSession(
       }
     }
     const squash = (value: string) =>
-      value.replace(/\s+/g, "").replaceAll(ZERO_WIDTH_SPACE, "");
+      value
+        .replace(/&nbsp;|&#0*160;|&#x0*a0;/gi, " ")
+        .replace(/\s+/g, "")
+        .replaceAll(ZERO_WIDTH_SPACE, "");
+    // ponytail: NBSP and spaces compare alike here; track explicit NBSP input if the editor needs to preserve that distinction.
+    const text = (value: string) =>
+      value.replaceAll(ZERO_WIDTH_SPACE, "").replaceAll("\u00a0", " ");
     return (
       el !== element ||
       squash(live.innerHTML) !== squash(startHtml) ||
-      el.innerText.replaceAll(ZERO_WIDTH_SPACE, "") !==
-        startText.replaceAll(ZERO_WIDTH_SPACE, "")
+      text(el.innerText) !== text(startText)
     );
   }
 
