@@ -380,7 +380,7 @@ export function BrandingEditor({
                     disabled={disabled || uploading}
                     onClick={() => {
                       if (!storageConfigured) {
-                        promptForStorage();
+                        void promptForStorage();
                         return;
                       }
                       logoUploadInputRef.current?.click();

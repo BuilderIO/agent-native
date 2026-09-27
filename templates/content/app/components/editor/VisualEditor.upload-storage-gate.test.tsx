@@ -126,7 +126,7 @@ describe("VisualEditor upload storage gate", () => {
     vi.unstubAllGlobals();
   });
 
-  async function mount() {
+  async function mount(options: { suggesting?: boolean } = {}) {
     await act(async () => {
       root.render(
         createElement(
@@ -140,6 +140,7 @@ describe("VisualEditor upload storage gate", () => {
               { client: queryClient },
               createElement(VisualEditor, {
                 content: "Keep local text.",
+                suggesting: options.suggesting,
                 onChange: vi.fn(),
               }),
             ),
@@ -231,6 +232,35 @@ describe("VisualEditor upload storage gate", () => {
       lastModified: file.lastModified,
     });
     expect(await uploadedFile.text()).toBe(await file.text());
+  });
+
+  it("does not upload queued media if the editor enters suggesting mode", async () => {
+    const editor = await mount();
+    const file = new File(["image"], "photo.png", { type: "image/png" });
+    const handler = editor.options.editorProps.handleDrop as unknown as (
+      view: typeof editor.view,
+      event: Event,
+    ) => boolean;
+    const event = mediaEvent("drop", file);
+
+    await act(async () => {
+      expect(handler(editor.view, event)).toBe(true);
+    });
+
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: true },
+      refetch: vi.fn(),
+    };
+    await mount({ suggesting: true });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/file-upload"),
+      ),
+    ).toBe(false);
   });
 
   it.each([

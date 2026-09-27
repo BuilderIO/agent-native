@@ -256,6 +256,7 @@ export function ComposerContextMenu({
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
+  const pendingAttachmentRequest = useRef(false);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
     null,
   );
@@ -516,6 +517,11 @@ export function ComposerContextMenu({
           className="w-64"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
+            if (pendingAttachmentRequest.current) {
+              event.preventDefault();
+              pendingAttachmentRequest.current = false;
+              onAttachmentRequest?.();
+            }
             if (pendingDialog.current) {
               event.preventDefault();
               setDialog(pendingDialog.current);
@@ -538,9 +544,13 @@ export function ComposerContextMenu({
                     .includes(query.trim().toLocaleLowerCase()) && (
                     <DropdownMenuItem
                       onSelect={() => {
-                        changeOpen(false);
-                        if (addAttachment) inputRef.current?.click();
-                        else onAttachmentRequest?.();
+                        if (addAttachment) {
+                          changeOpen(false);
+                          inputRef.current?.click();
+                        } else {
+                          pendingAttachmentRequest.current = true;
+                          changeOpen(false);
+                        }
                       }}
                     >
                       <IconFile size={16} />

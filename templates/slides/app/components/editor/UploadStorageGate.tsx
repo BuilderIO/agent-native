@@ -1,4 +1,5 @@
 import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import type { RefObject } from "react";
 import { useEffect } from "react";
 
 export function UploadStorageGate({
@@ -7,12 +8,16 @@ export function UploadStorageGate({
   open,
   onOpenChange,
   onRetry,
+  onConnected,
+  anchorRef,
 }: {
   configured: boolean;
   unavailable: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRetry: () => void;
+  onConnected?: () => void;
+  anchorRef?: RefObject<HTMLElement | null>;
 }) {
   useEffect(() => {
     if (configured && open) onOpenChange(false);
@@ -22,6 +27,8 @@ export function UploadStorageGate({
     <FileStorageSetupPopover
       open
       onOpenChange={onOpenChange}
+      onConnected={onConnected}
+      anchorRef={anchorRef}
       {...(unavailable
         ? { status: "unavailable" as const, onRetry }
         : { status: "missing" as const })}

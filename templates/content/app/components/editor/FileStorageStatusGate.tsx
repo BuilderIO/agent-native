@@ -3,6 +3,7 @@ import type { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useEffect } from "react";
 
 type FileUploadStatus = ReturnType<typeof useFileUploadStatus>;
+type FileStorageSetupCloseReason = "dismiss" | "setup" | "connected";
 
 export function FileStorageStatusGate({
   status,
@@ -11,7 +12,7 @@ export function FileStorageStatusGate({
 }: {
   status: FileUploadStatus;
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: FileStorageSetupCloseReason) => void;
 }) {
   const configured = status.isSuccess && status.data?.configured === true;
   const unknown =
@@ -20,7 +21,7 @@ export function FileStorageStatusGate({
     typeof status.data?.configured !== "boolean";
 
   useEffect(() => {
-    if (configured && open) onOpenChange(false);
+    if (configured && open) onOpenChange(false, "connected");
   }, [configured, onOpenChange, open]);
 
   if (!open || configured) return null;

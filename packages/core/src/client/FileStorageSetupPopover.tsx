@@ -13,10 +13,12 @@ import { BuilderConnectCard } from "./setup-connections/BuilderConnectCard.js";
 
 type FileStorageSetupPopoverCommonProps = {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: FileStorageSetupCloseReason) => void;
   onConnected?: () => void;
   anchorRef?: RefObject<HTMLElement | null>;
 };
+
+export type FileStorageSetupCloseReason = "dismiss" | "setup" | "connected";
 
 export type FileStorageSetupPopoverProps =
   | (FileStorageSetupPopoverCommonProps & {
@@ -28,13 +30,20 @@ export type FileStorageSetupPopoverProps =
       onRetry: () => void;
     });
 
+type VirtualPopoverAnchor =
+  | HTMLElement
+  | { getBoundingClientRect: () => DOMRect };
+
 /** Show storage setup only from an upload attempt, anchored to that control. */
 export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   const { open, onOpenChange, onConnected, anchorRef } = props;
   const status = props.status ?? "missing";
   const onRetry = props.status === "unavailable" ? props.onRetry : undefined;
   const t = useT();
-  const virtualAnchorRef = useRef<HTMLElement>(null!);
+  const virtualAnchorRef = useRef<VirtualPopoverAnchor>({
+    getBoundingClientRect: () =>
+      new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0),
+  });
 
   if (open && typeof document !== "undefined") {
     const focusedElement =
@@ -42,18 +51,30 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
       document.activeElement !== document.body
         ? document.activeElement
         : null;
+    const anchor = anchorRef?.current;
     virtualAnchorRef.current =
-      anchorRef?.current ?? focusedElement ?? document.body;
+      (focusedElement && (!anchor || anchor.contains(focusedElement))
+        ? focusedElement
+        : anchor?.querySelector<HTMLElement>(
+            '[data-agent-composer-slot="toolbar"] button',
+          )) ??
+      anchor ??
+      virtualAnchorRef.current;
   }
 
   const title = t("onboarding.fileStorage.title");
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) =>
+        onOpenChange(nextOpen, nextOpen ? undefined : "dismiss")
+      }
+    >
       <PopoverAnchor virtualRef={virtualAnchorRef} />
       <PopoverContent
         side="bottom"
-        align="start"
+        align="center"
         aria-label={
           status === "unavailable"
             ? t("onboarding.fileStorage.statusUnavailable")
@@ -77,7 +98,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
               className="h-auto shrink-0 p-0 font-medium"
               onClick={onRetry}
             >
-              {t("common.retry")}
+              {t("agentChat.common.retry")}
             </Button>
           </div>
         ) : (
@@ -127,7 +148,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
                       variant="outline"
                       className="w-full"
                       onClick={() => {
-                        onOpenChange(false);
+                        onOpenChange(false, "setup");
                         if (typeof window !== "undefined") {
                           window.dispatchEvent(
                             new CustomEvent("agent-panel:open-settings", {

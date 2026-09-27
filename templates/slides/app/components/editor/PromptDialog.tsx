@@ -764,6 +764,11 @@ export default function PromptPopover({
                   initialModelSelection ? handleEffortChange : undefined
                 }
                 onModelSelectionChange={setModelSelection}
+                onAttachmentRequest={
+                  fileStorageConfigured
+                    ? undefined
+                    : () => setStoragePromptOpen(true)
+                }
               />
             </div>
 
@@ -773,6 +778,7 @@ export default function PromptPopover({
               open={storagePromptOpen}
               onOpenChange={setStoragePromptOpen}
               onRetry={() => void storageQuery.refetch()}
+              anchorRef={panelRef}
             />
 
             {uploading && (

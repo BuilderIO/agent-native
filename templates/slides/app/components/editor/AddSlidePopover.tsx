@@ -30,6 +30,7 @@ import {
 } from "@/lib/prompt-file-uploads";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+import { UploadStorageGate } from "./UploadStorageGate";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 
@@ -112,6 +113,7 @@ export function AddSlidePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   // Estimate before the panel has painted so the first frame doesn't hang
   // off the bottom of the viewport; corrected once the real height is known.
   const [panelHeight, setPanelHeight] = useState(320);
@@ -401,7 +403,19 @@ export function AddSlidePopover({
         disabled={uploading || submitting}
         onSubmit={handleSubmit}
         onAttachmentsChange={handleAttachmentsChange}
+        onAttachmentRequest={
+          fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
+        }
         onTextChange={setPromptText}
+      />
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={storageQuery.isError || !storageQuery.isSuccess}
+        open={storagePromptOpen}
+        onOpenChange={setStoragePromptOpen}
+        onRetry={() => void storageQuery.refetch()}
+        onConnected={() => void storageQuery.refetch()}
+        anchorRef={panelRef}
       />
       <div className="-mx-1 mt-2">
         <GoogleDocImportHint

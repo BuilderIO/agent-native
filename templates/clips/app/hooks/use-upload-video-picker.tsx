@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import {
   type ChangeEvent,
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { setPendingUploadFile } from "@/lib/pending-upload-file";
@@ -18,9 +20,11 @@ export function useUploadVideoPicker(): {
   openUploadPicker: (destination: string) => void;
   input: ReactNode;
 } {
+  const t = useT();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const destinationRef = useRef("/record");
+  const awaitingPickerAfterSetupRef = useRef(false);
   const pendingUploadRef = useRef<{ file: File; destination: string } | null>(
     null,
   );
@@ -40,16 +44,40 @@ export function useUploadVideoPicker(): {
   useEffect(() => {
     if (!storageConfigured) return;
     setStorageSetupOpen(false);
-    completePendingUpload();
-  }, [completePendingUpload, storageConfigured]);
+    if (pendingUploadRef.current) {
+      completePendingUpload();
+      return;
+    }
+    if (awaitingPickerAfterSetupRef.current) {
+      awaitingPickerAfterSetupRef.current = false;
+      toast(t("preRecord.import"), {
+        action: {
+          label: t("preRecord.uploadVideo"),
+          onClick: () => inputRef.current?.click(),
+        },
+      });
+    }
+  }, [completePendingUpload, storageConfigured, t]);
+
+  const handleSetupOpenChange = useCallback(
+    (open: boolean, reason?: "dismiss" | "setup" | "connected") => {
+      setStorageSetupOpen(open);
+      if (!open && reason === "dismiss") {
+        awaitingPickerAfterSetupRef.current = false;
+      }
+    },
+    [],
+  );
 
   const openUploadPicker = useCallback(
     (destination: string) => {
       destinationRef.current = destination;
       if (storageConfigured) {
+        awaitingPickerAfterSetupRef.current = false;
         inputRef.current?.click();
         return;
       }
+      awaitingPickerAfterSetupRef.current = true;
       setStorageSetupOpen(true);
     },
     [storageConfigured],
@@ -99,7 +127,7 @@ export function useUploadVideoPicker(): {
         />
         <FileStorageSetupPopover
           open={storageSetupOpen}
-          onOpenChange={setStorageSetupOpen}
+          onOpenChange={handleSetupOpenChange}
           onConnected={() => void storageStatus.refetch()}
           {...(!storageStatus.isSuccess || storageStatus.isError
             ? {

@@ -1662,18 +1662,16 @@ export function ResourcesPanel({
         .refetch()
         .then((result) => {
           if (result.isError || typeof result.data?.configured !== "boolean") {
-            processResourceUploads(selected, false, false);
-            showToast("err", t("composer.submitFailed"));
+            setFileStorageSetupOpen(true);
             return;
           }
           processAttempt(result.data.configured);
         })
         .catch(() => {
-          processResourceUploads(selected, false, false);
-          showToast("err", t("composer.submitFailed"));
+          setFileStorageSetupOpen(true);
         });
     },
-    [fileUploadStatus, processResourceUploads, showToast, t],
+    [fileUploadStatus, processResourceUploads],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1821,7 +1819,12 @@ export function ResourcesPanel({
     >
       <FileStorageSetupPopover
         open={fileStorageSetupOpen}
-        onOpenChange={setFileStorageSetupOpen}
+        onOpenChange={(open, reason) => {
+          setFileStorageSetupOpen(open);
+          if (!open && reason === "dismiss") {
+            pendingResourceUploadsRef.current = [];
+          }
+        }}
         onConnected={() => void fileUploadStatus.refetch()}
         {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
           ? {

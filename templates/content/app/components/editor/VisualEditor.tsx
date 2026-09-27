@@ -3129,6 +3129,13 @@ export function VisualEditor({
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
   const pendingMediaFilesRef = useRef<PendingMediaFiles | null>(null);
+  const handleFileStorageSetupOpenChange = useCallback(
+    (open: boolean, reason?: "dismiss" | "setup" | "connected") => {
+      setIsFileStorageSetupOpen(open);
+      if (!open && reason === "dismiss") pendingMediaFilesRef.current = null;
+    },
+    [],
+  );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
@@ -3228,7 +3235,8 @@ export function VisualEditor({
     if (
       !pending ||
       pending.documentId !== (documentId ?? null) ||
-      !pending.view.dom.isConnected
+      !pending.view.dom.isConnected ||
+      suggestingRef.current
     ) {
       return;
     }
@@ -4591,7 +4599,7 @@ export function VisualEditor({
       <FileStorageStatusGate
         status={fileUploadStatus}
         open={isFileStorageSetupOpen}
-        onOpenChange={setIsFileStorageSetupOpen}
+        onOpenChange={handleFileStorageSetupOpenChange}
       />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />

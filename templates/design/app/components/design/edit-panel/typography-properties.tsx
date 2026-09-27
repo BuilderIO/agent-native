@@ -23,17 +23,11 @@ import {
   IconUpload,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -409,6 +403,10 @@ export function TypographyProperties({
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const fileStorageMissing =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadFonts) setStorageSetupOpen(false);
+  }, [canUploadFonts]);
   const styles = element.computedStyles;
   const baseFontFamilyOptions = sortFontFamilyOptions([
     ...FONT_FAMILY_OPTIONS.map((option) => ({
@@ -533,16 +531,7 @@ export function TypographyProperties({
   const requestFontUpload = () => {
     if (fontUploading) return;
     if (canUploadFonts) fontUploadInputRef.current?.click();
-    else if (fileUploadStatus.isSuccess) setStorageSetupOpen(true);
-    else {
-      setStorageSetupOpen(true);
-      void fileUploadStatus.refetch().then((status) => {
-        if (status.isSuccess && status.data.configured === true) {
-          setStorageSetupOpen(false);
-          fontUploadInputRef.current?.click();
-        }
-      });
-    }
+    else setStorageSetupOpen(true);
   };
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
@@ -736,8 +725,12 @@ export function TypographyProperties({
           (fileStorageMissing || !fileUploadStatus.isSuccess)
         }
         onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
         {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
-          ? { status: "unavailable" as const, onRetry: requestFontUpload }
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
           : { status: "missing" as const })}
       />
 

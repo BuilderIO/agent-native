@@ -30,13 +30,6 @@ import {
 } from "@/components/design/editor/toolbar-controls";
 import { IconText } from "@/components/design/inspector/design-icons";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   MOVE_GROUP_TOOL_PRESENTATIONS,

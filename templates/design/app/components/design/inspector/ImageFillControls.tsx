@@ -5,7 +5,6 @@ import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -293,6 +292,10 @@ export function ImageFillControls({
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const fileStorageMissing =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadImages) setStorageSetupOpen(false);
+  }, [canUploadImages]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState(value.url);
@@ -319,17 +322,7 @@ export function ImageFillControls({
   const requestImageUpload = () => {
     if (disabled || uploadingImage) return;
     if (canUploadImages) fileInputRef.current?.click();
-    else if (fileUploadStatus.isSuccess) setStorageSetupOpen(true);
-    else {
-      void fileUploadStatus.refetch().then((status) => {
-        if (!status.isSuccess) {
-          setStorageSetupOpen(true);
-          return;
-        }
-        if (status.data.configured === true) fileInputRef.current?.click();
-        else setStorageSetupOpen(true);
-      });
-    }
+    else setStorageSetupOpen(true);
   };
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -480,6 +473,7 @@ export function ImageFillControls({
           (fileStorageMissing || !fileUploadStatus.isSuccess)
         }
         onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
         {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
           ? {
               status: "unavailable" as const,

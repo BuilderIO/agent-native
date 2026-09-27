@@ -28,7 +28,7 @@ vi.mock("@agent-native/toolkit/composer", async () => {
         {
           type: "button",
           "data-attachments-enabled": String(attachmentsEnabled),
-          onClick: onAttachmentRequest,
+          onClick: attachmentsEnabled ? undefined : onAttachmentRequest,
         },
         "Upload File",
       ),
@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 describe("PromptComposer storage setup", () => {
-  it("gates host upload callbacks until storage is configured", () => {
+  it("preserves a host upload request when storage is not configured", () => {
     const onAttachmentRequest = vi.fn();
     act(() => {
       root.render(<PromptComposer onAttachmentRequest={onAttachmentRequest} />);
@@ -112,8 +112,8 @@ describe("PromptComposer storage setup", () => {
     );
     act(() => uploadButton?.click());
 
-    expect(onAttachmentRequest).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
 
     mocks.status.data.configured = true;
     act(() => {

@@ -36,12 +36,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useDropVideoUpload } from "@/hooks/use-drop-video-upload";
 import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {

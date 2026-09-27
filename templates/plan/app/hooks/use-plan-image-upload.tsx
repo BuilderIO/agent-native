@@ -20,8 +20,6 @@ export function usePlanImageUpload() {
       reject: (error: unknown) => void;
     }>
   >([]);
-  const pendingActionsRef = useRef<Array<() => void>>([]);
-
   useEffect(() => {
     if (!canUploadImages) return;
 
@@ -33,7 +31,6 @@ export function usePlanImageUpload() {
         pending.reject,
       );
     }
-    for (const action of pendingActionsRef.current.splice(0)) action();
   }, [canUploadImages]);
 
   useEffect(
@@ -41,7 +38,6 @@ export function usePlanImageUpload() {
       for (const pending of pendingUploadsRef.current.splice(0)) {
         pending.reject(new Error("Image upload was canceled."));
       }
-      pendingActionsRef.current = [];
     },
     [],
   );
@@ -50,18 +46,14 @@ export function usePlanImageUpload() {
     if (uploadAttempted && (storageMissing || isError)) setSetupOpen(true);
   }, [isError, storageMissing, uploadAttempted]);
 
-  const requestUpload = useCallback(
-    (onReady?: () => void) => {
-      if (canUploadImages) return true;
+  const requestUpload = useCallback(() => {
+    if (canUploadImages) return true;
 
-      if (onReady) pendingActionsRef.current.push(onReady);
-      setUploadAttempted(true);
-      if (storageMissing) setSetupOpen(true);
-      else if (isError) void refetch();
-      return false;
-    },
-    [canUploadImages, isError, refetch, storageMissing],
-  );
+    setUploadAttempted(true);
+    if (storageMissing) setSetupOpen(true);
+    else if (isError) void refetch();
+    return false;
+  }, [canUploadImages, isError, refetch, storageMissing]);
 
   const uploadImage = useCallback(
     (file: File) => {
@@ -74,10 +66,20 @@ export function usePlanImageUpload() {
     [requestUpload],
   );
 
-  const handleSetupOpenChange = useCallback((open: boolean) => {
-    setSetupOpen(open);
-    if (!open) setUploadAttempted(false);
-  }, []);
+  const handleSetupOpenChange = useCallback(
+    (open: boolean, reason?: "dismiss" | "setup" | "connected") => {
+      setSetupOpen(open);
+      if (!open) {
+        setUploadAttempted(false);
+        if (reason === "dismiss") {
+          for (const pending of pendingUploadsRef.current.splice(0)) {
+            pending.reject(new Error("Image upload was canceled."));
+          }
+        }
+      }
+    },
+    [],
+  );
 
   return {
     canUploadImages,

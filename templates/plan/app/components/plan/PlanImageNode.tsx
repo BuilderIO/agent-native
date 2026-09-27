@@ -75,9 +75,7 @@ function PlanImageNodeView({
         onReplace={
           isEditable
             ? () => {
-                if (requestUpload(() => fileInputRef.current?.click())) {
-                  fileInputRef.current?.click();
-                }
+                if (requestUpload()) fileInputRef.current?.click();
               }
             : undefined
         }

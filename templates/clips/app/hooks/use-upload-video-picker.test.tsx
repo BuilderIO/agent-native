@@ -9,10 +9,11 @@ const mocks = vi.hoisted(() => ({
   setPendingUploadFile: vi.fn(),
   storageStatus: vi.fn(),
   toastError: vi.fn(),
+  toast: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
-vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("sonner", () => ({ toast: mocks.toast }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -69,6 +70,7 @@ describe("useUploadVideoPicker", () => {
     mocks.navigate.mockReset();
     mocks.setPendingUploadFile.mockReset();
     mocks.toastError.mockReset();
+    mocks.toast.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -114,12 +116,11 @@ describe("useUploadVideoPicker", () => {
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
-  it("resumes the selected file and destination after storage is connected", async () => {
-    let configured = false;
-    const refetch = vi.fn(async () => ({
-      data: { configured },
+  it("offers a fresh upload click after storage connects", async () => {
+    const refetch = vi.fn().mockResolvedValue({
+      data: { configured: true },
       isError: false,
-    }));
+    });
     const { input, click, uploadButton } = render({
       data: { configured: false },
       isError: false,
@@ -132,7 +133,6 @@ describe("useUploadVideoPicker", () => {
     expect(refetch).not.toHaveBeenCalled();
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
 
-    configured = true;
     mocks.storageStatus.mockReturnValue({
       data: { configured: true },
       isError: false,
@@ -149,8 +149,9 @@ describe("useUploadVideoPicker", () => {
     });
     act(() => root.render(<PickerProbe />));
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-
-    act(() => uploadButton.click());
+    const [message, options] = mocks.toast.mock.calls[0];
+    expect(message).toBe("preRecord.import");
+    act(() => options.action.onClick());
     expect(click).toHaveBeenCalledOnce();
     await selectFile(input);
 

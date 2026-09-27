@@ -185,25 +185,32 @@ describe("ImageFillControls file storage gate", () => {
     );
 
   it("keeps storage UI hidden until an unresolved upload attempt", async () => {
-    const status = setUploadStatus();
+    const status = setUploadStatus({
+      refetch: vi
+        .fn()
+        .mockResolvedValue({ isSuccess: true, data: { configured: true } }),
+    });
     await renderControls();
 
-    expect(
-      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
-    ).toBe(true);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.disabled).toBe(true);
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
     expect(container.querySelector("[role=alert]")).toBeNull();
+    const pickerClick = vi.spyOn(input, "click").mockImplementation(() => {});
     const upload = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Upload image"]',
     );
     expect(upload?.disabled).toBe(false);
     await act(async () => upload?.click());
+    expect(pickerClick).not.toHaveBeenCalled();
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Retry",
     );
     expect(retry).toBeTruthy();
     await act(async () => retry?.click());
-    expect(status.refetch).toHaveBeenCalledTimes(2);
+    expect(status.refetch).toHaveBeenCalledOnce();
+    expect(pickerClick).not.toHaveBeenCalled();
   });
 
   it("offers status retry only after an upload attempt when status fails", async () => {
@@ -229,7 +236,7 @@ describe("ImageFillControls file storage gate", () => {
     );
     expect(retry).toBeTruthy();
     await act(async () => retry?.click());
-    expect(status.refetch).toHaveBeenCalledTimes(2);
+    expect(status.refetch).toHaveBeenCalledOnce();
   });
 
   it("shows no setup until the user requests an image upload", async () => {

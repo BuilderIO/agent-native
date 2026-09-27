@@ -13,6 +13,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
 
+const storageStatus = vi.hoisted(() => ({ configured: true }));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appBasePath: () => "",
@@ -29,11 +31,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   useSlideFileStorageStatus: () => ({
-    data: { configured: true },
+    data: { configured: storageStatus.configured },
     isError: false,
+    isSuccess: true,
     isLoading: false,
     refetch: vi.fn(),
   }),
+}));
+
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">Connect storage to upload files</div> : null,
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
@@ -48,12 +56,22 @@ vi.mock("@agent-native/core/client/composer", () => ({
   }),
   PromptComposer: ({
     onSubmit,
+    onAttachmentRequest,
   }: {
     onSubmit: (text: string, files: File[]) => void;
+    onAttachmentRequest?: () => void;
   }) => (
-    <button type="button" onClick={() => onSubmit("a slide about trees", [])}>
-      submit-prompt
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => onSubmit("a slide about trees", [])}
+      >
+        submit-prompt
+      </button>
+      <button type="button" onClick={onAttachmentRequest}>
+        upload-file
+      </button>
+    </>
   ),
 }));
 
@@ -106,7 +124,10 @@ function slide(id: string): Slide {
 
 const slides = [slide("slide-1"), slide("slide-2"), slide("slide-3")];
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  storageStatus.configured = true;
+});
 
 describe("EditorSidebar AI-active slide", () => {
   it("marks the placeholder the agent is filling, not another row", () => {
@@ -231,5 +252,32 @@ describe("EditorSidebar AI-active slide", () => {
       'call `get-deck` with id="deck-1" and compact=true',
     );
     expect(context).toContain("designSystem.agentContext and deckStyle");
+  });
+
+  it("opens storage setup only when Upload File is selected", async () => {
+    storageStatus.configured = false;
+    const props = {
+      slides,
+      activeSlideId: "slide-2",
+      deckId: "deck-1",
+      deckTitle: "Test deck",
+      onSelectSlide: () => {},
+      onCloseDescribe: () => {},
+      addSlideAgentSubmit: () => {},
+    };
+    const { rerender } = render(
+      <EditorSidebar {...props} describeSlideId={null} />,
+    );
+    rerender(<EditorSidebar {...props} describeSlideId="slide-2" />);
+    await act(async () => {
+      await import("./AddSlidePopover");
+    });
+    await waitFor(() => screen.getByText("upload-file"));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByText("upload-file"));
+    expect(screen.getByRole("dialog").textContent).toBe(
+      "Connect storage to upload files",
+    );
   });
 });
