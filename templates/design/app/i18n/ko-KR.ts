@@ -1468,6 +1468,13 @@ export default {
         "여러 번 시도했지만 라이브 편집기 브리지가 연결을 확인하지 못했습니다.",
       connectionNotConfirmed:
         "라이브 편집기 브리지가 연결을 확인하지 못했습니다. 로컬 개발 서버가 아직 실행 중인가요?",
+      permissionPromptTitle: "로컬 화면 연결",
+      permissionPromptDescription:
+        "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
+      permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
+      permissionPromptSettingsInstructions:
+        "주소 표시줄 왼쪽의 사이트 정보 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크 액세스를 허용으로 설정하세요.",
+      permissionPromptRetry: "연결 재시도",
     },
   },
   multiScreenCanvas: {
