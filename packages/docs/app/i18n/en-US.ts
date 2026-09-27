@@ -1751,6 +1751,8 @@ const enUS = {
       heroDescription:
         "Tell Jev what matters in plain English. It keeps human GitHub comments, moves your manager’s mail up, and clears bot notifications—then learns from your corrections.",
       heroCta: "Manage your inbox",
+      mobileArchiveToast:
+        "Archived 1,167 bot notifications · kept 4 PR comments",
       useCasesHeading: "A smarter inbox, powered by Jev",
       useCasesBody:
         "Set a rule in plain English. Jev prioritizes the people and conversations that matter, applies useful labels, and archives repetitive mail as it arrives.",

@@ -1774,6 +1774,8 @@ const esES = {
       heroDescription:
         "Dile a Jev en lenguaje natural qué te importa. Mantendrá visibles los comentarios humanos de GitHub, destacará los mensajes de tu responsable y apartará las notificaciones de bots; después aprenderá de tus correcciones.",
       heroCta: "Gestiona tu bandeja de entrada",
+      mobileArchiveToast:
+        "Se archivaron 1.167 notificaciones de bots · se conservaron 4 comentarios de PR",
       useCasesHeading: "Una bandeja más inteligente, impulsada por Jev",
       useCasesBody:
         "Crea una regla en lenguaje natural. Jev da prioridad a las personas y conversaciones importantes, aplica las etiquetas adecuadas y archiva el correo repetitivo cuando llega.",

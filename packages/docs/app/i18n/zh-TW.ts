@@ -1654,6 +1654,7 @@ const messages = {
       heroDescription:
         "用日常語言告訴 Jev 哪些郵件重要。它會保留真人撰寫的 GitHub 留言，將主管的郵件排在前面，清除機器人通知，並根據你的修正持續學習。",
       heroCta: "管理你的收件匣",
+      mobileArchiveToast: "已封存 1,167 則機器人通知 · 保留 4 則 PR 留言",
       useCasesHeading: "由 Jev 驅動的智慧收件匣",
       useCasesBody:
         "用日常語言設定規則。Jev 會優先處理重要聯絡人與對話、套用合適標籤，並在重複郵件送達時自動封存。",

@@ -1768,6 +1768,8 @@ const ptBR = {
       heroDescription:
         "Diga ao Jev em linguagem natural o que importa. Ele mantém visíveis os comentários humanos do GitHub, destaca as mensagens do seu gerente e tira as notificações de bots do caminho — aprendendo com suas correções.",
       heroCta: "Gerencie sua caixa de entrada",
+      mobileArchiveToast:
+        "1.167 notificações de bots arquivadas · 4 comentários de PR mantidos",
       useCasesHeading: "Uma caixa de entrada mais inteligente, com Jev",
       useCasesBody:
         "Crie uma regra em linguagem natural. Jev prioriza pessoas e conversas importantes, aplica os rótulos certos e arquiva mensagens repetitivas assim que chegam.",
