@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -102,6 +106,7 @@ function ruleChange(
       kind: "mail-rule",
       title: title.slice(0, 180),
       ...(detail && detail !== title ? { detail: detail.slice(0, 500) } : {}),
+      url: settingsHref(rule.kind),
     },
   };
 }
@@ -146,6 +151,21 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
     description:
       "Create, list, update, or delete inbox rules. For natural-language AI rules, use one sentence and a mode (tag, important, filter, or archive); the rule is saved and recent-mail work is queued before this action returns. Model checks and matching continue in the background. Star, mark-read, and trash rules keep the legacy automation behavior.",
     agentTool,
+    ...(agentTool
+      ? {
+          chatUI: {
+            renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+            when: (args: Record<string, unknown>, result: unknown) =>
+              (args.action === "create" ||
+                args.action === "update" ||
+                args.action === "enable" ||
+                args.action === "disable") &&
+              normalizeActionChangeResult(result) !== null,
+            projectResult: (_args: Record<string, unknown>, result: unknown) =>
+              normalizeActionChangeResult(result),
+          },
+        }
+      : {}),
     schema: z.object({
       action: z
         .enum(["list", "create", "update", "delete", "enable", "disable"])

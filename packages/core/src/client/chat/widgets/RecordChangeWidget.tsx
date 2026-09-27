@@ -23,6 +23,7 @@ const kindIcons = {
   "scheduled-email": IconMail,
   "calendar-time-choice": IconCalendarEvent,
   "booking-link": IconCalendarEvent,
+  "mail-rule": IconFilter,
   "gmail-filter": IconFilter,
   "mail-filter": IconFilter,
   "calendar-event": IconCalendarEvent,

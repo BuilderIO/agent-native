@@ -3,13 +3,9 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { emit } from "@agent-native/core/event-bus";
 import {
   DEFAULT_LOCALE,
-  LOCALIZATION_SETTING_KEY,
-  normalizeLocalizationPreference,
-  resolveLocaleFromRequest,
   type LocaleCode,
 } from "@agent-native/core/localization";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
-import { getUserSetting } from "@agent-native/core/settings";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
@@ -27,6 +23,7 @@ import {
   timezoneShortName,
 } from "../shared/timezone.js";
 import { zoomAddFailedMessages } from "../shared/zoom-add-failed-messages.js";
+import { resolveCalendarActionLocale } from "./action-chat-ui.js";
 import {
   availabilityInput,
   autoDeclineModeInput,
@@ -105,27 +102,6 @@ function localizedDate(value: string, locale: string): string | undefined {
         dateStyle: "medium",
         timeZone: "UTC",
       }).format(instant);
-}
-
-async function getActionLocale(
-  email: string,
-  requestHeaders: Headers | undefined,
-): Promise<LocaleCode> {
-  let preference:
-    | ReturnType<typeof normalizeLocalizationPreference>
-    | undefined;
-  try {
-    preference = normalizeLocalizationPreference(
-      await getUserSetting(email, LOCALIZATION_SETTING_KEY),
-    );
-  } catch {
-    // coercion-ok: the saved locale only formats the result card; it cannot block event creation.
-  }
-  return resolveLocaleFromRequest({
-    preference,
-    request: requestHeaders ? { headers: requestHeaders } : undefined,
-    fallback: DEFAULT_LOCALE,
-  }).locale;
 }
 
 function getZoomFailureMessage(locale: LocaleCode): string {
@@ -381,7 +357,10 @@ export default defineAction({
       normalizeAttendees(args.attendees),
       acctEmail,
     );
-    const locale = await getActionLocale(email, actionContext?.requestHeaders);
+    const locale = await resolveCalendarActionLocale(
+      email,
+      actionContext?.requestHeaders,
+    );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,

@@ -246,6 +246,36 @@ describe("core.record-change", () => {
     );
   });
 
+  it("uses the filter icon for Mail rule changes", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          <RecordChangeWidget
+            context={{
+              toolName: "manage-email-rules",
+              args: { action: "create" },
+              resultJson: {
+                change: {
+                  verb: "created",
+                  kind: "mail-rule",
+                  title: "Newsletters",
+                  detail: "from newsletters",
+                  url: "/_agent-native/open?app=mail&view=settings",
+                },
+              },
+              isRunning: false,
+              chatUI: { renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("svg")?.getAttribute("class")).toMatch(
+      /filter/i,
+    );
+  });
+
   it("renders an available Calendar time with a use-time action", async () => {
     await act(async () => {
       root.render(
