@@ -574,6 +574,61 @@ describe("query-content-database-items Files navigation", () => {
     });
   });
 
+  it("finds saved siblings that sit deep in a long saved order", async () => {
+    await addFile({ id: "long-order-parent", position: 250 });
+    for (let index = 0; index < 5; index += 1) {
+      await addFile({
+        id: `long-order-${index}`,
+        parentId: "long-order-parent",
+        position: index,
+      });
+    }
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "files",
+      views: [
+        {
+          id: "files",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: [
+              ...Array.from(
+                { length: 150 },
+                (_, index) => `membership-elsewhere-${index}`,
+              ),
+              "membership-long-order-3",
+              "membership-long-order-1",
+            ],
+          },
+        },
+      ],
+    });
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await navigate(
+        { parentId: "long-order-parent", sort: "custom", cursor },
+        2,
+      );
+      seen.push(...page.items.map((item) => item.documentId));
+      cursor = page.pagination.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(seen).toEqual([
+      "long-order-3",
+      "long-order-1",
+      "long-order-0",
+      "long-order-2",
+      "long-order-4",
+    ]);
+  });
+
   it("applies personal custom order and invalidates cursors when it changes", async () => {
     const { personalDatabaseViewSettingKey } =
       await import("./_content-database-personal-view.js");
@@ -626,7 +681,7 @@ describe("query-content-database-items Files navigation", () => {
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
   });
 
-  it("invalidates a page cursor for accessible sibling edits but ignores inaccessible rows", async () => {
+  it("invalidates a cursor when a readable sibling at or before it changes and reads later siblings fresh", async () => {
     await addFile({ id: "revision-parent", position: 400 });
     await addFile({
       id: "revision-a",
@@ -638,53 +693,58 @@ describe("query-content-database-items Files navigation", () => {
       parentId: "revision-parent",
       position: 1,
     });
-    const first = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const firstPage = () =>
+      navigate({ parentId: "revision-parent", sort: "name" }, 1);
+    const nextPage = (cursor: string) =>
+      navigate({ parentId: "revision-parent", sort: "name", cursor }, 1);
+    const invalid = { errorCode: "invalid_navigation_cursor" };
+
+    const first = await firstPage();
+    expect(first.items.map((item) => item.documentId)).toEqual(["revision-a"]);
     await getDb()
       .update(schema.documents)
-      .set({ title: "renamed", updatedAt: "2026-03-01T00:00:00.000Z" })
+      .set({
+        title: "revision-b renamed",
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      })
       .where(eq(schema.documents.id, "revision-b"));
-    await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: first.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
-
-    const beforeReparent = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
+    await expect(nextPage(first.pagination.nextCursor!)).resolves.toMatchObject(
+      {
+        items: [{ documentId: "revision-b", title: "revision-b renamed" }],
+      },
     );
+
+    const beforeRename = await firstPage();
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: "revision-a renamed",
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      })
+      .where(eq(schema.documents.id, "revision-a"));
+    await expect(
+      nextPage(beforeRename.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
+
+    const beforeReparent = await firstPage();
     await getDb()
       .update(schema.documents)
       .set({ parentId: null })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeReparent.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeReparent.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
     await getDb()
       .update(schema.documents)
       .set({ parentId: "revision-parent" })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
 
     await addFile({
       id: "revision-shared",
       parentId: "revision-parent",
       ownerEmail: OTHER,
-      position: 3,
+      position: -1,
+      title: "revision-0-shared",
     });
     await getDb().insert(schema.documentShares).values({
       id: "revision-shared-share",
@@ -695,71 +755,48 @@ describe("query-content-database-items Files navigation", () => {
       createdBy: OTHER,
       createdAt: new Date().toISOString(),
     });
-    const beforeRevoke = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const beforeRevoke = await firstPage();
+    expect(beforeRevoke.items.map((item) => item.documentId)).toEqual([
+      "revision-shared",
+    ]);
     await getDb()
       .delete(schema.documentShares)
       .where(eq(schema.documentShares.id, "revision-shared-share"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeRevoke.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeRevoke.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
 
-    const beforeDelete = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const beforeDelete = await firstPage();
     await getDb()
       .update(schema.documents)
       .set({ trashedAt: "2026-03-03T00:00:00.000Z" })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: beforeDelete.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+      nextPage(beforeDelete.pagination.nextCursor!),
+    ).rejects.toMatchObject(invalid);
     await getDb()
       .update(schema.documents)
       .set({ trashedAt: null })
-      .where(eq(schema.documents.id, "revision-b"));
+      .where(eq(schema.documents.id, "revision-a"));
 
     await addFile({
       id: "revision-inaccessible",
       parentId: "revision-parent",
       ownerEmail: OTHER,
-      position: 2,
+      position: -2,
+      title: "revision-00-hidden",
     });
-    const stable = await navigate(
-      { parentId: "revision-parent", sort: "name" },
-      1,
-    );
+    const stable = await firstPage();
+    expect(stable.items.map((item) => item.documentId)).toEqual(["revision-a"]);
     await getDb()
       .update(schema.documents)
       .set({ title: "still hidden", updatedAt: "2026-03-02T00:00:00.000Z" })
       .where(eq(schema.documents.id, "revision-inaccessible"));
     await expect(
-      navigate(
-        {
-          parentId: "revision-parent",
-          sort: "name",
-          cursor: stable.pagination.nextCursor!,
-        },
-        1,
-      ),
-    ).resolves.toMatchObject({ items: expect.any(Array) });
+      nextPage(stable.pagination.nextCursor!),
+    ).resolves.toMatchObject({
+      items: [{ documentId: "revision-b" }],
+    });
   });
 
   it("applies effective view filters before paging and invalidates changed-filter cursors", async () => {
@@ -1063,6 +1100,44 @@ describe("query-content-database-items Files navigation", () => {
     expect(context.path.map((entry) => entry.id)).toEqual([
       "organization-child-with-restricted-parent",
     ]);
+  });
+
+  it("ends the path at the first unreadable or trashed ancestor even when a higher one is readable", async () => {
+    const readContext = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+    await addFile({ id: "gap-root", position: 800 });
+    await addFile({
+      id: "gap-middle",
+      parentId: "gap-root",
+      ownerEmail: OTHER,
+    });
+    await addFile({ id: "gap-leaf", parentId: "gap-middle" });
+    await addFile({ id: "trashed-middle", parentId: "gap-root" });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: "2026-03-04T00:00:00.000Z" })
+      .where(eq(schema.documents.id, "trashed-middle"));
+    await addFile({ id: "trashed-leaf", parentId: "trashed-middle" });
+
+    expect(
+      (await readContext("gap-leaf")).path.map((entry) => entry.id),
+    ).toEqual(["gap-leaf"]);
+    expect(
+      (await readContext("trashed-leaf")).path.map((entry) => entry.id),
+    ).toEqual(["trashed-leaf"]);
+  });
+
+  it("rejects a readable ancestry cycle", async () => {
+    await addFile({ id: "cycle-a", parentId: "cycle-b" });
+    await addFile({ id: "cycle-b", parentId: "cycle-a" });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id: "cycle-a" }),
+      ),
+    ).rejects.toThrow("Document ancestry contains a cycle");
   });
 
   it("associates a child without denormalized spaceId to its authoritative Files path", async () => {

@@ -1378,6 +1378,13 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
           ON document_comment_reactions (owner_email, document_id)`,
     },
+    {
+      version: 115,
+      name: "content-access-and-page-link-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS documents_owner_email_lower_idx ON documents (lower(owner_email));
+        CREATE INDEX IF NOT EXISTS document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
+        CREATE INDEX IF NOT EXISTS document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
