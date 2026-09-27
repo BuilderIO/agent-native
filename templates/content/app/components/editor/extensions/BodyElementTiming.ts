@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+
 import {
   CONTENT_BODY_DOM_MARK,
   CONTENT_BODY_ELEMENT_TIMING,

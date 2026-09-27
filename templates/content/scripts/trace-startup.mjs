@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { mkdirSync, writeFileSync } from "node:fs";
 // Measures Content page loads the way the startup acceptance defines them:
 // body visible (Element Timing "content-body"), usable sidebar (first Files
 // root row, "sidebar-files-row"), and editable ("content-editable" mark), plus
@@ -14,7 +15,6 @@
 // profile per run), in-app (load --path, then click the sidebar row that links
 // to --click-path and time the new document).
 import { createRequire } from "node:module";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const args = new Map();
