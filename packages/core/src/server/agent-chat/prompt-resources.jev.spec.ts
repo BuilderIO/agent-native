@@ -423,6 +423,32 @@ describe("preloadJevContextForPrompt", () => {
     );
   });
 
+  it.each([
+    ["a short exact term", "Who is Mom?", "Mom's contact details."],
+    ["Arabic", "أرسل بريدًا إلى زوجتي", "زوجتي وعنوان بريدها الإلكتروني."],
+    ["Chinese", "给妻子发邮件", "妻子联系人的邮箱地址。"],
+  ])(
+    "preloads a personal memory for %s without Jev",
+    async (_label, request, description) => {
+      const owner = "user@example.test";
+      mocks.resourceGetByPath.mockImplementation(
+        async (resourceOwner: string, path: string) =>
+          resourceOwner === owner && path === "memory/MEMORY.md"
+            ? {
+                content: `# Memory Index\n- [contact](contact.md) — ${description}`,
+              }
+            : resourceOwner === owner && path === "memory/contact.md"
+              ? { content: `Saved contact: ${description}` }
+              : null,
+      );
+
+      const result = await preloadJevContextForPrompt({ request, owner });
+
+      expect(result).toContain(`Saved contact: ${description}`);
+      expect(mocks.rankJevCandidates).not.toHaveBeenCalled();
+    },
+  );
+
   it("does not start another selected memory read after the shared budget expires", async () => {
     const owner = "user@example.test";
     const startedBodyPaths: string[] = [];

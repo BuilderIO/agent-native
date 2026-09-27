@@ -202,6 +202,7 @@ export function AgentPersonalizationSettings() {
           placeholder={labels.instructionsPlaceholder}
           rows={8}
           className="resize-y text-sm"
+          disabled={saving}
         />
         <div className="flex min-h-9 items-center gap-3">
           <ActionButton
@@ -245,6 +246,7 @@ export function AgentPersonalizationSettings() {
           placeholder={labels.memoryPlaceholder}
           rows={5}
           className="resize-y text-sm"
+          disabled={saving}
         />
         <div className="flex min-h-9 items-center gap-3">
           <ActionButton

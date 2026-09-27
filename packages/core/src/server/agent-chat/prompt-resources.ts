@@ -932,12 +932,29 @@ function parseMemoryIndex(
   return entries;
 }
 
+const memoryWordSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "word",
+});
+
 function memoryRelevanceScore(request: string, text: string): number {
   const searchable = text.toLowerCase();
-  const terms = new Set(request.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+  const terms = new Set(
+    Array.from(memoryWordSegmenter.segment(request))
+      .filter(({ isWordLike }) => isWordLike)
+      .map(({ segment }) => segment.toLowerCase())
+      .filter(
+        (term) =>
+          term.length >= 3 ||
+          (term.length >= 2 &&
+            /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+              term,
+            )),
+      ),
+  );
   let score = 0;
   for (const term of terms) {
-    if (searchable.includes(term)) score += Math.min(term.length, 8);
+    if (searchable.includes(term))
+      score += Math.min(Math.max(term.length, 3), 8);
   }
   return score;
 }
@@ -1018,7 +1035,7 @@ async function collectJevMemoryPromptCandidates(input: {
       };
     });
     // ponytail: lexical recall catches indexed terms without a Jev call; use embeddings or a reranker when semantic misses justify the added cost.
-    const fallback = memories.find((memory) => memory.score >= 4);
+    const fallback = memories.find((memory) => memory.score >= 3);
     const fallbackIndex = fallback ? memories.indexOf(fallback) : -1;
     return {
       candidates,
@@ -1669,7 +1686,7 @@ export async function loadResourcesForPrompt(
           readHint:
             'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.',
         }),
-        "user",
+        "required",
       );
     }
   }
