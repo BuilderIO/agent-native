@@ -135,6 +135,12 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("ORDER BY candidate.sequence_id ASC");
     expect(update.sql).toContain("earlier.status IN ('pending', 'processing')");
     expect(update.sql).toContain("candidate.status = 'processing'");
+    expect(update.sql).toContain(
+      "failure_attempts = claimed.failure_attempts +",
+    );
+    expect(update.sql).toContain(
+      "CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END",
+    );
     expect(update.sql).toContain("RETURNING claimed.id");
     expect(update.args).toContain("mail");
   });
@@ -188,13 +194,16 @@ describe("automation trigger event queue", () => {
     expect(update.sql).toContain("SET status = 'failed'");
     expect(update.sql).toContain("payload = ?");
     expect(update.sql).toContain("completed_at = ?");
-    expect(update.sql).toContain("failure_attempts = failure_attempts + 1");
+    expect(update.sql).toContain(
+      "failure_attempts = GREATEST(failure_attempts, ?)",
+    );
     expect(update.sql).toContain(
       "claimed_at = ? AND attempts = ? AND failure_attempts = ?",
     );
     expect(update.args).toEqual([
       '{"kind":"completed"}',
       expect.any(Number),
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
       "provider unavailable",
       "queue-1",
       1234,

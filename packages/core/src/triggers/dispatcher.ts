@@ -326,6 +326,19 @@ async function drainTriggerQueue(triggerId: string): Promise<void> {
     const queued = await claimNextAutomationTriggerEvent(triggerId, deps.appId);
     if (!queued) return;
 
+    if (queued.failureAttempts >= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES) {
+      await failAutomationTriggerEvent(
+        queued.id,
+        queued.claimedAt,
+        queued.attempts,
+        queued.failureAttempts,
+        new Error(
+          "Automation event exceeded its retry limit after worker crashes.",
+        ),
+      );
+      return;
+    }
+
     try {
       const result = await dispatchQueuedAutomationEvent(queued, deps);
       if (result === "retry") {
@@ -539,22 +552,19 @@ export async function dispatchAutomationWebhookTask(
   if (_dispatchingTriggers.has(dispatchKey)) return "retry";
   _dispatchingTriggers.add(dispatchKey);
   try {
-    let dispatched: boolean;
-    try {
-      dispatched = await dispatchAgentic(
-        resource,
-        task.payload,
-        {
-          eventId: task.eventId,
-          emittedAt: new Date().toISOString(),
-          owner: identity.eventOwner,
-        },
-        identity,
-      );
-    } catch {
-      return "retry";
+    const dispatched = await dispatchAgentic(
+      resource,
+      task.payload,
+      {
+        eventId: task.eventId,
+        emittedAt: new Date().toISOString(),
+        owner: identity.eventOwner,
+      },
+      identity,
+    );
+    if (!dispatched) {
+      throw new Error("Webhook automation changed before dispatch.");
     }
-    if (!dispatched) return "retry";
   } finally {
     _dispatchingTriggers.delete(dispatchKey);
   }

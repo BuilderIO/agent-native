@@ -290,6 +290,8 @@ export async function claimNextAutomationTriggerEvent(
   const { rows } = await getDbExec().execute({
     sql: `UPDATE ${TABLE} AS claimed
           SET status = 'processing', attempts = claimed.attempts + 1,
+              failure_attempts = claimed.failure_attempts +
+                CASE WHEN claimed.status = 'processing' THEN 1 ELSE 0 END,
               claimed_at = ?, last_error = NULL
           WHERE claimed.id = (
             SELECT candidate.id
@@ -386,13 +388,15 @@ export async function failAutomationTriggerEvent(
   await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = 'failed', payload = ?, claimed_at = NULL,
-              completed_at = ?, failure_attempts = failure_attempts + 1,
+              completed_at = ?,
+              failure_attempts = GREATEST(failure_attempts, ?),
               last_error = ?
           WHERE id = ? AND status = 'processing'
             AND claimed_at = ? AND attempts = ? AND failure_attempts = ?`,
     args: [
       COMPLETED_PAYLOAD,
       Date.now(),
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
       message.slice(0, 500),
       id,
       claimedAt,

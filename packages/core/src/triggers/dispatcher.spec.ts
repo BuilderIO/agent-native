@@ -7,6 +7,7 @@ import {
 import {
   buildAutomationTriggerPrompt,
   buildTriggerContent,
+  dispatchAutomationWebhookTask,
   initTriggerDispatcher,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
@@ -142,7 +143,10 @@ const triggerQueueMocks = vi.hoisted(() => {
           row.failureAttempts === failureAttempts
         ) {
           row.status = "failed";
-          row.failureAttempts += 1;
+          row.failureAttempts = Math.max(
+            row.failureAttempts,
+            MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
+          );
           row.lastError = String(error);
         }
       },
@@ -508,6 +512,64 @@ Respond to the event.`,
     expect(triggerQueueMocks.rows[1]?.status).toBe("pending");
   });
 
+  it("fails an event whose expired worker claims exhausted the retry limit", async () => {
+    const eventName = "test.event.expired-claims";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          `event: ${eventName}`,
+          "mode: agentic",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+    await triggerQueueMocks.enqueue({
+      triggerId: "resource-1",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/inbox-alert.md",
+      eventName,
+      eventId: "expired-claims-event",
+      payload: { messageId: "message-1" },
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: "2026-09-27T10:00:00.000Z",
+    });
+    triggerQueueMocks.rows[0]!.failureAttempts =
+      MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([subscribedEventName]) => subscribedEventName === eventName,
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+
+    await handler(
+      { messageId: "message-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "expired-claims-event",
+        emittedAt: "2026-09-27T10:00:00.000Z",
+      },
+    );
+
+    await waitForEvent("expired-claims-event", "failed");
+    expect(triggerQueueMocks.fail).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("retries a queued event when its background automation run fails", async () => {
     const eventName = "test.event.run-failure";
     resourceListAllOwnersMock.mockResolvedValue([
@@ -542,6 +604,46 @@ Respond to the event.`,
     expect(triggerQueueMocks.retry).toHaveBeenCalledOnce();
     expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
     expect(triggerQueueMocks.rows[0]?.failureAttempts).toBe(1);
+  });
+
+  it("propagates failed webhook agent runs to the bounded task retry path", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    const path = "jobs/webhook-alert.md";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-webhook",
+        owner,
+        path,
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: webhook",
+          "mode: agentic",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+    runAgentLoopMock.mockRejectedValueOnce(new Error("agent run failed"));
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    await expect(
+      dispatchAutomationWebhookTask({
+        kind: "automation-webhook",
+        automationId: "resource-webhook",
+        owner,
+        path,
+        eventId: "webhook-event",
+        payload: { messageId: "message-1" },
+      }),
+    ).rejects.toThrow("Background automation ended with status: errored");
   });
 
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {
