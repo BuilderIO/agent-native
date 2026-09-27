@@ -304,7 +304,7 @@ function RuleBackfillStatus({
     const message =
       undoing || status?.status === "undoing"
         ? t("mail.aiFilter.ruleBackfillUndoing")
-        : starting || loading
+        : starting || loading || status?.totalThreads === 0
           ? t("mail.aiFilter.ruleBackfillStarting")
           : t("mail.aiFilter.ruleBackfillProgress", {
               processed: status?.processedThreads ?? 0,

@@ -1,7 +1,10 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/core/client/onboarding";
+import {
+  useFirstRunOnboardingGateOwnsSurface,
+  useOnboardingPreviewMode,
+} from "@agent-native/core/client/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -404,6 +407,7 @@ export function AiInboxSetup({
 }) {
   const t = useT();
   const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const onboardingPreview = useOnboardingPreviewMode();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
@@ -469,7 +473,7 @@ export function AiInboxSetup({
     [rules],
   );
   const visible =
-    !firstRunOnboardingOwnsSurface &&
+    (embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview)) &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&

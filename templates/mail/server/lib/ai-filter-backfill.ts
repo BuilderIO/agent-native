@@ -44,6 +44,7 @@ import {
 } from "./automation-engine.js";
 import { listAutomationRules } from "./automations.js";
 import {
+  GmailQuotaCooldownError,
   gmailBatchGetThreads,
   gmailGetThread,
   gmailListThreads,
@@ -64,6 +65,9 @@ const CLAIM_LIFETIME_MS = 5 * 60 * 1_000;
 const CLAIM_HEARTBEAT_MS = CLAIM_LIFETIME_MS / 3;
 const THREADS_PER_TICK = 10;
 const MAX_RUNS_PER_TICK = 2;
+const MAX_BACKFILL_RETRIES = 6;
+const TRANSIENT_RETRY_DELAY_MS = 30_000;
+const MAX_GMAIL_RETRY_DELAY_MS = 5 * 60_000;
 const METADATA_HEADERS = ["From", "To", "Subject", "Date"];
 const SYSTEM_LABEL_IDS: Record<string, string> = {
   INBOX: "inbox",
@@ -121,6 +125,8 @@ type BackfillState = {
   seenMatchIds: string[];
   pendingDecisions: AiFilterDecision[];
   failedKeys: string[];
+  retryCount?: number;
+  retryAfterAt?: number;
   undoProcessedIds: string[];
   undoFailedKeys: string[];
   snapshots: Record<string, UndoThreadSnapshot>;
@@ -280,6 +286,10 @@ function parseState(raw: string): BackfillState {
     !Array.isArray(state.perRule) ||
     !Array.isArray(state.undoProcessedIds) ||
     !Array.isArray(state.undoFailedKeys) ||
+    (state.retryCount !== undefined &&
+      (!Number.isInteger(state.retryCount) || state.retryCount < 0)) ||
+    (state.retryAfterAt !== undefined &&
+      !Number.isFinite(state.retryAfterAt)) ||
     !state.snapshots ||
     typeof state.snapshots !== "object"
   ) {
@@ -288,15 +298,42 @@ function parseState(raw: string): BackfillState {
   return state;
 }
 
-function safeError(error: unknown): string {
+export function sanitizeBackfillError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message
+    .replace(/\nparams:[\s\S]*/i, "")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(
       /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
       "$1=[redacted]",
     )
     .slice(0, 500);
+}
+
+export function aiFilterBackfillRetryDelay(error: unknown): number | null {
+  if (error instanceof GmailQuotaCooldownError) {
+    return Math.max(
+      1_000,
+      Math.min(
+        MAX_GMAIL_RETRY_DELAY_MS,
+        Number.isFinite(error.retryAfterMs) ? error.retryAfterMs : 1_000,
+      ),
+    );
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return TRANSIENT_RETRY_DELAY_MS;
+  }
+  if (error instanceof TypeError && error.message === "fetch failed") {
+    return TRANSIENT_RETRY_DELAY_MS;
+  }
+  return null;
+}
+
+function retryAfterAtFromState(raw: string): number | undefined {
+  const retryAfterAt: unknown = (JSON.parse(raw) as BackfillState).retryAfterAt;
+  return typeof retryAfterAt === "number" && Number.isFinite(retryAfterAt)
+    ? retryAfterAt
+    : undefined;
 }
 
 function resultStatus(
@@ -1490,6 +1527,9 @@ async function processRunningBatch(
     if (candidates.length === 0) {
       if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state)))
         return;
+      state.retryCount = 0;
+      delete state.retryAfterAt;
+      delete state.error;
       await saveRunState(row.id, claimId, state, "completed");
       return;
     }
@@ -1503,6 +1543,9 @@ async function processRunningBatch(
   if (batch.length === 0) {
     if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state)))
       return;
+    state.retryCount = 0;
+    delete state.retryAfterAt;
+    delete state.error;
     await saveRunState(row.id, claimId, state, "completed");
     return;
   }
@@ -1614,7 +1657,7 @@ async function processRunningBatch(
         }
       } catch (error) {
         candidateFailed = true;
-        const message = safeError(error);
+        const message = sanitizeBackfillError(error);
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
         state.error = message;
@@ -1650,12 +1693,18 @@ async function processRunningBatch(
       }
     }
     if (!candidateFailed) {
+      state.failedKeys = state.failedKeys.filter(
+        (key) => key !== candidate.key,
+      );
       state.processedThreads += 1;
       state.candidateIndex += 1;
     }
   }
 
   if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state))) return;
+  state.retryCount = 0;
+  delete state.retryAfterAt;
+  delete state.error;
   if (state.candidateIndex >= state.candidates.length) {
     await saveRunState(row.id, claimId, state, "completed");
   } else {
@@ -1847,15 +1896,25 @@ async function processUndoBatch(
         (key) => key !== snapshot.key,
       );
     } catch (error) {
+      if (aiFilterBackfillRetryDelay(error) !== null) {
+        state.restoredThreads = state.undoProcessedIds.length;
+        if (await saveRunState(row.id, claimId, state, "undoing", "undoing")) {
+          throw error;
+        }
+        return;
+      }
       if (!state.undoFailedKeys.includes(snapshot.key))
         state.undoFailedKeys.push(snapshot.key);
-      const message = safeError(error);
+      const message = sanitizeBackfillError(error);
       state.error = state.error
         ? `${state.error}; ${message}`.slice(0, 500)
         : message;
     }
   }
   state.restoredThreads = state.undoProcessedIds.length;
+  state.retryCount = 0;
+  delete state.retryAfterAt;
+  if (state.undoFailedKeys.length === 0) delete state.error;
   const attemptedCount =
     state.undoProcessedIds.length + state.undoFailedKeys.length;
   if (attemptedCount >= snapshots.length && state.undoFailedKeys.length > 0) {
@@ -1882,11 +1941,22 @@ async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
           inArray(schema.aiFilterBackfills.status, ACTIVE_BACKFILL_STATUSES),
         ),
       )) as BackfillRow[];
-    const requested = new Set(ruleIdsForBackfillRow(row));
+    const currentRow = activeRows.find((activeRow) => activeRow.id === row.id);
+    if (!currentRow) return null;
+    const retryAfterAt = retryAfterAtFromState(currentRow.stateJson);
+    if (retryAfterAt !== undefined && retryAfterAt > now) return null;
+    let stateJsonForClaim = currentRow.stateJson;
+    if (retryAfterAt !== undefined) {
+      const state = parseState(currentRow.stateJson);
+      delete state.retryAfterAt;
+      delete state.error;
+      stateJsonForClaim = JSON.stringify(state);
+    }
+    const requested = new Set(ruleIdsForBackfillRow(currentRow));
     const earlierQueued = (other: BackfillRow) =>
       other.status === "queued" &&
-      (other.createdAt < row.createdAt ||
-        (other.createdAt === row.createdAt && other.id < row.id));
+      (other.createdAt < currentRow.createdAt ||
+        (other.createdAt === currentRow.createdAt && other.id < currentRow.id));
     if (
       activeRows.some(
         (other) =>
@@ -1903,6 +1973,9 @@ async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
         claimId,
         claimedAt: now,
         updatedAt: now,
+        ...(stateJsonForClaim !== currentRow.stateJson
+          ? { stateJson: stateJsonForClaim }
+          : {}),
       })
       .where(
         and(
@@ -2035,7 +2108,51 @@ export async function processMailAiFilterBackfills(
     } catch (error) {
       try {
         state ??= parseState(claimedRow.stateJson);
-        state.error = safeError(error);
+        const retryDelay = aiFilterBackfillRetryDelay(error);
+        const retryCount = state.retryCount ?? 0;
+        if (retryDelay !== null && retryCount < MAX_BACKFILL_RETRIES) {
+          state.retryCount = retryCount + 1;
+          state.retryAfterAt = Date.now() + retryDelay;
+          delete state.error;
+          const activeStatus =
+            claimedRow.status === "undoing" ? "undoing" : "running";
+          const [scheduled] = await db
+            .update(schema.aiFilterBackfills)
+            .set({
+              status: activeStatus === "undoing" ? "undoing" : "queued",
+              stateJson: JSON.stringify(state),
+              claimId: null,
+              claimedAt: null,
+              updatedAt: Date.now(),
+            })
+            .where(
+              and(
+                eq(schema.aiFilterBackfills.id, row.id),
+                eq(schema.aiFilterBackfills.claimId, claimId),
+                eq(schema.aiFilterBackfills.status, activeStatus),
+              ),
+            )
+            .returning({ id: schema.aiFilterBackfills.id });
+          if (!scheduled && activeStatus === "running") {
+            await db
+              .update(schema.aiFilterBackfills)
+              .set({
+                stateJson: JSON.stringify(state),
+                claimId: null,
+                claimedAt: null,
+                updatedAt: Date.now(),
+              })
+              .where(
+                and(
+                  eq(schema.aiFilterBackfills.id, row.id),
+                  eq(schema.aiFilterBackfills.claimId, claimId),
+                  eq(schema.aiFilterBackfills.status, "undoing"),
+                ),
+              );
+          }
+          continue;
+        }
+        state.error = sanitizeBackfillError(error);
         if (state.pendingDecisions.length > 0) {
           try {
             await recordAiFilterDecisions(

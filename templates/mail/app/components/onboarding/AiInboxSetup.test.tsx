@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   rulesLoading: false,
   firstRunOnboardingGateOwnsSurface: false,
+  onboardingPreview: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   settingsPending: false,
@@ -84,6 +85,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/onboarding", () => ({
   useFirstRunOnboardingGateOwnsSurface: () =>
     mocks.firstRunOnboardingGateOwnsSurface,
+  useOnboardingPreviewMode: () => mocks.onboardingPreview,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -173,6 +175,7 @@ describe("AiInboxSetup", () => {
     mocks.automations = [];
     mocks.rulesLoading = false;
     mocks.firstRunOnboardingGateOwnsSurface = false;
+    mocks.onboardingPreview = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -212,6 +215,35 @@ describe("AiInboxSetup", () => {
         name: "mail.sort.aiSetupTagsHeadline",
       }),
     ).toBeNull();
+  });
+
+  it("keeps first-run preview inline without a duplicate setup modal", () => {
+    mocks.onboardingPreview = true;
+
+    const { container } = render(
+      <>
+        <AiInboxSetup forceOpen />
+        <AiInboxSetup forceOpen embedded />
+      </>,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "mail.sort.aiSetupTagReceipts" }),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll("[role='dialog']")).toHaveLength(0);
+  });
+
+  it("renders the embedded setup while startup onboarding owns the surface", () => {
+    mocks.firstRunOnboardingGateOwnsSurface = true;
+
+    render(<AiInboxSetup forceOpen embedded />);
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
   });
 
   it("requires text or an explicit skip on the importance step", () => {
@@ -357,6 +389,12 @@ describe("AiInboxSetup", () => {
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Email from my manager" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
