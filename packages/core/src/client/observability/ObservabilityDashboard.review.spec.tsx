@@ -120,14 +120,14 @@ describe("human review artifact links", () => {
     ).toBe("http://127.0.0.1:8099/present/design-1?reviewEmbed=1");
   });
 
-  it("opens designs in the review editor with same-org chat alongside", () => {
+  it("opens same-org designs with chat alongside and preserves edit access", () => {
     expect(
       resolveReviewArtifactOpenHref("design", "design-1", "/present/design-1", {
         threadId: "thread-1",
         hostname: "beta.design.agent-native.com",
       }),
     ).toBe(
-      "https://beta.design.agent-native.com/design/design-1?editorView=overview&reviewPreview=1&thread=thread-1&agentSidebar=open",
+      "https://beta.design.agent-native.com/design/design-1?editorView=overview&thread=thread-1&agentSidebar=open",
     );
 
     expect(
@@ -2043,7 +2043,7 @@ describe("ObservabilityDashboard human review", () => {
     ).find((link) => new URL(link.href).pathname === "/design/design-2");
     expect(designLink).toBeTruthy();
     const designUrl = new URL(designLink!.href);
-    expect(designUrl.searchParams.get("reviewPreview")).toBe("1");
+    expect(designUrl.searchParams.has("reviewPreview")).toBe(false);
     expect(designUrl.searchParams.get("thread")).toBe("thread-summary");
     expect(designUrl.searchParams.get("agentSidebar")).toBe("open");
     expect(
