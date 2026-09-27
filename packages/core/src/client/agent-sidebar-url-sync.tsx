@@ -1,11 +1,29 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
 import { agentNativePath, isWorkspaceAppPath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
+import { rememberSettingsReturnPath } from "./settings/shell/return-path.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+/**
+ * Records the app route for Settings' "Back to {App}". It mounts with the app
+ * chrome, not with the agent panel: URLSync only runs while the panel is open,
+ * so recording there sent Back home whenever the panel was closed.
+ */
+export function SettingsReturnPathRecorder() {
+  return useInRouterContext() ? <RecordSettingsReturnPath /> : null;
+}
+
+function RecordSettingsReturnPath() {
+  const location = useLocation();
+  React.useEffect(() => {
+    rememberSettingsReturnPath(location.pathname, location.search);
+  }, [location.pathname, location.search]);
+  return null;
+}
 
 export function URLSync({ browserTabId }: { browserTabId?: string }) {
   const location = useLocation();

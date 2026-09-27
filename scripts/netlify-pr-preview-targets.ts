@@ -199,6 +199,13 @@ export function previewEligibleSiteNames(repoRoot = REPO_ROOT): string[] {
   return withDocsSite(buildableSites(repoRoot), repoRoot);
 }
 
+export function previewSiteFromCommand(body: string): string | undefined {
+  const match = body.match(/^\/preview ([a-z][a-z0-9-]*)$/);
+  // JavaScript's $ can match before a final line terminator.
+  if (!match || match[0] !== body) return undefined;
+  return previewEligibleSiteNames().includes(match[1]) ? match[1] : undefined;
+}
+
 export function previewSitesForChangedPaths(
   changedPaths: readonly string[],
   repoRoot = REPO_ROOT,

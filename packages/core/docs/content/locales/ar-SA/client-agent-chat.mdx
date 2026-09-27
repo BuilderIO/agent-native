@@ -232,9 +232,10 @@ sendToAgentChat({
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-استخدم `openAgentSettings()` عندما ينبغي أن تفتح صفحة إعدادات التطبيق أو بطاقة الإعداد
-صفحة `/settings` الأساسية. مرر معرف قسم مثل `"llm"`، أو `"secrets"`،
-أو `"automations"`، أو `"voice"`، أو `"limits"` لفتح قسم معين.
+استخدم `openAgentSettings()` عندما ينبغي أن تفتح بطاقة إعداد أو واجهة محادثة
+الإعدادات. مرر معرف قسم مثل `"llm"` أو `"secrets"` أو `"automations"` أو
+`"voice"` أو `"limits"`، فيفتح جدول إعادة توجيه الإعدادات الصفحة المسؤولة عنه
+(Model أو API keys أو Automations أو Preferences أو صف الحدود في Model).
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -242,7 +243,9 @@ openAgentSettings();
 openAgentSettings("secrets");
 ```
 
-يُفضَّل هذا المساعد على إرسال `agent-panel:open-settings` مباشرة.
+يُفضَّل هذا المساعد على إرسال `agent-panel:open-settings` مباشرة. لفتح صفحة
+بمعرفها، استدعِ `openSettingsPage("integrations")` أو أنشئ رابطًا باستخدام
+`buildSettingsRoute(page, sub?)`؛ راجع [Settings Kit](/docs/toolkit-settings#links).
 
 ## حالة سياق محادثة الوكيل {#agent-chat-context-state}
 

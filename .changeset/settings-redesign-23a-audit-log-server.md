@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+Audit log: organization owners and admins can read their organization's settings and admin trail. A new `admins` visibility makes an event readable by the org's owners and admins (and its owner), never by other members; `private` events stay with their owner, admins included. `list-audit-events` and `export-audit-events` take `scope: "organization"` (owners and admins only, 403 otherwise) plus `app`, `beforeMs`, and `offset` filters, and `list-audit-events` returns `hasMore` and `nextOffset`. Every event now records the app that wrote it in a new nullable `app` column. A thrown 401 or 403 is recorded as a `denied` attempt instead of an `error`. Default model changes, app member and permission roles, workspace app access, and file storage are now `admins` events (they were `org` events every member could read), and org member role changes and Builder.io connect and disconnect are now recorded (org-scoped connections as `admins` events, personal ones as `private`). New helpers `orgAdminAudit` and `recordOrgAdminAuditEvent` in `@agent-native/core/audit` record other settings changes the same way.

@@ -14,6 +14,9 @@ export interface AgentAskPopoverProps {
   className?: string;
   icon?: ReactNode;
   draftScope?: string;
+  /** The trigger's look: `default` as a page action, `outline` in a row or group. */
+  variant?: "default" | "secondary" | "outline";
+  size?: "xs" | "sm";
 }
 
 export function AgentAskPopover({
@@ -25,6 +28,8 @@ export function AgentAskPopover({
   className,
   icon,
   draftScope,
+  variant = "outline",
+  size = "sm",
 }: AgentAskPopoverProps) {
   const t = useT();
   const handleSubmit = useCallback(
@@ -61,8 +66,8 @@ export function AgentAskPopover({
       trigger={
         <Button
           type="button"
-          variant="outline"
-          size="sm"
+          variant={variant}
+          size={size}
           className={className ?? "cursor-pointer"}
         >
           {icon}

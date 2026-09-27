@@ -99,9 +99,9 @@ search: "Claude Anthropic ChatGPT OpenAI Claude कोड Codex कर्सर 
 https://<your-app>.agent-native.com/mcp
 ```
 
-ऐप में **Settings → Integrations** खोलें और उस host का जाना-पहचाना नाम खोजें:
+ऐप में **Settings → Connections → Integrations** खोलें और उस host का जाना-पहचाना नाम खोजें:
 Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI, Codex, Grok, या
-xAI। बाहरी host का एकमात्र परिणाम **Settings → MCP** खोलता है और सबसे उपयुक्त
+xAI। बाहरी host का एकमात्र परिणाम **Settings → MCP server** खोलता है और सबसे उपयुक्त
 guide चुनता है। **MCP server URL** कॉपी करके AI host में पेस्ट करें। URL deployed
 app के base URL के अंत में `/mcp` जोड़कर बनता है।
 
@@ -141,9 +141,9 @@ Claude, ChatGPT, कर्सर, Claude कोड, Codex, Grok और अन्
 
 ### ऐप के अंदर MCP सेटिंग {#mcp-settings}
 
-ऐप की standard Settings में **Integrations** के पास एक **MCP** टैब होता है। इसमें
+Settings में ऐप के समूह में एक **MCP server** पेज होता है। इसमें
 ऐप का canonical MCP URL, उपलब्ध होने पर A2A agent card और पूरी connect page
-जैसे setup guides दिखते हैं। ऐप के अंदर शुरुआत करने के लिए **Settings → MCP**
+जैसे setup guides दिखते हैं। ऐप के अंदर शुरुआत करने के लिए **Settings → MCP server**
 का उपयोग करें, या पूरे flow और token fallback के लिए `/mcp/connect` सीधे खोलें।
 
 ### Claude और ChatGPT OAuth {#oauth}

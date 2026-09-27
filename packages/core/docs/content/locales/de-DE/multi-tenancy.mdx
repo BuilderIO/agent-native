@@ -62,9 +62,9 @@ Wenn Sie Agent-nativ für ein CRM, einen Projekt-Tracker, einen Support-Posteing
 
 </Diagram>
 
-## Der Organisationsumschalter UI {#org-switcher}
+## Das Kontomenü {#org-switcher}
 
-Der Organisationsumschalter und die Mitglieder UI rendern in jeder Vorlage ohne zusätzlichen Code. Sie steuern die Routen der Kernorganisation REST unter `/_agent-native/org/*` (Organisation erstellen, Organisation wechseln, Mitglieder auflisten/einladen/entfernen, Rollen ändern, zulässige E-Mail-Domäne festlegen). Benutzer wählen die aktive Organisation aus dem Umschalter aus; Der Mitgliederbereich verwaltet Einladungen und Rollenänderungen.
+Das Kontomenü (`OrgSwitcher`, unten in der Seitenleiste) und die Organisationsseiten in den Einstellungen werden in jeder Vorlage ohne zusätzlichen Code gerendert. Sie steuern die REST-Routen der Kernorganisation unter `/_agent-native/org/*` (Organisation erstellen, Organisation wechseln, Mitglieder auflisten/einladen/entfernen, Rollen ändern, zulässige E-Mail-Domäne festlegen). Benutzer wählen die aktive Organisation im Kontomenü aus; **Settings › Organization › Members** verwaltet Einladungen und Rollenänderungen.
 
 Dies ist das `org/`-Modul des Frameworks, nicht das Organisations-Plugin von Better Auth (das absichtlich nicht registriert ist). Die vollständige Organisationsverwaltungsoberfläche – `createOrganization`, die REST-Routen und von Vorlagen erstellte `defineAction`-Wrapper wie `invite-member` – ist in [Authentication → Organizations](/docs/authentication#organizations) dokumentiert.
 

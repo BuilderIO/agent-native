@@ -23,7 +23,7 @@ function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
 }
 
-async function dispatch(nitroApp: any, pathname: string) {
+async function dispatchWithEvent(nitroApp: any, pathname: string) {
   const url = new URL(`http://example.test${pathname}`);
   const event = {
     method: "GET",
@@ -39,7 +39,11 @@ async function dispatch(nitroApp: any, pathname: string) {
     if (!middleware) return { fellThrough: true };
     return middleware(event, next);
   };
-  return next();
+  return { event, result: await next() };
+}
+
+async function dispatch(nitroApp: any, pathname: string) {
+  return (await dispatchWithEvent(nitroApp, pathname)).result;
 }
 
 describe("createAuthPlugin dispatch: no 404 window while the mount is pending", () => {
@@ -127,5 +131,24 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
     await expect(
       dispatch(nitroApp, "/_agent-native/auth/session"),
     ).resolves.toEqual({ ok: true });
+  });
+
+  it("marks the early session response no-store", async () => {
+    const nitroApp = createNitroApp();
+    mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin()(nitroApp);
+
+    const { event, result } = await dispatchWithEvent(
+      nitroApp,
+      "/_agent-native/auth/session",
+    );
+    expect(result).toEqual({ email: "owner@example.com" });
+    expect(event.res.headers.get("Cache-Control")).toBe("no-store");
   });
 });

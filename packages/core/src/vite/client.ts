@@ -3111,7 +3111,11 @@ function nitroStartupRecovery(): Plugin {
             cause?: NodeJS.ErrnoException;
           };
           const code = err.code ?? err.cause?.code;
-          const syscall = err.syscall ?? err.cause?.syscall;
+          // A reset on the browser's socket destroys it, so `disconnected`
+          // already covers the client leaving. A reset from any other socket
+          // (the database, an upstream fetch) leaves the browser waiting:
+          // destroying its response then reads as ERR_EMPTY_RESPONSE with
+          // nothing logged.
           const disconnected =
             req.aborted ||
             req.destroyed ||
@@ -3119,9 +3123,8 @@ function nitroStartupRecovery(): Plugin {
             res.destroyed ||
             res.writableEnded;
           if (
-            (code === "ECONNRESET" && syscall === "read") ||
-            (disconnected &&
-              (code === "ECONNRESET" || err.message === "read ECONNRESET"))
+            disconnected &&
+            (code === "ECONNRESET" || err.message === "read ECONNRESET")
           ) {
             if (!res.destroyed && !res.writableEnded) res.destroy();
             return;

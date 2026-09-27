@@ -107,6 +107,7 @@ const TAB_SCOPED_AMBIENT_KEYS = new Set([
   "navigate",
   "__url__",
   "__set_url__",
+  "settings-view",
 ]);
 
 export function normalizeBrowserTabId(value: unknown): string | null {

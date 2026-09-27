@@ -6074,6 +6074,7 @@ describe("server/auth", () => {
       const result = await sessionHandler(event);
 
       expect(event.res.status).toBe(200);
+      expect(event.res.headers.get("Cache-Control")).toBe("no-store");
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
@@ -8021,23 +8022,39 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
-    it("does not cache a legacy lookup that finishes after invalidation", async () => {
-      const {
-        getCachedSessionEmail,
-        getSessionEmailCacheGeneration,
-        invalidateSessionEmailCache,
-        setCachedSessionEmail,
-      } = await import("./session-email-cache.js");
-      const generation = getSessionEmailCacheGeneration();
+    it("rechecks the database after a legacy session is revoked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      let sessionPresent = true;
+      const sessionLookups = vi.fn(async () => ({
+        rows: sessionPresent
+          ? [{ email: "owner@example.com", created_at: Date.now() }]
+          : [],
+      }));
+      const execute = vi.fn(async (query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return sql?.includes("SELECT email, created_at FROM sessions")
+          ? sessionLookups()
+          : { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("../db/widen-columns.js", () => ({
+        widenIntColumnsToBigInt: vi.fn(),
+      }));
 
-      invalidateSessionEmailCache();
-      setCachedSessionEmail(
-        "late-session-lookup",
+      const { getSessionEmail } = await import("./auth.js");
+      await expect(getSessionEmail("revoked-session-token")).resolves.toBe(
         "owner@example.com",
-        generation,
       );
-
-      expect(getCachedSessionEmail("late-session-lookup")).toBeUndefined();
+      sessionPresent = false;
+      await expect(
+        getSessionEmail("revoked-session-token"),
+      ).resolves.toBeNull();
+      expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
     it("records identity resolution start before asynchronous credential validation", async () => {

@@ -1,0 +1,5 @@
+---
+"@agent-native/core": patch
+---
+
+Security: the default model (the `agent-engine` setting) is now stored per organization, and only organization owners and admins can change or clear it. Before, it was one row for the whole deployment that any signed-in user could change or delete. `manage-agent-engine` `set` refuses members with a 403 (`default_model_admin_required`), `/_agent-native/agent-engine/disconnect` requires owner or admin, and both record audit events (target type `agent-default-model`), including refused attempts. A signed-in user with no organization keeps their own default. The old deployment-wide row is still read as a fallback for one release, so existing deployments keep their default until each organization saves its own. Saving a provider key can now pick that provider as the default in the same request (`defaultModel` on `saveAgentEngineProviderSettings`), so Settings no longer needs a separate Apply step. `manage-agent-engine` `list` reports `canUpdateDefault` and `defaultSource`.

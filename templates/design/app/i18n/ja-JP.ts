@@ -177,6 +177,8 @@ export default {
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +187,6 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
   },
   onboarding: {
     fileStorage: {
@@ -1494,7 +1494,12 @@ export default {
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
-        "アドレスバー左側のサイト情報アイコンをクリックし、[サイトの設定] を開いて、[ローカル ネットワークへのアクセス] を [許可] に設定してください。",
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionCloseTitle: "設定を閉じますか？",
+      permissionCloseDescription:
+        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
+      permissionCloseStay: "設定を開いたままにする",
+      permissionCloseAnyway: "閉じる",
       permissionPromptRetry: "接続を再試行",
     },
   },

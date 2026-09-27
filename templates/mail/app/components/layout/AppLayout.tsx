@@ -5,6 +5,7 @@ import {
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
@@ -18,6 +19,7 @@ import {
   FeedbackButton,
   RouterSidebarLink,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
@@ -27,6 +29,7 @@ import {
 } from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconArrowUpRight,
@@ -209,10 +212,13 @@ function AccountAvatar({
   return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
 }
 
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
+    isSettingsPath(pathname) ||
     pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
@@ -320,11 +326,22 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
 
   const t = useT();
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  const content = isStandardLayoutPath(location.pathname) ? (
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    isSettingsPath(location.pathname) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  const content = settingsOwnsChrome ? (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {children}
+    </div>
+  ) : isStandardLayoutPath(location.pathname) ? (
     <StandardLayout>{children}</StandardLayout>
   ) : (
     <AppLayoutInner>{children}</AppLayoutInner>
@@ -1252,14 +1269,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
-        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border/50 bg-card px-2 inbox-zero-header hide-scrollbar">
           <Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>
             {/* Hamburger menu */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <DialogTrigger asChild>
                   <button
-                    className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                    className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                     aria-label={t("mail.toolbar.toggleMenu")}
                   >
                     <IconMenu2 className="h-4 w-4" />
@@ -1497,21 +1514,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   footerExtras={
                     <>
                       <DevDatabaseLink />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <RouterSidebarLink
-                            to="/settings"
-                            onClick={closeSidebar}
-                            aria-label={t("mail.toolbar.settings")}
-                            className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                          >
-                            <IconSettings className="size-4" />
-                          </RouterSidebarLink>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {t("mail.toolbar.settings")}
-                        </TooltipContent>
-                      </Tooltip>
                       <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
                     </>
                   }
@@ -1523,18 +1525,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar">
+              <nav className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar">
                 {[1, 2, 3].map((i) => (
                   <span
                     key={i}
-                    className="h-4 rounded bg-muted animate-pulse"
+                    className="h-4 shrink-0 rounded bg-muted animate-pulse"
                     style={{ width: `${48 + i * 12}px` }}
                   />
                 ))}
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"
+                className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1638,7 +1640,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <PopoverTrigger asChild>
                       <button
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          "flex h-9 w-9 items-center justify-center rounded transition-colors sm:h-6 sm:w-6",
                           tabSettingsOpen
                             ? "text-foreground bg-accent/50"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
@@ -1658,7 +1660,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
                   <Link
-                    to="/settings?section=ai-filter#tags"
+                    to={`${mailSettingsRoute("ai-filter")}#tags`}
                     onClick={() => setTabSettingsOpen(false)}
                     className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
                   >
@@ -1732,7 +1734,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setSearchFocused(true)}
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                   aria-label={t("mail.search.label")}
                 >
                   <IconSearch className="h-4 w-4" />
@@ -1797,7 +1799,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 onClick={handleCompose}
                 variant="outline"
                 size="sm"
-                className="h-9 sm:h-7 px-3 text-[13px]"
+                className="h-9 shrink-0 px-3 text-[13px] sm:h-7"
                 aria-label={t("mail.toolbar.composeEmail")}
               >
                 <span>{t("mail.toolbar.compose")}</span>
@@ -1823,7 +1825,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <button
                       type="button"
                       aria-label={t("mail.toolbar.accounts")}
-                      className="flex items-center hover:opacity-90 transition-opacity ms-1"
+                      className="flex shrink-0 items-center hover:opacity-90 transition-opacity ms-1"
                     >
                       <div
                         className="flex items-center"
@@ -2351,21 +2353,6 @@ function StandardLayout({ children }: AppLayoutProps) {
             >
               <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
               <DevDatabaseLink />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <RouterSidebarLink
-                    to="/settings"
-                    onClick={() => setSidebarOpen(false)}
-                    aria-label={t("mail.toolbar.settings")}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                  >
-                    <IconSettings className="size-4" />
-                  </RouterSidebarLink>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("mail.toolbar.settings")}
-                </TooltipContent>
-              </Tooltip>
               <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
             </div>
           </div>

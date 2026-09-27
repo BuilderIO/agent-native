@@ -331,7 +331,10 @@ function FilterControl({
           value={current}
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
-          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+          <SelectTrigger
+            size="sm"
+            className="w-[140px] justify-start gap-2 text-xs"
+          >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
@@ -356,7 +359,7 @@ function FilterControl({
         <Button
           variant={active ? "default" : "outline"}
           size="sm"
-          className="text-xs h-8 px-3"
+          className="text-xs"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
           {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
@@ -377,7 +380,7 @@ function FilterControl({
           <Button
             variant={active ? "default" : "outline"}
             size="sm"
-            className="text-xs h-8 px-3"
+            className="text-xs"
             onClick={() =>
               setValue({
                 [filter.id]: active
@@ -410,9 +413,10 @@ function FilterControl({
         {filter.label}
       </label>
       <Input
+        size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}
-        className="h-8 w-[160px] text-xs"
+        className="w-[160px] text-xs"
       />
     </div>
   );

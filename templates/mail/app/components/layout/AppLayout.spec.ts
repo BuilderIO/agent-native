@@ -41,39 +41,49 @@ describe("AppLayout inbox tab bar", () => {
     ).toHaveLength(1);
   });
 
-  it("uses stable router links for tooltip-wrapped tabs and settings gears", () => {
+  it("uses stable router links for tabs and the settings gear", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain("RouterSidebarLink,");
     expect(source).toContain("const link = ( <RouterSidebarLink");
-    expect(
-      source.match(
-        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
-      ),
-    ).toHaveLength(2);
     expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+    expect(source).toContain('to={`${mailSettingsRoute("ai-filter")}#tags`}');
   });
 
-  it("lets inbox tabs use available space before they scroll", () => {
+  it("shows inbox tabs on mobile and scrolls the full toolbar after the hamburger", () => {
     const source = appLayoutSource();
     const tabStart = source.indexOf("data-mail-tab-list");
-    const tabBar = source.slice(tabStart, source.indexOf("</nav>", tabStart));
-    const tabsAndActions = source.slice(
-      source.indexOf("Primary tabs stay mounted"),
-      source.indexOf("{inboxSyncing &&"),
+    const tabBarStart = source.lastIndexOf("<nav", tabStart);
+    const tabBar = source.slice(
+      tabBarStart,
+      source.indexOf("</nav>", tabStart),
+    );
+    const headerStart = source.indexOf(
+      '<header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain',
+    );
+    const header = source.slice(
+      headerStart,
+      source.indexOf("        </header>", headerStart),
     );
 
+    expect(headerStart).toBeGreaterThan(-1);
+    expect(header).toContain("sticky start-0 z-10");
     expect(source).toContain(
-      'className="hidden sm:flex flex-1 min-w-0 items-center gap-2 overflow-x-auto hide-scrollbar"',
+      'className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"',
     );
     expect(source).toContain(
-      'className="hidden sm:flex flex-1 min-w-0 flex-nowrap items-center gap-1 overflow-x-auto hide-scrollbar"',
+      'className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"',
     );
+    expect(header).toContain("data-mail-tab-list");
+    expect(header).toContain("SearchBar");
+    expect(header).toContain("IconRefresh");
+    expect(header).toContain('t("mail.toolbar.composeEmail")');
+    expect(header).toContain("AgentToggleButton");
+    expect(header).not.toContain("hidden sm:flex");
+    expect(tabBar).toContain("sm:overflow-x-auto sm:hide-scrollbar");
     expect(source).toContain(
       'cn("relative shrink-0", tabsLoading && "invisible")',
     );
-    expect(tabsAndActions).not.toContain('<div className="flex-1" />');
-    expect(tabBar).not.toMatch(/\bmax-w-/);
   });
 
   it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {

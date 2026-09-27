@@ -43,7 +43,12 @@ export default defineAction({
       .optional()
       .describe("Record kind tab for view=records."),
     query: z.string().trim().max(200).optional(),
-    settingsSection: z.enum(CRM_SETTINGS_SECTIONS).optional(),
+    settingsSection: z
+      .enum(CRM_SETTINGS_SECTIONS)
+      .optional()
+      .describe(
+        "With view settings: a CRM › General tab (connection, fields, lists, intelligence, advanced) or the MCP server page (mcp).",
+      ),
   }),
   http: false,
   run: async (args) => {

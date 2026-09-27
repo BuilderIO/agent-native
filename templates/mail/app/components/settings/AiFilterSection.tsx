@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -440,7 +441,7 @@ function RuleBackfillStatus({
   );
 }
 
-export function AiFilterSection() {
+export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
   const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
@@ -833,28 +834,48 @@ export function AiFilterSection() {
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
 
+  const enabledSwitch = (
+    <Switch
+      checked={state.enabled}
+      onCheckedChange={(enabled) => updateAiSettings({ enabled })}
+      aria-label={t("mail.aiFilter.toggle")}
+      disabled={!jevConfigured && !state.enabled}
+    />
+  );
+  const manageAutomationsLink = (
+    <Link
+      to={buildSettingsRoute("agent:automations")}
+      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {t("mail.aiFilter.manageAutomationsLink")}
+    </Link>
+  );
+
   return (
     <>
       <div className="max-w-180 space-y-7 pb-10">
-        <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <h2 className="text-base font-semibold text-foreground">
-            {t("mail.aiFilter.triageTitle")}
-          </h2>
-          <div className="flex items-center gap-3">
-            <Link
-              to={buildSettingsRoute("agent:automations")}
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {t("mail.aiFilter.manageAutomationsLink")}
-            </Link>
-            <Switch
-              checked={state.enabled}
-              onCheckedChange={(enabled) => updateAiSettings({ enabled })}
-              aria-label={t("mail.aiFilter.toggle")}
-              disabled={!jevConfigured && !state.enabled}
-            />
+        {embedded ? (
+          <>
+            <SettingsGroup id="ai-filter-settings">
+              <SettingsRow
+                id="ai-filter-enabled"
+                label={t("mail.aiFilter.triageTitle")}
+                control={enabledSwitch}
+              />
+            </SettingsGroup>
+            <div className="flex justify-end">{manageAutomationsLink}</div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between border-b border-border/50 pb-4">
+            <h2 className="text-base font-semibold text-foreground">
+              {t("mail.aiFilter.triageTitle")}
+            </h2>
+            <div className="flex items-center gap-3">
+              {manageAutomationsLink}
+              {enabledSwitch}
+            </div>
           </div>
-        </div>
+        )}
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />
@@ -1194,7 +1215,6 @@ export function AiFilterSection() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}

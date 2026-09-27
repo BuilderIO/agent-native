@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "受信トレイをスキップ",
       aiSetupSave: "設定を保存",
       aiSetupSkip: "今回はスキップ",
+      aiSetupSkipSetup: "受信トレイの設定をスキップ",
       aiSetupImportantHeadline: "重要なもの",
       aiSetupSkipInboxHeadline: "受信トレイをスキップできるもの",
       aiSetupTagsHeadline: "タブを選ぶ",
@@ -449,6 +450,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Google アカウントを接続",
+      connectionNotConfigured:
+        "このアプリでは Gmail 接続が設定されていません。管理者に有効化を依頼するか、今はこの手順をスキップしてください。",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -821,8 +824,6 @@ const messages = {
     slackPostEndpoint: "Slack POST エンドポイント",
     slackPostEndpointHelp:
       "Slack Event Subscriptions で使用します。ブラウザ GET では Not Found が表示される場合があります。",
-    teamDescription:
-      "同僚とメール自動化や設定を共有するためのチームを設定します。",
     title: "設定",
     general: "一般",
     generalDescription: "Mail の言語とアカウント全体の設定です。",
@@ -848,12 +849,19 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
+    rules: "ルール",
+    rulesModel: "ルールのモデル",
+    rulesModelDescription: "受信メールをルールと照合します。",
+    slackDraftRequests: "下書きリクエスト",
+    slackDraftQueue: "Slack から下書きをキューに追加",
+    slackDraftQueueDescription:
+      "チームメンバーが Slack でエージェントにメンションすると、メールの下書きをリクエストできます。下書きは確認のため下書きキューで待機します。",
+    openDraftQueue: "下書きキューを開く",
     aiFilter: "AIトリアージ",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",
     slack: "Slack",
-    team: "チーム",
     deleteAlias: "エイリアスを削除",
     editAlias: "エイリアスを編集",
   },

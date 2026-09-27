@@ -546,6 +546,7 @@ export function StatusPageEditor({
                           ) : null}
                         </div>
                         <Input
+                          size="sm"
                           value={ref.displayName}
                           placeholder={t.displayNamePlaceholder}
                           onChange={(e) =>
@@ -553,7 +554,7 @@ export function StatusPageEditor({
                               displayName: e.target.value,
                             })
                           }
-                          className="h-8 w-full text-xs sm:w-44"
+                          className="w-full text-xs sm:w-44"
                         />
                         <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                           <Switch

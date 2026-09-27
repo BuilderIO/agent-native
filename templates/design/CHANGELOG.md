@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The Connect AI setup card now has even spacing above and below the composer.
 - Chrome local access guidance clarifies how to approve live editing
 
 ### Fixed

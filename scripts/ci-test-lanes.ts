@@ -189,23 +189,79 @@ function splitWeight(total: number, index: number, count: number): number {
 }
 
 function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
-  const weight = new Map<string, number>();
-  for (const p of pkgs) weight.set(p.name, Math.max(1, countTestFiles(p.dir)));
+  return partitionWeighted(
+    pkgs.map((p) => ({
+      name: p.name,
+      files: Math.max(1, countTestFiles(p.dir)),
+    })),
+    laneCount,
+    core ? Math.max(1, countTestFiles(core.dir)) : null,
+  );
+}
 
-  const n = core ? laneCount : Math.max(1, Math.min(laneCount, pkgs.length));
-  const coreFiles = core ? Math.max(1, countTestFiles(core.dir)) : 0;
-  const bins = Array.from({ length: n }, (_, index) => ({
-    packages: [] as string[],
-    files: core ? splitWeight(coreFiles, index, n) : 0,
-    coreShard: core ? `${index + 1}/${n}` : "",
-  }));
-  for (const p of [...pkgs].sort(
-    (a, b) => weight.get(b.name)! - weight.get(a.name)!,
-  )) {
-    bins.sort((a, b) => a.files - b.files);
-    bins[0].packages.push(p.name);
-    bins[0].files += weight.get(p.name)!;
+/**
+ * Balance packages across lanes by test file count, with core Vitest-sharded
+ * across them. A package can't be split, so the heaviest packages may each
+ * take a lane of their own while core shards across the rest; the plan with
+ * the smallest largest lane wins. Stacking a core shard on top of Design made
+ * one lane outrun the job timeout while the others finished early.
+ */
+export function partitionWeighted(
+  pkgs: ReadonlyArray<{ name: string; files: number }>,
+  laneCount: number,
+  coreFiles: number | null,
+): Lane[] {
+  const sorted = [...pkgs].sort((a, b) => b.files - a.files);
+  const maxSolo =
+    coreFiles === null ? 0 : Math.min(laneCount - 1, sorted.length);
+  let best: LaneBin[] | null = null;
+  for (let solo = 0; solo <= maxSolo; solo++) {
+    const bins = planBins(sorted, laneCount, coreFiles, solo);
+    if (!best || largestBin(bins) < largestBin(best)) best = bins;
   }
+  return toLanes(best!);
+}
+
+interface LaneBin {
+  packages: string[];
+  files: number;
+  coreShard: string;
+}
+
+function largestBin(bins: LaneBin[]): number {
+  return Math.max(...bins.map((bin) => bin.files));
+}
+
+function planBins(
+  sorted: ReadonlyArray<{ name: string; files: number }>,
+  laneCount: number,
+  coreFiles: number | null,
+  soloCount: number,
+): LaneBin[] {
+  const shared = sorted.slice(soloCount);
+  const n =
+    coreFiles !== null
+      ? laneCount - soloCount
+      : Math.max(1, Math.min(laneCount, shared.length));
+  const sharedBins: LaneBin[] = Array.from({ length: n }, (_, index) => ({
+    packages: [],
+    files: coreFiles !== null ? splitWeight(coreFiles, index, n) : 0,
+    coreShard: coreFiles !== null ? `${index + 1}/${n}` : "",
+  }));
+  for (const p of shared) {
+    sharedBins.sort((a, b) => a.files - b.files);
+    sharedBins[0].packages.push(p.name);
+    sharedBins[0].files += p.files;
+  }
+  return [
+    ...sorted
+      .slice(0, soloCount)
+      .map((p) => ({ packages: [p.name], files: p.files, coreShard: "" })),
+    ...sharedBins,
+  ];
+}
+
+function toLanes(bins: LaneBin[]): Lane[] {
   return bins
     .filter((b) => b.packages.length > 0 || b.coreShard !== "")
     .sort((a, b) => b.files - a.files)
@@ -218,7 +274,11 @@ function partition(pkgs: Pkg[], laneCount: number, core?: Pkg): Lane[] {
     }));
 }
 
-function assertFullCoverage(lanes: Lane[], expected: Pkg[], core?: Pkg): void {
+export function assertFullCoverage(
+  lanes: Lane[],
+  expected: ReadonlyArray<{ name: string }>,
+  core?: unknown,
+): void {
   const covered = new Set<string>();
   for (const lane of lanes) {
     for (const name of lane.packages) {
@@ -237,9 +297,15 @@ function assertFullCoverage(lanes: Lane[], expected: Pkg[], core?: Pkg): void {
 
   if (core) {
     const shards = lanes.map((lane) => lane.coreShard).filter(Boolean);
+    const shardCount = Number(shards[0]?.split("/")[1] ?? 0);
+    const expectedShards = Array.from(
+      { length: shardCount },
+      (_, index) => `${index + 1}/${shardCount}`,
+    );
     if (
-      shards.length !== lanes.length ||
-      new Set(shards).size !== lanes.length
+      shardCount === 0 ||
+      shards.length !== shardCount ||
+      expectedShards.some((shard) => !shards.includes(shard))
     ) {
       throw new Error("Core test shards are missing or duplicated");
     }
@@ -263,7 +329,7 @@ function summarize(lanes: Lane[], coreFiles: number): void {
         ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes; ${CORE} is Vitest-sharded.`
         : targeted
           ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
-          : `Every test package runs. \`${CORE}\` is split across ${lanes.length} Vitest shards (${coreFiles} files); the rest share those balanced lanes.`,
+          : `Every test package runs. \`${CORE}\` is split across ${lanes.filter((l) => l.coreShard).length} Vitest shards (${coreFiles} files); the rest share those balanced lanes.`,
     "",
     "| lane | test files | packages |",
     "| --- | ---: | --- |",

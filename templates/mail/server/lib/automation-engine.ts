@@ -456,10 +456,11 @@ async function fetchNewInboxMessages(
           "[automation-engine] History list failed, falling back to message list:",
           err.message,
         );
+        if (watermark.fallbackPageToken) {
+          // Keep the original cursor until the fallback pages are drained.
+          break;
+        }
         nextWatermark = {
-          ...(watermark.fallbackPageToken
-            ? { fallbackPageToken: watermark.fallbackPageToken }
-            : {}),
           lastTimestamp: Date.now(),
         };
         fallbackToList = true;

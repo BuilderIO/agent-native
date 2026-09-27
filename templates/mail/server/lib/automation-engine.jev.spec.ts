@@ -1186,6 +1186,81 @@ describe("Mail Jev automation routing", () => {
     ).not.toHaveProperty("fallbackPageToken");
   });
 
+  it("keeps the fallback history cursor when history fails during a list continuation", async () => {
+    mocks.activeRules = [];
+    mocks.listSubscriptions.mockReturnValue([
+      { id: "received-mail", event: "mail.message.received" },
+    ]);
+    const watermarkKey =
+      "owner@example.com:mail-received-events:mailbox@example.com:watermark";
+    mocks.userSettings.set(watermarkKey, {
+      lastHistoryId: "fallback-base",
+      fallbackPageToken: "fallback-page-two",
+      lastTimestamp: Date.now(),
+    });
+    mocks.gmailListHistory
+      .mockRejectedValueOnce(new Error("temporary history failure"))
+      .mockResolvedValueOnce({
+        historyId: "history-after-arrival",
+        history: [
+          {
+            messagesAdded: [
+              {
+                message: {
+                  id: "arrived-during-fallback",
+                  labelIds: ["INBOX"],
+                },
+              },
+            ],
+          },
+        ],
+      });
+    mocks.gmailListMessages.mockResolvedValueOnce({ messages: [] });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "arrived-during-fallback",
+        data: {
+          id: "arrived-during-fallback",
+          threadId: "arrived-during-fallback",
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.gmailGetProfile).not.toHaveBeenCalled();
+    expect(mocks.gmailListMessages).toHaveBeenCalledWith(
+      "google-access-token",
+      expect.objectContaining({ pageToken: "fallback-page-two" }),
+    );
+    expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
+      lastHistoryId: "fallback-base",
+    });
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(mocks.gmailListHistory).toHaveBeenNthCalledWith(
+      2,
+      "google-access-token",
+      expect.objectContaining({ startHistoryId: "fallback-base" }),
+    );
+    expect(mocks.emitAsync).toHaveBeenCalledWith(
+      "mail.message.received",
+      expect.objectContaining({ messageId: "arrived-during-fallback" }),
+      expect.anything(),
+    );
+  });
+
   it("persists fallback candidates when the Gmail batch request fails", async () => {
     mocks.activeRules = [];
     mocks.listSubscriptions.mockReturnValue([

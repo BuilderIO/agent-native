@@ -48,22 +48,70 @@ function roleContext(value: string | null | undefined): string {
   return `The user's selected onboarding role is ${JSON.stringify(role)}. Tailor suggestions to that role's typical work and goals.`;
 }
 
+function findArrayEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "[") depth++;
+    else if (char === "]" && --depth === 0) return index;
+  }
+}
+
 function parseSuggestions(text: string) {
   const unwrapped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
-  let parsed: unknown;
+  let parsedJson: unknown;
+  let hasTopLevelJson = false;
   try {
-    parsed = JSON.parse(unwrapped);
-  } catch {
-    throw new Error("Home suggestions returned invalid JSON.");
+    parsedJson = JSON.parse(unwrapped);
+    hasTopLevelJson = true;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
   }
-  const result = suggestionsSchema.safeParse(parsed);
-  if (!result.success) {
+  if (hasTopLevelJson) {
+    const result = suggestionsSchema.safeParse(parsedJson);
+    if (!result.success) {
+      throw new Error("Home suggestions returned an invalid shape.");
+    }
+    return result.data;
+  }
+
+  let parsedCandidateJson = false;
+  for (
+    let start = unwrapped.indexOf("[");
+    start >= 0;
+    start = unwrapped.indexOf("[", start + 1)
+  ) {
+    const end = findArrayEnd(unwrapped, start);
+    if (end === undefined) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(unwrapped.slice(start, end + 1));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      continue;
+    }
+    parsedCandidateJson = true;
+    const result = suggestionsSchema.safeParse(parsed);
+    if (result.success) return result.data;
+  }
+  if (parsedCandidateJson) {
     throw new Error("Home suggestions returned an invalid shape.");
   }
-  return result.data;
+  throw new Error("Home suggestions returned invalid JSON.");
 }
 
 export default defineAction({
