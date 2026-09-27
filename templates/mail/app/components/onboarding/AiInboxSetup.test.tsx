@@ -214,6 +214,46 @@ describe("AiInboxSetup", () => {
     expect(screen.queryByText("mail.aiFilter.autoArchiveMode")).toBeNull();
   });
 
+  it("does not save the cleanup examples as archive or spam rules", async () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    const archiveInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.skipInboxMode",
+    }) as HTMLInputElement;
+    const spamInput = screen.getByRole("textbox", {
+      name: "mail.aiFilter.filteredMode",
+    }) as HTMLInputElement;
+    expect(archiveInput.value).toBe("");
+    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
+    expect(spamInput.value).toBe("");
+    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
+    expect(mocks.createRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining([{ type: "archive" }]),
+      }),
+    );
+    expect(mocks.createRule).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          { type: "label", labelName: AI_FILTER_LABEL },
+        ]),
+      }),
+    );
+  });
+
   it("keeps account and Jev loading gates when setup is force-opened", () => {
     const { rerender } = render(<AiInboxSetup forceOpen />);
     mocks.googleStatus.isLoading = true;
@@ -417,13 +457,8 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
     );
 
-    await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenCalledWith({
-        operation: "start",
-        ruleIds: ["rule-1", "rule-2"],
-      }),
-    );
-    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+    expect(mocks.createRule).not.toHaveBeenCalled();
   });
 
   it("does not save or backfill a draft Important rule after skipping that step", async () => {
@@ -540,7 +575,7 @@ describe("AiInboxSetup", () => {
       });
       expect(mocks.startBackfill).toHaveBeenCalledWith({
         operation: "start",
-        ruleIds: ["disabled-receipts", "rule-1", "rule-2", "rule-3"],
+        ruleIds: ["disabled-receipts", "rule-1"],
       });
     });
   });
@@ -635,6 +670,18 @@ describe("AiInboxSetup", () => {
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.aiFilter.skipInboxMode",
+      }),
+      { target: { value: "Archive newsletters" } },
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.aiFilter.filteredMode",
+      }),
+      { target: { value: "Skip bot notifications" } },
     );
     fireEvent.click(
       await screen.findByRole("button", {

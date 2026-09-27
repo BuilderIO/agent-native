@@ -92,6 +92,7 @@ function SetupRuleRow({
   icon,
   title,
   condition,
+  placeholder,
   enabled,
   onConditionChange,
   onEnabledChange,
@@ -99,6 +100,7 @@ function SetupRuleRow({
   icon: React.ReactNode;
   title: string;
   condition: string;
+  placeholder: string;
   enabled: boolean;
   onConditionChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
@@ -117,6 +119,7 @@ function SetupRuleRow({
         <Input
           value={condition}
           onChange={(event) => onConditionChange(event.target.value)}
+          placeholder={placeholder}
           aria-label={title}
         />
       </label>
@@ -400,13 +403,9 @@ export function AiInboxSetup({
   const [customTagName, setCustomTagName] = useState("");
   const [customTagPrompt, setCustomTagPrompt] = useState("");
   const [importantPrompt, setImportantPrompt] = useState("");
-  const [archivePrompt, setArchivePrompt] = useState(() =>
-    t("mail.sort.aiSetupArchiveExample"),
-  );
+  const [archivePrompt, setArchivePrompt] = useState("");
   const [archiveEnabled, setArchiveEnabled] = useState(true);
-  const [spamPrompt, setSpamPrompt] = useState(() =>
-    t("mail.sort.aiSetupFilteredExample"),
-  );
+  const [spamPrompt, setSpamPrompt] = useState("");
   const [spamEnabled, setSpamEnabled] = useState(true);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
   const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
@@ -705,6 +704,7 @@ export function AiInboxSetup({
                 icon={<IconArchive className="size-4" />}
                 title={t("mail.aiFilter.skipInboxMode")}
                 condition={archivePrompt}
+                placeholder={t("mail.sort.aiSetupArchiveExample")}
                 enabled={archiveEnabled}
                 onConditionChange={setArchivePrompt}
                 onEnabledChange={setArchiveEnabled}
@@ -713,6 +713,7 @@ export function AiInboxSetup({
                 icon={<IconFilter className="size-4" />}
                 title={t("mail.aiFilter.filteredMode")}
                 condition={spamPrompt}
+                placeholder={t("mail.sort.aiSetupFilteredExample")}
                 enabled={spamEnabled}
                 onConditionChange={setSpamPrompt}
                 onEnabledChange={setSpamEnabled}
