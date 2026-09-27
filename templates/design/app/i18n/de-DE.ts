@@ -1508,7 +1508,12 @@ export default {
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
       permissionPromptSettingsInstructions:
-        "Klicke links in der Adressleiste auf das Symbol für Website-Informationen, öffne die Website-Einstellungen und stelle Zugriff auf das lokale Netzwerk auf Zulassen.",
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
+      permissionCloseTitle: "Einrichtung schließen?",
+      permissionCloseDescription:
+        "Live-Bearbeitung funktioniert erst, wenn du den Zugriff in Chrome erlaubst.",
+      permissionCloseStay: "Einrichtung geöffnet lassen",
+      permissionCloseAnyway: "Trotzdem schließen",
       permissionPromptRetry: "Verbindung wiederholen",
     },
   },

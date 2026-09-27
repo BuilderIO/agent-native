@@ -95,8 +95,54 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       permissionHelp?.querySelector("summary")?.click();
     });
     expect(permissionHelp?.textContent).toContain(
-      "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
     );
+    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+      "/local-network-access-settings.jpg",
+    );
+  });
+
+  it("shows the Chrome permission prompt and confirms before closing setup", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={onDismiss}
+          proactive
+        />,
+      );
+    });
+
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(
+      document.querySelector('img[src="/local-network-access-permission.jpg"]'),
+    ).not.toBeNull();
+    const dismissButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Close");
+    expect(dismissButton).toBeDefined();
+
+    await act(async () => dismissButton?.click());
+    expect(
+      document
+        .querySelector('[role="alertdialog"]')
+        ?.getAttribute("data-state"),
+    ).toBe("open");
+    expect(document.body.textContent).toContain("Close setup?");
+    expect(document.body.textContent).toContain(
+      "Live editing won't work until you allow access in Chrome.",
+    );
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    const closeAnyway = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Close anyway");
+    await act(async () => closeAnyway?.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
@@ -1036,6 +1082,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         "Can't reach your local dev server",
       );
     });
+    expect(
+      document.querySelector('img[src="/local-network-access-permission.jpg"]'),
+    ).not.toBeNull();
     const permissionHelp = document.querySelector("details");
     expect(permissionHelp?.open).toBe(false);
     expect(permissionHelp?.textContent).toContain("No Chrome prompt?");
@@ -1044,7 +1093,10 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
     expect(permissionHelp?.open).toBe(true);
     expect(permissionHelp?.textContent).toContain(
-      "Click the site information icon to the left of the address bar, open Site settings, then set Local network access to Allow.",
+      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+    );
+    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+      "/local-network-access-settings.jpg",
     );
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });

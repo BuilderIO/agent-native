@@ -1494,7 +1494,12 @@ export default {
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
       permissionPromptSettingsInstructions:
-        "アドレスバー左側のサイト情報アイコンをクリックし、[サイトの設定] を開いて、[ローカル ネットワークへのアクセス] を [許可] に設定してください。",
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionCloseTitle: "設定を閉じますか？",
+      permissionCloseDescription:
+        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
+      permissionCloseStay: "設定を開いたままにする",
+      permissionCloseAnyway: "閉じる",
       permissionPromptRetry: "接続を再試行",
     },
   },
