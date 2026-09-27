@@ -11,6 +11,7 @@ import { createTrackingEventScope } from "../observability/tracing.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
+  installDevConnectionCloseHook,
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
@@ -1108,5 +1109,46 @@ describe("framework request handler", () => {
     await expect(
       dispatch(nitroApp, "/docs-extra/_agent-native/extensions"),
     ).resolves.toEqual({ fellThrough: true });
+  });
+});
+
+describe("installDevConnectionCloseHook", () => {
+  function hookedApp() {
+    const hooks: Array<(event: any) => void> = [];
+    const app = {
+      hooks: { hook: vi.fn((_name: string, fn: any) => hooks.push(fn)) },
+    };
+    const run = () => {
+      const event = {
+        res: { headers: new Headers(), errHeaders: new Headers() },
+      };
+      for (const hook of hooks) hook(event);
+      return event;
+    };
+    return { app, run };
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("closes every response connection in Vite dev", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const { app, run } = hookedApp();
+    installDevConnectionCloseHook(app);
+    installDevConnectionCloseHook(app);
+    expect(app.hooks.hook).toHaveBeenCalledOnce();
+    const event = run();
+    expect(event.res.headers.get("connection")).toBe("close");
+    expect(event.res.errHeaders.get("connection")).toBe("close");
+  });
+
+  it("leaves production and test connections alone", () => {
+    for (const env of ["production", "test"]) {
+      vi.stubEnv("NODE_ENV", env);
+      const { app } = hookedApp();
+      installDevConnectionCloseHook(app);
+      expect(app.hooks.hook).not.toHaveBeenCalled();
+    }
   });
 });
