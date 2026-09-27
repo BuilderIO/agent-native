@@ -18,7 +18,17 @@ vi.mock("../use-action.js", () => ({
   useActionQuery: () => mocks.groups,
 }));
 
+vi.mock("../uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("../i18n.js", () => ({
+  useIconPickerLabels: () => ({}),
   useT: () => (key: string, options?: { count?: number }) => {
     if (key === "org.memberCount") return `${options?.count ?? 0} members`;
     if (key === "org.searchPeople") return "Search people";

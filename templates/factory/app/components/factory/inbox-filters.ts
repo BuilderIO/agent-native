@@ -73,8 +73,6 @@ export function updatedAfterForRange(
   range: InboxRange | "",
 ): string | undefined {
   if (!range) return undefined;
-  // Local midnight so the bound is stable across renders. `now - 7d` would
-  // change every millisecond and retrigger list-triage-items via the query key.
   const now = new Date();
   const daysAgo = range === "today" ? 0 : 7;
   return new Date(

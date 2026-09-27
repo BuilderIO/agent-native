@@ -1,11 +1,3 @@
-/**
- * GET /api/agent-context.json?id=<recordingId>[&password=<pw>|&t=<token>]
- *
- * Public, AI-readable context for a shared clip. This follows the same
- * visibility/password/expiry rules as `/api/public-recording`, but returns a
- * smaller agent-oriented shape plus discoverable transcript/frame APIs.
- */
-
 import { asc, count, eq } from "drizzle-orm";
 import {
   defineEventHandler,

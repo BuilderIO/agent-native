@@ -79,7 +79,6 @@ function CommandIcon({ icon }: { icon?: string }) {
 
 function HintWithLink({ hint }: { hint: string }) {
   const t = useComposerRuntimeAdapters().translate!;
-  // If hint contains a URL, split it and render the URL as a link
   const urlMatch = hint.match(/(https?:\/\/\S+)/);
   if (!urlMatch) return <>{hint}</>;
   const before = hint.slice(0, urlMatch.index);
@@ -205,7 +204,6 @@ export const MentionPopover = forwardRef<
           ...skills.map((skill) => `skill:${skill.path}`),
         ].join("\0");
 
-  // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
     if (type !== "@") return [];
     const groups = new Map<string, MentionItem[]>();
@@ -214,8 +212,6 @@ export const MentionPopover = forwardRef<
       if (!groups.has(section)) groups.set(section, []);
       groups.get(section)!.push(item);
     }
-    // Sort: Agents first, then Connected Agents, then template-specific,
-    // then Files, then Other
     const sorted: { section: string; items: MentionItem[] }[] = [];
     const knownSections = new Set([
       "Agents",
@@ -223,7 +219,6 @@ export const MentionPopover = forwardRef<
       "Files",
       "Other",
     ]);
-    // Agents first
     if (groups.has("Agents")) {
       sorted.push({ section: "Agents", items: groups.get("Agents")! });
       groups.delete("Agents");
@@ -235,38 +230,31 @@ export const MentionPopover = forwardRef<
       });
       groups.delete("Connected Agents");
     }
-    // Template-specific sections (anything not in knownSections)
     for (const [section, items] of groups) {
       if (!knownSections.has(section)) {
         sorted.push({ section, items });
       }
     }
-    // Files
     if (groups.has("Files")) {
       sorted.push({ section: "Files", items: groups.get("Files")! });
     }
-    // Other
     if (groups.has("Other")) {
       sorted.push({ section: "Other", items: groups.get("Other")! });
     }
     return sorted;
   }, [type, mentionItems]);
 
-  // Flat list of mention items in section order for keyboard index tracking
   const flatMentionItems = React.useMemo(() => {
     return groupedMentions.flatMap((g) => g.items);
   }, [groupedMentions]);
 
-  // Reset selection when items change
   useEffect(() => {
     setSelectedIndex((current) => (current === 0 ? current : 0));
   }, [itemIdentitySignature, query]);
 
-  // Scroll selected item into view
   useEffect(() => {
     const container = listRef.current;
     if (!container) return;
-    // Find the actual item element by data attribute
     const selected = container.querySelector(
       `[data-mention-index="${selectedIndex}"]`,
     ) as HTMLElement | undefined;

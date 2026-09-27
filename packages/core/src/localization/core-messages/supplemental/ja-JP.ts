@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "取り消す",
   couldNotRevoke: "トークンを取り消せませんでした。",
   authorizeDevice: "デバイスを承認",
+  fullCatalogRequested:
+    "このデバイスは、すべてのアクションカタログへのアクセスを要求しています。",
   createToken: "接続トークンを作成",
   authorizingDevice: "デバイスを承認中...",
   creatingToken: "トークンを作成中...",

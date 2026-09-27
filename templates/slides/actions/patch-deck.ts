@@ -10,7 +10,10 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { AgentActionStopError } from "@agent-native/core";
+import {
+  AgentActionStopError,
+  isActionContractError,
+} from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -24,7 +27,10 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import {
+  normalizeSlidePadding,
+  normalizeSlidePaddingForWrite,
+} from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
@@ -33,6 +39,7 @@ import {
   deckVersionChatContextFromAction,
   deckVersionContentSignature,
 } from "../server/lib/deck-versions.js";
+import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -50,16 +57,17 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
+import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import {
+  assertNoRenderArtifacts,
+  assertNoRenderArtifactsInNewSlide,
+} from "./_render-artifacts.js";
 
-// ---------------------------------------------------------------------------
-// Per-deck write lock — same pattern as add-slide.ts so all client and agent
-// writes to the same deck are serialised in-process.
-// ---------------------------------------------------------------------------
 const LOCK_KEY = "__slidesDeckPatchLocks" as const;
 type GlobalWithLocks = typeof globalThis & {
   [LOCK_KEY]?: Map<string, Promise<unknown>>;
@@ -84,10 +92,6 @@ export function withDeckLock<T>(
     .catch(() => {});
   return next;
 }
-
-// ---------------------------------------------------------------------------
-// Operation schemas
-// ---------------------------------------------------------------------------
 
 const SlideAnimationSchema = z.object({
   id: z.string().min(1).describe("Stable ID for this ordered reveal step"),
@@ -146,21 +150,60 @@ const SlideFieldsSchema = z.object({
     ),
 });
 
-/** Update fields on a single existing slide */
-const PatchSlideOp = z.object({
-  op: z.literal("patch-slide"),
-  slideId: z.string(),
-  fields: SlideFieldsSchema,
-  preserveSource: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe(
-      "Keep source-imported images and factual copy (default true). Set false only for an explicit rewrite.",
-    ),
-});
+const PatchSlideOp = z
+  .object({
+    op: z.literal("patch-slide"),
+    slideId: z.string(),
+    fields: SlideFieldsSchema,
+    baseContentHash: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Content hash from the exact get-deck source. Required for styleOnly and for each slide in an agent's multi-slide content batch.",
+      ),
+    styleOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "Enforce a CSS-only edit that preserves text, markup, element order, and protected layout CSS. Requires fields.content and baseContentHash.",
+      ),
+    preserveSource: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Keep source-imported images and factual copy (default true). Set false only for an explicit rewrite.",
+      ),
+  })
+  .superRefine((operation, context) => {
+    if (!operation.styleOnly) return;
+    if (operation.fields.content === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fields", "content"],
+        message: "styleOnly requires a complete slide content value",
+      });
+    }
+    if (operation.baseContentHash === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["baseContentHash"],
+        message: "styleOnly requires the source slide contentHash",
+      });
+    }
+    const unsupportedFields = Object.keys(operation.fields).filter(
+      (field) => field !== "content",
+    );
+    if (unsupportedFields.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fields"],
+        message: "styleOnly accepts only fields.content",
+      });
+    }
+  });
 
-/** Delete a single slide by ID */
 const DeleteSlideOp = z.object({
   op: z.literal("delete-slide"),
   slideId: z.string(),
@@ -170,11 +213,6 @@ const DeleteSlideOp = z.object({
     .describe("Keep the deck empty when deleting its last slide."),
 });
 
-/**
- * Reorder slides: send the desired ordered list of slide IDs.
- * Server reorders existing slides to match. Slides not present in the
- * orderedIds list are appended at the end (safe for concurrent adds).
- */
 const ReorderSlidesOp = z
   .object({
     op: z.literal("reorder-slides"),
@@ -194,7 +232,6 @@ const ReorderSlidesOp = z
     });
   });
 
-/** Add a new slide. slideId must be provided by the client. */
 const AddSlideOp = z.object({
   op: z.literal("add-slide"),
   slideId: z.string(),
@@ -218,7 +255,6 @@ const AddSlideOp = z.object({
     .passthrough(),
 });
 
-/** Update top-level deck fields (title, designSystemId, tweaks, etc.) */
 const PatchDeckFieldsOp = z.object({
   op: z.literal("patch-deck-fields"),
   fields: z
@@ -306,11 +342,6 @@ function firstDuplicate(values: readonly string[]): string | undefined {
   return undefined;
 }
 
-/**
- * A deck-wide source restyle must be atomic from the agent's point of view:
- * accepting a partial batch makes an apparently successful run indistinguishable
- * from a run that quietly left the tail of the imported deck untouched.
- */
 export function assertSourceImportSlidesCovered(
   metadata: SourceImportMetadata | null,
   operations: Operation[],
@@ -335,12 +366,10 @@ export function assertSourceImportSlidesCovered(
   if (missingSlideIds.length === 0) return;
 
   throw new Error(
-    `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying with get-deck compact=true.`,
+    `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying the changed slides with get-deck slideIds and compact=false.`,
   );
 }
 
-// The browser and agents use the same bounded operation union. Structural edits
-// are supported for imported decks; the source manifest is cleared after one.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   rewriteSource: z
@@ -381,7 +410,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
+      "Use patch-slide for content or slide fields, add-slide to append a slide, delete-slide to remove a slide, reorder-slides to set slide order, and patch-deck-fields for top-level deck fields such as title or starred. For multi-slide content changes, read each target's full source and contentHash, then include baseContentHash on every patch-slide. Set styleOnly=true only for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide.",
     ),
 });
 
@@ -429,7 +458,11 @@ function storedCreativeContext(value: unknown): {
 export function applyOperation(
   deck: any,
   op: Operation,
-  options?: { clearLayoutWarningDismissal?: boolean },
+  options?: {
+    clearLayoutWarningDismissal?: boolean;
+    sourceContentHashes?: ReadonlyMap<string, string>;
+    styleOnlyBaseline?: string;
+  },
 ): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
@@ -437,16 +470,38 @@ export function applyOperation(
   switch (op.op) {
     case "patch-slide": {
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
-      if (idx === -1) return false; // slide was concurrently deleted — ignore
+      if (idx === -1) return false;
       const slide = slides[idx];
       const fields = op.fields;
+      if (op.baseContentHash !== undefined) {
+        const sourceContentHash =
+          options?.sourceContentHashes?.get(op.slideId) ??
+          hashSlideContent(String(slide.content ?? ""));
+        if (sourceContentHash !== op.baseContentHash) {
+          fail(
+            "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+            { errorCode: "slide_content_stale", statusCode: 409 },
+          );
+        }
+      }
       const previousFitFields = {
         content: slide.content,
         layout: slide.layout,
         excalidrawData: slide.excalidrawData,
       };
       if (fields.content !== undefined) {
-        const nextContent = normalizeSlidePadding(fields.content);
+        const previousContent =
+          typeof slide.content === "string" ? slide.content : undefined;
+        const nextContent = op.styleOnly
+          ? fields.content
+          : normalizeSlidePaddingForWrite(previousContent, fields.content);
+        if (op.styleOnly) {
+          assertStyleOnlyEdit(
+            options?.styleOnlyBaseline ?? String(slide.content ?? ""),
+            nextContent,
+          );
+        }
+        assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
@@ -471,10 +526,6 @@ export function applyOperation(
       }
       if (layoutChanged) {
         slide.layoutFitRevision = createLayoutFitRevision();
-        // Re-arm the overflow warning, because new geometry may overflow
-        // differently than whatever the user dismissed. A dismissal sent in
-        // this same patch is the current request, not the stale one being
-        // discarded, so it survives.
         if (
           options?.clearLayoutWarningDismissal &&
           fields.layoutWarningDismissed === undefined
@@ -489,8 +540,6 @@ export function applyOperation(
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
       const removed = idx !== -1;
       if (removed) slides.splice(idx, 1);
-      // Ensure at least one slide remains for direct user deletes. Undoing an
-      // add-slide from a legitimately empty deck opts into preserving empty.
       const addedFallback = slides.length === 0 && !op.allowEmpty;
       if (addedFallback) {
         slides.push({
@@ -521,8 +570,6 @@ export function applyOperation(
       const reordered: any[] = orderedIds
         .map((id) => byId.get(id))
         .filter(Boolean);
-      // Append any slides the server has but the client didn't include in the
-      // order list (e.g. a concurrent add from another writer or agent).
       const orderedSet = new Set(orderedIds);
       for (const s of slides) {
         if (!orderedSet.has(s.id)) reordered.push(s);
@@ -540,8 +587,14 @@ export function applyOperation(
 
     case "add-slide": {
       const { slideId, afterSlideId, fields } = op;
-      // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return false;
+      if (typeof fields.content === "string") {
+        assertNoRenderArtifactsInNewSlide(
+          fields.content,
+          slideId,
+          slides.map((s: { content?: unknown }) => String(s.content ?? "")),
+        );
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // Copy every provided field: a duplicated or undo-restored slide has to
       // keep its transition, animations, and image data, not just its text.
@@ -600,19 +653,10 @@ export function applyOperation(
   }
 }
 
-/**
- * Per-slide signatures taken either side of the operation loop. The deck-wide
- * signature cannot answer "did this slide change", which is the only question
- * that decides what the agent may report as edited.
- */
 export function slideSignatures(deck: any): Map<string, string> {
   const signatures = new Map<string, string>();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
     if (typeof slide?.id === "string") {
-      // layoutFitRevision and layoutWarningDismissed are bookkeeping the
-      // replay re-mints or clears on every intermediate edit. Counting them
-      // makes an ordered round-trip (A to B, then back to A) look like an
-      // edit the user can see.
       const {
         layoutFitRevision: _layoutFitRevision,
         layoutWarningDismissed: _layoutWarningDismissed,
@@ -624,11 +668,6 @@ export function slideSignatures(deck: any): Map<string, string> {
   return signatures;
 }
 
-/**
- * Reveal paths are positional into the slide's HTML, so only a real content
- * change may invalidate them. A batch that re-sends identical HTML alongside
- * new notes changes the slide without changing what the paths point at.
- */
 export function slideContents(deck: any): Map<string, string> {
   const contents = new Map<string, string>();
   for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
@@ -642,13 +681,6 @@ export function slideContents(deck: any): Map<string, string> {
   return contents;
 }
 
-/**
- * Agent content rewrites must not inherit click-reveal paths implicitly. A
- * caller that wants to revise both HTML and reveals sends `animations` in the
- * same patch, including the complete ordered list. Source-preserving edits are
- * the exception: they retain imported reveal metadata unless the caller opts
- * into an explicit source rewrite.
- */
 export function clearOmittedAnimationsForAgentContentPatches(
   deck: any,
   operations: readonly Operation[],
@@ -674,6 +706,7 @@ export function clearOmittedAnimationsForAgentContentPatches(
     operations.flatMap((operation) =>
       operation.op === "patch-slide" &&
       operation.fields.content !== undefined &&
+      !operation.styleOnly &&
       operation.fields.animations === undefined &&
       !explicitAnimationSlideIds.has(operation.slideId) &&
       (options?.contentChangedSlideIds?.has(operation.slideId) ?? true) &&
@@ -692,12 +725,6 @@ export function clearOmittedAnimationsForAgentContentPatches(
   }
 }
 
-/**
- * Content and animation metadata are one contract. Validate only slides whose
- * content or animation list changed so unrelated note/title writes do not
- * resurrect old metadata failures, while any edit that can stale a path is
- * rejected before persistence.
- */
 export function assertPatchedSlideAnimationsResolve(
   deck: any,
   operations: readonly Operation[],
@@ -706,16 +733,13 @@ export function assertPatchedSlideAnimationsResolve(
     contentChangedSlideIds?: ReadonlySet<string>;
   },
 ): void {
-  // An explicit animation list is always validated against the final HTML. A
-  // content field is validated only when it actually changed the slide, so a
-  // patch that re-sends identical HTML is not rejected for reveal metadata
-  // that was already stored and already accepted.
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) => {
       if (operation.op !== "patch-slide" && operation.op !== "add-slide") {
         return [];
       }
       const contentChanged =
+        (operation.op !== "patch-slide" || !operation.styleOnly) &&
         operation.fields.content !== undefined &&
         (options?.contentChangedSlideIds?.has(operation.slideId) ?? true);
       return operation.fields.animations !== undefined || contentChanged
@@ -740,10 +764,6 @@ export function assertPatchedSlideAnimationsResolve(
   }
 }
 
-/**
- * Resolve the last operation in a sequence. For example, when typing a new name
- * this will be the latest name of the deck in a sequence of keystrokes.
- */
 export function resolveDeckColumnUpdates(
   current: { title: string; designSystemId: string | null },
   operations: Operation[],
@@ -765,14 +785,6 @@ export function resolveDeckColumnUpdates(
   };
 }
 
-/**
- * The source-preservation guard (`assertSourceSlidePreserved`) exists for one
- * failure mode: an agent asked to
- * "make it prettier" silently dropping the original PDF/PPTX artwork or
- * factual copy. A human editing their own imported deck in the browser isn't
- * that failure mode, and the browser editor has no way to pass
- * `preserveSource` — so these guards must only run for agent callers.
- */
 export function isAgentPatchCaller(caller: string | undefined): boolean {
   return (
     caller === "tool" ||
@@ -782,14 +794,10 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Action definition
-// ---------------------------------------------------------------------------
-
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Before adding or restyling slides from an external agent, read get-deck with compact=true once for designSystem, deckStyle, and representativeSlideId, and get-design-system once for the full linked context. For new deck generation, use add-slide once per newly generated slide so its per-slide Creative Context provenance is preserved; reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Before a multi-slide content patch, read all target source with one get-deck compact=false call so every patch has its exact contentHash; use compact=true only for orientation when full source is not needed. Call get-design-system once for the full linked context. For new deck generation, use add-slide once per newly generated slide so its per-slide Creative Context provenance is preserved; reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
@@ -798,8 +806,9 @@ export default defineAction({
     "then patch content and the complete ordered animations list together; " +
     "use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
-    "Then call get-deck with compact=true to verify the persisted slide IDs, " +
-    "count, and animation metadata before reporting success. Only the slide " +
+    "Then call get-deck once with slideIds and compact=false to verify the " +
+    "persisted full source, notes, IDs, and animation metadata before reporting " +
+    "success. Only the slide " +
     "IDs in updatedSlideIds actually changed: a slide echoed back in " +
     "unchangedSlideIds came out identical to the stored slide, was not " +
     "written, and must never be described as edited. A batch in which every " +
@@ -867,10 +876,6 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId))
         .limit(1);
 
-      // Reachable only in the narrow window where access resolved and the row
-      // was deleted before this select. A wrong deck id never gets here:
-      // assertAccess throws Forbidden first, on purpose, so a non-member
-      // cannot probe a deck id for existence. Do not delete this as dead.
       if (!row)
         fail(`Deck ${deckId} not found`, {
           errorCode: "deck_not_found",
@@ -886,6 +891,12 @@ export default defineAction({
       };
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
+      const sourceContentHashes = new Map<string, string>(
+        currentSlides.map(
+          (slide: { id: string; content?: unknown }) =>
+            [slide.id, hashSlideContent(String(slide.content ?? ""))] as const,
+        ),
+      );
       const existingSlideIds = new Set(
         currentSlides.map((slide: { id?: unknown }) => slide.id),
       );
@@ -896,6 +907,30 @@ export default defineAction({
       if (missingSlideIds.length > 0) {
         throw new Error(
           `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+        );
+      }
+
+      const contentPatchOperations = operations.filter(
+        (operation): operation is Extract<Operation, { op: "patch-slide" }> =>
+          operation.op === "patch-slide" &&
+          operation.fields.content !== undefined,
+      );
+      const contentSlideIds = new Set(
+        contentPatchOperations.map((operation) => operation.slideId),
+      );
+      if (
+        isAgentCaller &&
+        contentSlideIds.size > 1 &&
+        contentPatchOperations.some(
+          (operation) => operation.baseContentHash === undefined,
+        )
+      ) {
+        fail(
+          "A multi-slide content patch requires the contentHash read for every slide. Read the target slides with get-deck, then retry the batch.",
+          {
+            errorCode: "slide_content_hash_required",
+            statusCode: 400,
+          },
         );
       }
 
@@ -976,9 +1011,36 @@ export default defineAction({
           (deck.slides as Array<{ id?: string }>).some(
             (slide) => slide.id === op.slideId,
           );
-        const operationChangedStructure = applyOperation(deck, op, {
-          clearLayoutWarningDismissal: isAgentCaller,
-        });
+        let operationChangedStructure: boolean;
+        try {
+          operationChangedStructure = applyOperation(deck, op, {
+            clearLayoutWarningDismissal: isAgentCaller,
+            sourceContentHashes,
+          });
+        } catch (error) {
+          if (
+            op.op !== "patch-slide" ||
+            !op.styleOnly ||
+            !isActionContractError(error) ||
+            ![
+              "style_only_slide_structure_changed",
+              "style_only_slide_layout_changed",
+            ].includes(error.errorCode)
+          ) {
+            throw error;
+          }
+          const slide = (
+            deck.slides as Array<{ id: string; content?: unknown }>
+          ).find((entry) => entry.id === op.slideId);
+          const styleOnlyBaseline = await formatSlideHtml(
+            String(slide?.content ?? ""),
+          );
+          operationChangedStructure = applyOperation(deck, op, {
+            clearLayoutWarningDismissal: isAgentCaller,
+            sourceContentHashes,
+            styleOnlyBaseline,
+          });
+        }
         structuralOperationApplied ||= operationChangedStructure;
         if (
           existedBeforeDelete &&
@@ -1012,31 +1074,19 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : normalizeSlidePadding(op.fields.content),
+                : op.styleOnly
+                  ? op.fields.content
+                  : normalizeSlidePaddingForWrite(
+                      contentsBeforeOperations.get(op.slideId),
+                      op.fields.content,
+                    ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });
         }
       }
-      // ─── What actually changed, per slide ─────────────────────────────────
-      //
-      // `meaningfulChange` below is deck-wide: one real edit anywhere makes a
-      // batch of otherwise byte-identical patches look like a successful
-      // write, and the requested slide ids were then echoed back as
-      // `updatedSlideIds`. That is what a "beautify this" run reports to the
-      // user, so a deck where five of six slides were re-sent unchanged was
-      // narrated as six beautified slides. Compare each patched slide against
-      // its own pre-operation signature instead. This has to run before the
-      // deck-fit revision bump and the animation clearing below, because both
-      // rewrite slides and would otherwise count as the content change they
-      // are supposed to follow.
       const signaturesAfterOperations = slideSignatures(deck);
       const contentsAfterOperations = slideContents(deck);
-      // Each requested slide id lands in exactly one bucket, decided by
-      // whether it survives the batch. A slide the batch also deleted is only
-      // deleted, and a slide deleted then re-added under the same id is only
-      // updated — reporting one id as both is a contradiction the agent then
-      // relays to the user.
       const requestedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -1060,16 +1110,10 @@ export default defineAction({
             contentsAfterOperations.get(slideId),
         ),
       );
-      // A slide deleted and re-added under the same id inside one batch is a
-      // replacement, even when the new fields happen to match the old ones:
-      // the persisted slide and its position were both rewritten.
       for (const slideId of requestedSlideIds) {
         if (deletedSlideIds.has(slideId)) changedSlideIds.add(slideId);
       }
 
-      // Dismissing an overflow warning is a real requested mutation, so it
-      // counts as a change even though the signature ignores the field.
-      // Without this the batch would look like a no-op and be rejected.
       const explicitWarningSlideIds = new Set(
         operations.flatMap((operation) =>
           (operation.op === "patch-slide" || operation.op === "add-slide") &&
@@ -1090,13 +1134,6 @@ export default defineAction({
         }
       }
 
-      // Fit state answers "must the browser re-measure this slide", which
-      // depends on the rendered fields the batch NETS to, not on what replay
-      // touched along the way. An intermediate edit mints a revision and
-      // clears a dismissed warning; if the final geometry matches what was
-      // stored, none of that was earned. Recomputing here rather than
-      // accumulating per operation also covers the notes-only net change,
-      // where the slide really did change but its geometry did not.
       for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
         if (typeof slide.id !== "string") continue;
         const previousFitFields = fitFieldsBeforeOperations.get(slide.id);
@@ -1284,16 +1321,6 @@ export default defineAction({
         }
       }
 
-      // An agent restyle that landed nothing must fail, not return. Every
-      // requested slide coming back unchanged means the deck the user is
-      // looking at is the deck they were already looking at, and a returned
-      // value is indistinguishable from a real write to everything upstream
-      // — which is how a confident "beautified every slide" summary gets
-      // written about a deck nobody touched. Structural or deck-field work in
-      // the same batch is still real work, so only a pure slide-patch batch is
-      // rejected here — and a source-rewrite conversion or a creative-context
-      // provenance write is a requested mutation in its own right even when
-      // every slide's HTML stays the same.
       const hasNonSlidePatchWork =
         operations.some((operation) => operation.op !== "patch-slide") ||
         sourceImportCleared ||
@@ -1396,9 +1423,6 @@ export default defineAction({
         await notifyClients(deckId);
       }
 
-      // Only slides whose rendered geometry actually changed can newly overflow. The editor
-      // measures these asynchronously; return their hashes so a later
-      // get-layout-overflows call can reject stale browser measurements.
       const layoutFitSlideIdList = [...layoutFitSlideIds].filter((slideId) =>
         signaturesAfterOperations.has(slideId),
       );
@@ -1412,9 +1436,6 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
-        // Deleted means it was in the deck before this batch and is gone
-        // now. A slide added and removed within one batch was never in the
-        // persisted deck, so reporting it as deleted invents a phantom.
         deletedSlideIds: [...deletedSlideIds].filter(
           (slideId) =>
             signaturesBeforeOperations.has(slideId) &&

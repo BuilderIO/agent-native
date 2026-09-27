@@ -6,7 +6,6 @@ export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.brandKits }];
 }
 
-// Legacy Brand Kits routes now redirect into the unified Library workspace.
 export default function BrandKitsLayout() {
   return <Outlet />;
 }

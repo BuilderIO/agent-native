@@ -248,6 +248,8 @@ export const parityMatrix: ParityRow[] = [
     label: "Edit document title, body, icon, image alt text, and precise text",
     uiEntrypoints: [
       "app/components/editor/DocumentEditor.tsx",
+      "app/components/editor/PageDraftRecovery.tsx",
+      "app/components/editor/VisualEditor.tsx",
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/extensions/ImageBlock.tsx",
       "app/components/editor/SlashCommandMenu.tsx",
@@ -255,22 +257,26 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
     uiImplementation:
-      "The editor autosaves through update-document; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
+      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, and seeds an empty live editor from the saved body; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
     status: "action-backed",
     actions: [
       "edit-document",
+      "get-document-save-attempt",
       "pull-document",
+      "seed-document-collab",
       "set-image-alt-text",
       "transcribe-media",
       "update-document",
     ],
-    exception: null,
+    exception:
+      "Save-attempt receipt lookup and live collaboration seeding are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
+      "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],

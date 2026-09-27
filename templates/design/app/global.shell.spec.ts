@@ -13,7 +13,7 @@ describe("Design app shell", () => {
 
     expect(root).toContain('<html lang="en" data-design-app');
     expect(css).toMatch(
-      /\[data-design-app\] \.agent-composer-context-row\s*\{\s*display:\s*none;/s,
+      /\[data-design-app\]\s*\.agent-composer-context-row:not\(\s*\[data-design-home-composer\]\s*\.agent-composer-context-row\s*\)\s*\{\s*display:\s*none;/s,
     );
   });
 

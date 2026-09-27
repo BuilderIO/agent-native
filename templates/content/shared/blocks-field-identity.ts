@@ -404,9 +404,6 @@ export function reconcileBlocksFieldIdentity(args: {
     assigned.set(nextIndex, previousLive[previousIndex]!);
   }
 
-  // Split keeps the leading fragment's ID; merge keeps the receiving block's
-  // ID. These are the only cardinality-changing cases where position conveys
-  // more identity than text similarity.
   const unmatchedKinds = new Set([
     ...previousLive
       .filter((_block, index) => !matchedPrevious.has(index))
@@ -436,9 +433,6 @@ export function reconcileBlocksFieldIdentity(args: {
     assigned.set(samePosition, previousLive[previousIndexes[0]!]!);
   }
 
-  // A reorder and a text edit can happen in one editor transaction. Pair only
-  // mutual, sufficiently similar best matches before considering position; an
-  // ambiguous match is left for the conservative positional rule below.
   const bestNextForPrevious = new Map<
     number,
     { index: number; score: number }

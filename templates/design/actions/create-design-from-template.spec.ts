@@ -119,6 +119,7 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import action from "./create-design-from-template.js";
 
 describe("create-design-from-template", () => {
@@ -255,8 +256,6 @@ describe("create-design-from-template", () => {
   });
 
   it("treats a design holding only the board row as empty", async () => {
-    // The editor creates the board on mount, so requiring zero files would
-    // reject every design the New Design button just made.
     testState.targetDesignFiles = [];
 
     const result = await action.run({
@@ -269,8 +268,6 @@ describe("create-design-from-template", () => {
   });
 
   it("keeps the target's own editor state instead of replacing its data blob", async () => {
-    // boardFileId lives in designs.data; losing it makes the editor mint a
-    // second board the next time the design is opened.
     testState.targetDesignRows = [
       { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
     ];
@@ -312,5 +309,27 @@ describe("create-design-from-template", () => {
 
     expect(testState.transactionCount).toBe(0);
     expect(testState.insertedDesign).toBeNull();
+  });
+
+  it("preserves stable retries without requiring callers to build the fingerprint", async () => {
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+    });
+    expect(first.id).toBe("retry-id");
+
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        newId: "retry-id",
+        retryKey: "wrong-key",
+      }),
+    ).rejects.toThrow(/cannot be reused/i);
+
+    const retryKey = designTemplateRetryKey({
+      templateId: "saved-template",
+      title: "Saved campaign",
+    });
+    expect(retryKey.length).toBeLessThanOrEqual(128);
   });
 });

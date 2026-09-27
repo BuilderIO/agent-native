@@ -67,6 +67,7 @@
         "culori",
         "date-fns",
         "embla-carousel-react",
+        "emojibase-data",
         "highlight.js",
         "input-otp",
         "lowlight",
@@ -88,6 +89,34 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/icons",
+      "label": "Resource icons and picker",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["icons"],
+      "entrypoints": ["./icons"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/icons"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-popover",
+        "@radix-ui/react-select",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-tabs",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "emojibase-data",
+        "react",
+        "tailwind-merge"
+      ],
+      "protectedImports": [
+        "@agent-native/core/icons",
+        "@agent-native/core/client"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/app-shell",
       "label": "Application shell",
       "catalog": "toolkit-ui",
@@ -95,6 +124,12 @@
       "entrypoints": ["./app-shell", "./app-shell/*"],
       "strategy": "source-copy",
       "sourceEntries": ["src/app-shell"],
+      "styles": [
+        {
+          "entrypoint": "./app-shell/prompt-home.css",
+          "source": "src/app-shell/prompt-home.css"
+        }
+      ],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@radix-ui/react-collapsible",
@@ -105,6 +140,7 @@
         "react",
         "tailwind-merge"
       ],
+      "protectedImports": ["@agent-native/toolkit/design-system"],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -221,7 +257,10 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@assistant-ui/react",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-dialog",
         "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-label",
         "@radix-ui/react-popover",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
@@ -234,6 +273,7 @@
         "@tiptap/starter-kit",
         "class-variance-authority",
         "clsx",
+        "cmdk",
         "culori",
         "react",
         "react-dom",
@@ -443,6 +483,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@tiptap/y-tiptap",
         "clsx",
         "highlight.js",
         "lowlight",
@@ -485,26 +526,6 @@
       "sourceEntries": ["src/onboarding"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": ["react"],
-      "verification": ["pnpm typecheck"]
-    },
-    {
-      "id": "toolkit/marketing",
-      "label": "Marketing home shell",
-      "catalog": "toolkit-ui",
-      "catalogItems": ["marketing"],
-      "entrypoints": ["./marketing", "./marketing/*"],
-      "strategy": "source-copy",
-      "sourceEntries": ["src/marketing"],
-      "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": [
-        "@radix-ui/react-slot",
-        "class-variance-authority",
-        "culori",
-        "clsx",
-        "react",
-        "tailwind-merge"
-      ],
-      "protectedImports": ["@agent-native/toolkit/utils"],
       "verification": ["pnpm typecheck"]
     },
     {
@@ -656,6 +677,7 @@
       "catalogItems": ["styles"],
       "entrypoints": [],
       "strategy": "source-copy",
+      "sourceEntries": ["src/theme/resource-icons.css"],
       "targetRoot": "app/components/agent-native/toolkit",
       "styles": [
         {

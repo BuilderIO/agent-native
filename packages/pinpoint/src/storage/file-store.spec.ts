@@ -23,7 +23,6 @@ afterEach(() => {
 function tmpDataDir(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pinpoint-file-store-"));
   tmpRoots.push(root);
-  // Nest the actual data dir so we can assert it gets created lazily.
   return path.join(root, "pins");
 }
 
@@ -62,9 +61,6 @@ describe("FileStore", () => {
   });
 
   it("update() overwrites the pin atomically without leaving temp files behind", async () => {
-    // `updatedAt` is wall-clock at millisecond resolution, so two back-to-back
-    // writes can share a timestamp on a fast runner. Drive the clock instead of
-    // assuming it advances between save() and update().
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
 
@@ -81,7 +77,6 @@ describe("FileStore", () => {
     expect(pins[0]?.comment).toBe("revised");
     expect(pins[0]?.updatedAt).toBe("2026-01-01T00:00:01.000Z");
 
-    // No stray temp/staging files should remain in the data directory.
     const files = fs.readdirSync(dataDir);
     expect(files).toEqual([`${pin.id}.json`]);
   });
@@ -92,7 +87,6 @@ describe("FileStore", () => {
     const pin = makePin();
     await store.save(pin);
 
-    // Simulate a temp file left behind by an interrupted write.
     fs.writeFileSync(
       path.join(dataDir, `.${randomUUID()}.tmp`),
       "not valid pin json",
@@ -123,9 +117,6 @@ describe("FileStore", () => {
 
     await store.save(pin);
 
-    // The data dir itself must contain only the final .json file — the
-    // temp staging path used during the write must be inside this.dir
-    // (not os.tmpdir()), and must be cleaned up after a successful rename.
     const files = fs.readdirSync(dataDir);
     expect(files).toEqual([`${pin.id}.json`]);
   });

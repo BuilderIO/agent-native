@@ -50,11 +50,6 @@ describe("node-html-preview iframe bridge", () => {
               }
             ).__nodeHtmlPreviewAcks?.push(event.data);
           });
-          // Probes that `restore` put back the ORIGINAL node object with its
-          // original listeners rather than a re-parsed clone. Deliberately not
-          // a "click": edit mode's document-level capture net suppresses native
-          // interaction on the previewed app, so a click would prove nothing
-          // about node identity here — it never reaches any element listener.
           (window as Window & { __originalClicks?: number }).__originalClicks =
             0;
           document

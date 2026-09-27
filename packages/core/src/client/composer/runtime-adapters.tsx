@@ -1,7 +1,5 @@
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 
-// Toolkit names framework routes by their internal path; the host swaps in
-// the public prefix before the base path is applied.
 function publicFrameworkPathInBrowser(path: string): string {
   return toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() });
 }
@@ -105,10 +103,6 @@ export function CoreComposerRuntimeProvider({
 }) {
   const translate = useT();
   const formatters = useFormatters();
-  // Bind once per formatters instance (memoized per locale). A bind on every
-  // render minted a new function, which rebuilt `adapters` and re-ran every
-  // consumer effect keyed on it (VoiceButton re-read `voice-input-preference`
-  // on each render).
   const formatNumber = useMemo(
     () => formatters.formatNumber.bind(formatters),
     [formatters],

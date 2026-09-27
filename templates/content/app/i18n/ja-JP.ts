@@ -813,6 +813,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionCreateFailed: "提案を作成できませんでした",
     suggestionsCount: "{{count}} 件の提案",
     acceptSuggestion: "承認",
@@ -1023,6 +1030,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
@@ -1128,6 +1142,14 @@ const history = {
 };
 
 const overrides = {
+  close: "閉じる",
+  setup: { checkingProvider: "AI 接続を確認しています…" },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+      statusUnavailable: "ファイルストレージの状態を確認できません。",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1282,6 +1304,13 @@ const overrides = {
     genericError: "問題が発生しました",
   },
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     ...editor,
     sourceComponent: {
       defaultTitle: "ソースコンポーネント",

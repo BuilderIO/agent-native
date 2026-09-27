@@ -23,7 +23,6 @@ export class ServiceTokenError extends Error {
   }
 }
 
-/** Look up the caller's role in `orgId`, or null when not a member. */
 export async function getOrgRoleForEmail(
   orgId: string,
   email: string,
@@ -46,10 +45,6 @@ export async function getOrgRoleForEmail(
   }
 }
 
-/**
- * Return all org IDs the email belongs to, or [] when the org tables are
- * absent (template without orgs).
- */
 async function getOrgIdsForEmail(email: string): Promise<string[]> {
   try {
     const { rows } = await getDbExec().execute({
@@ -70,15 +65,9 @@ export interface ServiceTokenCallerContext {
   role: OrgRole;
 }
 
-/**
- * Resolve and gate the caller for a service-token action. Throws
- * `ServiceTokenError` (401/400/403) on failure so the action route maps it to
- * the right HTTP status.
- */
 export async function requireServiceTokenCaller(params: {
   userEmail: string | undefined;
   orgId: string | null | undefined;
-  /** 'manage' = mint/revoke (owner/admin only); 'read' = list (any member). */
   level: "manage" | "read";
 }): Promise<ServiceTokenCallerContext> {
   const email = params.userEmail?.trim();
@@ -86,10 +75,6 @@ export async function requireServiceTokenCaller(params: {
     throw new ServiceTokenError("Sign in to manage org service tokens.", 401);
   }
 
-  // Prefer the org ID from the token's claims; fall back to looking up the
-  // user's org membership when the token was minted without org context (e.g.
-  // a personal connect token created before the user joined an org, or one
-  // created from a session that had no active org at the time).
   let orgId = params.orgId?.trim() || "";
   if (!orgId) {
     const memberOrgs = await getOrgIdsForEmail(email);

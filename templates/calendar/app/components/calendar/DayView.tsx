@@ -97,7 +97,6 @@ interface DayViewProps {
   isLoading?: boolean;
 }
 
-// [startHour, startMin, durationMin, widthPct]
 const DAY_SKELETONS: [number, number, number, number][] = [
   [9, 0, 60, 82],
   [11, 0, 45, 68],
@@ -109,7 +108,6 @@ const START_HOUR = 0;
 const END_HOUR = 23;
 const HOUR_HEIGHT = 72;
 
-/** Convert minutes-from-START_HOUR into a zero-padded "HH:mm" string, clamped to 23:59 */
 function minutesToTimeString(totalMinutes: number): string {
   const clamped = Math.min(totalMinutes, 24 * 60 - 1);
   const h = Math.min(23, Math.floor(clamped / 60));
@@ -118,7 +116,6 @@ function minutesToTimeString(totalMinutes: number): string {
   return `${pad(h)}:${pad(m)}`;
 }
 
-/** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
 function minutesToDate(date: Date, totalMinutes: number): Date {
   return addMinutes(
     set(date, { hours: START_HOUR, minutes: 0, seconds: 0 }),
@@ -126,7 +123,6 @@ function minutesToDate(date: Date, totalMinutes: number): Date {
   );
 }
 
-/** Format a time range in compact Notion style: "8–10:30 AM" or "9 AM" */
 function formatEventTime(start: Date, end: Date): string {
   const startMin = start.getMinutes();
   const endMin = end.getMinutes();
@@ -194,12 +190,6 @@ interface DayEventCardProps {
   onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
-/**
- * A single event's rendered block in the day grid. Memoized so that during a
- * drag/resize (which updates overrideTop/overrideHeight every frame only for
- * the dragged event's own card), every other event's card bails out of
- * re-rendering via the default shallow prop comparison.
- */
 const DayEventCard = memo(function DayEventCard({
   event,
   date,
@@ -257,7 +247,6 @@ const DayEventCard = memo(function DayEventCard({
   const durationMin = overrides
     ? (overrides.height / HOUR_HEIGHT) * 60
     : (segment?.durationMinutes ?? 15);
-  // Compute display times (use drag overrides if active)
   const displayStart = overrides
     ? minutesToDate(date, START_HOUR * 60 + (overrides.top / HOUR_HEIGHT) * 60)
     : minutesToDate(date, segment?.startMinutes ?? 0);
@@ -431,7 +420,6 @@ const DayEventCard = memo(function DayEventCard({
     </button>
   );
 
-  // Don't wrap in popover while dragging
   if (isBeingDragged && isDragging) {
     return <div className="contents">{eventButton}</div>;
   }
@@ -462,11 +450,6 @@ interface DayCreateGhostProps {
   label: string;
 }
 
-/**
- * Isolated ghost layer for an in-progress drag-to-create. Rendered as its own
- * memoized component so the rAF-driven position updates never touch the
- * surrounding grid's render output.
- */
 const DayCreateGhost = memo(function DayCreateGhost({
   top,
   height,
@@ -511,7 +494,6 @@ export const DayView = memo(function DayView({
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Escape clears the highlighted/elevated event so it drops behind others
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -524,13 +506,11 @@ export const DayView = memo(function DayView({
     return () => window.removeEventListener("keydown", handleKey);
   }, [setFocusedEvent]);
 
-  // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Scroll to current time (or 8am) on mount
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -539,13 +519,10 @@ export const DayView = memo(function DayView({
       const offset = indicator.offsetTop - container.clientHeight / 2;
       container.scrollTop = Math.max(0, offset);
     } else {
-      // Scroll to 8am if today isn't shown
-      container.scrollTop = (2 / 1) * HOUR_HEIGHT; // 2 hours after START_HOUR (8am)
+      container.scrollTop = (2 / 1) * HOUR_HEIGHT;
     }
   }, []);
 
-  // Stable hours array — recomputed only when the date actually changes, so
-  // memoized children don't see a new array identity on every render.
   const hours = useMemo(
     () =>
       eachHourOfInterval({
@@ -590,9 +567,6 @@ export const DayView = memo(function DayView({
     [date, timedEvents, timezone],
   );
 
-  // Timezone label: prefer the short generic name (e.g. "PT", "ET")
-  // over the offset form ("GMT-7"), and fall back to the IANA id when
-  // the locale data has no friendlier rendering.
   const { tzShort, tzLong, tzIana } = useMemo(() => {
     function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
       try {
@@ -614,9 +588,6 @@ export const DayView = memo(function DayView({
     const longGeneric = nameForToken("longGeneric");
     let shortGeneric = nameForToken("shortGeneric");
 
-    // shortGeneric falls back to the offset form for zones with no short name
-    // (e.g. "Etc/GMT-7" → "GMT-7"). When that happens, the IANA city is more
-    // useful than the offset.
     if (!shortGeneric || /^GMT[+-]/.test(shortGeneric)) {
       const city = iana.split("/").pop()?.replace(/_/g, " ") ?? "";
       shortGeneric = city || nameForToken("short") || shortGeneric;
@@ -651,7 +622,6 @@ export const DayView = memo(function DayView({
   const showNowIndicator =
     today && nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
 
-  // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
     (event: CalendarEvent, newStart: Date, newEnd: Date) => {
       return onEventTimeChange?.(event, newStart, newEnd);
@@ -727,7 +697,6 @@ export const DayView = memo(function DayView({
     [startDrag],
   );
 
-  // Drag-to-create: pointer-down-drag-up on empty grid background
   const handleCreateDrag = useCallback(
     (_dayIndex: number, startMinutes: number, endMinutes: number) => {
       if (!onClickTimeSlot) return;
@@ -1028,7 +997,6 @@ export const DayView = memo(function DayView({
           className="absolute left-0 right-0 top-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
           style={{ height: `${hours.length * HOUR_HEIGHT}px` }}
           onPointerDown={(e) => {
-            // Only start a create-drag from empty space, not on an event or its resize handles
             if ((e.target as HTMLElement).closest("button")) return;
             if (
               !onClickTimeSlot ||

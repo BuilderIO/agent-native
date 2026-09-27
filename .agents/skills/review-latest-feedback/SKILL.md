@@ -469,9 +469,11 @@ improvements state requested versus actual behavior and use **Shipped**.
 
 ## Phase 3: reply
 
-`address-feedback-with-replies` owns reply voice, wording, and the thank-first
-rule. Follow it; do not restate or re-derive it here. Every reply from this
-workflow ends with `this was sent from a bot.` after the plain-language status.
+Start GitHub issue comments by thanking the reporter for opening the issue;
+start Slack feedback replies by thanking them for sharing the issue. Then give
+the status or ask a question. Follow `address-feedback-with-replies` for the
+remaining Slack reply voice and wording. Every reply ends with
+`this was sent from a bot.` after the plain-language status.
 
 Reply only where the reply carries information the thread does not already
 have. Three kinds qualify:
@@ -528,9 +530,10 @@ invocation authorizes it; link them in the recap instead.
 
 ## Publishing
 
-A worktree is a valid PR source — commit, push, and open or update the PR from
-this worktree's branch and cwd. Use `corepack pnpm ship:push` for the complete
-snapshot and update the existing PR rather than opening a second one.
+Use this worktree's branch. Batch fixes with one
+`corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
+`origin/main` only for GitHub conflicts; prefer normal merges on shared
+branches. Behind/pending never justify syncing.
 
 With shipping authority — an explicit request, or a caller that already
 granted it — continue straight into `ship` in the same worktree without asking

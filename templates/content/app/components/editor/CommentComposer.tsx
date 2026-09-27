@@ -259,6 +259,8 @@ export const CommentComposer = forwardRef<
     setSelection: (start, end, direction) =>
       composerRef.current?.setSelection(start, end, direction),
     dismissPopover: () => composerRef.current?.dismissPopover() ?? false,
+    submitWithText: (text) =>
+      composerRef.current?.submitWithText(text) ?? Promise.resolve(false),
   }));
 
   const connectedModels = useMemo<CommentAiSelection[]>(

@@ -333,8 +333,6 @@ function CommentDraftStore({
     const submitted = submittedDrafts.get(operationId);
     if (!submitted) return;
     setDrafts((current) => {
-      // A newly-created entry, including an intentionally empty one, is newer
-      // typing and must remain recoverable instead of being overwritten.
       if (current.has(key)) return current;
       const next = new Map(current);
       next.set(key, {

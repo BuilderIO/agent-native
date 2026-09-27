@@ -29,15 +29,6 @@ describe("shouldRebaseCollabDocFromStoredContent (§gesture-persistence collab-c
   });
 
   it("rebases a stale-but-well-formed live snapshot on first sync (no watermark yet) — the core clobber fix", () => {
-    // This reproduces the browser-verified bug: a gesture edit persisted
-    // NEW_HTML directly to design_files (SQL) while no Yjs doc was
-    // connected. Later the Code panel connects a fresh doc whose
-    // `_collab_docs` snapshot still holds OLD_HTML. Before this fix,
-    // `shouldUseLiveFileContent` alone would say "OLD_HTML looks like valid
-    // HTML" and the seed effect would adopt it as authoritative, silently
-    // discarding the gesture edit. With no established watermark
-    // (lastAppliedUpdatedAt === null) and SQL having a real updatedAt, SQL
-    // must win.
     expect(
       shouldRebaseCollabDocFromStoredContent({
         liveContent: OLD_HTML,
@@ -50,10 +41,6 @@ describe("shouldRebaseCollabDocFromStoredContent (§gesture-persistence collab-c
   });
 
   it("does not rebase once a watermark is established and the live doc has since diverged legitimately", () => {
-    // After the initial rebase, lastAppliedUpdatedAt is set. A subsequent
-    // divergence between the live doc and SQL at this point is a genuine
-    // in-flight edit (this client's own typing, or a peer's), not an
-    // unproven stale snapshot, so it must NOT be force-rebased from SQL.
     expect(
       shouldRebaseCollabDocFromStoredContent({
         liveContent: NEW_HTML,
@@ -125,8 +112,6 @@ describe("resolveScreenCollabSyncTarget (§gesture-persistence per-screen collab
   });
 
   it("falls back to syncCollab: true when a different screen's doc is connected (not this one)", () => {
-    // Regression guard: writing into the WRONG screen's live doc would be its
-    // own clobber bug, so this must stay false even though a doc IS connected.
     expect(
       resolveScreenCollabSyncTarget({
         fileId: "file-b",
@@ -233,11 +218,6 @@ describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)",
   });
 
   it("adopts a same-millisecond tie when the agent is NOT active — the dropped-write fix", () => {
-    // Reached only once the caller's own "already reflecting this content"
-    // checks have ruled out dbContent matching what's rendered, so a tied
-    // timestamp here always represents a genuinely different write that
-    // landed in the same millisecond as the one already applied. A strict
-    // `>` used to silently drop this.
     expect(
       shouldAdoptExternalReconcileContent({
         appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
@@ -248,9 +228,6 @@ describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)",
   });
 
   it("does NOT adopt a same-millisecond tie while the agent is active — defers to the debounced self-echo recovery timer instead", () => {
-    // Forcing immediate adoption here too would skip
-    // staleAgentEchoPossible's 1200ms debounced recheck and reintroduce the
-    // live self-echo race that debounce exists to prevent.
     expect(
       shouldAdoptExternalReconcileContent({
         appliedUpdatedAt: "2026-07-05T10:05:00.000Z",

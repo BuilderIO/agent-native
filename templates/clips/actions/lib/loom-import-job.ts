@@ -9,6 +9,7 @@ import {
   isRetryableRecordingThumbnailStatus,
 } from "../../server/lib/ensure-recording-thumbnail.js";
 import { dispatchPostFinalizeJob } from "../../server/lib/post-finalize-dispatch.js";
+import { trackRecordingFailure } from "../../server/lib/recording-failures.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
@@ -71,6 +72,7 @@ export async function failLoomImport(
     .update(schema.recordings)
     .set({
       status: "failed",
+      failureCode: "loom_import_failed",
       failureReason,
       loomImportClaimId: null,
       loomImportClaimedAt: null,
@@ -84,8 +86,20 @@ export async function failLoomImport(
           )
         : eq(schema.recordings.id, recordingId),
     )
-    .returning({ id: schema.recordings.id });
+    .returning({
+      id: schema.recordings.id,
+      ownerEmail: schema.recordings.ownerEmail,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      recordingPlatform: schema.recordings.recordingPlatform,
+    });
   if (!updated) return { status: "failed", failureReason };
+  trackRecordingFailure({
+    recordingId,
+    userId: updated.ownerEmail,
+    uploadAttemptId: updated.uploadAttemptId,
+    platform: updated.recordingPlatform ?? "import",
+    failureCode: "loom_import_failed",
+  });
 
   try {
     await writeAppState(`recording-upload-${recordingId}`, {
@@ -104,12 +118,6 @@ export async function failLoomImport(
   return { status: "failed", failureReason };
 }
 
-/**
- * Downloads a Loom video and re-uploads it to Clips storage, off the request
- * that created the "processing" row. Loom's CDN plus a reupload can outlast a
- * synchronous serverless function's execution ceiling; running it here keeps
- * import-loom-recording's own request fast regardless of Loom video length.
- */
 export async function runLoomImportJob({
   recordingId,
   ownerEmail,
@@ -166,7 +174,6 @@ export async function runLoomImportJob({
       mimeType: media.mimeType,
     });
   } catch (err) {
-    // Loom's public player can work even when the viewer's role cannot export MP4.
     if (err instanceof LoomVideoUnavailableError) {
       console.warn(
         "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",

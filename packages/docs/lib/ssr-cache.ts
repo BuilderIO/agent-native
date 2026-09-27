@@ -13,13 +13,6 @@ export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
     "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
 };
 
-// Keep CMS-backed listings fresh within ten minutes, while the durable cache
-// serves stale content during a week-long revalidation window.
-
-/**
- * Apply Docs' default provider cache key without weakening a query-sensitive
- * response that needs the full query key.
- */
 export function applyDocsSsrCacheKeyHeaders(
   headers: Headers,
   options: { varyByQuery?: boolean } = {},

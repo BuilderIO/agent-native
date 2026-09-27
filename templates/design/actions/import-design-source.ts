@@ -70,12 +70,6 @@ async function deleteImportImages(batchId: string) {
   }
 }
 
-/**
- * Saves browser-decoded `.fig` frames. Every request of one import shares
- * `clientImportBatchId`, so the design takes one history checkpoint (before
- * the first frame lands) and one placement origin for the whole import, and
- * a retried request returns the frames that already landed.
- */
 async function importFigFrames(args: {
   designId: string;
   designData: string | null;
@@ -104,7 +98,6 @@ async function importFigFrames(args: {
     throw new Error("Each frame in an import needs its own clientImportId.");
   }
 
-  // Without a batch (a lone frame) only the frame's own marker finds a retry.
   const lookupPrefix = batchPrefix ?? operationSources[0];
   const landed = lookupPrefix
     ? (
@@ -131,8 +124,6 @@ async function importFigFrames(args: {
   let checkpoint: Awaited<ReturnType<typeof snapshotDesignBeforeAgentEdit>> =
     null;
   if (pending.length > 0) {
-    // Snapshotting per request would capture the whole growing design once
-    // per frame; the pre-import state is the only checkpoint worth keeping.
     if (landed.length === 0) {
       checkpoint = await snapshotDesignBeforeAgentEdit(designId, args.context, {
         allowCheckpointFailureSkip: true,
@@ -201,7 +192,6 @@ export default defineAction({
       .optional()
       .describe("HTML to import. Required unless `frames` or `abort` is set."),
     originalName: z.string().optional(),
-    /** `fig-frame` only: the frame box the browser decoder resolved. */
     frameTitle: z.string().optional(),
     frameWidth: z.number().optional(),
     frameHeight: z.number().optional(),
@@ -212,10 +202,6 @@ export default defineAction({
       .regex(/^[^:]+$/, "clientImportBatchId cannot contain a colon.")
       .optional(),
     clientImportFinalFrame: z.boolean().optional(),
-    /**
-     * `fig-frame` only: several frames of one browser import in one request.
-     * frameX/frameY are relative to the top-left of the imported selection.
-     */
     frames: z
       .array(
         z.object({
@@ -233,7 +219,6 @@ export default defineAction({
       .max(MAX_FIG_FRAMES_PER_REQUEST)
       .optional(),
     clientImportFinalBatch: z.boolean().optional(),
-    /** `fig-frame` only: delete everything the import batch saved so far. */
     abort: z.boolean().optional(),
   }),
   maxBodyBytes: MAX_UPLOAD_BYTES,

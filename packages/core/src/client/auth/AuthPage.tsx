@@ -1,12 +1,10 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
 import { canonicalTrackingEvent } from "../../shared/analytics-events.js";
-import { getAppStatus } from "../../shared/app-status.js";
 import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../../shared/auth-copy.js";
 import { toPublicFrameworkPath } from "../../shared/framework-route-prefix.js";
 import { isQaTestEmail } from "../../shared/qa-test-email.js";
@@ -17,7 +15,6 @@ import {
 import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 import { frameworkRoutePrefix } from "../api-path.js";
 import { openOAuthPopup } from "../oauth-popup.js";
-import { OceanBackground } from "../ocean/OceanBackground.js";
 
 export type AuthView =
   | "signup"
@@ -28,19 +25,6 @@ export type AuthView =
   | "magicLink"
   | "magicLinkSent"
   | "googleOnly";
-
-export interface AuthMarketingProps {
-  appName: string;
-  tagline?: string;
-  description?: string;
-  features?: string[];
-  authHeadline?: string;
-  authDescription?: string;
-  screenshotSrc?: string;
-  screenshotWidth?: number;
-  screenshotHeight?: number;
-  learnMoreUrl?: string;
-}
 
 export interface AuthLocaleOption {
   value: string;
@@ -64,6 +48,7 @@ export interface AuthPageProps {
   initialView: AuthView;
   appBasePath: string;
   homePath: string;
+  initialResumeHref?: string;
   workspaceRuntime: boolean;
   trackingApp: string;
   defaultLocale: string;
@@ -71,17 +56,10 @@ export interface AuthPageProps {
   locales: Record<string, Record<string, string>>;
   localeMetadata: Record<string, { dir?: string }>;
   localeOptions: AuthLocaleOption[];
-  marketing?: AuthMarketingProps;
-  marketingLocales: Record<string, AuthMarketingProps>;
-  brandMarkSrc: string;
-  brandMarkLightSrc?: string;
-  githubUrl: string;
+  appName?: string;
   showGoogle: boolean;
-  /** Show the organization SSO email-to-provider entry point. */
   organizationSsoEnabled?: boolean;
-  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
-  /** Whether Google sign-in should start through the preview identity hub. */
   googleViaIdentitySso?: boolean;
   /** @deprecated Automatic browser SSO handoff was removed. */
   identitySsoAuto?: boolean;
@@ -442,11 +420,6 @@ export function isElectron(
   return userAgent.includes("Electron");
 }
 
-/**
- * Builder's desktop webview uses Electron without the Agent-Native marker.
- * This only selects the local workspace return origin; native deep-link
- * handling remains exclusive to Agent-Native Desktop.
- */
 export function isBuilderDesktop(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
@@ -586,8 +559,6 @@ export function resolveGoogleAuthUrlPath(input: {
   const previewOrigin = input.builderPreview
     ? configuredOAuthOrigin(input.publicOAuthOrigin, input.currentOrigin)
     : "";
-  // The public OAuth authority is rooted at the app origin even when the
-  // preview itself is mounted under a workspace prefix such as /dispatch.
   return previewOrigin
     ? `${previewOrigin}${GOOGLE_AUTH_URL_PATH}`
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
@@ -715,12 +686,10 @@ export function shouldStartWithLocalDev(
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     !params.has("tab") &&
-    !params.has("c") &&
     !params.has("verified") &&
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
-    !path.endsWith("/signup") &&
-    !path.endsWith("/sign-in")
+    !path.endsWith("/signup")
   );
 }
 
@@ -728,9 +697,9 @@ export function AuthPage(props: AuthPageProps) {
   const {
     authMode,
     googleOnly,
-    initialPrompt,
     appBasePath,
     homePath,
+    initialResumeHref,
     workspaceRuntime,
     trackingApp,
     defaultLocale,
@@ -738,11 +707,7 @@ export function AuthPage(props: AuthPageProps) {
     locales,
     localeMetadata,
     localeOptions,
-    marketing,
-    marketingLocales,
-    brandMarkSrc,
-    brandMarkLightSrc,
-    githubUrl,
+    appName,
     showGoogle,
     organizationSsoEnabled = false,
     googleViaIdentitySso = false,
@@ -758,6 +723,8 @@ export function AuthPage(props: AuthPageProps) {
   } = props;
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
+  const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
+  React.useEffect(() => setBrowserLocationReady(true), []);
   const [localeMenuOpen, setLocaleMenuOpen] = React.useState(false);
   const [view, setView] = React.useState<AuthView>(props.initialView);
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
@@ -838,9 +805,9 @@ export function AuthPage(props: AuthPageProps) {
     [apiPath],
   );
   const journey = React.useCallback((): SignInJourney => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !browserLocationReady) {
       return signInJourney({
-        at: `${runtimeAppBasePath}/`,
+        at: initialResumeHref ?? `${runtimeAppBasePath}/`,
         basePath: runtimeAppBasePath,
         homePath,
       });
@@ -855,8 +822,13 @@ export function AuthPage(props: AuthPageProps) {
       basePath: runtimeAppBasePath,
       homePath,
     });
-  }, [homePath, runtimeAppBasePath]);
+  }, [browserLocationReady, homePath, initialResumeHref, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
+  const identityLoginHref = React.useMemo(
+    () =>
+      `${identityHref}?${new URLSearchParams({ return: resumeHref() }).toString()}`,
+    [identityHref, resumeHref],
+  );
   const identityBootstrapHref = React.useCallback(
     (target?: string) => {
       const safeTarget = target || resumeHref();
@@ -949,14 +921,14 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
 
   React.useEffect(() => {
-    const nextTitle = marketing?.appName
-      ? `${marketing.appName} — ${t("pageTitleSignIn")}`
+    const nextTitle = appName
+      ? `${appName} — ${t("pageTitleSignIn")}`
       : t("pageTitleWelcome");
     document.title = nextTitle;
     document.documentElement.lang = locale;
     document.documentElement.dir = localeMetadata[locale]?.dir || "ltr";
     document.documentElement.dataset.locale = locale;
-  }, [locale, localeMetadata, marketing?.appName, t]);
+  }, [appName, locale, localeMetadata, t]);
 
   React.useEffect(() => {
     if (googleOnly) return;
@@ -1595,13 +1567,6 @@ export function AuthPage(props: AuthPageProps) {
     }
     let popup: Window | null = null;
     if (flow === "popup") {
-      // A same-frame redirect fallback is safe only at the true top level:
-      // Google's accounts pages refuse to render at all once they detect
-      // Sec-Fetch-Dest: iframe (a blank "403 — you do not have access to this
-      // page"), regardless of which host framed the page. This used to only
-      // guard Builder's own preview iframe, so any OTHER embedding — the
-      // Design app's local visual-edit canvas included — fell through to the
-      // redirect and hit that same 403 the moment the popup failed to open.
       const redirectFallbackUnsafe = isInFrame();
       try {
         popup = openOAuthPopup({
@@ -2389,20 +2354,9 @@ export function AuthPage(props: AuthPageProps) {
   }, [signupLocalModeNote]);
 
   const keys = headingKeys(view);
-  const marketingCopy = marketing
-    ? { ...marketing, ...(marketingLocales[locale] ?? {}) }
-    : undefined;
-  const marketingAppName =
-    marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";
-  const marketingStatus = getAppStatus(trackingApp || marketingAppName);
-  const usesMarketingWelcome =
-    !!marketingCopy &&
-    (view === "signup" ||
-      view === "login" ||
-      view === "magicLink" ||
-      view === "googleOnly");
   const cardClassName = [
     "card",
+    localDevAvailable ? "local-dev-available" : "",
     view === "verification" ? "verifying" : "",
     view === "magicLinkSent" ? "magic-link-complete" : "",
   ]
@@ -2532,27 +2486,16 @@ export function AuthPage(props: AuthPageProps) {
   );
   const authCard = (
     <div className={cardClassName}>
-      <h1
-        id="heading"
-        data-i18n={usesMarketingWelcome ? "welcomeToApp" : keys.heading}
-        data-auth-marketing-title={usesMarketingWelcome ? "true" : undefined}
-      >
-        {usesMarketingWelcome
-          ? t("welcomeToApp").replace("{appName}", marketingAppName)
-          : t(keys.heading)}
+      <h1 id="heading" data-i18n={keys.heading}>
+        {t(keys.heading)}
       </h1>
       <p
         id="subtitle"
         className="subtitle"
-        data-i18n={usesMarketingWelcome ? undefined : keys.subtitle}
-        data-auth-marketing-subtitle={usesMarketingWelcome ? "true" : undefined}
-        hidden={
-          usesMarketingWelcome
-            ? false
-            : shouldHideAuthSubtitle(view, localDevAvailable)
-        }
+        data-i18n={keys.subtitle}
+        hidden={shouldHideAuthSubtitle(view, localDevAvailable)}
       >
-        {usesMarketingWelcome ? t("welcomeSubtitle") : t(keys.subtitle)}
+        {t(keys.subtitle)}
       </p>
       <p
         className={`upgrade-note ${upgradeVisible ? "show" : ""}`}
@@ -2562,6 +2505,26 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
+      {identitySsoEnabled && !googleOnly ? (
+        <div className="identity-sso-entry" id="identity-sso-entry">
+          <a
+            className="btn-primary btn-identity-sso"
+            id="identity-sso-btn"
+            href={identityLoginHref}
+            aria-describedby="identity-sso-hint"
+            data-i18n="continueWithAgentNative"
+          >
+            {t("continueWithAgentNative")}
+          </a>
+          <p
+            className="identity-sso-hint"
+            id="identity-sso-hint"
+            data-i18n="identitySsoHint"
+          >
+            {t("identitySsoHint")}
+          </p>
+        </div>
+      ) : null}
       <div
         className="local-dev-signin"
         id="local-dev-signin"
@@ -2604,11 +2567,21 @@ export function AuthPage(props: AuthPageProps) {
           type="button"
           className="local-dev-full-options"
           id="local-dev-full-options"
-          hidden={fullAuthOptionsVisible}
-          data-i18n="localDevFullOptions"
-          onClick={() => setFullAuthOptionsVisible(true)}
+          hidden={!localDevAvailable}
+          aria-controls="full-auth-options"
+          aria-expanded={fullAuthOptionsVisible}
+          data-i18n={
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions"
+          }
+          onClick={() => setFullAuthOptionsVisible((visible) => !visible)}
         >
-          {t("localDevFullOptions")}
+          {t(
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions",
+          )}
         </button>
         {notice("local-dev")}
       </div>
@@ -3098,95 +3071,10 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const marketingContent = marketingCopy ? (
-    <div className="marketing-content">
-      <h2 className="app-name">
-        <picture>
-          {brandMarkLightSrc ? (
-            <source
-              media="(prefers-color-scheme: light)"
-              srcSet={brandMarkLightSrc}
-            />
-          ) : null}
-          <img
-            className="brand-mark"
-            src={brandMarkSrc}
-            alt=""
-            aria-hidden="true"
-          />
-        </picture>
-        <span className="app-name-label">{marketingAppName}</span>
-        <span className="app-status-badge">{marketingStatus}</span>
-      </h2>
-      <div className="marketing-copy">
-        <p className="auth-marketing-headline" data-marketing-field="headline">
-          {marketingCopy.authHeadline ?? marketingCopy.tagline}
-        </p>
-        {(marketingCopy.authDescription ?? marketingCopy.description) ? (
-          <p
-            className="auth-marketing-description"
-            data-marketing-field="description"
-          >
-            {marketingCopy.authDescription ?? marketingCopy.description}
-          </p>
-        ) : null}
-        <div className="marketing-actions">
-          <a
-            className="oss-badge"
-            href={githubUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span data-i18n="openSource">{t("openSource")}</span>
-          </a>
-        </div>
-      </div>
-    </div>
-  ) : null;
-  const marketingSurface = marketingCopy ? (
-    <MarketingHome
-      appName={marketingAppName}
-      variant="auth"
-      background={null}
-      topRight={
-        marketingCopy.learnMoreUrl ? (
-          <a
-            className="auth-marketing-learn-more"
-            data-auth-marketing-learn-more="true"
-            href={marketingCopy.learnMoreUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span>{t("newToApp").replace("{appName}", marketingAppName)}</span>
-            <span aria-hidden="true"> </span>
-            <span className="auth-marketing-learn-more-link">
-              {t("learnMore")}
-            </span>
-          </a>
-        ) : null
-      }
-      auth={authCard}
-      className="auth-marketing-home"
-    >
-      <div className="auth-marketing-visual">
-        <div className="auth-marketing-screenshot-wrap">
-          <OceanBackground className="auth-marketing-screenshot" />
-        </div>
-        {marketingContent}
-      </div>
-    </MarketingHome>
-  ) : (
-    <div className="auth-centered">{authCard}</div>
-  );
-
   return (
     <>
       {localePicker}
-      {initialPrompt ? (
-        <div className="auth-centered">{authCard}</div>
-      ) : (
-        marketingSurface
-      )}
+      <div className="auth-centered">{authCard}</div>
     </>
   );
 }

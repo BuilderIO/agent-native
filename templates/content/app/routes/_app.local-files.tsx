@@ -1165,7 +1165,6 @@ export default function LocalFilesRoute() {
       await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
       if (isUserCancelledFolderPickerError(err)) {
-        // Backing out of the native picker isn't a failure worth surfacing.
         return;
       }
       setStatus({

@@ -12,17 +12,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { loadWorkspaceCoreServer } from "./framework-request-handler.js";
 
-/**
- * Regression coverage for the jiti-fallback path that ships in 0.7.14.
- *
- * The scaffolded workspace-core template exports `./server` from a TS source
- * file whose imports use the standard TS ESM `.js` extension convention. On
- * Node alone, those relative imports don't resolve at runtime — jiti has to
- * pick them up and remap to `.ts`. If a future refactor breaks that path,
- * every workspace-core consumer silently falls back to framework defaults
- * (no test would currently catch it). This fixture reproduces Wahab's exact
- * scenario from 2026-04-28.
- */
 describe("loadWorkspaceCoreServer", () => {
   let tmpRoot: string;
   let pkgDir: string;
@@ -53,8 +42,6 @@ describe("loadWorkspaceCoreServer", () => {
       ),
     );
 
-    // index.ts uses the TS ESM `.js` convention — the exact shape that
-    // breaks plain Node import().
     writeFileSync(
       path.join(pkgDir, "src", "server", "index.ts"),
       `export { authPlugin } from "./auth-plugin.js";\n` +
@@ -69,9 +56,6 @@ describe("loadWorkspaceCoreServer", () => {
       `export const agentChatPlugin = (n: unknown) => "chat:" + String(n);\n`,
     );
 
-    // Symlink the package into a node_modules tree alongside it so jiti's
-    // package-name resolution finds it. Mirrors how pnpm symlinks
-    // workspace packages in real consumer monorepos.
     const scopeDir = path.join(tmpRoot, "node_modules", "@an-test");
     mkdirSync(scopeDir, { recursive: true });
     symlinkSync(pkgDir, path.join(scopeDir, "workspace-core-fixture"), "dir");

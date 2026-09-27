@@ -17,10 +17,6 @@ describe("grounding declarations", () => {
     expect(prometheus.grounding).toBe(true);
   });
 
-  // Every provider action reaches its source through requireActionCredentials.
-  // The response guard used to consult a separate name list, so a provider
-  // action could ship fully working and still have its grounded answer replaced
-  // with "connect data sources". Keeping the two in step is now one flag.
   it("declares every credentialed provider action as grounding", () => {
     const missing = readdirSync(actionsDir)
       .filter(

@@ -28,13 +28,6 @@ export interface DocumentColorSourceFile {
   content: string;
 }
 
-// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma-separated RGB and
-// HSL function color literals in CSS declaration values. Modern
-// space-separated `rgb(R G B [/ A])` and DOM-resolved formats (oklch,
-// color(display-p3 ...)) are intentionally out of scope: `parseCssColor` (the
-// non-DOM parser, safe to run in a plain Node/vitest environment) doesn't
-// resolve them, and pulling in the canvas-based `parseCssColorExtended`
-// resolver would make this helper impure/untestable without jsdom.
 const CSS_COLOR_TOKEN_PATTERN =
   /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
 
@@ -614,11 +607,6 @@ function colorTokenSpansInHtml(
   return tokens.sort((left, right) => left.start - right.start);
 }
 
-/**
- * Per-file color counts by file id. Tokenizing every file is ~1ms per screen
- * and an edit changes one of them. Owned by its caller so the file contents
- * it holds go away with the editor that read them.
- */
 export type DocumentColorCountCache = Map<
   string,
   { content: string; counts: Map<string, number> }
@@ -634,8 +622,6 @@ export function documentFileColorCounts(
   for (const { value: token } of colorTokenSpansInHtml(file.content)) {
     const parsed = parseCssColor(token);
     if (!parsed) continue;
-    // Skip fully transparent tokens — not a meaningful "document color"
-    // swatch (matches selectionColorValues' same filter below).
     if (parsed.a === 0) continue;
     const hex = rgbaToHex(parsed).toUpperCase();
     counts.set(hex, (counts.get(hex) ?? 0) + 1);
@@ -644,17 +630,6 @@ export function documentFileColorCounts(
   return counts;
 }
 
-/**
- * Extracts a document-wide color palette from raw file contents: every
- * distinct color literal (hex/rgb/hsl) found in CSS declarations in the
- * given files, normalized to uppercase hex, deduped, and ordered by
- * descending frequency (most-used colors first) so the most relevant swatches
- * lead the grid. Capped at `limit` entries — real designs can reference many
- * more distinct color strings than are useful to show as quick-pick swatches.
- *
- * Pure and DOM-free so it can run against any file content (server-rendered,
- * cached, or live) and is unit-testable without jsdom.
- */
 export function extractDocumentColorPalette(
   files: DocumentColorSourceFile[],
   limit = 24,
@@ -981,9 +956,6 @@ function replaceScopedColorTokensInHtml(
   properties?: ReadonlySet<string>,
 ): string | null {
   const target = colorKey(from);
-  // Resolve node ranges against the exact source snapshot being rewritten.
-  // Selection scopes can outlive an async bridge/source update, so offsets
-  // from scope.content are not safe to apply to the caller's content.
   const ranges = mergedScopeRanges(scopes, true, content);
   if (!ranges || ranges.length === 0) return null;
   let next = content;
@@ -1007,9 +979,6 @@ export function selectionColorValues(
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
 
-  // Source ranges are the authoritative selection-wide scan. They include
-  // every literal in descendants, including nodes beyond the bridge's compact
-  // runtime payload. Computed values fill in colors supplied by shared CSS.
   const scanGroups = new Map<
     string,
     Array<{ content: string; ranges: SelectionColorRange[] }>
@@ -1864,8 +1833,6 @@ function nodeFillTargetStacks(
                 : [],
         });
       }
-      // Internal Boolean operands and mask <use> nodes are not user fills.
-      // Treat the visible result as one SVG paint target.
       if (
         isBooleanResult ||
         primitive === "boolean-operand" ||
@@ -2078,7 +2045,6 @@ export function selectionFillModel(
   };
 }
 
-/** Uppercase 6-char hex (no #) for a CSS color, matching the design editor's row readout. */
 export function selectionDisplayHex(value: string): string {
   const parsed = parseCssColor(value);
   if (!parsed) return value.replace(/^#/, "").toUpperCase();

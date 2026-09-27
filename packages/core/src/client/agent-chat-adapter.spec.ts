@@ -21,6 +21,7 @@ import {
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
 } from "./agent-chat-adapter.js";
+import { MAX_REQUEST_BODY_BYTES } from "./chat/attachment-adapters.js";
 import {
   claimRunStream,
   createRunStreamToken,
@@ -161,8 +162,6 @@ function sseResponse(events: unknown[], runId = "run-qa"): Response {
   );
 }
 
-/** SSE response for a run dispatched into a background function — carries the
- *  X-Dispatch-Mode header the adapter uses as its recovery-ownership switch. */
 function backgroundSseResponse(events: unknown[], runId: string): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
   return new Response(
@@ -886,6 +885,7 @@ describe("createAgentChatAdapter", () => {
         abortSignal: new AbortController().signal,
         runConfig: {
           custom: {
+            turnId: "turn-qa",
             references: [
               {
                 type: "file",
@@ -961,13 +961,13 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: true, tabId: "chat-qa" },
+        detail: { isRunning: true, tabId: "chat-qa", turnId: "turn-qa" },
       }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-qa" },
+        detail: { isRunning: false, tabId: "chat-qa", turnId: "turn-qa" },
       }),
     );
   });
@@ -1053,7 +1053,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-terminal-stop" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-terminal-stop",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -1066,7 +1070,6 @@ describe("createAgentChatAdapter", () => {
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-queue-model",
       threadId: "thread-queue-model",
-      // The picker has already moved on while the message sat in the queue.
       modelRef: { current: "claude-sonnet-4-6" },
       engineRef: { current: "builder" },
       effortRef: { current: "low" as const },
@@ -1402,6 +1405,114 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("rejects a recovered request that exceeds the serialized body limit", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const prompt = "p".repeat(750_000);
+    const pdfData = `data:application/pdf;base64,${"a".repeat(3_000_000)}`;
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/stream-token")) {
+        return Promise.resolve(jsonResponse({ token: "test-stream-token" }));
+      }
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          sseResponse([
+            { type: "text", text: "I am reading the PDF." },
+            {
+              type: "error",
+              error: "The worker was interrupted.",
+              errorCode: "stale_run",
+              recoverable: true,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({ error: "unexpected request" }, 500),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      streamingUrl: "https://stream.example.com/agent-chat",
+      tabId: "chat-oversized-recovery",
+      threadId: "thread-oversized-recovery",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+            attachments: [
+              {
+                name: "report.pdf",
+                contentType: "application/pdf",
+                content: [
+                  {
+                    type: "file",
+                    data: pdfData,
+                    mimeType: "application/pdf",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const results = await promise;
+    const posts = fetchSpy.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
+    );
+    const streamTokenRequests = fetchSpy.mock.calls.filter(([url]) =>
+      url.endsWith("/stream-token"),
+    );
+
+    expect(posts).toHaveLength(1);
+    expect(streamTokenRequests).toHaveLength(1);
+    expect(
+      new TextEncoder().encode(posts[0][1].body as string).byteLength,
+    ).toBeLessThan(MAX_REQUEST_BODY_BYTES);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "request_too_large",
+          message: "request_too_large",
+        }),
+      }),
+    );
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+    });
+    expect(
+      results
+        .at(-1)
+        ?.content.some(
+          (part: any) =>
+            part.type === "text" && part.text.includes("request_too_large"),
+        ),
+    ).toBe(false);
+  });
+
   it("includes prior-turn text attachments in chat history", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -1720,11 +1831,6 @@ describe("createAgentChatAdapter", () => {
   }
 
   it("sends a realistic large pasted attachment intact (above the 60K history cap)", async () => {
-    // Regression for the `contentFromAttachment` hosting path: a pasted HTML /
-    // Alpine file the user wants hosted verbatim must reach the server whole.
-    // Capping the OUTBOUND attachment at the 60K history cap silently truncated
-    // exactly the large pastes the feature exists for, so the server hosted a
-    // broken extension. 150K is well above 60K and below the 200K outbound cap.
     const fetchSpy = stubLargeAttachmentEnv();
     const big = "a".repeat(150_000);
     const body = await postOutboundAttachment(fetchSpy, big);
@@ -2045,7 +2151,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-invalid-token" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-invalid-token",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -2117,7 +2227,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-auth-retry" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-auth-retry",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -2164,7 +2278,6 @@ describe("createAgentChatAdapter", () => {
       mode: "plan",
     });
 
-    // Switching back to build mode sends act metadata
     execModeRef.current = "build";
     fetchSpy.mockClear();
     fetchSpy.mockResolvedValueOnce(sseResponse([{ type: "done" }]));
@@ -2356,7 +2469,7 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("keeps recovery prompts from replacing the original user request", async () => {
+  it("retries the original request with its file attachments", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -2383,6 +2496,19 @@ describe("createAgentChatAdapter", () => {
           {
             role: "user",
             content: [{ type: "text", text: "Build a CS operations tool" }],
+            attachments: [
+              {
+                name: "brief.md",
+                contentType: "text/markdown",
+                content: [
+                  {
+                    type: "file",
+                    data: "# Signup flow",
+                    mimeType: "text/markdown",
+                  },
+                ],
+              },
+            ],
           },
           {
             role: "assistant",
@@ -2399,11 +2525,11 @@ describe("createAgentChatAdapter", () => {
             content: [
               {
                 type: "text",
-                text: "Continue from where you left off and finish my last request.",
+                text: "Retry my previous request now that the model provider is connected.",
               },
             ],
             metadata: {
-              custom: { agentNativeRecoveryAction: "continue" },
+              custom: { agentNativeRecoveryAction: "retry" },
             },
           },
         ],
@@ -2413,14 +2539,26 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.message).toBe(
-      "Continue from where you left off and finish my last request.",
+      "Retry my previous request now that the model provider is connected.",
     );
     expect(body.displayMessage).toBe("Build a CS operations tool");
     expect(body.internalContinuation).toBe(true);
-    expect(body.history).toEqual([
-      { role: "user", content: "Build a CS operations tool" },
-      { role: "assistant", content: "The agent stopped before finishing." },
+    expect(body.attachments).toEqual([
+      {
+        type: "file",
+        name: "brief.md",
+        contentType: "text/markdown",
+        text: "# Signup flow",
+      },
     ]);
+    expect(body.history[0]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("Build a CS operations tool"),
+    });
+    expect(body.history[1]).toEqual({
+      role: "assistant",
+      content: "The agent stopped before finishing.",
+    });
 
     await drain(
       adapter.run({
@@ -2428,6 +2566,19 @@ describe("createAgentChatAdapter", () => {
           {
             role: "user",
             content: [{ type: "text", text: "Build a CS operations tool" }],
+            attachments: [
+              {
+                name: "brief.md",
+                contentType: "text/markdown",
+                content: [
+                  {
+                    type: "file",
+                    data: "# Signup flow",
+                    mimeType: "text/markdown",
+                  },
+                ],
+              },
+            ],
           },
           {
             role: "assistant",
@@ -2444,11 +2595,11 @@ describe("createAgentChatAdapter", () => {
             content: [
               {
                 type: "text",
-                text: "Continue from where you left off and finish my last request.",
+                text: "Retry my previous request now that the model provider is connected.",
               },
             ],
             metadata: {
-              custom: { agentNativeRecoveryAction: "continue" },
+              custom: { agentNativeRecoveryAction: "retry" },
             },
           },
         ],
@@ -2612,11 +2763,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("stops a loop_limit chain that keeps producing the same tool calls", async () => {
-    // The "it worked for 20 minutes" bug. `loop_limit` used to skip every
-    // client continuation budget AND reset two of them, and the durable
-    // per-turn ledger lives inside one server run, so a model that degenerated
-    // into a tool loop re-POSTed the same turnId forever (production: 186m,
-    // 113m, 77m turns that never answered).
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -2665,9 +2811,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     const results = await promise;
 
-    // Identical work every round collapses to one advance signature, so the
-    // chain stops within MAX_NON_ADVANCING_CONTINUATIONS instead of running
-    // until the user closes the tab.
     expect(postCount).toBeLessThanOrEqual(5);
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
@@ -2733,18 +2876,12 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     const results = await promise;
 
-    // A genuinely long, PROGRESSING turn must still finish: eight loop_limit
-    // rounds that each read a different file, then the answer.
     expect(postCount).toBe(9);
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toBe("analysis complete");
   });
 
   it("bounds a progressing loop_limit chain at the work-boundary ceiling, not the transient one", async () => {
-    // Every round completes a DIFFERENT tool at a server work boundary —
-    // nothing failed, so the transient ceiling (12) is the wrong unit and used
-    // to kill this turn at round 13. MAX_LOOP_LIMIT_CONTINUATIONS (25) is the
-    // boundary that binds instead.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -2808,10 +2945,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("keeps a loop_limit chain going when an earlier round left an unresolved Preparing card", async () => {
-    // `visibleContent` accumulates across a loop_limit chain, so an activity
-    // card left unresolved in round 1 used to make every later text-only round
-    // produce the same `preparing X` signature and die as "stuck preparing the
-    // X action" while the model was streaming genuinely new prose.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -2881,10 +3014,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("replays a failed prior-turn tool call as a failure, not a success", async () => {
-    // "I tried something repeatedly and it repeatedly failed": without
-    // `isError` the next turn sees the failed call as an ordinary result whose
-    // body happens to read like an error, so the model retries a permanently
-    // failing precondition. The server's repeat-error breaker keys on the flag.
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -2933,8 +3062,6 @@ describe("createAgentChatAdapter", () => {
     const interrupted = results.find(
       (part: any) => part.toolName === "save-draft",
     );
-    // Unknown is neither success nor failure: it keeps the interrupted marker
-    // the server matches on and must never claim the call errored.
     expect(interrupted.isError).toBeUndefined();
     expect(interrupted.content).toContain(
       "Interrupted before this tool returned a result.",
@@ -2942,8 +3069,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("prices tool-heavy assistant turns against the history budget", async () => {
-    // Counting only text parts made a turn of large tool calls cost ~0, so it
-    // survived every trim while the user's own prose was evicted around it.
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -2984,11 +3109,6 @@ describe("createAgentChatAdapter", () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
 
-    // Pricing the tool calls was only half of it: the budget then evicted the
-    // asks themselves. One bulky turn costs more than the whole budget, so
-    // walking newest-first and breaking dropped every earlier message —
-    // production thread 062ab179 re-read the same extension and re-stated the
-    // same diagnosis for eight turns because each turn started blind.
     const historyText = body.structuredHistory
       .filter((message: any) => message.role === "user")
       .flatMap((message: any) =>
@@ -3003,9 +3123,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("keeps an over-budget turn's conclusions after dropping its tool results", async () => {
-    // A tool-heavy turn's results are ~97% of its cost; the prose it wrote is
-    // the other 3% and is the part that cannot be re-read. Dropping the whole
-    // message evicted both, so the agent re-derived the same finding each turn.
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -3052,9 +3169,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("prices object tool results by what the request actually carries", async () => {
-    // Action results are objects, not strings. `String(result)` prices every
-    // one of them at 15 chars ("[object Object]"), so a turn of large object
-    // results again survived the trim while older prose was evicted for it.
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -3088,10 +3202,6 @@ describe("createAgentChatAdapter", () => {
 
     const body = fetchSpy.mock.calls[0][1].body as string;
     expect(body).toContain("now do it");
-    // Priced correctly, this one turn exceeds the whole assistant budget and is
-    // dropped. Priced as `String(result)` it would cost 15 chars per call and
-    // sail through — so the absent payload, not an evicted user ask, is what
-    // proves the pricing. The asks themselves are on a separate budget and stay.
     expect(body).not.toContain("y".repeat(13_000));
     expect(body).toContain("the original ask");
   });
@@ -3501,8 +3611,6 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Let the mocked fetch and 409 response settle before advancing the retry
-    // delay; otherwise the fake clock can advance before that timer exists.
     await Promise.resolve();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
@@ -3771,9 +3879,6 @@ describe("createAgentChatAdapter", () => {
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
-        // First send collides with the previous run, which the server still
-        // reports as active for a beat after it finished. No queue marker here:
-        // this is an ordinary send fired shortly after the prior turn.
         return postCount === 1
           ? jsonResponse({ activeRunId: "run-old" }, 409)
           : sseResponse([
@@ -3808,15 +3913,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Let the mocked fetch and 409 response settle before advancing the retry
-    // delay; otherwise the fake clock can advance before that timer exists.
     await Promise.resolve();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
     await vi.runAllTimersAsync();
     const results = await promise;
 
-    // It must retry its own prompt, never fetch the old run's events (replay).
     expect(postCount).toBe(2);
     expect(
       fetchSpy.mock.calls.some(([url]) =>
@@ -4103,8 +4205,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
 
-    // The server still believes this run is healthy; the browser's idle window
-    // expiring must never kill it.
     expect(abortCount).toBe(0);
     expect(
       fetchSpy.mock.calls.some(([url]) =>
@@ -4174,11 +4274,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     const results = await promise;
 
-    // A run that produces nothing visible no longer gives up on the first
-    // soft-timeout (that made heavier prompts feel like they "stop midway").
-    // It retries through the non-advancing budget
-    // (MAX_NON_ADVANCING_CONTINUATIONS = 3) — 1 initial + 2 retries, and the
-    // third non-advancing round stops it — then surfaces the error.
     expect(postCount).toBe(3);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -4290,12 +4385,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("recovers when a silent run timeout is followed by real output", async () => {
-    // The point of the empty-continuation budget: a transient slow start (the
-    // model thinks through the soft-timeout window with no visible output) must
-    // recover on a later continuation, not give up. Two empty run_timeouts
-    // followed by real text should finish cleanly with no "no visible progress"
-    // error. This is the regression that made heavier prompts feel like they
-    // "crap out / stop midway".
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -4349,7 +4438,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(2000);
     const results = await promise;
 
-    // 2 empty run_timeouts (within the budget of 3) then a successful run.
     expect(postCount).toBe(3);
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -4519,7 +4607,6 @@ describe("createAgentChatAdapter", () => {
     expect(secondBody.message).toContain(
       "preparing the `generate-design` action input",
     );
-    // Design gets its own incremental counterpart, not the extension wording.
     expect(secondBody.message).toContain("existing design file or snapshot");
     expect(secondBody.message).toContain("edit-design");
     expect(secondBody.message).toContain("same `fileId`");
@@ -4840,9 +4927,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // The narration differs every round, which is exactly why text alone
-    // cannot be the progress signal: the unstarted action card is what the
-    // advance signature keys on.
     expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -5264,10 +5348,6 @@ describe("createAgentChatAdapter", () => {
       { role: "user", content: "finish the report" },
       { role: "assistant", content: "still working..." },
     ]);
-    // The already-streamed text must also survive into structuredHistory — the
-    // server prioritizes structuredHistory over the plain history string, so a
-    // transient continuation that lost it here would resume blind to text the
-    // model already produced.
     expect(secondBody.structuredHistory).toEqual([
       {
         role: "user",
@@ -5951,12 +6031,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("keeps continuing when a run times out repeatedly with a tool still in flight", async () => {
-    // A tool_start with no matching tool_done is the server still executing
-    // the action. A run_timeout in that window is real progress — the
-    // server's foldAssistantTurn already persisted the in-flight call — so it
-    // must not count against the stalled/empty continuation budgets. We fire
-    // far more in-flight timeouts than MAX_STALLED_TRANSIENT_CONTINUATIONS (8)
-    // and MAX_EMPTY_TRANSIENT_CONTINUATIONS (1); the run must still recover.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -5979,8 +6053,6 @@ describe("createAgentChatAdapter", () => {
       }
       postCount += 1;
       if (postCount <= 12) {
-        // tool_start with NO tool_done — the action is still running when the
-        // run times out.
         return sseResponse([
           {
             type: "tool_start",
@@ -6017,8 +6089,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 12 in-flight timeouts + 1 successful run — never gave up despite far
-    // exceeding the stalled (8) and empty (1) caps.
     expect(postCount).toBe(13);
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
@@ -6028,11 +6098,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("bails after MAX_REPEATED_INFLIGHT_TOOL_STALLS stream_ended drops on the same tool", async () => {
-    // The motivating bug: user pastes 843 lines of HTML, agent starts
-    // create-extension, connection drops (stream_ended), agent retypes the
-    // whole thing, connection drops again — repeating until budgets exhaust.
-    // The in-flight stall guard should bail after 3 consecutive stream_ended
-    // events for the same tool, well before the 32-continuation budget.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -6054,7 +6119,6 @@ describe("createAgentChatAdapter", () => {
         return jsonResponse({ active: false, status: "idle" });
       }
       postCount += 1;
-      // Every run: agent narrates, starts create-extension, connection drops.
       return sseResponse([
         {
           type: "text",
@@ -6092,11 +6156,7 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // Should bail well before the 32-continuation cap.
-    // Initial post + 3 stream_ended stalls = 4 total posts (1 initial + 3 continuations,
-    // the 4th continuation is blocked by the guard). At most a few extra.
     expect(postCount).toBeLessThanOrEqual(8);
-    // Should have fired the run-error event with the "stuck repeating" message.
     const errorEvent = dispatchEvent.mock.calls.find(
       ([ev]) => ev?.type === "agent-chat:run-error",
     );
@@ -6113,12 +6173,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("does NOT bail when create-extension is retried with a CHANGED payload after stream_ended", async () => {
-    // The in-flight stall guard keys on tool name + input signature, so a retry
-    // with a different (e.g. smaller) payload — exactly what the cutoff nudge
-    // asks the model to do — resets the stall count instead of accumulating
-    // toward the bail. Here every stalled round sends a DISTINCT, shrinking
-    // create-extension payload, so even past MAX_REPEATED_INFLIGHT_TOOL_STALLS
-    // the run keeps going and the eventual smaller payload succeeds.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -6141,8 +6195,6 @@ describe("createAgentChatAdapter", () => {
       }
       postCount += 1;
       if (postCount <= 5) {
-        // Distinct narration + a distinct, smaller payload each round, then a
-        // connection drop. 5 stalls is past the 3-stall same-payload bail.
         return sseResponse([
           {
             type: "text",
@@ -6159,7 +6211,6 @@ describe("createAgentChatAdapter", () => {
           { type: "auto_continue", reason: "stream_ended" },
         ]);
       }
-      // The shrunk payload finally gets through.
       return sseResponse([
         { type: "text", text: "extension created after shrinking the payload" },
         { type: "done" },
@@ -6189,8 +6240,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     const results = await promise;
 
-    // Went past the 3-stall same-payload bail (each payload differed), never
-    // fired the in-flight bail, and completed.
     expect(postCount).toBeGreaterThanOrEqual(6);
     const errorEvent = dispatchEvent.mock.calls.find(
       ([ev]) => ev?.type === "agent-chat:run-error",
@@ -6203,9 +6252,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("does NOT bail on run_timeout in-flight stalls (slow legitimate tool)", async () => {
-    // run_timeout with an in-flight tool = server is still executing the
-    // action. This must NOT count toward the stream_ended stall counter.
-    // Regression guard for the existing behavior verified at postCount===13.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -6260,7 +6306,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 5 run_timeout stalls + 1 success = 6 posts; guard must NOT have fired.
     expect(postCount).toBe(6);
     const last = results.at(-1) as any;
     expect(last?.content?.at(-1)?.text).toBe("done");
@@ -6351,10 +6396,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("preserves large create-extension input verbatim in continuation history", async () => {
-    // Large-input tools carry the artifact itself as their input. Lossy
-    // truncation to an `{ __agentNativeTruncated }` placeholder would strand
-    // the resumed agent — it could no longer refine the extension. The real
-    // HTML must survive into the continuation's structuredHistory.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -6439,12 +6480,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("hosts a large pasted file by reference instead of re-emitting it (one shot, no loop)", async () => {
-    // Root-cause fix for the create-extension-with-a-huge-paste loop. Instead
-    // of copying the pasted HTML into the `content` tool argument (which can be
-    // cut off mid-stream and force a continuation loop), the model passes a
-    // tiny `contentFromAttachment` reference. The big file rides along ONCE as
-    // a structured attachment in the request; the server resolves it. The run
-    // finishes in a single POST — contrast the verbatim-tool-input path above.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -6517,20 +6552,15 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
 
-    // One shot — no continuation loop.
     expect(postCount).toBe(1);
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
 
-    // The big pasted file travels ONCE, as a structured attachment, so the
-    // server can resolve `contentFromAttachment` without the model re-emitting
-    // it as a tool argument.
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     const pasted = body.attachments.find((a: any) => a.name === pastedName);
     expect(pasted?.text).toBe(bigHtml);
 
-    // The model's create-extension call stays tiny — the reference, not the file.
     const last = results.at(-1) as any;
     const toolCall = last.content.find(
       (part: any) =>
@@ -6544,12 +6574,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("does not lossy-truncate large create-extension args in prior-turn structured history", async () => {
-    // When a large create-extension turn becomes prior history on a later
-    // request, history truncation runs (truncateForHistory=true). A generic
-    // tool would collapse to the `__agentNativeTruncated` placeholder; an
-    // extension's input is the artifact itself, so it must survive verbatim
-    // so the agent can keep refining it. A generic large tool input still
-    // collapses to the placeholder to bound history growth.
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -6619,20 +6643,13 @@ describe("createAgentChatAdapter", () => {
     const genericCall = toolCalls.find(
       (c: any) => c.toolName === "search-codebase",
     );
-    // Extension input survives verbatim.
     expect(extensionCall.args.content).toBe(bigHtml);
     expect(extensionCall.args.__agentNativeTruncated).toBeUndefined();
-    // A generic large tool input still collapses to the placeholder.
     expect(genericCall.args.__agentNativeTruncated).toBe(true);
     expect(genericCall.args.query).toBeUndefined();
   });
 
   it("counts whitespace-only output against the empty recovery cap", async () => {
-    // Resetting the empty-continuation counter on a non-zero PART count let
-    // whitespace-only output keep the run alive indefinitely. The counter must
-    // reset only on real content-weight progress, so whitespace-only timeouts
-    // exhaust the empty cap (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) and give up
-    // instead of looping until the much larger stalled cap (8).
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -6681,8 +6698,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 1 initial + 2 retries; the third non-advancing round stops it — no
-    // 10-POST runaway.
     expect(postCount).toBe(3);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -7265,11 +7280,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("follows a server-chained background continuation without POSTing a synthetic continuation", async () => {
-    // Background dispatch: the server chains continuation chunks itself
-    // (fresh runId, same turnId, successor row pre-inserted). The client must
-    // act as a READER: poll /runs/active, attach to the successor's event
-    // stream, fold its content into the same assistant message — and never
-    // issue a second POST to the chat endpoint.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -7340,9 +7350,7 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     const results = await promise;
 
-    // Exactly ONE POST — the original turn. Recovery was reads only.
     expect(postCount).toBe(1);
-    // Successor attached from the start (new runId → cursor reset to -1).
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining("/runs/run-bg-chunk-2/events?after=0"),
       expect.any(Object),
@@ -7371,9 +7379,6 @@ describe("createAgentChatAdapter", () => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         requestTurnId = (JSON.parse(init.body as string) as { turnId: string })
           .turnId;
-        // Simulate the Netlify background response ending after the first
-        // persisted event. The follow-up run replays that event with a new
-        // stream cursor, but the same source eventId.
         return backgroundSseResponse(
           [
             {
@@ -7653,7 +7658,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
   });
@@ -7708,7 +7717,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -7787,7 +7800,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -7867,7 +7884,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     clearPendingTurnIfMatches("successor-thread", "successor-turn");
@@ -7943,7 +7964,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -8024,7 +8049,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     const nextReader = createRunStreamToken("next-reader");
@@ -8103,7 +8132,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     clearPendingTurnIfMatches("current-thread", "legacy-successor-turn");
@@ -8179,7 +8212,11 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId: "chat-current" },
+        detail: {
+          isRunning: false,
+          tabId: "chat-current",
+          turnId: expect.any(String),
+        },
       }),
     );
     expect(getActiveRun()).toMatchObject({
@@ -8430,13 +8467,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("keeps following instead of completing mid-turn when /runs/active re-observes the same chunk-boundary run", async () => {
-    // Regression test for the brain.agent-native.com incident: a warm
-    // sync-function instance can keep serving the OLD chunk's terminal row
-    // (status "completed", terminal_reason "run_timeout") for several polls
-    // before the pre-inserted successor becomes visible/pollable. Seeing
-    // that SAME terminal run a second (and third, and fourth) time must
-    // never flip the message to "done" mid-turn — it must keep following
-    // until the real successor shows up.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -8467,9 +8497,6 @@ describe("createAgentChatAdapter", () => {
         );
       }
       if (url.includes("/runs/active")) {
-        // The first several polls keep re-observing the SAME old chunk as
-        // "completed" with a continuation-class terminal_reason; only
-        // afterward does the successor become visible via /runs/active.
         const isOld = activePollCount < 4;
         activePollCount += 1;
         return jsonResponse(
@@ -8498,8 +8525,6 @@ describe("createAgentChatAdapter", () => {
         );
       }
       if (url.includes("/runs/run-bg-boundary-1/events")) {
-        // Reaped row / cross-isolate lag: re-attaching to the already-
-        // exhausted old chunk 404s.
         return jsonResponse({ error: "Run not found" }, 404);
       }
       if (url.includes("/runs/run-bg-boundary-2/events")) {
@@ -8533,10 +8558,7 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     expect(postCount).toBe(1);
-    // The follow loop really did keep polling past the re-observed chunk
-    // boundary until the successor became visible.
     expect(activePollCount).toBeGreaterThanOrEqual(5);
-    // No yielded result carries a terminal status before the true end.
     results.slice(0, -1).forEach((r: any) => {
       expect(r.status?.type).not.toBe("complete");
       expect(r.status?.type).not.toBe("incomplete");
@@ -8658,10 +8680,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("surfaces error:stale_run after the grace window elapses with no successor", async () => {
-    // Error-class terminal reasons still terminate — but only after giving
-    // the server's dead-run recovery (reap + insert a claimable successor) a
-    // short grace window to land one. With no successor ever appearing, the
-    // turn must end with a loud error — never a silent stop.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -8739,16 +8757,10 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
-    // The grace window really did poll multiple times before giving up
-    // (1 initial sighting + 1 re-sighting + up to 5 grace polls).
     expect(activePollCount).toBeGreaterThanOrEqual(6);
   });
 
   it("recovers from error:stale_run when a successor run appears within the grace window", async () => {
-    // Same starting point as the previous test, but this time the server's
-    // dead-run recovery lands a claimable successor row partway through the
-    // grace window. The follow loop must pick it up seamlessly — no error,
-    // no synthetic POST — and finish with the full combined content.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -8780,8 +8792,6 @@ describe("createAgentChatAdapter", () => {
         );
       }
       if (url.includes("/runs/active")) {
-        // Calls 0-2 (3 calls): the old errored run, no successor yet.
-        // Call 3+: the successor has landed.
         const isOld = activePollCount < 3;
         activePollCount += 1;
         return jsonResponse(
@@ -8960,10 +8970,6 @@ describe("createAgentChatAdapter", () => {
         } as any),
       );
 
-      // The follow loop now gives a terminal error outcome a short grace
-      // window (a handful of extra /runs/active polls) to let a successor
-      // land before surfacing it — this run never gets one, so the outcome
-      // is unchanged, just delayed past the grace window.
       await vi.advanceTimersByTimeAsync(10_000);
       const results = await promise;
 
@@ -9012,10 +9018,6 @@ describe("createAgentChatAdapter", () => {
     },
   );
 
-  // A run reaped before its worker ever claimed it: the reaper writes the
-  // terminal error event AND `terminal_reason: error:<its code>`, so the
-  // replayed event is this failure's own wording (details included) and the map
-  // must not restate it from the reason alone.
   it("keeps the terminal event's own message and details when it replays", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
@@ -9151,8 +9153,6 @@ describe("createAgentChatAdapter", () => {
           lastProgressAt: Date.now(),
         });
       }
-      // The terminal event itself is not replayable — the case the
-      // terminal-reason map exists for.
       return jsonResponse({ error: "unexpected" }, 500);
     });
     vi.stubGlobal("fetch", fetchSpy);
@@ -9192,11 +9192,6 @@ describe("createAgentChatAdapter", () => {
     ).toBe(true);
   });
 
-  // Same path, other reader. The map's credential copy names a Settings page in
-  // an org the visitor is not in, and this is the one branch with no server
-  // message to defer to — so the deployment's own answer to "who pays" comes
-  // over `/runs/active`, and the copy decision goes back to the lane-aware
-  // formatter the server already uses.
   it("gives a visitor the one line when the deployment pays for its own AI", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
@@ -9370,10 +9365,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("surfaces a terminal error when a background run goes idle with no successor", async () => {
-    // If the server-chained successor never appears (lost handoff that even
-    // the server sweep failed to resurface), the follow loop must end the
-    // turn with a loud terminal error after its idle window — never a silent
-    // stop, and never a synthetic continuation POST.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -9433,7 +9424,6 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Past the follow idle window, including polling/backoff headroom.
     await vi.advanceTimersByTimeAsync(
       BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
     );
@@ -9529,11 +9519,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("never condemns a run because the /runs/active poll itself failed", async () => {
-    // "The poll failed" is not "the run is gone". A 5xx from this route used
-    // to coerce to active=false, fall into the no-active-run branch, and drive
-    // a DURABLE abort of a run that was still working — the same
-    // unreadable-as-absent shape CLAUDE.md names. A flaky network tick must
-    // never kill a healthy background turn.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -9563,7 +9548,6 @@ describe("createAgentChatAdapter", () => {
         abortCount += 1;
         return jsonResponse({ ok: true });
       }
-      // The route is down for the entire window.
       if (url.includes("/runs/active")) {
         return jsonResponse({ error: "upstream unavailable" }, 503);
       }
@@ -9597,21 +9581,11 @@ describe("createAgentChatAdapter", () => {
       BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
     );
 
-    // Well past the idle window with an unreadable route: still following,
-    // and it never reached for the durable abort.
     expect(abortCount).toBe(0);
     expect(settled).toBe(false);
   });
 
   it("does not surface a fatal terminal outcome for a deferred successor still inside its redispatch bound (awaitingRedispatch)", async () => {
-    // The server marks a `chainServerDrivenContinuation` deferral's successor
-    // row `awaitingRedispatch: true` on /runs/active for as long as it is
-    // still inside UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS — a
-    // server-authoritative "recovery in progress, do not panic" signal. Even
-    // though the successor's own event stream 404s the whole time (nothing
-    // is producing it yet) and the client's idle window is comfortably
-    // exceeded, the follow loop must NOT report a fatal error and must still
-    // be running (not settled) once that window has passed.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -9647,14 +9621,10 @@ describe("createAgentChatAdapter", () => {
           dispatchMode: "background",
           heartbeatAt: Date.now(),
           lastProgressAt: Date.now(),
-          // The row is unclaimed the whole time — exactly the deferred-
-          // successor state this test exercises.
           awaitingRedispatch: true,
         });
       }
       if (url.includes("/runs/run-bg-deferred/events")) {
-        // No worker has claimed the row yet — the event stream provably
-        // does not exist until the sweep redispatches it.
         return jsonResponse({ error: "Run not found" }, 404);
       }
       return jsonResponse({ error: "unexpected" }, 500);
@@ -9679,8 +9649,6 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Advance well past BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS while the row is
-    // still awaitingRedispatch.
     await vi.advanceTimersByTimeAsync(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS * 1.5);
 
     // The turn must still be RUNNING — not settled with a fatal outcome —
@@ -9695,8 +9663,6 @@ describe("createAgentChatAdapter", () => {
     ]);
     expect(raceResult).toBe("pending");
 
-    // Clean up: abort so the adapter's generator actually finishes and the
-    // test doesn't leave a dangling timer loop.
     abortController.abort();
     await vi.advanceTimersByTimeAsync(2_000);
     await promise;
@@ -9705,12 +9671,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("still surfaces a loud terminal error once a stuck successor is no longer marked awaitingRedispatch (bound exceeded)", async () => {
-    // Loud-failure preservation: once the server itself gives up on a
-    // deferred successor (awaitingRedispatch stops being true — e.g. the
-    // redispatch bound was exceeded and the slow sweep is about to reap it
-    // loudly), the client's own idle timeout is the last backstop and must
-    // still fire. This is the same "gone" scenario as the previous test, but
-    // WITHOUT the awaitingRedispatch signal — the fatal outcome must return.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -9785,11 +9745,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS sits comfortably between the server's redispatch budget and its hard bound", async () => {
-    // The full derived timing chain (see this constant's doc comment):
-    //   GRACE_MS + FAST_SWEEP_MS  <  RUN_NO_PROGRESS_HARD_TIMEOUT_MS
-    //     <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
-    // Imports the REAL run-store constants (not copied literals) so this
-    // test breaks the moment any of the four numbers drift out of budget.
     const {
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
       UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
@@ -9801,8 +9756,6 @@ describe("createAgentChatAdapter", () => {
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
       UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS;
-    // Leave headroom for at least one failed attempt before the client's
-    // window would even start to matter.
     expect(
       worstCaseFirstAttemptMs + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
     ).toBeLessThan(RUN_NO_PROGRESS_HARD_TIMEOUT_MS);
@@ -9815,11 +9768,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("re-reads server progress before condemning a run the attach outran", async () => {
-    // The kill verdict was rendered against a /runs/active snapshot fetched
-    // BEFORE the attach that had just blocked for its whole duration — so a run
-    // that streamed text and a full tool-argument payload DURING the attach
-    // still looked frozen and got durably aborted. Fleet-wide, 23 of 24
-    // client-watchdog kills hit runs that had progressed within 90s.
     const source = readFileSync(
       new URL("./agent-chat-adapter.ts", import.meta.url),
       "utf8",
@@ -9830,53 +9778,22 @@ describe("createAgentChatAdapter", () => {
       source.indexOf("const snapshotSaysStalled"),
       verdictIdx,
     );
-    // A second read of the authoritative progress value must happen between the
-    // attach and the verdict, and it must be gated so the healthy path pays
-    // nothing.
-    // Count-based, so renaming a variable cannot satisfy it: the authoritative
-    // progress route must be read TWICE — once for the pre-attach snapshot and
-    // once after the attach, before the verdict.
     const activeReads = source.split("/runs/active?threadId=").length - 1;
     expect(activeReads).toBeGreaterThanOrEqual(2);
-    // ...and the second read must sit between the attach and the verdict.
     expect(window.split("/runs/active?threadId=").length - 1).toBe(1);
-    // ...gated, so a healthy run pays nothing for it.
     expect(/if \(\w*[Ss]talled\w*\)/.test(window)).toBe(true);
   });
 
   it("per-turn follow budgets stay above the server's own ceilings", async () => {
-    // Regression pin for the top non-auth cause of "the chat just stopped".
-    // These client budgets were 10 min / 6 runs while ONE legal background
-    // chunk may run 13 min and the server allows a 90-min turn over 20
-    // continuations — so the client killed healthy turns that the server was
-    // still streaming, measured in prod as aborts at 11-25 minutes with
-    // progress recorded right up to the abort.
-    //
-    // The client is a backstop for a silent server, not the primary limit:
-    // it fires on a clock and cannot tell looping from working. Anything that
-    // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
-    // and the repeated-terminal-reason detector.
-    //
-    // This pins the DEFAULTS. It is no longer the whole enforcement: the server
-    // bounds below are runtime-configurable, so a deployment can move them
-    // without touching a constant this test can see. The live check is
-    // `assertRunLifecycleInvariants`, which asserts the same three
-    // relationships against the RESOLVED configuration when it resolves. Keep
-    // both — this one fails fast on a bad default, that one on a bad deploy.
     const {
       BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
       MAX_BACKGROUND_RUN_CONTINUATIONS,
       MAX_TURN_WALL_CLOCK_MS,
     } = await import("../app-config/run-lifecycle-invariants.js");
 
-    // A single full-length chunk must fit inside the whole-turn client budget
-    // with room for more than one of them; this is the exact inversion that
-    // shipped.
     expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS * 2).toBeLessThan(
       MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
     );
-    // The server terminates first, so the turn ends with a terminal reason
-    // written by the side that can actually distinguish progress from a loop.
     expect(MAX_TURN_WALL_CLOCK_MS).toBeLessThan(
       MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
     );
@@ -9886,9 +9803,6 @@ describe("createAgentChatAdapter", () => {
   }, 10_000);
 
   it("still self-POSTs a foreground continuation after run_timeout (foreground behavior pin)", async () => {
-    // Foreground regression pin for the background follow-mode change: a run
-    // with no background dispatch mode keeps the full client-side
-    // continuation machinery — synthetic POST and all.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -10261,8 +10175,6 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     expect(chatPostCount).toBe(3);
-    // The client never aborts a run the server still owns; a server-sent
-    // auto_continue asks for a continuation POST, not a kill.
     expect(abortCount).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("/runs/run-first/events"),
@@ -10353,11 +10265,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("gives up quickly when the model repeats the same narration without finishing", async () => {
-    // A degenerate model loop re-streams the same sentence every continuation
-    // and never starts or finishes a tool (the create-extension-with-a-huge-
-    // pasted-HTML failure). Each repeat is "new" text, so the stalled/empty
-    // budgets keep resetting; only the repetition guard stops it — after a few
-    // rounds, not the full 32-continuation transient budget.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -10411,8 +10318,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 1 initial + 3 repeated continuations, then MAX_NON_ADVANCING_CONTINUATIONS
-    // (3) stops it — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (12).
     expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -10429,12 +10334,6 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("gives a budget message, not a connection-failure message, when a progressing turn exhausts the total continuation cap", async () => {
-    // A turn that keeps completing a DIFFERENT tool every round advances on
-    // every continuation — it is "making real
-    // progress" the whole time, exactly what MAX_TOTAL_TRANSIENT_CONTINUATIONS
-    // (12) exists to bound. Reported bug: hitting that whole-turn ceiling was
-    // told to the user as "the agent connection kept failing", which is not
-    // what happened — nothing failed, the turn ran out of continuation budget.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -10485,8 +10384,6 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     const results = await promise;
 
-    // 13 continuations trips MAX_TOTAL_TRANSIENT_CONTINUATIONS (12) even
-    // though every single round made real, distinct progress.
     expect(postCount).toBe(13);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -10617,9 +10514,6 @@ describe("background follow per-turn budget", () => {
   });
 
   it("stops following after too many successor runs in one turn", async () => {
-    // Prod: a server stuck redispatching the same turn produced 26 chained
-    // runs over 22 minutes because the only budget was a per-idle-window
-    // timeout that every new successor reset.
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -10848,8 +10742,6 @@ describe("background follow per-turn budget", () => {
           status: "running",
           dispatchMode: "background-processing",
           heartbeatAt: Date.now(),
-          // Mirrors the incident: transport noise continued, but the server's
-          // authoritative real-progress timestamp did not move.
           lastProgressAt: 1_000,
         });
       }
@@ -11168,8 +11060,6 @@ describe("empty-run continuation backoff", () => {
   });
 
   it("waits before re-POSTing a run that produced nothing", async () => {
-    // Re-sending the identical payload against the identical wall immediately
-    // is what burned four runs in ~315s in production.
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(

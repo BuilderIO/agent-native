@@ -5,11 +5,24 @@ const mocks = vi.hoisted(() => ({
   getAiFilterState: vi.fn(),
   getJevContextCredentials: vi.fn(),
   getUserSetting: vi.fn(),
+  isResolvedEngineUsableForRequest: vi.fn(),
   isJevEnabled: vi.fn(),
   readDeployCredentialEnv: vi.fn(),
+  registerBuiltinEngines: vi.fn(),
+  resolveCredential: vi.fn(),
+  resolveEngine: vi.fn(),
+  resolveAutomationModelSettings: vi.fn(),
   requestJevThroughBuilder: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/agent/engine", () => ({
+  isResolvedEngineUsableForRequest: mocks.isResolvedEngineUsableForRequest,
+  registerBuiltinEngines: mocks.registerBuiltinEngines,
+  resolveEngine: mocks.resolveEngine,
+}));
+vi.mock("@agent-native/core/credentials", () => ({
+  resolveCredential: mocks.resolveCredential,
+}));
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => undefined,
   getJevContextCredentials: mocks.getJevContextCredentials,
@@ -43,9 +56,11 @@ vi.mock("./automation-actions.js", () => ({
   executeActions: vi.fn(),
 }));
 vi.mock("./automation-model.js", () => ({
-  resolveAutomationModelSettings: vi
-    .fn()
-    .mockResolvedValue({ engine: "typesafe", model: "jev-latest" }),
+  resolveAutomationModelSettings:
+    mocks.resolveAutomationModelSettings.mockResolvedValue({
+      engine: "typesafe",
+      model: "jev-latest",
+    }),
   resolveTextAutomationModelSettings: vi.fn(),
   TYPESAFE_AUTOMATION_ENGINE: "typesafe",
   TYPESAFE_AUTOMATION_MODEL: "jev-latest",
@@ -53,7 +68,9 @@ vi.mock("./automation-model.js", () => ({
 vi.mock("./google-api.js", () => ({}));
 vi.mock("./google-auth.js", () => ({}));
 
+import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  previewAutomationPriority,
   previewAutomationRules,
   processAutomationsForAccount,
 } from "./automation-engine.js";
@@ -84,6 +101,17 @@ describe("Mail Jev automation routing", () => {
     mocks.isJevEnabled.mockResolvedValue(true);
     mocks.getAiFilterState.mockResolvedValue({ enabled: false, feedback: [] });
     mocks.getUserSetting.mockResolvedValue(null);
+    mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.resolveEngine.mockImplementation(
+      async (options: { apiKey?: string }) => ({
+        defaultModel: "claude-sonnet-5",
+        stream: vi.fn(),
+        configured: Boolean(options.apiKey),
+      }),
+    );
+    mocks.isResolvedEngineUsableForRequest.mockImplementation(
+      async (engine: { configured?: boolean }) => Boolean(engine.configured),
+    );
     mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.dbSelect.mockReturnValue({
       from: () => ({
@@ -98,6 +126,24 @@ describe("Mail Jev automation routing", () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
+
+  it("resolves a saved scoped Anthropic credential for the owner", async () => {
+    mocks.resolveCredential.mockResolvedValue("saved-workspace-key");
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+
+    await previewAutomationRules([], [], "key-owner@example.com", {} as never);
+
+    expect(mocks.resolveCredential).toHaveBeenCalledWith("ANTHROPIC_API_KEY", {
+      userEmail: "key-owner@example.com",
+    });
+    expect(mocks.resolveEngine).toHaveBeenCalledWith({
+      engineOption: "anthropic",
+      apiKey: "saved-workspace-key",
+    });
+  });
 
   it("evaluates Mail AI filters through Builder without a user key", async () => {
     const result = await previewAutomationRules(
@@ -114,7 +160,9 @@ describe("Mail Jev automation routing", () => {
       {} as never,
     );
 
-    expect(result.matches.get("email-1")).toEqual([
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
       expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
     ]);
     expect(mocks.requestJevThroughBuilder).toHaveBeenCalledWith(
@@ -122,6 +170,253 @@ describe("Mail Jev automation routing", () => {
       expect.objectContaining({ model: "jev-latest" }),
       { timeoutMs: 12_000 },
     );
+  });
+
+  it("keeps AI-filter results distinct for matching IDs across accounts", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: {
+        q_0_0: { noul: 0.2 },
+        q_1_0: { noul: 0.91 },
+      },
+    });
+
+    const firstAccount = "first@example.test";
+    const secondAccount = "second@example.test";
+    const result = await previewAutomationRules(
+      [
+        { ...email, accountEmail: firstAccount },
+        { ...email, accountEmail: secondAccount },
+      ],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(result.matches.size).toBe(2);
+    expect(
+      result.matches.get(aiPriorityEmailKey(firstAccount, email.id)),
+    ).toEqual([]);
+    expect(
+      result.matches.get(aiPriorityEmailKey(secondAccount, email.id)),
+    ).toEqual([
+      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
+    ]);
+  });
+
+  it("preserves a complete no-match classification", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: { q_0_0: { noul: 0.2 } },
+    });
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Work from the finance team",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      {} as never,
+    );
+
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([]);
+  });
+
+  it("fails when Jev omits a rule answer instead of treating it as no-match", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({ answers: {} });
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("TypeSafe Jev omitted one or more rule answers.");
+  });
+
+  it("fails when a model omits an email classification", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
+    mocks.resolveEngine.mockImplementation(async () => ({
+      defaultModel: "claude-sonnet-5",
+      configured: true,
+      stream: async function* () {
+        yield { type: "text-delta", text: "[]" };
+      },
+    }));
+
+    await expect(
+      previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Work from the finance team",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+        { feedback: [] } as never,
+      ),
+    ).rejects.toThrow("Model omitted one or more email classifications.");
+  });
+
+  it("bounds Anthropic rule results per response", async () => {
+    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
+    const calls: Array<{ emailIds: string[]; ruleIds: string[] }> = [];
+    mocks.resolveEngine.mockImplementation(async () => ({
+      defaultModel: "claude-sonnet-5",
+      configured: true,
+      stream: async function* (input: {
+        messages: Array<{ content: Array<{ text: string }> }>;
+      }) {
+        const prompt = input.messages[0]!.content[0]!.text;
+        const emailIds = [...prompt.matchAll(/\(emailId: (.+)\) ---/g)].map(
+          ([, id]) => JSON.parse(id!),
+        );
+        const ruleIds = [...prompt.matchAll(/^\d+\. \[id: ([^\]]+)\]/gm)].map(
+          ([, id]) => id!,
+        );
+        calls.push({ emailIds, ruleIds });
+        yield {
+          type: "text-delta",
+          text: JSON.stringify(
+            emailIds.map((emailId) => ({
+              emailId,
+              matches: ruleIds.map((ruleId) => ({
+                ruleId,
+                match: false,
+                confidence: 0,
+              })),
+            })),
+          ),
+        };
+      },
+    }));
+
+    const emails = Array.from({ length: 10 }, (_, index) => ({
+      ...email,
+      id: `email-${index}`,
+      threadId: `thread-${index}`,
+    }));
+    const rules = Array.from({ length: 4 }, (_, index) => ({
+      id: `rule-${index}`,
+      name: `Rule ${index}`,
+      condition: `Condition ${index}`,
+      actions: [],
+    }));
+    const result = await previewAutomationRules(
+      emails,
+      rules,
+      "large-batch@example.test",
+      { feedback: [] } as never,
+    );
+
+    expect(
+      calls.map(({ emailIds, ruleIds }) => emailIds.length * ruleIds.length),
+    ).toEqual([32, 8]);
+    expect(result.matches.size).toBe(10);
+    expect([...result.matches.values()]).toEqual(
+      Array.from({ length: 10 }, () => []),
+    );
+  });
+
+  it("keeps Jev priority answers distinct for matching IDs across accounts", async () => {
+    mocks.requestJevThroughBuilder.mockResolvedValue({
+      answers: {
+        q_0: { noul: 0.2 },
+        q_1: { noul: 0.9 },
+      },
+    });
+    const result = await previewAutomationPriority(
+      [
+        { ...email, accountEmail: "first@example.test" },
+        { ...email, accountEmail: "second@example.test" },
+      ],
+      "owner@example.com",
+      "Prioritize work messages.",
+      { builderAuth } as never,
+    );
+
+    expect(
+      result.scores.get(aiPriorityEmailKey("first@example.test", email.id)),
+    ).toMatchObject({
+      score: 0.2,
+    });
+    expect(
+      result.scores.get(aiPriorityEmailKey("second@example.test", email.id)),
+    ).toMatchObject({
+      score: 0.9,
+    });
+    const requestBody = mocks.requestJevThroughBuilder.mock.calls[0]?.[1] as {
+      state: { emails: Array<Record<string, unknown>> };
+    };
+    expect(requestBody.state.emails[0]).not.toHaveProperty("labels");
+  });
+
+  it("scores priority batches with a concurrency limit of three", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.requestJevThroughBuilder.mockImplementation(
+      async (_auth: unknown, body: { questions: Record<string, unknown> }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return {
+          answers: Object.fromEntries(
+            Object.keys(body.questions).map((question) => [
+              question,
+              { noul: 0.7 },
+            ]),
+          ),
+        };
+      },
+    );
+    const emails = Array.from({ length: 200 }, (_, index) => ({
+      ...email,
+      id: `email-${index}`,
+      threadId: `thread-${index}`,
+    }));
+
+    const result = await previewAutomationPriority(
+      emails,
+      "owner@example.com",
+      "Prioritize work messages.",
+      { builderAuth } as never,
+    );
+
+    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBe(3);
+    expect(result.scores.size).toBe(200);
   });
 
   it("does not use a deployment key as direct fallback", async () => {
@@ -179,7 +474,9 @@ describe("Mail Jev automation routing", () => {
       {} as never,
     );
 
-    expect(result.matches.get("email-1")).toEqual([
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
       expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
     ]);
     expect(fetch).toHaveBeenCalledWith(

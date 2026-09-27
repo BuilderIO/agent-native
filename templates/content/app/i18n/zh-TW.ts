@@ -130,6 +130,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
@@ -182,6 +189,14 @@ const history = {
 };
 
 const overrides = {
+  close: "關閉",
+  setup: { checkingProvider: "正在檢查 AI 連線…" },
+  onboarding: {
+    fileStorage: {
+      title: "連接儲存空間以上傳檔案",
+      statusUnavailable: "檔案儲存狀態無法使用。",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
@@ -304,6 +319,13 @@ const overrides = {
     genericError: "出了點問題",
   },
   editor: {
+    iconPickerIcons: "圖示",
+    iconPickerEmoji: "表情符號",
+    iconPickerRecent: "最近使用",
+    iconPickerColors: "顏色",
+    iconPickerDefault: "預設",
+    iconPickerUpload: "上傳",
+    iconPickerUploading: "上傳中…",
     suggestionFormattingUnsupported:
       "無法安全地建議此格式。草稿已保留。復原上一次編輯以繼續。",
     suggestionFormattingBaselineUnsupported:

@@ -36,10 +36,6 @@ import { LEGAL_POLICY_METADATA } from "./legal-policy-list";
 export const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Returns the last git commit date for a file path, falling back to fs mtime
- * when git is unavailable (non-git contexts such as Docker/CI without history).
- */
 function gitLastmod(filePath: string): Date {
   try {
     const iso = execSync(`git log -1 --format=%cI -- "${filePath}"`, {
@@ -53,10 +49,6 @@ function gitLastmod(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-/**
- * Vite plugin that auto-generates the public agent-web surface for the docs:
- * sitemap.xml, robots.txt, llms files, and Markdown mirrors for crawlable docs.
- */
 export function sitemapPlugin(): Plugin {
   const rootDir = path.resolve(__dirname, "..");
   const pkg = JSON.parse(
@@ -153,26 +145,6 @@ export function buildSitemapPaths(rootDir: string): string[] {
   return buildAgentWebPages(rootDir).map((page) => page.path);
 }
 
-/**
- * Paths React Router prerenders to static HTML at build time. Narrower than the
- * sitemap on purpose — prerendering a path whose loader does not answer 200
- * bakes the wrong response into a static file, so drop:
- *
- * - renamed slugs, whose loader throws a 301 that would be frozen as a
- *   `<meta http-equiv="refresh">` 200 page;
- * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
- *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
- * - the Getting Started roots, whose `?tab=cloud` variant must reach SSR
- *   instead of inheriting the local guide from a static file.
- * - community detail paths, so newly published app slugs remain available
- *   without waiting for the next docs build. The catalog index itself is a
- *   prerendered seed shell and refreshes published listings after hydration.
- *
- * Redirected and draft paths keep falling through to the SSR function, which
- * still answers 301/404. Published docs stay prerendered because the Netlify
- * edge negotiation hook rewrites Markdown requests to the SSR function before
- * static routing can serve the HTML file.
- */
 export function buildPrerenderPaths(): string[] {
   const pages = buildDocsSitePages(path.resolve(__dirname, ".."));
   const draftSlugs = new Set(
@@ -198,17 +170,11 @@ export function isDynamicCommunityPath(pagePath: string): boolean {
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
-  // A redirected slug answers 301, so advertising it in the sitemap, llms.txt,
-  // or a Markdown twin points crawlers at a redirect. Stale translations
-  // outlive an English rename -- `locales/*/database.mdx` survived the rename
-  // to `server-database` -- so the filter has to run here, not just on the
-  // prerender list.
   return buildDocsSitePages(rootDir)
     .filter((page) => !isRedirectedDocsPath(page.path))
     .map(({ docSlug: _docSlug, draft: _draft, ...page }) => page);
 }
 
-/** An `AgentWebPage` plus the doc-source facts the prerender list filters on. */
 type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
 
 function buildDocsSitePages(rootDir: string): DocsSitePage[] {

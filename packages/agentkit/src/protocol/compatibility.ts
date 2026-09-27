@@ -34,7 +34,6 @@ function validatedVersions(values: readonly number[], name: string): number[] {
   return versions;
 }
 
-/** Selects the highest mutually supported version and never guesses a fallback. */
 export function negotiateAgentKitProtocolVersion(
   peer: AgentProtocolVersionOffer,
   options: { correlationId?: string } = {},
@@ -85,10 +84,6 @@ export function getAgentCapabilityStatus(
   return discovery.capabilities.find((entry) => entry.id === capability);
 }
 
-/**
- * Enforces discovery semantics at a call site. Omitted descriptors are unknown,
- * not silently unsupported, and therefore fail as temporarily unavailable.
- */
 export function requireAgentCapability(
   discovery: AgentCapabilitiesDiscovery,
   capability: AgentCapabilityId,
@@ -111,12 +106,6 @@ export function requireAgentCapability(
   return descriptor;
 }
 
-/**
- * Lossy on purpose: the boolean map has no way to say "degraded" or "down
- * right now", so it reports both as available and omits what discovery did
- * not mention. Anything that gates behavior must use
- * `resolveAgentCapabilityAffordance` against the descriptors instead.
- */
 export function projectAgentCapabilities(
   discovery: AgentCapabilitiesDiscovery,
 ): AgentCapabilities {
@@ -137,12 +126,6 @@ export function projectAgentCapabilities(
   return projected as AgentCapabilities;
 }
 
-/**
- * The single place capability presentation is decided. Enforcement in the
- * client already branches on all four descriptor states, so a caller that
- * reads the boolean projection instead will show controls the client then
- * rejects, and hide ones that work. Both directions are silent.
- */
 export function resolveAgentCapabilityAffordance(
   source: {
     discovery?: AgentCapabilitiesDiscovery;
@@ -191,8 +174,6 @@ export function resolveAgentCapabilityAffordance(
     }
   }
 
-  // Discovery that ran and omitted the capability is reporting unknown, not
-  // unsupported, so it must not be read as a denial.
   if (source.discovery) {
     return { id: capability, state: "unknown", visible: false, enabled: false };
   }
@@ -208,7 +189,6 @@ export function resolveAgentCapabilityAffordance(
     : { id: capability, state: "unsupported", visible: false, enabled: false };
 }
 
-/** Type-only assertion that keeps future protocol unions narrow. */
 export function asAgentKitProtocolVersion(
   compatibility: Extract<AgentProtocolCompatibility, { status: "compatible" }>,
 ): AgentKitProtocolVersion {

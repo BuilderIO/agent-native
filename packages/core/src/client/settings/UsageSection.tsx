@@ -26,8 +26,19 @@ import {
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import { BuilderReferralInviteRow } from "../BuilderReferralInviteRow.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import {
+  groupRecentPrompts,
+  type RecentPromptEntry,
+} from "./recent-prompt-groups.js";
+
+const builderAddCreditsUrl = withBuilderUtmTrackingParams(
+  "https://builder.io/account/subscription?signupSource=agent-native",
+  { content: "usage_credit_balance" },
+);
 
 type UsageScope = "me" | "workspace";
 type Translation = ReturnType<typeof useT>;
@@ -66,19 +77,14 @@ interface UsageDailyMetric {
   otherCalls?: number;
 }
 
-interface UsageRecentMetric {
-  id: number;
+interface UsageRecentMetric extends RecentPromptEntry {
   createdAt: number;
-  ownerEmail: string;
-  app: string;
-  label: string;
-  model: string;
   inputTokens: number;
   outputTokens: number;
-  prompt: string | null;
 }
 
 interface UsageMetricsData {
+  builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
   app: string;
   viewScope: UsageScope;
@@ -114,6 +120,17 @@ interface UsageMetricsData {
   byModel: UsageMetricBucket[];
   daily: UsageDailyMetric[];
   recent: UsageRecentMetric[];
+}
+
+interface BuilderCreditUsageData {
+  plan: "free" | "paid";
+  balance: number;
+  quota: {
+    period: "daily" | "monthly";
+    limit: number;
+    used: number;
+    remaining: number;
+  };
 }
 
 interface UsageAlertRule {
@@ -286,6 +303,7 @@ function Trend({
   daily: UsageDailyMetric[];
   billing: UsageBilling;
 }) {
+  const t = useT();
   if (daily.length === 0) {
     return (
       <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border/70 text-sm text-muted-foreground">
@@ -302,47 +320,88 @@ function Trend({
       day.estimatedBuilderCredits,
     ),
   );
-  const max = Math.max(...values, 0.01);
+  const max = Math.max(...values, 0);
+  const scaleMax = max || 1;
   const points = values.map((value, index) => {
     const x = daily.length === 1 ? 50 : (index / (daily.length - 1)) * 100;
-    const y = 88 - (value / max) * 72;
+    const y = 100 - (value / scaleMax) * 100;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
   const line = points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point}`)
     .join(" ");
-  const area = `${line} L 100,96 L 0,96 Z`;
+  const area = `${line} L 100,100 L 0,100 Z`;
+  const axisLabel =
+    billing.unit === "usd"
+      ? "USD"
+      : t("agentChat.usage.builderCredits", {
+          defaultValue: "Builder credits",
+        });
+  const axisTicks = [max, max / 2, 0];
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 px-3 pb-2 pt-3">
-      <svg
-        aria-label="Daily usage trend"
-        className="h-32 w-full text-primary"
-        viewBox="0 0 100 96"
-        preserveAspectRatio="none"
-        role="img"
-      >
-        <path d={area} className="fill-current opacity-10" />
-        <path
-          d={line}
-          className="fill-none stroke-current"
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-      <div className="flex justify-between text-[11px] text-muted-foreground">
-        <span>
-          {new Date(`${daily[0]!.date}T00:00:00`).toLocaleDateString(
-            undefined,
-            { month: "short", day: "numeric" },
-          )}
-        </span>
-        <span>
-          {new Date(`${daily.at(-1)!.date}T00:00:00`).toLocaleDateString(
-            undefined,
-            { month: "short", day: "numeric" },
-          )}
-        </span>
+      <div className="flex gap-2">
+        <div className="flex h-32 w-3 shrink-0 items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="[writing-mode:vertical-rl] rotate-180 whitespace-nowrap text-[10px] text-muted-foreground"
+          >
+            {axisLabel}
+          </span>
+        </div>
+        <div
+          role="group"
+          aria-label={axisLabel}
+          className="flex h-32 w-12 shrink-0 flex-col justify-between text-right text-[10px] tabular-nums text-muted-foreground"
+        >
+          {axisTicks.map((value, index) => (
+            <span key={index}>
+              {billing.unit === "usd"
+                ? formatUsdCost(value)
+                : value.toLocaleString(undefined, {
+                    maximumFractionDigits: 3,
+                  })}
+            </span>
+          ))}
+        </div>
+        <div className="min-w-0 flex-1">
+          <svg
+            aria-label="Daily usage trend"
+            className="h-32 w-full text-primary"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            role="img"
+          >
+            <path
+              d="M 0 0 H 100 M 0 50 H 100 M 0 100 H 100"
+              className="fill-none stroke-border/60"
+              strokeWidth="0.5"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path d={area} className="fill-current opacity-10" />
+            <path
+              d={line}
+              className="fill-none stroke-current"
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>
+              {new Date(`${daily[0]!.date}T00:00:00`).toLocaleDateString(
+                undefined,
+                { month: "short", day: "numeric" },
+              )}
+            </span>
+            <span>
+              {new Date(`${daily.at(-1)!.date}T00:00:00`).toLocaleDateString(
+                undefined,
+                { month: "short", day: "numeric" },
+              )}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -487,6 +546,110 @@ function UsageLoadingState() {
         <Skeleton className="mt-3 h-32 w-full" />
       </div>
     </div>
+  );
+}
+
+function BuilderCreditUsageSkeleton() {
+  return (
+    <section
+      aria-hidden="true"
+      className="rounded-lg border border-border/70 bg-card p-4"
+    >
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="mt-3 h-5 w-40" />
+      <Skeleton className="mt-5 h-3 w-full" />
+      <Skeleton className="mt-2 h-2 w-full" />
+    </section>
+  );
+}
+
+function BuilderCreditUsagePanel({ usage }: { usage: BuilderCreditUsageData }) {
+  const t = useT();
+  const quotaLabel =
+    usage.quota.period === "daily"
+      ? t("agentChat.usage.dailyFreeLimit", {
+          defaultValue: "Free daily limit",
+        })
+      : t("agentChat.usage.monthlyPlan", { defaultValue: "Monthly plan" });
+  const canAddCredits = usage.quota.remaining === 0;
+  const used = usage.quota.used.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+  const limit = usage.quota.limit.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+  const remaining = usage.quota.remaining.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+
+  return (
+    <section className="rounded-lg border border-border/70 bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("agentChat.usage.builderCredits", {
+              defaultValue: "Builder credits",
+            })}
+          </h2>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground">
+              {t("agentChat.usage.creditBalance", {
+                defaultValue: "Workspace balance",
+              })}
+            </span>
+            <span className="text-base font-semibold tabular-nums text-foreground">
+              {usage.balance.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+        </div>
+        {canAddCredits ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={builderAddCreditsUrl} target="_blank" rel="noreferrer">
+              {t("agentChat.errorMessages.addCreditsInBuilder", {
+                defaultValue: "Add credits in Builder",
+              })}
+              <IconArrowUpRight />
+            </a>
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+          <span className="font-medium text-foreground">{quotaLabel}</span>
+          <span className="tabular-nums text-muted-foreground">
+            {t("agentChat.usage.creditUsedOfLimit", {
+              defaultValue: "{{used}} of {{limit}} used",
+              used,
+              limit,
+            })}
+          </span>
+        </div>
+        <div
+          role="progressbar"
+          aria-label={quotaLabel}
+          aria-valuemin={0}
+          aria-valuemax={usage.quota.limit}
+          aria-valuenow={Math.min(usage.quota.used, usage.quota.limit)}
+          className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{
+              width: `${(Math.min(usage.quota.used, usage.quota.limit) / usage.quota.limit) * 100}%`,
+            }}
+          />
+        </div>
+        <div className="mt-1 text-right text-xs tabular-nums text-muted-foreground">
+          {t("agentChat.usage.creditRemaining", {
+            defaultValue: "{{amount}} remaining",
+            amount: remaining,
+          })}
+        </div>
+        <BuilderReferralInviteRow className="mt-4 border-t border-border/70 pt-4" />
+      </div>
+    </section>
   );
 }
 
@@ -843,6 +1006,16 @@ export function UsageSection({
     appId: appId ?? undefined,
   });
   const data = query.data;
+  const canViewBuilderCreditUsage = Boolean(
+    !appId && data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+  );
+  const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
+    "get-builder-credit-usage",
+    {},
+    {
+      enabled: canViewBuilderCreditUsage,
+    },
+  );
   const billing = data?.billing ?? {
     unit: "usd" as const,
     label: "Estimated spend",
@@ -958,6 +1131,40 @@ export function UsageSection({
         </div>
       ) : null}
       {!data && query.isLoading ? <UsageLoadingState /> : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isLoading ? (
+        <BuilderCreditUsageSkeleton />
+      ) : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.isError ? (
+        <section
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-card p-4"
+          role="alert"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              {t("agentChat.usage.builderCredits", {
+                defaultValue: "Builder credits",
+              })}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("agentChat.usage.creditUsageUnavailable", {
+                defaultValue: "Builder credit usage couldn’t be loaded.",
+              })}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void builderCreditUsageQuery.refetch()}
+            disabled={builderCreditUsageQuery.isFetching}
+          >
+            {t("agentChat.common.retry", { defaultValue: "Retry" })}
+          </Button>
+        </section>
+      ) : null}
+      {canViewBuilderCreditUsage && builderCreditUsageQuery.data ? (
+        <BuilderCreditUsagePanel usage={builderCreditUsageQuery.data} />
+      ) : null}
       {data ? (
         <>
           <div
@@ -1141,13 +1348,18 @@ export function UsageSection({
                 </p>
               ) : (
                 <div className="divide-y divide-border/60">
-                  {data.recent.map((entry) => (
+                  {groupRecentPrompts(data.recent).map(({ entry, count }) => (
                     <div key={entry.id} className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                         <span>
                           {entry.label} · {entry.model}
                         </span>
-                        <span>{entry.ownerEmail}</span>
+                        <span className="flex items-center gap-2">
+                          {entry.ownerEmail}
+                          {count > 1 ? (
+                            <Badge variant="secondary">×{count}</Badge>
+                          ) : null}
+                        </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-foreground">
                         {entry.prompt ??

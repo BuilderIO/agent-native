@@ -1,44 +1,10 @@
 #!/usr/bin/env node
-/**
- * agent-friction-report.mjs
- *
- * Measures how often the user has to correct an agent about the same thing,
- * by reading local Claude Code and Codex transcripts and counting matches for
- * a table of known friction patterns, bucketed by week.
- *
- * Why this exists: on 2026-07-31 an audit claimed unrequested branch creation
- * was a live problem needing a tool-level block. Measuring it showed the
- * opposite — 10 occurrences in early July, then zero in the twelve days after
- * `.agents/skills/new-branch/SKILL.md` gained its activation guard. Guidance
- * had already closed it, and a block would only have fired on the correct
- * post-merge workflow.
- *
- * That is the whole point: a claim about agent behaviour is checkable, and the
- * check is cheap. Before adding any mechanism that constrains agents, run this
- * and confirm the pattern is still live. After changing a skill, run it again
- * a couple of weeks later and confirm the pattern actually declined. A rule
- * nobody measures is a rule nobody can tell is working.
- *
- * Usage:
- *   node scripts/agent-friction-report.mjs                # last 8 weeks
- *   node scripts/agent-friction-report.mjs --weeks 4
- *   node scripts/agent-friction-report.mjs --pattern cheap-model
- *   node scripts/agent-friction-report.mjs --self-test
- *
- * Reads only local transcript files; makes no network calls and writes nothing.
- */
 
 import { readdirSync, statSync, createReadStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-/**
- * Each entry is a correction the user should not have to repeat. `fixedBy`
- * records the guidance that was supposed to close it, so a pattern that keeps
- * climbing after its skill landed is a visible failure of that skill — not a
- * reason to reach for a tool-level block first.
- */
 const FOLLOWUP_ACTION = String.raw`(?:check(?:ed)?(?:\s+(?:back|whether|if))?|re-?check(?:ed)?|follow(?:ed)?[ -]+up(?:\s+(?:on|with))?|re-?read|revisit|re-?triage|disposition)`;
 const FOLLOWUP_TARGET = String.raw`(?:clarification|unanswered\s+feedback|follow[ -]?up|reporter|repl(?:y|ies|ied)|response|thread)`;
 const MISSED_FOLLOWUP_CONTEXT = String.raw`(?:miss(?:ed|ing)|prior|previous(?:ly)?|unanswered|pending|no\s+(?:reply|response)|still\s+(?:waiting|unanswered|no\s+(?:reply|response))|waiting\s+for|asked\s+for|requested\s+(?:a\s+)?clarification|reporter\s+(?:hasn['’]t|didn['’]t|never)\s+(?:repl(?:y|ied|ies)|respond))`;
@@ -71,8 +37,109 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const RESOURCE_CLEANUP_TARGET = String.raw`(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)`;
+const RESOURCE_CLEANUP_FAILURE = String.raw`(?:fail(?:ed)? to (?:close|stop)|(?:don['’]?t|do not|didn['’]?t|did not|can['’]?t|cannot|never|not) (?:close|stop|shut down|closing|stopping)|orphan(?:ed|ing)?|(?:left|leave|leaving)[^.!?\n]{0,50}(?:open|running|unclosed))`;
+const RESOURCE_CLEANUP_RE = new RegExp(
+  String.raw`\b(?:agents?|claude(?: code)?|codex)\b[^.!?\n]{0,200}(?:\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_FAILURE}\b|\b${RESOURCE_CLEANUP_FAILURE}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_TARGET}\b)|\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,80}\b(?:left open|left running|not closed|not stopped|orphaned)\b`,
+  "i",
+);
+const RESOURCE_CLEANUP_REGEX_CASES = [
+  [
+    true,
+    "Agents constantly spawn browser tabs and don't close them when done, then spawn node processes and don't stop them.",
+  ],
+  [true, "Agents fail to close browser tabs after the task."],
+  [true, "The Node process was left running."],
+  [false, "Agents spawn browser tabs for a quick check."],
+  [false, "Agents are leaving browser tabs for the next session."],
+  [false, "Open a browser tab for a quick check."],
+];
+
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
+
+const WORKTREE_PERMISSION_CORRECTION_RE =
+  /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
+const WORKTREE_BRANCH_CONTEXT_RE =
+  /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|new\s+branches?|switch(?:ing)?\s+to\s+(?:a\s+)?task\s+branch(?:es)?)\b/i;
+const WORKTREE_BRANCH_PERMISSION_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          !/\bshared\s+checkout\b/i.test(sentence) &&
+          /\bworktrees?\b/i.test(sentence) &&
+          WORKTREE_PERMISSION_CORRECTION_RE.test(sentence) &&
+          WORKTREE_BRANCH_CONTEXT_RE.test(sentence),
+      );
+  },
+};
+const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
+  [true, "Stop asking for permissions to create branches in worktrees."],
+  [
+    true,
+    "Stop asking for permission for new branches in task-owned worktrees.",
+  ],
+  [true, "In a worktree, no permission is needed to switch to a task branch."],
+  [
+    true,
+    "No permission is needed to create a branch in a task-owned worktree.",
+  ],
+  [true, "Stop asking before creating a branch in a task-owned worktree."],
+  [true, "Stop asking permission to create a new branch in a task worktree."],
+  [true, "Stop asking whether you can create a branch in a worktree."],
+  [true, "Don't ask if I can make a new branch inside the worktree."],
+  [true, "Don't ask for approval to make a new branch inside a worktree."],
+  [
+    true,
+    "We should only ask permission for branch changes when not in a worktree.",
+  ],
+  [
+    true,
+    "No permissions are needed for changing branches in task-owned worktrees.",
+  ],
+  [true, "Only ask permission to create a new branch outside a worktree."],
+  [
+    false,
+    "Do not ask permission to access production data from this worktree.",
+  ],
+  [false, "No approvals are needed for reading customer data in worktrees."],
+  [
+    false,
+    "No permission is needed to open a production dashboard in this worktree.",
+  ],
+  [
+    false,
+    "Do not ask permission to access production in this worktree; the feature branch was created yesterday.",
+  ],
+  [
+    false,
+    "Stop asking whether you can access production data in this worktree. The feature branch was created yesterday.",
+  ],
+  [
+    false,
+    "Stop asking for permissions in worktrees. This is only to prevent shared branch issues.",
+  ],
+  [false, "Ask before changing branches in the shared checkout."],
+  [
+    false,
+    "No permission is needed to create a new branch in a shared checkout.",
+  ],
+  [
+    false,
+    "No permission is needed to create a branch in a shared checkout worktree.",
+  ],
+  [false, "The worktree has a branch checked out."],
+];
+// ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
+const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
+  [
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?![.!?]\s*(?:this|that|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b(?![.!?]\s*(?:this|that|it|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
+  ].join("|"),
+  "i",
+);
 
 const STALE_PR_WATCHER_RE = new RegExp(
   [
@@ -84,10 +151,289 @@ const STALE_PR_WATCHER_RE = new RegExp(
   "i",
 );
 
+const SHIP_USER = String.raw`(?:i|we|(?:the\s+)?user)`;
+const SHIP_OPT_OUT_TARGET = String.raw`(?:to\s+not\s+merge|not\s+to\s+merge|don['’]?t\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|do\s+not\s+merge(?:\s+(?:it|(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?))?|leave\s+(?:(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?|it)\s+(?:open|unmerged)|no[- ]merge|ship_mode\s*=\s*ready[- ]only|ready[- ]only(?:\s+(?:mode|shipment|endpoint))?)`;
+const SHIP_AFFIRMATIVE_OPT_OUT_RE = new RegExp(
+  String.raw`(?:\b${SHIP_USER}\s+(?:explicitly\s+)?(?:asked|told|said|requested)[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}|\b${SHIP_USER}\s+(?:explicitly\s+)?(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*|^\s*(?:please\s+)?(?:don['’]?t|do\s+not)\s+merge\s+.{0,40}\b(?:PR|pull request)\s*#?\d+|^\s*(?:please\s+)?keep\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged))\b`,
+  "i",
+);
+const SHIP_DIRECT_LEAVE_OPEN_RE =
+  /^\s*(?:please\s+)?leave\s+(?:the\s+)?(?:PR|pull request)\s*#?\d+\s+(?:open|unmerged)\b/i;
+const SHIP_FALSE_OPT_OUT_BEFORE_RE = new RegExp(
+  String.raw`\b(?:i|we)\s+(?:didn['’]?t|did not|never)\s+(?:ask|tell|say|request)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
+  "i",
+);
+const SHIP_FALSE_OPT_OUT_AFTER_RE =
+  /^(?:\s*[,;]?\s*(?:but|although|however|which)\s+)?(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s*$|\s*[.!?]\s*$|\s*[,;]\s*(?:because|since|as|i|we)\b)/i;
+const SHIP_FALSE_OPT_OUT_CLAIM_RE =
+  /\b(?:(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)|(?:i|we)\s+asked\s+for\s+(?:the\s+)?opposite)\b/i;
+const SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE = new RegExp(
+  String.raw`\b(?:it|(?:the\s+)?(?:agent|assistant|model))\s+(?:(?:falsely|wrongly)\s+)?(?:claimed|thought|assumed|believed|asserted|reported|said)\s+(?:that\s+)?${SHIP_USER}\s+(?:(?:had|has)\s+)?(?:explicitly\s+)?(?:asked|told|said|requested)\b[^.!?\n]{0,100}\b${SHIP_OPT_OUT_TARGET}`,
+  "i",
+);
+const SHIP_FALSE_OPT_OUT_FOLLOWUP_RE =
+  /^\s*[,;]?\s*(?:(?:but|although|however|which)\s+)?(?:(?:i|we)\s+(?:didn['’]?t|did not|never)(?:\s+(?:ask|tell|say|request)\b|[.!?,;]?\s*$)|(?:i|we)\s+(?:never|didn['’]?t|did not)\s+(?:authoriz\w*|approv\w*)\s+(?:that|it)\b|(?:that|this|it)\s+(?:is|was)\s+(?:false|wrong|untrue)\b|(?:i|we)\s+(?:asked|told|requested)\s+(?:for\s+)?(?:the\s+)?opposite\b)/i;
+
+const SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE = new RegExp(
+  String.raw`(?:${[
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,30}\b(?:had|have)\s+to\s+tell\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:running|active)\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)(?:\s*#?\d+)?\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:(?:it\s+)?(?:never\s+did|didn['’]?t\s+merge|did\s+not\s+merge|never\s+merged|didn['’]?t\s+finish|did\s+not\s+finish)|(?:(?:the\s+)?merge|it)\s+never\s+happened|never\s+happened)\b`,
+    String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,50}\b(?:stopp?ed|ended|quit|returned)\b[^.!?\n]{0,50}\bwithout\s+merg(?:e|ing)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\s*#?\d+\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,40}\b(?:asked|told|instructed|requested)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\bto\s+merge\b[^.!?\n]{0,40}\b(?:PR|pull request)\s*#?\d+\b[^.!?\n]{0,80}\bbut\b[^.!?\n]{0,80}\b(?:merely|only|just)\b[^.!?\n]{0,80}\b(?:open(?:ed)?|creat(?:ed)?|return(?:ed)?|finish(?:ed)?|stopp?ed|quit)\b`,
+    String.raw`\b(?:these are all|all these|all the)\s+(?:threads?|PRs?)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:told|asked|instructed)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,80}\b(?:i|we)\b[^.!?\n]{0,40}\b(?:have|had)\s+to\b[^.!?\n]{0,80}(?:\/|\[\$)?ship-watchdog\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,60}\b(?:have|had)\s+to\b[^.!?\n]{0,60}(?:\/|\[\$)?ship-watchdog\b[^.!?\n]{0,80}\b(?:because|since)\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|left)\b`,
+    String.raw`\b(?:had|have)\s+to\s+remind\b[^.!?\n]{0,80}\b(?:the\s+)?(?:agent|you)\b[^.!?\n]{0,80}\b(?:keep|continue)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,80}\b(?:merged|merge)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:stopp?ed|ended|quit|abandoned|returned|finished|completed)\b[^.!?\n]{0,80}\b(?:before|without|while|although|but|yet)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,60}\b(?:merge|merged|open|unmerged)\b`,
+    String.raw`\bwhy\s+did\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:finish(?:ed)?|stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,80}\b(?:before|without)\b[^.!?\n]{0,60}\b(?:merg(?:e|ed|ing)|PR|pull request)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:reported|called|marked)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,40}\b(?:complete|done|finished)\b[^.!?\n]{0,80}\b(?:but|yet|while)\b[^.!?\n]{0,80}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:open|unmerged|not merged)\b`,
+    String.raw`\b(?:the\s+)?(?:agent|you|they)\b[^.!?\n]{0,60}\b(?:stopp?ed|ended|quit|abandoned)\b[^.!?\n]{0,40}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,60}\b(?:with|while|although)\b[^.!?\n]{0,40}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\b(?:unmerged|not merged|still open)\b`,
+    String.raw`\b(?:they|you|agents?|the\s+agent)\b[^.!?\n]{0,60}\b(?:just\s+)?stop\b[^.!?\n]{0,80}\bafter\b[^.!?\n]{0,60}\b(?:opening|creating|pushing)\b[^.!?\n]{0,30}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\b(?:until|through)\b[^.!?\n]{0,60}\b(?:merge|merged)\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:already|again|repeatedly|multiple times|more than once)\b[^.!?\n]{0,100}\b(?:asked|told|reminded|said)\b[^.!?\n]{0,100}\b(?:don['’]?t|do not|never)\s+stop\b[^.!?\n]{0,60}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,80}\buntil\b[^.!?\n]{0,60}\b(?:the\s+)?(?:PR|pull request)\b[^.!?\n]{0,40}\bmerged\b`,
+    String.raw`\b(?:i|we)\b[^.!?\n]{0,50}\b(?:told|asked|instructed)\b[^.!?\n]{0,80}(?:\/ship\b|\[\$ship\])[^.!?\n]{0,100}\b(?:but|yet|still)\b[^.!?\n]{0,100}\b(?:stopp?ed|ended|quit|abandoned|watchdog|babysit|left\s+(?:the\s+)?(?:PR|pull request)\s+open|unmerged)\b`,
+  ].join("|")})`,
+  "i",
+);
+const SHIP_STOPPED_BEFORE_MERGE_ALL_RE = new RegExp(
+  SHIP_STOPPED_BEFORE_MERGE_POSITIVE_RE.source,
+  "gi",
+);
+
+function sentenceBoundsAt(text, index) {
+  const start =
+    Math.max(
+      text.lastIndexOf(".", index - 1),
+      text.lastIndexOf("?", index - 1),
+      text.lastIndexOf("!", index - 1),
+      text.lastIndexOf("\n", index - 1),
+    ) + 1;
+  const end = [
+    text.indexOf(".", index),
+    text.indexOf("?", index),
+    text.indexOf("!", index),
+    text.indexOf("\n", index),
+  ].filter((boundary) => boundary >= 0);
+  return [start, end.length ? Math.min(...end) : text.length];
+}
+
+function prNumbers(text) {
+  return new Set(
+    [...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi)].map(
+      (match) => match[1],
+    ),
+  );
+}
+
+function prNumbersNearMatch(text, match) {
+  const direct = prNumbers(match[0]);
+  if (direct.size > 0) return direct;
+
+  const start = match.index;
+  const end = start + match[0].length;
+  const references = [
+    ...text.matchAll(/\b(?:PR|pull request)\s*#?(\d+)\b/gi),
+  ].map((reference) => ({
+    number: reference[1],
+    distance:
+      reference.index > end
+        ? reference.index - end
+        : start > reference.index + reference[0].length
+          ? start - (reference.index + reference[0].length)
+          : 0,
+  }));
+  const nearestDistance = Math.min(
+    ...references.map(({ distance }) => distance),
+  );
+  return new Set(
+    references
+      .filter(({ distance }) => distance === nearestDistance && distance <= 100)
+      .map(({ number }) => number),
+  );
+}
+
+function sameShipment(leftPrs, rightPrs) {
+  if (leftPrs.size === 0 || rightPrs.size === 0) {
+    return leftPrs.size === 0 && rightPrs.size === 0;
+  }
+  return [...leftPrs].some((number) => rightPrs.has(number));
+}
+
+function shipStopPrNumbers(text, stopMatch) {
+  const direct = prNumbers(stopMatch[0]);
+  if (direct.size > 0) return direct;
+
+  const stopEnd = stopMatch.index + stopMatch[0].length;
+  const optOut = shipOptOutMatches(text)
+    .map(({ match }) => match)
+    .find((match) => match.index >= stopEnd);
+  const stopContext = optOut === undefined ? text : text.slice(0, optOut.index);
+  const beforeOptOut = prNumbersNearMatch(stopContext, stopMatch);
+  if (beforeOptOut.size > 0 || optOut === undefined) return beforeOptOut;
+
+  const afterOptOut = text.slice(optOut.index + optOut[0].length);
+  return prNumbersNearMatch(afterOptOut, { 0: "", index: 0 });
+}
+
+function shipOptOutMatches(text, previousShipmentPrs = new Set()) {
+  const matches = [
+    ...text.matchAll(new RegExp(SHIP_AFFIRMATIVE_OPT_OUT_RE.source, "gi")),
+    ...text.matchAll(new RegExp(SHIP_DIRECT_LEAVE_OPEN_RE.source, "gi")),
+  ].sort((left, right) => left.index - right.index);
+  return matches.map((match) => {
+    const directPrs = prNumbers(match[0]);
+    const afterOptOut = text.slice(match.index + match[0].length);
+    const nearestPrs = prNumbersNearMatch(text, match);
+    const correction = afterOptOut.match(
+      /^\s*[,;—-]?\s*(?:no,\s*)?not\s+(?:the\s+)?(?:PR|pull request)\s*#?(\d+)\s*,?\s*(?:but|rather)\s+(?:the\s+)?(?:PR|pull request)\s*#?(\d+)\b/i,
+    );
+    const correctedPrs =
+      correction && nearestPrs.has(correction[1])
+        ? new Set([correction[2]])
+        : undefined;
+    const prs = correctedPrs ?? nearestPrs;
+    const mentionsDifferentWork =
+      /\b(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        match[0],
+      ) ||
+      /^\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
+      ) ||
+      /^\s+(?:for|to|about|regarding)\s+(?:(?:a|an|the)\s+)?(?:separate|another|other|different)\s+(?:deploy(?:ment)?|PR|pull request|shipment|work|project)\b/i.test(
+        afterOptOut,
+      );
+    const refersBackToShipment =
+      previousShipmentPrs.size === 1 &&
+      directPrs.size === 0 &&
+      correctedPrs === undefined &&
+      !mentionsDifferentWork &&
+      /(?:\bleave\s+it\s+(?:open|unmerged)\b|\b(?:don['’]?t|do not)\s+merge\s+it\b|\b(?:opted\s+out\s+of|declined)\s+(?:the\s+)?merg\w*)/i.test(
+        match[0],
+      );
+    const attributedPrs =
+      mentionsDifferentWork && directPrs.size === 0
+        ? directPrs
+        : refersBackToShipment
+          ? previousShipmentPrs
+          : prs;
+    return {
+      match,
+      sentence: text,
+      prs: attributedPrs,
+    };
+  });
+}
+
+function hasFalseOptOutDenial(optOut) {
+  const { match: optOutMatch, sentence: optOutSentence } = optOut;
+  if (SHIP_AGENT_ATTRIBUTED_OPT_OUT_RE.test(optOutSentence)) {
+    return true;
+  }
+
+  const denials = [
+    ...optOutSentence.matchAll(
+      new RegExp(SHIP_FALSE_OPT_OUT_BEFORE_RE.source, "gi"),
+    ),
+  ];
+  if (
+    denials.some((denial) =>
+      sameShipment(prNumbersNearMatch(optOutSentence, denial), optOut.prs),
+    )
+  ) {
+    return true;
+  }
+
+  const denialTail = optOutSentence.slice(
+    optOutMatch.index + optOutMatch[0].length,
+  );
+  const afterOptOut = optOut.afterSentence;
+  const afterOptOutPrs = prNumbers(afterOptOut);
+  return (
+    SHIP_FALSE_OPT_OUT_AFTER_RE.test(denialTail) ||
+    SHIP_FALSE_OPT_OUT_CLAIM_RE.test(denialTail) ||
+    SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(denialTail) ||
+    ((sameShipment(afterOptOutPrs, optOut.prs) ||
+      (afterOptOutPrs.size === 0 && optOut.prs.size === 1)) &&
+      SHIP_FALSE_OPT_OUT_FOLLOWUP_RE.test(afterOptOut))
+  );
+}
+
+function isShipStoppedBeforeMerge(text) {
+  for (const match of text.matchAll(SHIP_STOPPED_BEFORE_MERGE_ALL_RE)) {
+    const [start, end] = sentenceBoundsAt(text, match.index);
+    const sentence = text.slice(start, end);
+    const previousSentenceStart =
+      start > 0 ? sentenceBoundsAt(text, start - 1)[0] : start;
+    const previousSentence = text.slice(previousSentenceStart, start).trim();
+    let nextStart = end < text.length ? end + 1 : end;
+    while (/\s/.test(text[nextStart] ?? "")) nextStart++;
+    const [nextSentenceStart, nextSentenceEnd] = sentenceBoundsAt(
+      text,
+      nextStart,
+    );
+    const nextSentence = text.slice(nextSentenceStart, nextSentenceEnd).trim();
+    let followingStart =
+      nextSentenceEnd < text.length ? nextSentenceEnd + 1 : nextSentenceEnd;
+    while (/\s/.test(text[followingStart] ?? "")) followingStart++;
+    const [, followingSentenceEnd] = sentenceBoundsAt(text, followingStart);
+    const followingSentence = text
+      .slice(followingStart, followingSentenceEnd)
+      .trim();
+    let fourthStart =
+      followingSentenceEnd < text.length
+        ? followingSentenceEnd + 1
+        : followingSentenceEnd;
+    while (/\s/.test(text[fourthStart] ?? "")) fourthStart++;
+    const [, fourthSentenceEnd] = sentenceBoundsAt(text, fourthStart);
+    const fourthSentence = text.slice(fourthStart, fourthSentenceEnd).trim();
+    const stopMatch = {
+      0: match[0],
+      index: match.index - start,
+    };
+    const stopPrs = shipStopPrNumbers(sentence, stopMatch);
+
+    const optOutMatch = [
+      ...shipOptOutMatches(
+        previousSentence,
+        prNumbers(previousSentence).size === 0 ? stopPrs : new Set(),
+      )
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: sentence })),
+      ...shipOptOutMatches(sentence, stopPrs).map((optOut) => ({
+        ...optOut,
+        afterSentence: nextSentence,
+      })),
+      ...shipOptOutMatches(
+        nextSentence,
+        prNumbers(nextSentence).size === 0 ? stopPrs : new Set(),
+      ).map((optOut) => ({ ...optOut, afterSentence: followingSentence })),
+      ...shipOptOutMatches(followingSentence)
+        .filter(
+          (optOut) =>
+            stopPrs.size > 0 &&
+            optOut.prs.size > 0 &&
+            sameShipment(stopPrs, optOut.prs),
+        )
+        .map((optOut) => ({ ...optOut, afterSentence: fourthSentence })),
+    ].find((optOut) => sameShipment(stopPrs, optOut.prs));
+
+    if (!optOutMatch) return true;
+    if (hasFalseOptOutDenial(optOutMatch)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+const SHIP_STOPPED_BEFORE_MERGE_RE = { test: isShipStoppedBeforeMerge };
+
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
-// A bare namespace mention is routine documentation. Count it only when the
-// same sentence also says the repair was wrong or describes a repair action.
 const CREDENTIAL_NAMESPACE_RE = new RegExp(
   [
     String.raw`\b${CREDENTIAL_NAMESPACE_SIGNAL}\b[^.!?]{0,120}\b${CREDENTIAL_CORRECTION_CONTEXT}\b`,
@@ -317,6 +663,87 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
+  [true, "Codex couldn't renew the PR lease and then stopped working."],
+  [true, "Codex couldn't renew the PR lease, so it stopped."],
+  [true, "I couldn't renew the PR lease, so I stopped working."],
+  [true, "This task couldn't renew the PR lease, so it stopped."],
+  [true, "I told the threads to finish shipping and ignore the lease stuff."],
+  [
+    false,
+    "As a hypothetical example, I told the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I told the threads to finish shipping and ignore the lease stuff. This is illustrative.",
+  ],
+  [
+    true,
+    "I had to tell at the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I did not ask the threads to finish shipping and ignore lease stuff.",
+  ],
+  [false, "Don't ask the threads to finish shipping and ignore lease stuff."],
+  [
+    true,
+    "Codex sessions couldn't get leases or lease renewal so would just stop.",
+  ],
+  [false, "The PR lease coordinates durable watchers."],
+  [false, "The lease failed, but this task continued in the foreground."],
+  [false, "A file lock prevented the build from running."],
+  [false, "Codex could not renew the lease, so it did not stop."],
+  [
+    false,
+    "Codex couldn't renew the lease, so it stopped because GitHub was down.",
+  ],
+  [false, "Codex couldn't renew the lease; it stopped because CI failed."],
+  [false, "If Codex could not renew the lease, then stop working."],
+  [false, "Work stopped because GitHub was down after the lease expired."],
+  [false, "The lease failed, so work stopped because GitHub was down."],
+  [
+    false,
+    "The lease expired then the task stopped because CI was unavailable.",
+  ],
+  [
+    false,
+    "Hypothetically, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "As a hypothetical example, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "Consider this hypothetical: Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. This is illustrative.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. That was just an example.",
+  ],
+  [
+    false,
+    "In a hypothetical scenario, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "For example, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "Work stopped because the lease expired, but GitHub was the actual cause.",
+  ],
+  [false, "The lease blocked no work."],
+  [false, "No active lease prevented the task from continuing."],
+  [false, "Work stopped, not because of the lease."],
+  [false, "Work was not stopped because the lease expired."],
+];
+
 const STALE_PR_WATCHER_REGEX_CASES = [
   [true, "PR #6329 is merged; please stop this scheduled task."],
   [
@@ -334,10 +761,270 @@ const STALE_PR_WATCHER_REGEX_CASES = [
   [false, "These scheduled tasks are pointless."],
 ];
 
+const SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES = [
+  [
+    true,
+    "These are all threads I told to /ship, but I still have to run /ship-watchdog every morning.",
+  ],
+  [
+    false,
+    "They just stop after opening the PR; keep checking CI and review until merged.",
+  ],
+  [
+    true,
+    "They just stop after opening the PR; /ship should keep checking until merged.",
+  ],
+  [false, "Do not stop /ship until the PR is merged."],
+  [true, "I had to tell the agent to keep /ship running."],
+  [false, "Please tell the agent to keep /ship running until the checks pass."],
+  [true, "I told /ship to merge the pull request, but it never did."],
+  [true, "I asked /ship to merge PR #123, but the merge never happened."],
+  [true, "I asked /ship to merge PR #123, but it never happened."],
+  [true, "/ship stopped without merging PR #123."],
+  [
+    false,
+    "/ship stopped without merging PR #123 because I asked to leave PR #123 open.",
+  ],
+  [
+    true,
+    "I asked /ship to merge PR #123, but it merely opened the PR and returned.",
+  ],
+  [
+    false,
+    "I asked /ship to merge PR #123, and it opened the PR while CI runs; it will merge after the checks pass.",
+  ],
+  [true, "I already asked: do not stop /ship until the PR is merged."],
+  [true, "The agent ended /ship before the PR was merged."],
+  [true, "Why did /ship finish before merging the pull request?"],
+  [true, "The agent reported /ship complete but left the PR open."],
+  [
+    false,
+    "The agent reported /ship complete but left the PR open because I asked to leave it open; ship_mode=ready-only.",
+  ],
+  [
+    false,
+    "The agent reported /ship complete but left the PR open because I asked for ship_mode=ready-only.",
+  ],
+  [
+    true,
+    "The agent set ship_mode=ready-only without my approval and stopped /ship while the PR was open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with the pull request unmerged because I explicitly opted out of merging.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I said don’t merge PR #123.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave it open while PR #123 waits for CI.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly opted out of merging.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, but I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I told it to leave PR #123 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it thought I said don’t merge PR #123, but I had asked /ship to merge it.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked it to leave the PR open, which I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it claimed I asked to leave the PR open. I did not.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because it falsely claimed I explicitly asked to leave the PR open, then explained that several checks were green, no reviewer had replied, the worktree was clean, no merge command had run, and the original instruction still asked the agent to watch until merge. That is false; I asked for the opposite.",
+  ],
+  [
+    true,
+    "Although I did not ask to leave the PR open, the agent stopped /ship with the pull request unmerged because it claimed I explicitly asked to leave the PR open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because a reviewer asked to leave the PR open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I asked to leave it open for the separate deploy.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I asked it not to merge a separate PR.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the PR unmerged. I explicitly asked to leave PR #456 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly said don’t merge it.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open—not PR #123, but PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open—not PR #456, but PR #123.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave it open while I checked a separate PR #456.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. Please leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. CI passed and no comments were pending. I explicitly asked to leave PR #123 open.",
+  ],
+  [
+    false,
+    "I asked to leave PR #123 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    false,
+    "I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    true,
+    "I explicitly asked to leave it open while I checked PR #456. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. I explicitly asked to leave it open—not PR #123, but PR #456.",
+  ],
+  [
+    true,
+    "I asked to leave PR #456 open. The agent stopped /ship with PR #123 unmerged.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. I said to leave PR #123 open.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged. Please don’t merge PR #123.",
+  ],
+  [false, "The agent stopped /ship with PR 123 unmerged. Keep PR 123 open."],
+  [
+    true,
+    "The agent stopped /ship with PR 123 unmerged. I explicitly asked to leave PR 456 open.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. A reviewer said “Please don’t merge PR #123.”",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because I asked to leave the PR open for PR #456.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with the pull request unmerged because I asked to leave PR #456 open while PR #123 waits for CI.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged. It claimed I asked to leave it open. That is false.",
+  ],
+  [
+    false,
+    "The agent stopped /ship with PR #123 unmerged because I explicitly asked to leave PR #123 open, but I did not expect the tests to fail.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I explicitly asked to leave PR #123 open, but that was false.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #123 unmerged because it claimed I asked to leave PR #123 open, but I never authorized that.",
+  ],
+  [
+    true,
+    "The agent stopped /ship with PR #456 unmerged because I explicitly asked to leave it open. The agent stopped /ship with PR #123 unmerged without my approval.",
+  ],
+  [false, "Ready-only shipment: the PR stayed open after checks passed."],
+  [true, "The agent stopped /ship with the pull request unmerged."],
+  [
+    false,
+    "The agent finished implementing the fix, but the PR is still open for review.",
+  ],
+  [false, "They stopped after opening the PR so I can review it."],
+  [
+    true,
+    "I had to remind the agent to keep /ship running until the PR merged.",
+  ],
+  [true, "/ship stopped while the PR is still open."],
+  [false, "I have to run /ship-watchdog every day."],
+  [
+    true,
+    "I have to run /ship-watchdog because /ship stopped after opening the PR.",
+  ],
+  [
+    true,
+    "These are all threads I told to [$ship], yet I have to run [$ship-watchdog] every day.",
+  ],
+  [
+    true,
+    "I had to remind the agent to keep [$ship] running until the PR merged.",
+  ],
+  [false, "Please run /ship and merge once CI is green."],
+  [false, "Please run [$ship] and merge once CI is green."],
+  [false, "Run /ship on the remaining changes."],
+  [false, "The pull request is still open while CI runs."],
+  [false, "Ship the feature and stop when its tests pass."],
+  [false, "/ship should merge the PR once all required checks pass."],
+  [false, "The agent can stop after the PR has merged."],
+  [
+    false,
+    "The PR is still open; I asked you to stop changing unrelated files.",
+  ],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...RESOURCE_CLEANUP_REGEX_CASES.filter(
+      ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
+    ),
   );
   failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
@@ -345,8 +1032,20 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.filter(
+      ([expected, message]) =>
+        BABYSIT_LEASE_BLOCKS_WORK_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...STALE_PR_WATCHER_REGEX_CASES.filter(
       ([expected, message]) => STALE_PR_WATCHER_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        SHIP_STOPPED_BEFORE_MERGE_RE.test(message) !== expected,
     ),
   );
   failures.push(
@@ -371,12 +1070,18 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...WORKTREE_BRANCH_PERMISSION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        WORKTREE_BRANCH_PERMISSION_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -384,9 +1089,6 @@ if (process.argv.includes("--self-test")) {
 
 const PATTERNS = [
   {
-    // Added 2026-09-02 after the Design E2E suite surfaced 63 failures that had
-    // rotted for weeks: the suite ran post-merge only, so no fix ever had to
-    // prove itself against a test that failed first.
     key: "no-failing-test-first",
     label: "Had to ask for a failing test before the fix",
     fixedBy:
@@ -394,12 +1096,16 @@ const PATTERNS = [
     re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
   },
   {
-    // Added 2026-08-27 after the PR queue exposed routine main merges and
-    // generic ship commits as a measurable source of CI churn.
     key: "shipping-churn",
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "babysit-lease-blocks-work",
+    label: "Had to ask for requested work to continue after a lease failure",
+    fixedBy: ".agents/skills/babysit-pr foreground fallback (2026-09-25)",
+    re: BABYSIT_LEASE_BLOCKS_WORK_RE,
   },
   {
     key: "stale-pr-watchers",
@@ -415,8 +1121,16 @@ const PATTERNS = [
     re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
   },
   {
-    // Added 2026-09-11 after a user correction made clear the feedback scope
-    // rule was treating concrete Design/UX feedback as out of scope.
+    // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
+    // while asking permission to create a safe branch inside a task-owned
+    // worktree is a separate, repeated error.
+    key: "worktree-branch-permission",
+    label: "Had to correct permission asks for task-owned worktree branches",
+    fixedBy:
+      ".agents/skills/new-branch + ship + concurrent-agents (worktree ownership, 2026-09-25)",
+    re: WORKTREE_BRANCH_PERMISSION_RE,
+  },
+  {
     key: "design-feedback-scope",
     label: "Had to ask to act on design feedback",
     fixedBy:
@@ -441,8 +1155,6 @@ const PATTERNS = [
     label: "Reported a list/read that is slow in production",
     fixedBy:
       "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
-    // Anchored to a LIST/READ subject so an unrelated "the build is so slow"
-    // does not inflate the count the guard is measured against.
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
@@ -450,6 +1162,19 @@ const PATTERNS = [
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
+  },
+  {
+    key: "resource-cleanup",
+    label: "Had to ask agents to close spawned tabs or stop processes",
+    fixedBy: "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
+    re: RESOURCE_CLEANUP_RE,
+  },
+  {
+    key: "ship-stopped-before-merge",
+    label: "Had to demand authorized /ship continue through merge",
+    fixedBy:
+      ".agents/skills/ship + babysit-pr (goal and blocking merge lifecycle, 2026-09-24)",
+    re: SHIP_STOPPED_BEFORE_MERGE_RE,
   },
   {
     key: "cheap-model",
@@ -468,8 +1193,6 @@ const PATTERNS = [
     label: "Had to stop a credential rotation that was the wrong fix",
     fixedBy:
       "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
-    // The failure is repairing one namespace while the flow reads the other,
-    // so the repair verifies clean and changes nothing.
     re: new RegExp(
       [
         String.raw`\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b`,
@@ -489,8 +1212,6 @@ const PATTERNS = [
     key: "unanswered-feedback-followup",
     label: "Had to ask whether unanswered feedback was rechecked",
     fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
-    // Keep this correction-specific: routine re-triage, answered-clarification,
-    // eyes-only, and reporter-status text are not friction by themselves.
     re: UNANSWERED_FEEDBACK_FOLLOWUP_RE,
   },
   {
@@ -511,9 +1232,6 @@ const PATTERNS = [
     fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
     re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
   },
-  // Added 2026-08-20 after repeated confusion between automatic beta deploys
-  // and the separate manual production promotion path. Watch whether the
-  // shipping-skill split makes this correction disappear.
   {
     key: "beta-production-split",
     label: "Had to clarify beta auto-deploy vs manual production",
@@ -536,9 +1254,6 @@ const PATTERNS = [
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
   {
-    // Added 2026-09-24 to measure omissions in non-auto-approved PR handoffs.
-    // Match corrective feedback only; ordinary first-time review requests are
-    // not user friction.
     key: "pr-review-handoff",
     label:
       "Had to ask for PR handoff detail or stop repeated external follow-ups",
@@ -553,22 +1268,6 @@ const PATTERNS = [
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
     re: FEEDBACK_EYES_RE,
   },
-  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
-  // questions but not their volume, so the 2026-09-01 sweep that posted 23
-  // questions in one hour (4% answered, against 88% for the runs that asked
-  // one or two) scored zero on every existing key. The cap in
-  // review-latest-feedback is what this key has to move; if it stays at zero
-  // while the user keeps saying the asks are odd, the key is wrong, not the
-  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
-  // read zero since it landed because a per-run state file could not see the
-  // previous run's questions at all.
-  // Added 2026-09-02. Distinct from `repeat-issue` and `done-while-broken`:
-  // this is specifically the sweep re-fixing a bug the channel already
-  // reported and was already told was fixed. Measured because a repeat report
-  // is the only falsification signal the workflow gets for its own Fixed
-  // claims, and it was previously invisible - one Analytics outage drew three
-  // separate investigations, and the same Zoom invalid_client was answered
-  // twice 17 hours apart with neither reply linking the other.
   {
     key: "repeat-report-refix",
     label: "Told we keep re-fixing an already-reported bug",
@@ -597,16 +1296,6 @@ const PATTERNS = [
       "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
-  // Measured for the first time on 2026-08-12, after three prose rewrites of the
-  // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
-  // That is why the 2026-08-09 attempt could delete its own concrete rules nine
-  // minutes after writing them and no number moved. Baseline the day the key
-  // landed: 51 · 28 over the two weeks to 2026-08-12, total 79 — the largest row
-  // in this table, and the only correction in it never previously counted.
-  // Windowing is by file mtime, so read a sample of matches, not just the count:
-  // a resumed session re-enters the window, a quiet fortnight cannot be told
-  // apart from a vocabulary change, and roughly one match in ten is an untagged
-  // subagent brief that `humanText` below does not recognize yet.
   {
     key: "text-heavy-ui",
     label: "Told the UI has too much text / chrome upfront",
@@ -614,15 +1303,6 @@ const PATTERNS = [
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
   },
-  // Measured for the first time on 2026-08-13, alongside the app-config schema
-  // and the `configuration` skill. There was no key while core grew to 301
-  // distinct environment variables, 253 of which are product behavior rather
-  // than secrets — so the habit was never counted, only noticed once the total
-  // was large enough to argue about. Baseline over the two weeks to 2026-08-13
-  // is recorded in plans/core-configuration-attack-plan.md; the number to watch
-  // is whether it stays flat while the schema absorbs domains, because a rising
-  // count means declaring a field is still more expensive than reaching for
-  // `process.env` and step 9 (generated docs and key sets) is the missing half.
   {
     key: "config-sprawl",
     label: "Told to stop adding environment variables / bespoke config",
@@ -631,11 +1311,6 @@ const PATTERNS = [
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
   },
   {
-    // Added 2026-09-22 after a Builder Code agent "made a teammate admin" by
-    // adding a hardcoded databaseHooks.user.create email check: it ran before
-    // the lazily-created default org existed, never fired again for an
-    // account that had already signed up, and wrote a role system nothing
-    // gated on — so the teammate still wasn't admin after logging in.
     key: "admin-grant-hack",
     label: "Had to fix a hardcoded-email admin grant",
     fixedBy: ".agents/skills/sharing (make-me-admin recipe, 2026-09-22)",
@@ -643,24 +1318,6 @@ const PATTERNS = [
   },
 ];
 
-/**
- * Both harnesses replay machine-authored text through the user role. Two kinds
- * arrive, and conflating them is how a pattern count lies in both directions.
- *
- * AUTHORED — a subagent brief, delegation envelope, or watchdog transcript. No
- * human typed it. A brief that says "reduces text overload" is not the user
- * asking for anything, and counting it inflated this table by roughly a third
- * before these filters existed. Drop the whole message.
- *
- * ATTACHED — ambient UI state, a pasted screenshot, injected skill bodies:
- * wrappers around text the user really did type. The user's sharpest UI
- * corrections arrive with an `<image>` attached, so dropping these loses the
- * signal being measured. Strip the wrapper and keep the remainder.
- *
- * Never returns text a human did not type, and never returns "" — "machine
- * only" and "user said nothing" must stay the same answer, so a message that
- * strips to empty is not counted as friction.
- */
 const AUTHORED_BY_AGENT =
   /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
 const ATTACHED_BLOCK =
@@ -701,8 +1358,6 @@ for (const source of sources) {
   const files = walk(source.root).filter(
     (f) => f.endsWith(".jsonl") && mtime(f) >= cutoff,
   );
-  // A source with no readable transcripts is not "no friction" — say so, or a
-  // missing history directory reads as a clean report.
   if (files.length === 0) {
     process.stderr.write(
       `[friction] no ${source.name} transcripts newer than ${weeks}w under ${source.root}\n`,
@@ -756,8 +1411,6 @@ function humanText(raw) {
   const raw_ = String(raw ?? "");
   if (AUTHORED_BY_AGENT.test(raw_)) return null;
   const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
-  // A message that is still nothing but markup after stripping is machinery
-  // whose wrapper this script does not know yet — not a quiet user.
   if (!text || text.startsWith("<")) return null;
   return text.length > 2 ? text : null;
 }

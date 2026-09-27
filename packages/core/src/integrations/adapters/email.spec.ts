@@ -9,8 +9,6 @@ vi.mock("h3", async (importOriginal) => {
   const actual = await importOriginal<typeof import("h3")>();
   return {
     ...actual,
-    // parseIncomingMessage reads the raw body via h3.readRawBody — feed it the
-    // per-test fixture. getHeader is unused on our synthetic event.
     readRawBody: vi.fn(async () => hoisted.rawBody),
     getHeader: vi.fn(() => undefined),
   };
@@ -20,8 +18,6 @@ vi.mock("../config-store.js", () => ({
   getIntegrationConfig: hoisted.getIntegrationConfig,
 }));
 
-// Rate-limit lookup hits the DB; force the "table missing → allow" path so the
-// parser proceeds without a real database.
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({
     execute: async () => {
@@ -32,7 +28,6 @@ vi.mock("../../db/client.js", () => ({
 
 import { emailAdapter } from "./email.js";
 
-/** Minimal H3-shaped event; the parser only uses it via the mocked h3 helpers. */
 function fakeEvent(): any {
   return { context: {} };
 }

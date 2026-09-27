@@ -7,7 +7,7 @@ import { db, schema } from "../db/index.js";
 
 export type TrackingContext = {
   pixelToken: string;
-  linkTokens: Map<string, string>; // url -> clickToken
+  linkTokens: Map<string, string>;
   trackOpens: boolean;
   trackClicks: boolean;
   appUrl: string;
@@ -25,13 +25,6 @@ const PIXEL_IMG =
   `<img alt="" width="1" height="1" ` +
   `style="width:1px;height:1px;border:0;opacity:0;display:block" src="__PIXEL_URL__" />`;
 
-/**
- * Rewrite <a href="http(s)://..."> tags in `html` to point at the tracking
- * click endpoint. Appends a 1x1 pixel when open tracking is enabled.
- *
- * `html` is the message body's top-portion HTML (reply quotes are handled
- * separately by the caller so we never rewrite links in quoted content).
- */
 export function injectTrackingIntoHtml(
   html: string,
   ctx: TrackingContext,
@@ -59,15 +52,10 @@ export function injectTrackingIntoHtml(
   return out;
 }
 
-/** Collect unique http(s) URLs from a markdown body (top portion, not quoted). */
 export function collectLinks(body: string): string[] {
   return extractMarkdownUrls(body);
 }
 
-/**
- * Persist a tracking row for a freshly-sent message. Generates one pixel
- * token for the message and one click token per unique link.
- */
 export async function persistTracking(opts: {
   pixelToken: string;
   messageId: string;
@@ -93,7 +81,6 @@ export async function persistTracking(opts: {
   }
 }
 
-/** Record an open event for a pixel token. No-op if token is unknown. */
 export async function recordOpen(
   pixelToken: string,
   userAgent: string | undefined,
@@ -110,7 +97,6 @@ export async function recordOpen(
     .where(eq(schema.emailTracking.pixelToken, pixelToken));
 }
 
-/** Record a click event; returns the destination URL or null if unknown. */
 export async function recordClick(clickToken: string): Promise<string | null> {
   const rows = await db
     .select()
@@ -131,7 +117,6 @@ export async function recordClick(clickToken: string): Promise<string | null> {
   return row.url;
 }
 
-/** Fetch tracking stats for a sent message (scoped to owner). */
 export async function getTrackingStats(
   messageId: string,
   ownerEmail: string,

@@ -58,9 +58,6 @@ export function isArtifactReceipt(value: unknown): value is ArtifactReceipt {
   );
 }
 
-// This map attributes unreadable truncated results and preserves legacy sparse
-// image results. Missing entries fall back to the generic verification message;
-// structurally detectable receipts remain accepted independently of this list.
 const TOOL_ARTIFACT_KINDS: Readonly<Record<string, readonly ArtifactKind[]>> = {
   "submit-content-database-form": ["document"],
   "add-database-item": ["document"],

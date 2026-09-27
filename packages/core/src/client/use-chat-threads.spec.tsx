@@ -952,8 +952,6 @@ describe("useChatThreads", () => {
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: [existingThread] });
       }
-      // The server denying it exists is what makes this a local tab and not an
-      // older thread the list page simply did not reach.
       if (url === "/chat/threads/empty-sidebar-tab") {
         return new Response(JSON.stringify({ error: "Thread not found" }), {
           status: 404,
@@ -1258,8 +1256,6 @@ describe("useChatThreads", () => {
       root.render(<Harness />);
     });
 
-    // Route-owned create mode must seed its local target before the list
-    // request resolves, otherwise the chat shell renders a loading skeleton.
     expect(hook!.activeThreadId).toBe("forked-thread");
 
     await act(async () => {
@@ -1715,7 +1711,6 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("older-design-a-thread");
-    // A real thread, so it must not be reclassified as a never-messaged tab.
     expect(hook!.isNewThread("older-design-a-thread")).toBe(false);
   });
 
@@ -1753,7 +1748,6 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    // Not reclassified and not stamped with design B on a guess.
     expect(hook!.activeThreadId).toBe("unresolved-thread");
     expect(hook!.isNewThread("unresolved-thread")).toBe(false);
   });
@@ -1794,7 +1788,6 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    // Deliberately absent from the list this client loaded.
     await act(async () => {
       await hook!.saveThreadData("thread-from-another-tab", {
         threadData: JSON.stringify({ messages: [{ id: "m-1" }] }),
@@ -1813,7 +1806,6 @@ describe("useChatThreads", () => {
       "scope",
     );
 
-    // Knowing the scope makes no difference: an update may not carry one.
     await act(async () => {
       await hook!.saveThreadData("scoped-thread", {
         threadData: JSON.stringify({ messages: [{ id: "m-2" }] }),
@@ -2556,17 +2548,8 @@ describe("useChatThreads", () => {
   });
 
   it("drops an archived thread created this session once the server resync omits it", async () => {
-    // The store now excludes archived threads from `GET /threads` by
-    // default (see chat-threads/store.ts `listThreads`/`searchThreads`).
-    // A thread created client-side this session lives in `newlyCreatedRef`
-    // so it survives a resync even before the server has seen it — but once
-    // it's archived, the server will never return it again, and the client
-    // must not keep treating "missing from the server list" as "not yet
-    // synced" forever.
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
-        // The server never returns the archived thread, whether because it
-        // was never synced or because it's now excluded as archived.
         return jsonResponse({ threads: [] });
       }
       if (url === "/chat/threads/thread-1/archive" && init?.method === "POST") {

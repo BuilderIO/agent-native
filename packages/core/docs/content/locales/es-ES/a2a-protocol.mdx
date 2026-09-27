@@ -276,7 +276,7 @@ Cuando se llama a `message/send` con `async: true`, el controlador JSON-RPC pone
 
 > [!IMPORTANT]
 > **Tiempos de espera de puerta de enlace y webhook sin servidor:**
-> Las puertas de enlace de entornos alojados (como Netlify, Vercel o Cloudflare Pages) imponen límites de ejecución estrictos (a menudo de 10 a 30 segundos) en las rutas HTTP públicas. Debido a que los bucles de agentes pueden tardar mucho tiempo en ejecutar consultas, obtener contexto y ejecutar herramientas, **debe usar `async: true`** al llamar a puntos finales A2A o manejar webhooks externo. Esto devuelve inmediatamente un estado `working` a la puerta de enlace API, manteniendo la conexión abierta solo durante unos pocos milisegundos, mientras que el `/process-task` POST autoactivado ejecuta el bucle del agente en segundo plano. No bloquee la solicitud principal HTTP esperando a que finalice el ciclo del agente.
+> Las puertas de enlace de entornos alojados (como Netlify, Vercel o Cloudflare Workers) imponen límites de ejecución estrictos (a menudo de 10 a 30 segundos) en las rutas HTTP públicas. Debido a que los bucles de agentes pueden tardar mucho tiempo en ejecutar consultas, obtener contexto y ejecutar herramientas, **debe usar `async: true`** al llamar a puntos finales A2A o manejar webhooks externo. Esto devuelve inmediatamente un estado `working` a la puerta de enlace API, manteniendo la conexión abierta solo durante unos pocos milisegundos, mientras que el `/process-task` POST autoactivado ejecuta el bucle del agente en segundo plano. No bloquee la solicitud principal HTTP esperando a que finalice el ciclo del agente.
 
 Los mensajes contienen partes escritas: texto, datos estructurados y archivos pueden viajar en un solo mensaje:
 
@@ -646,7 +646,7 @@ El punto final de la tarjeta del agente siempre es público (sin autenticación)
 
 La validación del portador se ejecuta en el límite de la solicitud (en el controlador JSON-RPC) antes de que el bucle del agente vea el mensaje. Los ayudantes compartidos en `packages/core/src/a2a/auth-policy.ts` deciden qué requiere la implementación:
 
-- `isA2AProductionRuntime()` devuelve `true` en Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly y Cloud Run, incluso cuando `NODE_ENV` no es `"production"`. Algunos proveedores sin servidor no configuran `NODE_ENV` de manera consistente, por lo que la política también lee indicadores específicos del proveedor.
+- `isA2AProductionRuntime()` devuelve `true` en Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly y Cloud Run, incluso cuando `NODE_ENV` no es `"production"`. Algunos proveedores sin servidor no configuran `NODE_ENV` de manera consistente, por lo que la política también lee indicadores específicos del proveedor.
 - `hasConfiguredA2ASecret()` devuelve `true` cuando se establece `A2A_SECRET`.
 - `shouldAdvertiseJwtA2AAuth()` es lo que utiliza la tarjeta de agente para decidir si publicar un esquema de seguridad `jwtBearer`.
 

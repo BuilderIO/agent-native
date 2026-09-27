@@ -216,6 +216,7 @@ describe("Slides Layout", () => {
 
     expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        dynamicSuggestions: false,
         scope: expect.objectContaining({ label: "agent.thisSlide" }),
       }),
     );

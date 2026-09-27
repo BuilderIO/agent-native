@@ -27,20 +27,6 @@ import {
 
 let _initPromise: Promise<void> | undefined;
 
-/**
- * Per-thread async mutex. Read-modify-write on the `thread_data` JSON blob
- * is not atomic at the DB level — two concurrent callers (e.g. the UI
- * persisting queued messages while `onRunComplete` appends agent output)
- * would both read the same row, each mutate it independently, and the
- * second write clobbers the first. Serializing on thread id inside this
- * process eliminates the race for the usual single-process deployment
- * while leaving straight reads and other thread-data-unrelated updates
- * untouched.
- *
- * Cross-process races are handled by `updateThreadData`, which performs a
- * compare-and-swap on `updated_at`, rereads the latest row on conflict, and
- * remerges message history before retrying.
- */
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
 const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
@@ -53,10 +39,6 @@ export function withThreadDataLock<T>(
   const prev = _threadDataLocks.get(threadId) ?? Promise.resolve();
   const next = prev.then(fn, fn);
   _threadDataLocks.set(threadId, next);
-  // Use `.then(cleanup, cleanup)` (not `.finally`) so the rejection is
-  // observed on this chained promise — otherwise any failure inside `fn`
-  // triggers `unhandledRejection` on the discarded `finally()` return.
-  // The caller still sees the rejection via `next`.
   const cleanup = () => {
     if (_threadDataLocks.get(threadId) === next) {
       _threadDataLocks.delete(threadId);
@@ -94,21 +76,7 @@ async function ensureTable(): Promise<void> {
       `;
 
       {
-        // Hot path: the `chat_threads` table and its indexes are virtually
-        // always already present in production. Issuing `CREATE TABLE`/
-        // `CREATE INDEX` still takes a lock that, in a fresh background-worker
-        // process behind a concurrent connection on the shared Neon DB, can
-        // block ~indefinitely (ACCESS EXCLUSIVE for CREATE TABLE; a write-
-        // blocking SHARE lock for CREATE INDEX). The ensure* wrappers probe
-        // `information_schema`/`pg_indexes` first (plain reads, no lock) and
-        // run DDL ONLY for what is actually missing, bounded by a transaction-
-        // scoped `lock_timeout`. If a swallowed lock-timeout leaves the schema
-        // still missing they RE-PROBE and THROW rather than letting init
-        // memoize success against absent schema. `chat_threads` is the
-        // unqualified name even though the table lives in `public`.
         await ensureTableExists("chat_threads", createSql);
-        // Additive columns — guarded so the hot path (columns already present)
-        // skips the ACCESS EXCLUSIVE ALTER entirely.
         for (const [col, type] of [
           ["scope_type", "TEXT"],
           ["scope_id", "TEXT"],
@@ -132,35 +100,16 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares",
           CHAT_THREAD_SHARES_CREATE_SQL,
         );
-        // Widen millisecond-timestamp columns that older deployments created as
-        // 32-bit `INTEGER`; on Postgres the `Date.now()` written on every turn
-        // overflows int4. No-op once widened / on fresh BIGINT databases.
         await widenIntColumnsToBigInt("chat_threads", [
           "created_at",
           "updated_at",
           "pinned_at",
           "archived_at",
         ]);
-        // Indexes for the hot read paths. Both the sidebar list and the
-        // scoped/per-resource list filter on owner_email (and optionally
-        // scope) and sort by updated_at. Probe pg_indexes first (no lock)
-        // and skip the SHARE-locking CREATE INDEX when already present.
         await ensureIndexExists(
           "chat_threads_owner_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
         );
-        // `owner_email` is stored as the user typed it, so access scoping
-        // compares `LOWER(owner_email)`. A plain btree on the raw column cannot
-        // serve that predicate — without the expression index the list falls
-        // back to scanning every row in the (shared, multi-tenant) table.
-        //
-        // NOT built CONCURRENTLY, despite the SHARE lock. This ensure path runs
-        // at release over the pooled Neon endpoint, and a transaction-pooled
-        // connection cannot carry `CREATE INDEX CONCURRENTLY` to completion:
-        // the statement returned without creating anything and the verifying
-        // probe failed the whole release, so no docs production deploy could
-        // publish. Release already runs locking DDL; a plain build here is the
-        // form that actually lands.
         await ensureIndexExists(
           "chat_threads_owner_lower_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
@@ -177,8 +126,6 @@ async function ensureTable(): Promise<void> {
           "chat_threads_source_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
         );
-        // Public share-link resolution looks threads up by token hash;
-        // without this index it degrades to a LIKE scan over every blob.
         await ensureIndexExists(
           "chat_threads_share_token_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
@@ -190,7 +137,6 @@ async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -198,12 +144,6 @@ async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-/**
- * Explicitly repair `message_count` for legacy rows written before the count
- * was maintained. This must never run from table/bootstrap initialization:
- * serverless isolates would each scan the full `thread_data` blob column on
- * cold start. Operators may invoke it once when upgrading an old database.
- */
 export async function repairLegacyChatThreadMessageCounts(
   options: {
     batchSize?: number;
@@ -246,14 +186,6 @@ function generateId(): string {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * A resource the chat is bound to, e.g. `{ type: "deck", id: "deck-abc" }`.
- * The framework is opaque to the type string — each template chooses what
- * its primary resource is and the surface it scopes to (deck, design,
- * dashboard, etc.). `label` is a denormalized snapshot for display when
- * the resource isn't on hand at render time; the live template can
- * overwrite it via the next createThread call.
- */
 export interface ChatThreadScope {
   type: string;
   id: string;
@@ -432,9 +364,6 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
 }
 
 function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
-  // The summary path never loads `thread_data`; the count comes from the
-  // dedicated `message_count` column maintained on write. Empty threads are
-  // filtered out of the list.
   const messageCount = Number(r.message_count);
   if (!Number.isFinite(messageCount) || messageCount <= 0) return null;
   return {
@@ -460,7 +389,6 @@ export async function createThread(
     title?: string;
     scope?: ChatThreadScope | null;
     source?: ChatThreadSource | null;
-    /** Explicit owner organization for durable/background callers. */
     orgId?: string | null;
   },
 ): Promise<ChatThread> {
@@ -510,12 +438,6 @@ export async function createThread(
 }
 
 const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
-// The list/summary path deliberately omits `thread_data`: it is the full
-// message-history JSON blob and selecting it for every row turns "open the
-// sidebar" into "download every conversation". The summary derives nothing
-// from the blob anymore — preview and message_count are dedicated columns
-// (message_count is maintained on write). The detail path (`THREAD_COLUMNS` /
-// `getThread`) still returns the full blob.
 const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
 
 export function registerChatThreadsShareable(): void {
@@ -544,11 +466,6 @@ export async function resolveThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
-  // `skipResourceBody` matters more here than anywhere else: without it the
-  // access load is an unprojected `select()` that pulls `thread_data` — the
-  // whole conversation JSON — and then this function discards the row and reads
-  // it again through `getThread`. Two full-blob reads of the same row per call,
-  // on the agent-chat hot path.
   const access = await resolveAccess(
     "chat_thread",
     threadId,
@@ -594,11 +511,6 @@ export async function getThread(id: string): Promise<ChatThread | null> {
   return rowToThread(rows[0]);
 }
 
-/**
- * Fill missing provenance on a thread without rewriting an established origin.
- * Integration retries and long-lived mapped conversations both pass through
- * this path, so the first source remains the source shown in chat history.
- */
 export async function setThreadSourceIfMissing(
   id: string,
   source: ChatThreadSource | null | undefined,
@@ -662,12 +574,6 @@ export async function forkThread(
     source.ownerEmail === ownerEmail &&
     snapshot.messageCount > source.messageCount
   ) {
-    // The source row exists but the in-memory snapshot is fresher — the agent
-    // run flushed an older state to SQL, but the tab has additional unflushed
-    // messages. Overlay the snapshot before cloning so the fork captures the
-    // latest user-visible content. Guard with messageCount > stored to avoid
-    // clobbering a fresher persisted row with a stale snapshot from another
-    // tab.
     source = {
       ...source,
       threadData: snapshot.threadData,
@@ -728,31 +634,11 @@ export async function forkThread(
 export interface ListThreadsOptions {
   limit?: number;
   offset?: number;
-  /**
-   * Filter for chats bound to a specific resource. The default (undefined)
-   * returns every thread the user owns. `{ type: "deck", id: "abc" }`
-   * returns only that resource's threads. `{ type: "deck", id: null }` is
-   * NOT supported — pass `unscopedOnly: true` to get only general chats.
-   */
   scope?: { type: string; id: string };
-  /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
   orgId?: string | null;
-  /**
-   * Include archived threads in the results. Defaults to false: archived
-   * threads (`archived_at` set via `setThreadArchived`) are hidden from the
-   * ordinary chat list/search so archiving actually removes a thread from
-   * view. Pass true for surfaces that explicitly need to see archived chats
-   * (e.g. an "Archived" filter or restoring one via `setThreadArchived`).
-   */
   includeArchived?: boolean;
-  /**
-   * Include connected and other-app threads. The HTTP chat list defaults this
-   * to false so each app shows its own local chats first; internal callers
-   * keep the historical all-sources behavior unless they opt out explicitly.
-   */
   includeExternal?: boolean;
-  /** Current app id used by the local-only view. */
   sourceAppId?: string | null;
 }
 
@@ -783,7 +669,6 @@ export async function listThreads(
   legacyOffset?: number,
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
-  // Back-compat shim: previous signature was (owner, limit, offset).
   const opts: ListThreadsOptions =
     typeof options === "number"
       ? { limit: options, offset: legacyOffset ?? 0 }
@@ -791,12 +676,6 @@ export async function listThreads(
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
   const client = getDbExec();
-  // `message_count > 0` is the authoritative "has messages" signal maintained
-  // on every write. `source_platform` is the authoritative external-source
-  // signal: schema migration 3 backfilled the integration rows that predate the
-  // column, so nothing here may filter on `thread_data`. Matching that blob
-  // detoasts the whole message history for every scanned row — before LIMIT
-  // applies — which is what made this list cost seconds instead of milliseconds.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -840,20 +719,14 @@ export async function searchThreads(
   options: {
     scope?: { type: string; id: string };
     orgId?: string | null;
-    /** See `ListThreadsOptions.includeArchived` — defaults to false. */
     includeArchived?: boolean;
-    /** See `ListThreadsOptions.includeExternal`. */
     includeExternal?: boolean;
-    /** Current app id used by the local-only view. */
     sourceAppId?: string | null;
   } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
-  // The count-guard uses the maintained `message_count` column (same as
-  // listThreads). The content match still scans `thread_data` — search
-  // legitimately needs to look inside message history.
   const access = chatThreadAccessSql(
     ownerEmail,
     options.orgId ?? getRequestOrgId(),
@@ -901,12 +774,6 @@ export function resolveRunThreadScope(
   return incoming ?? null;
 }
 
-/**
- * Claim an unscoped thread for `scope`, returning the scope it actually ends up
- * with. `withThreadDataLock` only serializes one process, so two workers can
- * both read the same unscoped row; the `scope_type IS NULL` guard makes the
- * first writer win and the loser reports the winner instead of retagging.
- */
 export async function adoptThreadScopeIfUnscoped(
   id: string,
   scope: ChatThreadScope,
@@ -930,11 +797,6 @@ export async function adoptThreadScopeIfUnscoped(
   return (await getThread(id))?.scope ?? null;
 }
 
-/**
- * Detach or rebind a chat's scope. Used by the UI's "Detach from <resource>"
- * action and by templates that need to retag a chat after a rename. Pass
- * `null` to clear the scope (chat becomes general).
- */
 export async function setThreadScope(
   id: string,
   scope: ChatThreadScope | null,
@@ -1055,9 +917,6 @@ export async function updateThreadData(
   messageCount: number,
   options: UpdateThreadDataOptions = {},
 ): Promise<void> {
-  // getThread() ensures the table exists. Keep that bootstrap inside the
-  // retry boundary below so a cold serverless process can recover from a
-  // transient initialization/read failure too.
   const client = getDbExec();
   const maxAttempts = Math.max(
     1,
@@ -1093,9 +952,6 @@ export async function updateThreadData(
       }
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
-      // Completion persistence can race the separate generated-title save.
-      // Keep a title already committed by that save when this caller only has
-      // its stale empty snapshot.
       const nextTitle = title || current.title;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
@@ -1117,10 +973,6 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
-      // Completion saves happen after a long model/tool turn, when a
-      // transient connection or serverless DB failure is especially costly.
-      // Retry the whole read/merge/write attempt like a CAS conflict, while
-      // preserving the final error if the database remains unavailable.
       lastError = error;
     }
 
@@ -1152,10 +1004,6 @@ export interface ThreadEngineMeta {
   model: string;
 }
 
-/**
- * Read the engine pinned to a thread (stored in thread_data JSON).
- * Returns null if no engine is pinned.
- */
 export async function getThreadEngineMeta(
   threadId: string,
 ): Promise<ThreadEngineMeta | null> {
@@ -1168,10 +1016,6 @@ export async function getThreadEngineMeta(
   return null;
 }
 
-/**
- * Pin an engine to a thread by storing engineMeta in thread_data JSON.
- * Does not change messages, title, or preview.
- */
 export async function setThreadEngineMeta(
   threadId: string,
   meta: ThreadEngineMeta,
@@ -1201,17 +1045,6 @@ export interface QueuedMessage {
   references?: unknown[];
 }
 
-/**
- * Persist the user's queued (not-yet-sent) messages onto the thread.
- * Stored in thread_data JSON so it survives reloads without a schema
- * change. Safe to call often — the frontend debounces writes.
- *
- * Returns false when the thread is missing or `ownerEmail` doesn't match.
- * Callers that already need an ownership check should pass `ownerEmail`
- * here instead of doing their own getThread first — this path fires on
- * debounced composer writes, so a redundant pre-read of the full
- * thread_data blob is a real per-keystroke cost.
- */
 export async function setThreadQueuedMessages(
   threadId: string,
   queuedMessages: QueuedMessage[],
@@ -1227,9 +1060,6 @@ export async function setThreadQueuedMessages(
     try {
       data = JSON.parse(thread.threadData);
     } catch {}
-    // Keep an explicit empty tombstone. Other mounted chat surfaces only
-    // reconcile queue state when this field is present; deleting it lets a
-    // stale local queue survive the clear and submit the same prompt again.
     data.queuedMessages = queuedMessages;
     await updateThreadData(
       threadId,
@@ -1355,9 +1185,6 @@ export async function createThreadShareLink(
       thread.preview,
       thread.messageCount,
     );
-    // Mirror the hash into the indexed column so getThreadByShareToken
-    // resolves via an equality lookup instead of a LIKE scan over every
-    // thread's blob. thread_data stays the source of truth for validation.
     await setThreadShareTokenHashColumn(threadId, tokenHash);
 
     return {
@@ -1430,15 +1257,12 @@ export async function getThreadByShareToken(
 
   const validate = (row: Record<string, unknown>): ChatThread | null => {
     const thread = rowToThread(row);
-    // thread_data remains the source of truth: verify the stored share
-    // matches and is not revoked even when the indexed column matched.
     const stored = readStoredThreadShare(thread.threadData);
     if (!stored?.tokenHash || stored.revokedAt) return null;
     if (stored.tokenHash !== tokenHash) return null;
     return thread;
   };
 
-  // Fast path: indexed equality lookup on the mirrored hash column.
   const indexed = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash = ? LIMIT 10`,
     args: [tokenHash],
@@ -1448,9 +1272,6 @@ export async function getThreadByShareToken(
     if (thread) return thread;
   }
 
-  // Legacy fallback: shares created before the share_token_hash column
-  // existed only carry the hash inside the thread_data blob. Backfill the
-  // column on hit so the next lookup takes the indexed path.
   const legacy = await client.execute({
     sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE share_token_hash IS NULL AND thread_data LIKE ? LIMIT 10`,
     args: [`%${tokenHash}%`],
@@ -1465,15 +1286,6 @@ export async function getThreadByShareToken(
   return null;
 }
 
-/**
- * Grant a user an explicit share on a thread they don't own. Used by the
- * messaging-integration path, where a channel conversation runs as the
- * integration service principal and so creates a thread owned by
- * `integration@<platform>` rather than the human who asked — without this the
- * "Open thread" deep link resolves to a 404 for them.
- *
- * Idempotent, and never downgrades an existing stronger role.
- */
 export async function grantThreadUserShare(
   threadId: string,
   userEmail: string,

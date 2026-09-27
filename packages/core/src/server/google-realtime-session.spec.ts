@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 
-const state = vi.hoisted(() => ({ status: 0 }));
+const state = vi.hoisted(() => ({ status: 0, hasGoogleSecret: true }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -26,7 +26,7 @@ vi.mock("../credentials/index.js", () => ({
 }));
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: async ({ key }: { key: string }) =>
-    key === "GOOGLE_APPLICATION_CREDENTIALS"
+    key === "GOOGLE_APPLICATION_CREDENTIALS" && state.hasGoogleSecret
       ? { key, value: '{"type":"service_account"}' }
       : null,
   readAppSecrets: async () => new Map(),
@@ -35,8 +35,6 @@ vi.mock("../secrets/storage.js", () => ({
 }));
 
 const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
-// Real `gatewayLaneUnavailableMessage`: which audience this route's copy is
-// written for is the behavior under test, so that decision is not stubbed.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveBuilderGatewayAuth: (...args: unknown[]) =>
@@ -56,10 +54,9 @@ async function post() {
 describe("google realtime session credential gate", () => {
   beforeEach(() => {
     state.status = 0;
+    state.hasGoogleSecret = true;
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     delete process.env.BUILDER_GATEWAY_TOKEN;
-    // Pinned rather than inherited: the deploy-lane predicate reads these, and a
-    // runner with a preview/hosted value set takes the owner path, so the visitor
-    // assertions below would silently test the wrong branch.
     delete process.env.FUSION_ENVIRONMENT;
     delete process.env.FUSION_ENV_ORIGIN;
     delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -83,9 +80,17 @@ describe("google realtime session credential gate", () => {
     expect(state.status).toBe(400);
   });
 
-  // On a credits deployment the pre-flight gate above passes — the injected pair
-  // resolves — so the rejection a visitor actually reaches is the gateway's own
-  // 402/403 reply, which this route used to hand back verbatim.
+  it("does not use a deployment Google credential in a hosted preview", async () => {
+    state.hasGoogleSecret = false;
+    process.env.FUSION_ENVIRONMENT = "preview";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = '{"type":"service_account"}';
+
+    const result = await post();
+
+    expect(result.error).toContain("Configure GOOGLE_APPLICATION_CREDENTIALS");
+    expect(state.status).toBe(400);
+  });
+
   describe("with the credits lane connected", () => {
     beforeEach(() => {
       resolveBuilderGatewayAuth.mockResolvedValue({

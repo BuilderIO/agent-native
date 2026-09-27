@@ -1,6 +1,5 @@
 import type { ActionPlanModeConfig } from "./action.js";
 
-/** Whether this invocation should be treated as read-only. */
 export function actionCallIsReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
   params: unknown,

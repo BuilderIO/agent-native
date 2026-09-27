@@ -6,10 +6,6 @@ import { splitMarkdownHeadingSections } from "./markdown-heading-sections";
 export interface ComparisonSide {
   label: string;
   body: string;
-  /** Optional explicit accent, e.g. "blue" — see ACCENT_COLOR_KEYS in
-   * comparison.tsx. Authored as a `:color:` prefix on the heading, same
-   * shortcode idiom Cards uses for `:icon:`. Omit to fall back to the
-   * legacy Before/After-label heuristic in comparison.tsx. */
   color?: string;
 }
 

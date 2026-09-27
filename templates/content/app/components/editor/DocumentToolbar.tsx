@@ -57,6 +57,8 @@ import {
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { ContentIcon } from "../icons/ContentIcon";
+
 function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -76,8 +78,6 @@ function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-// The share controller + dialog surface stays out of the editor's first-load
-// bundle; it loads the first time the Share flow opens.
 const ShareButton = lazy(() =>
   import("@agent-native/core/client/sharing").then((m) => ({
     default: m.ShareButton,
@@ -276,7 +276,7 @@ export function ToolbarBreadcrumb({
         const content = (
           <>
             {item.icon ? (
-              <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+              <ContentIcon value={item.icon} size={14} className="shrink-0" />
             ) : item.iconKind === "folder" ? (
               <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
             ) : null}
@@ -343,12 +343,12 @@ export function ToolbarBreadcrumb({
 export interface ToolbarBreadcrumbItem {
   id?: string;
   title: string;
-  icon?: string | null;
+  icon?: Document["icon"];
   iconKind?: "folder";
   menuItems?: Array<{
     id: string;
     title: string;
-    icon?: string | null;
+    icon?: Document["icon"];
     iconKind?: "folder";
   }>;
 }
@@ -460,7 +460,6 @@ function ToolbarBreadcrumbMenu({
             setOpen(true);
           }}
           onPointerDown={(event) => {
-            // Hover already opened the menu; don't toggle it closed on click.
             if (
               event.pointerType === "mouse" &&
               open &&
@@ -517,7 +516,7 @@ function ToolbarBreadcrumbMenu({
                 {menuItem.id === currentDocumentId ? (
                   <IconCheck className="size-3.5" />
                 ) : menuItem.icon ? (
-                  <span className="text-sm leading-none">{menuItem.icon}</span>
+                  <ContentIcon value={menuItem.icon} size={14} />
                 ) : menuItem.iconKind === "folder" ? (
                   <IconFolder className="size-3.5 text-muted-foreground" />
                 ) : (
@@ -867,7 +866,6 @@ export function DocumentToolbar({
     [location.pathname, location.search, navigate, openShareOnLoad],
   );
 
-  // Debounce search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedQuery(searchQuery), 300);
@@ -876,7 +874,6 @@ export function DocumentToolbar({
     };
   }, [searchQuery]);
 
-  // Auto-focus search on open
   useEffect(() => {
     if (open && !isLinked) {
       setTimeout(() => searchInputRef.current?.focus(), 100);
@@ -928,10 +925,6 @@ export function DocumentToolbar({
   const handleUnlink = useCallback(async () => {
     try {
       await unlinkDocument.mutateAsync({ documentId });
-      // Unlinking removes the toggle UI, but the per-document localStorage
-      // flag would otherwise keep saying auto-sync is on — leaving the 2s
-      // poll armed forever (see useDocumentSyncStatus) every time this
-      // document is reopened, even though there's nothing left to sync.
       setAutoSync(false);
       toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
@@ -1495,7 +1488,6 @@ export function DocumentToolbar({
                       onOpenAutoFocus={(e) => e.preventDefault()}
                     >
                       {!isConnected ? (
-                        /* ─── Not connected ─── */
                         <div className="p-4">
                           <div className="flex items-center gap-2 mb-2">
                             <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1515,7 +1507,6 @@ export function DocumentToolbar({
                           </Button>
                         </div>
                       ) : isLinked ? (
-                        /* ─── Linked — show sync actions ─── */
                         <div>
                           <div className="px-4 py-3 border-b border-border">
                             <div className="flex items-center gap-2">
@@ -1651,7 +1642,6 @@ export function DocumentToolbar({
                           </div>
                         </div>
                       ) : (
-                        /* ─── Not linked — show search ─── */
                         <div>
                           <div className="p-3 pb-2">
                             <div className="flex items-center gap-2 mb-2">
@@ -1731,12 +1721,16 @@ export function DocumentToolbar({
                                             className="animate-spin text-muted-foreground"
                                           />
                                         ) : (
-                                          page.icon || (
-                                            <IconFileText
-                                              size={14}
-                                              className="text-muted-foreground"
-                                            />
-                                          )
+                                          <ContentIcon
+                                            value={page.icon}
+                                            size={14}
+                                            fallback={
+                                              <IconFileText
+                                                size={14}
+                                                className="text-muted-foreground"
+                                              />
+                                            }
+                                          />
                                         )}
                                       </span>
                                       <div className="min-w-0 flex-1">

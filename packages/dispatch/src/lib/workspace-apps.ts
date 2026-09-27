@@ -94,11 +94,6 @@ function clientEnvironmentLane(): "production" | "beta" {
   return targets?.betaHost === hostname ? "beta" : "production";
 }
 
-/**
- * The workspace SSO action only accepts an exact registered app identity and
- * origin. The catalog's boolean is a server-derived projection for custom
- * registrations; the URL check keeps malformed metadata out of the action.
- */
 export function isWorkspaceSsoApp(
   app: WorkspaceAppHrefSource & { id: string },
 ): boolean {
@@ -133,11 +128,6 @@ function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
   }
 }
 
-/**
- * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
- * first-party origins can stay inline even at `/`, while external published
- * apps must open at their own origin regardless of their path.
- */
 export function isPathMountedWorkspaceApp(
   app: WorkspaceAppHrefSource,
 ): boolean {
@@ -236,11 +226,6 @@ function workspaceAppMountPath(
   return normalizedWorkspaceAppMountPath(app.path?.trim() || "/");
 }
 
-/**
- * Convert a child app route into Dispatch's shareable workspace-app route.
- * Mounted workspace apps may report their full mount path, while hosted apps
- * normally report only the app-local path, so accept both forms here.
- */
 export function workspaceAppRouteForChildPath(
   app: Pick<WorkspaceAppSummary, "id" | "path" | "url">,
   childPath: string,
@@ -336,10 +321,6 @@ export function workspaceAppEmbedTarget(
   return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
-/**
- * Resolve an app route without an embed ticket so the target can render its
- * own error document when session setup fails.
- */
 export function workspaceAppDirectHref(
   app: WorkspaceAppHrefSource,
   targetPath: string,
@@ -409,8 +390,6 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  // Standard browser iframes stay inline; Builder and native shells need the
-  // app as the top-level document so browser APIs such as WebMCP bind to it.
   return isInBuilderFrame() || getClientSurface() !== "web";
 }
 
@@ -432,11 +411,6 @@ export function navigateToWorkspaceApp(href: string): boolean {
   }
 }
 
-/**
- * Keep the chat-first rail useful before a workspace manifest is populated.
- * Mounted workspace rows still win, so custom names and routes remain the
- * source of truth once an app exists in the workspace.
- */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
 ): WorkspaceAppSummary[] {
@@ -445,9 +419,6 @@ export function mergeChatFirstWorkspaceApps(
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      // The five default rows are hosted sibling apps, not routes owned by
-      // Dispatch. Keep a mounted path for legacy callers, but give embed
-      // session resolution the exact canonical origin.
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",

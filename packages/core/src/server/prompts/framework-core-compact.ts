@@ -1,14 +1,3 @@
-/**
- * Compact framework core instructions (FRAMEWORK_CORE_COMPACT).
- * Used in lazy-context mode (lazyContext: true — the default).
- *
- * Shares rules 8–9, 13–15 with the full variant via shared-rules.ts.
- * The compact version omits:
- *   - Verbose "Extended Capabilities" section (agent uses get-framework-context)
- *   - Detailed "Parallel Tool Calls" prose (replaced with one-liner)
- *   - Detailed "Resources" section (agent uses resources tool)
- */
-
 import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
@@ -31,22 +20,10 @@ import {
 export interface FrameworkCoreCompactPromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
-  /** Framework tool groups this app switched off. Every block below that names
-   *  a group's tool by name is gated on this — a prompt naming an absent tool
-   *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
-  /** True for surfaces whose agent really can edit source (dev mode). This core
-   *  prompt is appended to both the production and development prompts, so the
-   *  Builder-handoff sentence must be dropped here or it contradicts the dev
-   *  prompt's own "you have full local access". */
   canEditSource?: boolean;
 }
 
-/**
- * Build the compact FRAMEWORK_CORE prompt string.
- *
- * @param examples Optional injectable provider/action examples for rule 8.
- */
 export function buildFrameworkCoreCompact(
   examples?: PromptExamples,
   options?: FrameworkCoreCompactPromptOptions,
@@ -113,7 +90,7 @@ Bring a senior engineer's judgment, arrived at through attention not premature c
 3. **Navigate the UI** — On "show me", "go to", "open", or similar, use \`navigate\` first, then fetch/display data.
 4. **Application state** — Ephemeral UI state lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\`.
 5. **Screen refresh is automatic** — The UI re-fetches itself after mutating tool calls, so you rarely need \`refresh-screen\`; its description covers the exceptions. Never tell the user to reload the page.
-6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
+6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context. At the end of a meaningful multi-turn task, review the thread for durable new learnings and save only what should help future conversations.
 7. **Security** — ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}

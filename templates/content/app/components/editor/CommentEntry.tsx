@@ -37,7 +37,6 @@ import {
   useCommentTimestamp,
 } from "./CommentRow";
 
-/** Mentions whose label still appears in the text, serialized for storage. */
 function mentionsJsonFor(
   text: string,
   mentions: MentionEntry[],

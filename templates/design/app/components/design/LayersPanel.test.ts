@@ -123,11 +123,6 @@ describe("LayersPanel drag payload ordering", () => {
   });
 
   it("L13: drops a selected descendant nested inside a COLLAPSED dragged parent using the full-tree ancestor map, even though visibleRows doesn't include it", () => {
-    // "hidden-child" is a descendant of "collapsed-parent" but is NOT in
-    // visibleRows (its ancestor is collapsed, so it was never flattened).
-    // Without the L13 fix, getDraggedLayerIdsForRows would fail to find its
-    // row in visibleRows and treat it as a separate top-level drag target,
-    // extracting it from the parent being dragged.
     const rowsWithCollapsedParent = [row("collapsed-parent"), row("sibling")];
     const tree: LayersPanelNode[] = [
       {
@@ -205,8 +200,6 @@ describe("LayersPanel drag payload ordering", () => {
         nodeById: buildLayerNodeMap(tree),
       }),
     ).toEqual(["last-dom", "middle-dom", "first-dom"]);
-    // Documents the bug: visible-only ordering appended the hidden row in
-    // selection order instead of its deterministic full-tree position.
     expect(
       getDraggedLayerIdsForRows({
         selectedIds: ["first-dom", "last-dom", "middle-dom"],
@@ -246,16 +239,6 @@ describe("LayersPanel auto-expand ancestors of selection (L1)", () => {
   });
 
   it("L1 regression: does NOT force-re-add an ancestor the user just collapsed, when called with the CURRENT (post-collapse) expandedIds", () => {
-    // Simulates the bug: user selects a deeply nested layer (parent auto-expands),
-    // then manually collapses "parent". The effect's ref-gate (tested via the
-    // component, not here) ensures this function only runs again on a NEW
-    // selection signature — but even if called again with the same ancestors
-    // and the now-collapsed expandedIds, this pure function's contract is
-    // simply "compute the union"; the actual anti-bounce fix is the caller's
-    // signature-gate. This test documents that calling it again after a
-    // collapse (same ancestors, ancestor no longer in expandedIds) WOULD
-    // re-add it — which is exactly why the effect must not call this on
-    // every expandedIds change, only on selection change.
     expect(
       nextAutoExpandedIds({
         selectedAncestorIds: ["parent"],
@@ -317,8 +300,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["a", "b", "c"]);
-    // Plain additive (non-range) clicks still advance the anchor, matching
-    // Figma: the next Shift+Click pivots from the row you just Cmd-clicked.
     expect(nextAnchor).toBe("c");
   });
 
@@ -346,8 +327,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["b", "c", "d"]);
-    // Range clicks never move the anchor — the pivot stays fixed so a
-    // second Shift+Click extends/shrinks from the SAME row.
     expect(nextAnchor).toBe("b");
   });
 
@@ -366,7 +345,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
   });
 
   it("a second Shift+Click from the SAME anchor shrinks the range instead of compounding it", () => {
-    // First Shift+Click: anchor "a" -> clicked "d".
     const first = computeLayerMultiSelectIds({
       id: "d",
       additive: false,
@@ -379,8 +357,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
     expect(first.nextIds).toEqual(["a", "b", "c", "d"]);
     expect(first.nextAnchor).toBe("a");
 
-    // Second Shift+Click, still pivoting from "a" (not from "d") — matches
-    // Figma: consecutive range clicks re-slice from the fixed anchor.
     const second = computeLayerMultiSelectIds({
       id: "b",
       additive: false,
@@ -404,7 +380,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       selectableVisibleIds: VISIBLE_IDS,
       visibleRows: rows,
     });
-    // "a" was already selected and stays; b/c/d get added by the range.
     expect(nextIds).toEqual(["a", "b", "c", "d"]);
   });
 
@@ -418,8 +393,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       selectableVisibleIds: VISIBLE_IDS,
       visibleRows: rows,
     });
-    // Re-pivots from "b" (the last still-visible selected row) instead of
-    // collapsing to a single select.
     expect(nextIds).toEqual(["b", "c", "d"]);
     expect(nextAnchor).toBe("b");
   });
@@ -435,9 +408,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
       visibleRows: rows,
     });
     expect(nextIds).toEqual(["c"]);
-    // No anchor existed and none was established by this click (matches the
-    // original ref-based behavior: the ref is only ever written on a plain
-    // click or a stale-anchor fallback correction).
     expect(nextAnchor).toBeNull();
   });
 
@@ -457,10 +427,6 @@ describe("BUG-LAYERS-MULTISELECT — computeLayerMultiSelectIds (Cmd/Ctrl+Click 
   });
 
   it("uses anchorFallbackSelectedIds (the panel's own selectedIds prop) over currentSelectedIds for the stale-anchor search", () => {
-    // Regression guard for the pointer-click path: handlePointerSelect passes
-    // a freshly-DOM-read currentSelectedIds that can transiently diverge from
-    // the panel's own selectedIds prop. The stale-anchor fallback must pivot
-    // off the panel's real selection state, not the transient DOM read.
     const { nextAnchor } = computeLayerMultiSelectIds({
       id: "d",
       additive: false,
@@ -570,9 +536,6 @@ describe("LayersPanel drop placement zones (L10)", () => {
   });
 
   it("bottom zone resolves to 'inside' for an EXPANDED container with children, not 'after'", () => {
-    // Without the L10 fix this would return "after", which visually
-    // contradicts the indicator rendered between the container row and its
-    // first child row.
     expect(dropPlacementForEvent(fakeDragOverEvent(30, 32), true, true)).toBe(
       "inside",
     );
@@ -592,9 +555,6 @@ describe("LayersPanel drop placement zones (L10)", () => {
 });
 
 describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () => {
-  // This is the pure lookup beginRename uses to validate an externally
-  // requested rename target and compute which ancestors must be expanded for
-  // the row to become visible — see beginRename in LayersPanel.tsx.
   const tree: LayersPanelNode[] = [
     {
       id: "frame-1",
@@ -636,8 +596,6 @@ describe("LayersPanel external rename trigger (L12: findNodeWithAncestors)", () 
   });
 
   it("still finds a renamable:false node — beginRename itself gates on that flag", () => {
-    // findNodeWithAncestors is a plain lookup; it's beginRename's job to
-    // check node.renamable and return false without starting the rename.
     const found = findNodeWithAncestors(tree, "locked-name");
     expect(found?.node.renamable).toBe(false);
   });

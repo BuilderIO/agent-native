@@ -70,6 +70,76 @@ describe("analytics query catalog", () => {
       action: "hubspot-deals",
       approved: true,
     });
+    expect(
+      results.some(
+        (result) =>
+          result.kind === "data-dictionary" && result.id === "revenue-notes",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a relevant AI generated definition when human entries are unrelated", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "unrelated-human-entry",
+          metric: "Closed Won Revenue",
+          definition: "Revenue from closed-won deals",
+          approved: true,
+        },
+        {
+          id: "active-users-suggestion",
+          metric: "Monthly Active Users",
+          definition: "Distinct users with activity this month",
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "active-users-suggestion",
+        aiGenerated: true,
+        approved: false,
+      }),
+    );
+  });
+
+  it("keeps a stronger AI definition when a human entry only weakly matches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "weak-human-monthly-revenue",
+          metric: "Monthly Revenue",
+          definition: "Revenue from closed-won deals",
+          approved: true,
+        },
+        {
+          id: "strong-active-users-suggestion",
+          metric: "Monthly Active Users",
+          definition: "Distinct users with activity this month",
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "strong-active-users-suggestion",
+        aiGenerated: true,
+        approved: false,
+      }),
+    );
   });
 
   it("matches plural questions against singular saved titles", () => {

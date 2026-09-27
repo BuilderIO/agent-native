@@ -16,7 +16,6 @@ export interface ImageData {
   align?: MediaAlign;
   width?: number;
   caption?: string;
-  /** Markdown paired text shown beside the image when aligned left/right. */
   text?: string;
 }
 
@@ -29,12 +28,6 @@ export const imageSchema = z.object({
   text: mediaTextSchema,
 }) as unknown as z.ZodType<ImageData>;
 
-/**
- * MDX config: `<Image src alt align width caption>text</Image>`. `text` is
- * MDX children (like `Callout`'s body), so it round-trips as real markdown
- * rather than a flat attribute. Self-closing (`<Image ... />`) is valid too —
- * `text` decodes to `undefined` when there are no children.
- */
 export const imageMdx: BlockMdxConfig<ImageData> = {
   tag: "Image",
   childrenField: "text",

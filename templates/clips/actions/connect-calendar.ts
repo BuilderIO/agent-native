@@ -1,17 +1,3 @@
-/**
- * connect-calendar
- *
- * Returns the Google Calendar OAuth URL for the frontend to open in a
- * popup or new tab. The actual flow is handled by the Nitro routes at
- * `/_agent-native/google/auth-url?calendar=1` (initiate) and
- * `/_agent-native/google/callback` (token exchange + storage).
- *
- * Usage:
- *   pnpm action connect-calendar
- *
- * The agent / UI receives `{ url }` and opens it.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
@@ -26,7 +12,6 @@ export default defineAction({
     "Get the OAuth URL to connect a Google Calendar account. Open the returned URL in a popup or new tab — the callback persists tokens in app_secrets.",
   schema: z.object({
     provider: z.enum(["google"]).default("google"),
-    /** Optional same-origin path to return the user to after success. */
     returnUrl: z.string().optional(),
     flowId: z
       .string()
@@ -52,9 +37,6 @@ export default defineAction({
       );
     }
 
-    // The route mints signed state and uses the standard framework callback
-    // path so the local Google OAuth client only needs one registered URI:
-    // http://localhost:<port>/_agent-native/google/callback.
     const params = new URLSearchParams({ calendar: "1", redirect: "1" });
     if (args.returnUrl) params.set("return", args.returnUrl);
     if (args.flowId) params.set("flow_id", args.flowId);
@@ -65,7 +47,6 @@ export default defineAction({
     return {
       provider: args.provider,
       url,
-      // Surface the scopes for UX disclosure.
       scopes: GOOGLE_CALENDAR_SCOPES,
       authBaseUrl: GOOGLE_AUTH_URL,
     };

@@ -19,8 +19,6 @@ export const documents = table("documents", {
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
-  // Stable semantic guidance for this page. Ancestry is computed at read time;
-  // never copy a parent's description here.
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
@@ -103,6 +101,7 @@ export const documentVersions = table(
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),
     content: text("content").notNull(),
+    bodyRevision: integer("body_revision"),
     chatContext: text("chat_context"),
     actorEmail: text("actor_email"),
     actorKind: text("actor_kind"),
@@ -127,6 +126,11 @@ export const documentVersions = table(
       version.groupId,
       version.createdAt,
       version.id,
+    ),
+    index("document_versions_owner_document_body_revision_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.bodyRevision,
     ),
   ],
 );
@@ -174,6 +178,7 @@ export const documentPreviewDraftSettlements = table(
     documentId: text("document_id").notNull(),
     editorSessionId: text("editor_session_id").notNull(),
     settledGeneration: integer("settled_generation").notNull(),
+    discardedGeneration: integer("discarded_generation"),
     updatedAt: text("updated_at").notNull().default(now()),
   },
   (settlement) => [
@@ -213,11 +218,6 @@ export const documentComments = table("document_comments", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   notionCommentId: text("notion_comment_id"),
-  // Notion's grouping id for a comment thread (a top-level comment and all
-  // its replies share one discussion_id). Stored on the local comment so
-  // sync-notion-comments can create replies with `discussion_id` instead of
-  // `parent`, which is what makes Notion thread them under the existing
-  // discussion instead of creating unrelated top-level comments.
   notionDiscussionId: text("notion_discussion_id"),
 });
 
@@ -346,10 +346,6 @@ export const documentSyncLinks = table("document_sync_links", {
   lastPulledRemoteUpdatedAt: text("last_pulled_remote_updated_at"),
   lastPushedLocalUpdatedAt: text("last_pushed_local_updated_at"),
   lastKnownRemoteUpdatedAt: text("last_known_remote_updated_at"),
-  // Hash of the canonical content that is currently identical on both sides.
-  // Content-based change detection is immune to timestamp jitter and the
-  // normalization mismatches that previously caused no-op syncs to look like
-  // real edits (the root of the bidirectional drift).
   lastSyncedContentHash: text("last_synced_content_hash"),
   lastError: text("last_error"),
   warningsJson: text("warnings_json"),
@@ -391,6 +387,7 @@ export const documentPropertyDefinitions = table(
     name: text("name").notNull(),
     type: text("type").notNull(),
     description: text("description").notNull().default(""),
+    icon: text("icon"),
     visibility: text("visibility").notNull().default("always_show"),
     optionsJson: text("options_json").notNull().default("{}"),
     position: integer("position").notNull().default(0),
@@ -428,10 +425,6 @@ export const contentDatabases = table(
     // two aliasing primaries. NULL means there is currently no primary Blocks
     // field (never seeded, or the primary was intentionally deleted).
     primaryBlocksPropertyId: text("primary_blocks_property_id"),
-    // 1 once a database has been seeded with its primary Blocks field at least
-    // once. Distinguishes "never seeded" (legacy database needing backfill) from
-    // "primary intentionally deleted" (seeded once, then removed — must NOT be
-    // reseeded). See delete-document-property.
     blocksSeeded: integer("blocks_seeded").notNull().default(0),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull().default(now()),
@@ -478,9 +471,6 @@ export const contentDatabaseItems = table(
   ],
 );
 
-// Opt-in stable-key claims are the durable concurrency fence for configured
-// natural-key upserts. Ordinary property editing stays independent until a
-// text property is explicitly selected as the database's natural key.
 export const contentDatabaseItemKeyClaims = table(
   "content_database_item_key_claims",
   {
@@ -863,6 +853,68 @@ export const documentEditReceipts = table(
   ],
 );
 
+export const documentBrowserSaveAttempts = table(
+  "document_browser_save_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("document_browser_save_attempts_scope_unique").on(
+      attempt.documentId,
+      attempt.actorEmail,
+      attempt.orgId,
+      attempt.attemptId,
+    ),
+    index("document_browser_save_attempts_owner_document_idx").on(
+      attempt.ownerEmail,
+      attempt.documentId,
+    ),
+  ],
+);
+
+export const documentBodyIntents = table(
+  "document_body_intents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    writerId: text("writer_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    candidateHash: text("candidate_hash"),
+    metadataHash: text("metadata_hash"),
+    generation: integer("generation"),
+    authoredBaseRevision: integer("authored_base_revision").notNull(),
+    committedRevision: integer("committed_revision").notNull(),
+    displacedCheckpointId: text("displaced_checkpoint_id"),
+    affectedBlockIndexesJson: text("affected_block_indexes_json")
+      .notNull()
+      .default("[]"),
+    canonicalChanged: boolean("canonical_changed").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (intent) => [
+    uniqueIndex("document_body_intents_document_writer_operation_unique").on(
+      intent.documentId,
+      intent.writerId,
+      intent.operationId,
+    ),
+    index("document_body_intents_owner_document_revision_idx").on(
+      intent.ownerEmail,
+      intent.documentId,
+      intent.committedRevision,
+    ),
+  ],
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -873,12 +925,6 @@ export const documentPropertyValues = table("document_property_values", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-// Independent backing store for ADDITIONAL "Blocks" property fields. The
-// default/primary Blocks field ("Content") is backed by `documents.content`
-// (so the existing TipTap/Yjs editor, collab, and existing data migrate for
-// free). Every other Blocks field on a row gets its OWN content here, keyed by
-// (documentId, propertyId) — guaranteeing no two Blocks fields ever alias the
-// same content. Stored as markdown, same shape as `documents.content`.
 export const documentBlockFieldContents = table(
   "document_block_field_contents",
   {
@@ -892,9 +938,6 @@ export const documentBlockFieldContents = table(
   },
 );
 
-// Stable identity and revision boundary for one database Blocks property. The
-// Markdown body remains in documents.content or document_block_field_contents;
-// this row binds the ordered identity sidecar to those exact bytes.
 export const documentBlockFields = table(
   "document_block_fields",
   {
@@ -919,9 +962,6 @@ export const documentBlockFields = table(
   ],
 );
 
-// Ordered block identity index plus bounded tombstones. This is deliberately
-// not an actor-aware history log: it records only current nodes and the minimum
-// deleted fragment needed for editor undo to recover the same logical ID.
 export const documentBlocks = table(
   "document_blocks",
   {

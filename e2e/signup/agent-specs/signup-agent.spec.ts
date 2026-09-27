@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -58,19 +58,30 @@ async function waitForPostLinkState(
   return "unresolved";
 }
 
-async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
+async function completeFirstRunOnboarding(
+  page: Page,
+  captureSetupChoice: () => Promise<void>,
+): Promise<boolean> {
   const role = page.locator('[data-testid="first-run-role"]');
   if (!(await role.isVisible().catch(() => false))) return false;
 
   await role.getByRole("button", { name: /skip for now/i }).click();
 
-  // "Configure manually" now completes onboarding and redirects straight to
-  // Settings from the merged choice screen — there is no separate tools step
-  // on this path.
+  await expect(page.locator('[data-onboarding-screen="choice"]')).toBeVisible();
+  const skipToApp = page.locator('[data-testid="first-run-skip-to-app"]');
+  const usesConnectChoice = await skipToApp.isVisible();
   const skipManual = page.locator(
     '[data-testid="first-run-open-key-settings"]',
   );
-  await expect(skipManual).toBeVisible();
+  if (usesConnectChoice) {
+    await expect(
+      page.locator('[data-testid="first-run-builder-continue"]'),
+    ).toBeVisible();
+    await expect(skipManual).toBeVisible();
+    await captureSetupChoice();
+  } else {
+    await expect(skipManual).toBeVisible();
+  }
 
   const completionResponse = page.waitForResponse((response) => {
     const request = response.request();
@@ -81,7 +92,11 @@ async function completeFirstRunOnboarding(page: Page): Promise<boolean> {
     );
   });
 
-  await skipManual.click();
+  if (usesConnectChoice) {
+    await skipToApp.click();
+  } else {
+    await skipManual.click();
+  }
 
   const completion = await completionResponse;
   expect(completion.ok()).toBe(true);
@@ -98,8 +113,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
   await expect
     .poll(
       async () => {
-        // The auth document is server-rendered before React hydrates it. Reapply
-        // the value until the controlled form accepts the input event.
         await emailInput.fill(email);
         return submit.isEnabled();
       },
@@ -111,12 +124,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
     .toBe(true);
 }
 
-/**
- * One app per run by default. The deterministic canary already covers every
- * app every day; this lane spends model tokens, so it walks the fleet on a
- * rotation instead of paying for all of it daily. The index comes from the UTC
- * day so consecutive runs land on different apps without storing any state.
- */
 function agentTargets(): SignupTarget[] {
   const all = selectedSignupTargets();
   if (all.length === 0) {
@@ -143,12 +150,57 @@ function agentTargets(): SignupTarget[] {
   return [all[dayIndex % all.length]!];
 }
 
+function trackNetwork(page: Page, origin: string) {
+  const networkEvents: string[] = [];
+  const pendingRequests = new Map<string, number>();
+  const isDiagnosticRequest = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.origin === origin &&
+        (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+          parsed.pathname.startsWith("/_agent-native/actions/") ||
+          parsed.pathname === "/_agent-native/auth/session" ||
+          parsed.pathname === "/_agent-native/org/me" ||
+          parsed.pathname === "/ask" ||
+          parsed.pathname === "/home")
+      );
+    } catch {
+      return false;
+    }
+  };
+  page.on("request", (request) => {
+    if (isDiagnosticRequest(request.url())) {
+      pendingRequests.set(request.url(), Date.now());
+    }
+  });
+  page.on("response", (response) => {
+    if (!isDiagnosticRequest(response.url())) return;
+    const startedAt = pendingRequests.get(response.url());
+    pendingRequests.delete(response.url());
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(
+      `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
+    );
+  });
+  page.on("requestfailed", (request) => {
+    if (!isDiagnosticRequest(request.url())) return;
+    pendingRequests.delete(request.url());
+    networkEvents.push(
+      `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
+    );
+  });
+  return { networkEvents, pendingRequests };
+}
+
 async function capture(
   page: Page,
   label: string,
   consoleErrors: string[],
   networkEvents: string[],
   pendingRequests: Map<string, number>,
+  testInfo: TestInfo,
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
     .evaluate(() => {
@@ -222,14 +274,18 @@ async function capture(
         `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
     );
 
+  const screenshot = await page.screenshot({ fullPage: false });
+  const screenshotPath = testInfo.outputPath(
+    `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`,
+  );
+  mkdirSync(dirname(screenshotPath), { recursive: true });
+  writeFileSync(screenshotPath, screenshot);
+
   return {
     label,
     url: page.url(),
-    // A page whose text cannot be read is not a page with no text: handing the
-    // model an empty string there would have it judge a blank screen and
-    // report a phantom finding, or miss a real one.
     visibleText,
-    screenshot: await page.screenshot({ fullPage: false }),
+    screenshot,
     consoleErrors: [...consoleErrors],
     networkEvents: requestDiagnostics,
   };
@@ -250,46 +306,10 @@ for (const target of targets) {
   }, testInfo) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
-    const networkEvents: string[] = [];
-    const pendingRequests = new Map<string, number>();
-    const isDiagnosticRequest = (url: string): boolean => {
-      try {
-        const parsed = new URL(url);
-        return (
-          parsed.origin === target.origin &&
-          (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
-            parsed.pathname.startsWith("/_agent-native/actions/") ||
-            parsed.pathname === "/_agent-native/auth/session" ||
-            parsed.pathname === "/_agent-native/org/me" ||
-            parsed.pathname === "/ask" ||
-            parsed.pathname === "/home")
-        );
-      } catch {
-        return false;
-      }
-    };
-    page.on("request", (request) => {
-      if (isDiagnosticRequest(request.url())) {
-        pendingRequests.set(request.url(), Date.now());
-      }
-    });
-    page.on("response", (response) => {
-      if (!isDiagnosticRequest(response.url())) return;
-      const startedAt = pendingRequests.get(response.url());
-      pendingRequests.delete(response.url());
-      const elapsed =
-        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-      networkEvents.push(
-        `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
-      );
-    });
-    page.on("requestfailed", (request) => {
-      if (!isDiagnosticRequest(request.url())) return;
-      pendingRequests.delete(request.url());
-      networkEvents.push(
-        `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
-      );
-    });
+    const initialPageNetwork = trackNetwork(page, target.origin);
+    let postLinkPage: Page = page;
+    let postLinkErrors = () => errors;
+    let postLinkNetwork = initialPageNetwork;
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
@@ -304,8 +324,9 @@ for (const target of targets) {
           page,
           "sign-in page",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });
@@ -321,16 +342,15 @@ for (const target of targets) {
       const submit = page.locator("#magic-link-submit");
       await fillMagicLinkEmail(page, email);
       await submit.click();
-      // Give the app the moment a real user would give it before judging
-      // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
       steps.push(
         await capture(
           page,
           "after requesting the link",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       const result = await emailResult;
@@ -346,48 +366,91 @@ for (const target of targets) {
       }
       const message = result.message;
       const link = verificationLinkFor(message, target.origin);
-      await page.goto(link, { waitUntil: "domcontentloaded" });
-      const postLinkState = await waitForPostLinkState(page, pendingRequests);
+      const verificationPage = await page.context().newPage();
+      const { errors: verificationErrors } = collectAppPageErrors(
+        verificationPage,
+        target.origin,
+      );
+      const verificationPageNetwork = trackNetwork(
+        verificationPage,
+        target.origin,
+      );
+      await verificationPage.goto(link, { waitUntil: "domcontentloaded" });
+      const postLinkState = await waitForPostLinkState(
+        verificationPage,
+        verificationPageNetwork.pendingRequests,
+      );
       steps.push(
         await capture(
-          page,
+          verificationPage,
           "after following the emailed link",
-          errors,
-          networkEvents,
-          pendingRequests,
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       if (postLinkState === "onboarding") {
-        await completeFirstRunOnboarding(page);
-        await waitForPostLinkState(page, pendingRequests);
+        await completeFirstRunOnboarding(verificationPage, async () => {
+          await verificationPage.emulateMedia({ colorScheme: "light" });
+          steps.push(
+            await capture(
+              verificationPage,
+              "first-run setup choice light",
+              [...errors, ...verificationErrors],
+              verificationPageNetwork.networkEvents,
+              verificationPageNetwork.pendingRequests,
+              testInfo,
+            ),
+          );
+          await verificationPage.emulateMedia({ colorScheme: "dark" });
+          steps.push(
+            await capture(
+              verificationPage,
+              "first-run setup choice dark",
+              [...errors, ...verificationErrors],
+              verificationPageNetwork.networkEvents,
+              verificationPageNetwork.pendingRequests,
+              testInfo,
+            ),
+          );
+          await verificationPage.emulateMedia({ colorScheme: "light" });
+        });
+        await waitForPostLinkState(
+          verificationPage,
+          verificationPageNetwork.pendingRequests,
+        );
         steps.push(
           await capture(
-            page,
+            verificationPage,
             "after completing first-run onboarding",
-            errors,
-            networkEvents,
-            pendingRequests,
+            [...errors, ...verificationErrors],
+            verificationPageNetwork.networkEvents,
+            verificationPageNetwork.pendingRequests,
+            testInfo,
           ),
         );
       }
+      postLinkPage = verificationPage;
+      postLinkErrors = () => [...errors, ...verificationErrors];
+      postLinkNetwork = verificationPageNetwork;
     });
 
     await test.step("reload the way a stuck user would", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await waitForPostLinkState(page, pendingRequests);
+      await postLinkPage.reload({ waitUntil: "domcontentloaded" });
+      await waitForPostLinkState(postLinkPage, postLinkNetwork.pendingRequests);
       steps.push(
         await capture(
-          page,
+          postLinkPage,
           "after a browser reload",
-          errors,
-          networkEvents,
-          pendingRequests,
+          postLinkErrors(),
+          postLinkNetwork.networkEvents,
+          postLinkNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });
 
-    // A review that could not run is not a clean review: let this throw and
-    // fail the lane rather than reporting an empty finding list.
     const review = await reviewSignupJourney(
       target.app,
       target.environment,
@@ -409,8 +472,6 @@ for (const target of targets) {
         contentType: "image/png",
       });
     }
-    // Advisory by design: model-reported issues are surfaced in the job
-    // summary and the rolling issue, never used to fail a build or page anyone.
     console.log(markdown);
   });
 }

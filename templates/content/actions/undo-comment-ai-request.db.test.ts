@@ -106,6 +106,7 @@ beforeEach(async () => {
   await getDb().delete(schema.commentAiRequests);
   await getDb().delete(schema.documentComments);
   await getDb().delete(schema.documentEditReceipts);
+  await getDb().delete(schema.documentBodyIntents);
   await getDb().delete(schema.documents);
   const now = new Date().toISOString();
   await getDb().insert(schema.documents).values({

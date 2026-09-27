@@ -11,7 +11,21 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupCard: () => null,
+}));
+
+vi.mock("@/hooks/use-video-storage-status", () => ({
+  useVideoStorageStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

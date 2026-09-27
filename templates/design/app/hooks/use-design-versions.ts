@@ -44,7 +44,6 @@ export interface DesignVersionDetail {
   source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
-  /** Present on list entries; optional on detail until the action always returns it. */
   editable?: boolean;
   designTitle: string | null;
   files: DesignVersionFile[];
@@ -66,8 +65,6 @@ export function useDesignVersions(designId: string | null) {
     designId ? { designId } : undefined,
     {
       enabled: !!designId,
-      // Keep prior checkpoints only for the same design — otherwise navigating
-      // A→B while History stays mounted briefly shows A's versions under B.
       placeholderData: (prev: DesignVersionListResponse | undefined) =>
         prev && designId && prev.designId === designId ? prev : undefined,
     } as Record<string, unknown>,

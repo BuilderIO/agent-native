@@ -37,7 +37,7 @@ catalogs:
       specifier: ^1.2.12
       version: 1.2.12
     '@tabler/icons-react':
-      specifier: ^3.41.1
+      specifier: 3.44.0
       version: 3.44.0
     '@tailwindcss/vite':
       specifier: ^4.2.4
@@ -46,9 +46,6 @@ catalogs:
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/extension-blockquote':
-      specifier: 3.30.1
-      version: 3.30.1
-    '@tiptap/extension-bold':
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/extension-bubble-menu':
@@ -61,9 +58,6 @@ catalogs:
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/extension-collaboration-caret':
-      specifier: 3.30.1
-      version: 3.30.1
-    '@tiptap/extension-color':
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/extension-floating-menu':
@@ -97,9 +91,6 @@ catalogs:
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/extension-task-list':
-      specifier: 3.30.1
-      version: 3.30.1
-    '@tiptap/extension-text-style':
       specifier: 3.30.1
       version: 3.30.1
     '@tiptap/pm':
@@ -2641,6 +2632,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
+      '@launchdarkly/node-server-sdk':
+        specifier: ^9.13.6
+        version: 9.13.6
       '@mcp-b/webmcp-polyfill':
         specifier: ^5.1.0
         version: 5.1.0
@@ -3952,7 +3946,7 @@ importers:
         specifier: 'catalog:'
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@tabler/icons-react':
-        specifier: ^3.41.1
+        specifier: 3.44.0
         version: 3.44.0(react@19.2.7)
       '@tiptap/core':
         specifier: 'catalog:'
@@ -4029,6 +4023,9 @@ importers:
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.7)
+      emojibase-data:
+        specifier: 17.0.0
+        version: 17.0.0(emojibase@17.0.0)
       highlight.js:
         specifier: 'catalog:'
         version: 11.11.1
@@ -7319,42 +7316,6 @@ importers:
       '@tanstack/react-query':
         specifier: 5.101.2
         version: 5.101.2(react@19.2.7)
-      '@tiptap/core':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/pm@3.30.1)
-      '@tiptap/extension-bold':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
-      '@tiptap/extension-collaboration':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)(@tiptap/y-tiptap@3.0.7(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.41.9)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))(yjs@13.6.32)
-      '@tiptap/extension-collaboration-caret':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)(@tiptap/y-tiptap@3.0.7(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.41.9)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32))
-      '@tiptap/extension-color':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/extension-text-style@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1)))
-      '@tiptap/extension-link':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)
-      '@tiptap/extension-placeholder':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/extensions@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))
-      '@tiptap/extension-text-style':
-        specifier: 'catalog:'
-        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
-      '@tiptap/pm':
-        specifier: 'catalog:'
-        version: 3.30.1
-      '@tiptap/react':
-        specifier: 'catalog:'
-        version: 3.30.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@tiptap/starter-kit':
-        specifier: 'catalog:'
-        version: 3.30.1
-      '@tiptap/y-tiptap':
-        specifier: 'catalog:'
-        version: 3.0.7(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.41.9)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32)
       ai:
         specifier: ^7.0.84
         version: 7.0.84(zod@4.4.3)
@@ -7403,12 +7364,18 @@ importers:
       p-limit:
         specifier: ^7.3.0
         version: 7.3.0
+      parse5:
+        specifier: ^8.0.1
+        version: 8.0.1
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
       pdfjs-dist:
         specifier: 5.4.296
         version: 5.4.296
+      postcss:
+        specifier: 8.5.28
+        version: 8.5.28
       pptxgenjs:
         specifier: 4.0.1
         version: 4.0.1
@@ -10730,6 +10697,15 @@ packages:
 
   '@kurkle/color@0.3.4':
     resolution: {integrity: sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==}
+
+  '@launchdarkly/js-sdk-common@2.26.0':
+    resolution: {integrity: sha512-udqKKgDhRpvprMh53GtK2hSdIJvhs9mUNseAyyyEBcLc5ftNxAZeZbWfKvmyuckS7Qt7rznIHHSSiwm2yYW4+g==}
+
+  '@launchdarkly/js-server-sdk-common@2.21.4':
+    resolution: {integrity: sha512-SMrbPsjA95SM8s9Tnj85hJZ0Di7H8j3Ma32CCT1rUJhqAUetcDofkPtgePaba44p8H+F1ToHN1mXUuM8fbY1bQ==}
+
+  '@launchdarkly/node-server-sdk@9.13.6':
+    resolution: {integrity: sha512-2kGql7mXJKRndqK8m+++j+C9lk48KK9dRf03BlBo9/Ml7sVtgWSwBkX4vgZH/CvvReeXToaDsnv5Wxx2VDM6fg==}
 
   '@legendapp/list@3.3.3':
     resolution: {integrity: sha512-p3g4xG6f//s4XQKhuus2189GCQgOHEIbJXHePqeDxj+6UQQQyij4YBjyArNSCgqoP0c03sxDPSOuCFB128Ql6g==}
@@ -15544,11 +15520,6 @@ packages:
       '@tiptap/y-tiptap': ^3.0.7
       yjs: ^13
 
-  '@tiptap/extension-color@3.30.1':
-    resolution: {integrity: sha512-x5nF9aDiIgVTAlthf56p7/O0C1LGYKDU4YCR7yqAPh7kibUxRsWNLYprezSkCa5TNDi7bq34dDr7lz+7KwVFoA==}
-    peerDependencies:
-      '@tiptap/extension-text-style': 3.30.1
-
   '@tiptap/extension-document@3.30.1':
     resolution: {integrity: sha512-aeMhO7EDoJyl5AGkF9hDQ9e52s18L8oYdbYjzcmXeo0YuXeaxbZCuUueVH4DnTfV7/vSkDRpDkk4TFF5LfKQpg==}
     peerDependencies:
@@ -15669,11 +15640,6 @@ packages:
     resolution: {integrity: sha512-g5VEXuifD1ZcR4bhaWnTb0InP3UWNWtfPy4xy06YpkaT0whCn5hQUppi6oE7RP9y+3ATfbBy7AnHWj2XU2JiMg==}
     peerDependencies:
       '@tiptap/extension-list': 3.30.1
-
-  '@tiptap/extension-text-style@3.30.1':
-    resolution: {integrity: sha512-VLci8TnjAxBGbNlailFabGAv8ayPR8roGeNhS25UG90XJxiO2FZUHmOv+vqrciQ7Zfs5BXyrGQY+Yb3dAtHgIw==}
-    peerDependencies:
-      '@tiptap/core': 3.30.1
 
   '@tiptap/extension-text@3.30.1':
     resolution: {integrity: sha512-Zt3Ik95ZKJx5YNzC6TUXWTNBHUfRH/qVENmqfPjA7x7q4cqNdOEU+tX9DrlFjgxu/x0k48dlQS0Kaop24/vihA==}
@@ -18191,6 +18157,15 @@ packages:
   emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
 
+  emojibase-data@17.0.0:
+    resolution: {integrity: sha512-Yvgb5AWoHViHV/gq1qr5ZAarcBip+B27/ZLRsUJkbgAEaLlZ/fof9g882LTpmEpyhBNEC0m2SEmItljHsTygjA==}
+    peerDependencies:
+      emojibase: '*'
+
+  emojibase@17.0.0:
+    resolution: {integrity: sha512-bXdpf4HPY3p41zK5swVKZdC/VynsMZ4LoLxdYDE+GucqkFwzcM1GVc4ODfYAlwoKaf2U2oNNUoOO78N96ovpBA==}
+    engines: {node: '>=18.12.0'}
+
   encodeurl@1.0.2:
     resolution: {integrity: sha512-TPJXq8JqFaVYm2CWmPvnP2Iyo4ZSM7/QKcSmuMLDObfpH5fi7RUGmd/rTDf+rut/saiDiQEeVTNgAmJEdAOx0w==}
     engines: {node: '>= 0.8'}
@@ -19771,6 +19746,10 @@ packages:
   langium@3.3.1:
     resolution: {integrity: sha512-QJv/h939gDpvT+9SiLVlY7tZC3xB2qK57v0J04Sh9wpMb6MP1q8gB21L3WIo8T5P1MSMg3Ep14L7KkDCFG3y4w==}
     engines: {node: '>=16.0.0'}
+
+  launchdarkly-eventsource@2.2.0:
+    resolution: {integrity: sha512-u38fYlLSq/m6oFz0MS1/76Sj2xzlYhTKZ+sf/vju6PA86PMc6fPlY5k8CdU79edLXjNwsvIQTDvDNy3llDqB8A==}
+    engines: {node: '>=0.12.0'}
 
   layout-base@1.0.2:
     resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
@@ -22078,6 +22057,11 @@ packages:
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
+    hasBin: true
+
+  semver@7.5.4:
+    resolution: {integrity: sha512-1bCSESV6Pv+i21Hvpxp3Dx+pSD8lIPt8uVjRrxAUt/nbswYc+tK6Y2btiULjd4+fnq15PX+nqQDC7Oft7WkwcA==}
+    engines: {node: '>=10'}
     hasBin: true
 
   semver@7.7.4:
@@ -26948,6 +26932,21 @@ snapshots:
   '@keyv/serialize@1.1.1': {}
 
   '@kurkle/color@0.3.4': {}
+
+  '@launchdarkly/js-sdk-common@2.26.0': {}
+
+  '@launchdarkly/js-server-sdk-common@2.21.4':
+    dependencies:
+      '@launchdarkly/js-sdk-common': 2.26.0
+      semver: 7.5.4
+
+  '@launchdarkly/node-server-sdk@9.13.6':
+    dependencies:
+      '@launchdarkly/js-server-sdk-common': 2.21.4
+      https-proxy-agent: 7.0.6
+      launchdarkly-eventsource: 2.2.0
+    transitivePeerDependencies:
+      - supports-color
 
   '@legendapp/list@3.3.3(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -31847,10 +31846,6 @@ snapshots:
       '@tiptap/y-tiptap': 3.0.7(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.41.9)(y-protocols@1.0.7(yjs@13.6.32))(yjs@13.6.32)
       yjs: 13.6.32
 
-  '@tiptap/extension-color@3.30.1(@tiptap/extension-text-style@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1)))':
-    dependencies:
-      '@tiptap/extension-text-style': 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
-
   '@tiptap/extension-document@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))':
     dependencies:
       '@tiptap/core': 3.30.1(@tiptap/pm@3.30.1)
@@ -31949,10 +31944,6 @@ snapshots:
   '@tiptap/extension-task-list@3.30.1(@tiptap/extension-list@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1))':
     dependencies:
       '@tiptap/extension-list': 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)
-
-  '@tiptap/extension-text-style@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))':
-    dependencies:
-      '@tiptap/core': 3.30.1(@tiptap/pm@3.30.1)
 
   '@tiptap/extension-text@3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))':
     dependencies:
@@ -34794,6 +34785,12 @@ snapshots:
 
   emoji-regex@9.2.2: {}
 
+  emojibase-data@17.0.0(emojibase@17.0.0):
+    dependencies:
+      emojibase: 17.0.0
+
+  emojibase@17.0.0: {}
+
   encodeurl@1.0.2: {}
 
   encodeurl@2.0.0: {}
@@ -36823,6 +36820,8 @@ snapshots:
       vscode-languageserver: 9.0.1
       vscode-languageserver-textdocument: 1.0.12
       vscode-uri: 3.0.8
+
+  launchdarkly-eventsource@2.2.0: {}
 
   layout-base@1.0.2: {}
 
@@ -39808,6 +39807,10 @@ snapshots:
   semver@5.7.2: {}
 
   semver@6.3.1: {}
+
+  semver@7.5.4:
+    dependencies:
+      lru-cache: 6.0.0
 
   semver@7.7.4: {}
 

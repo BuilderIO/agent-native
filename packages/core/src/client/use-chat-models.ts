@@ -37,15 +37,7 @@ export interface UseChatModelsResult {
 }
 
 export interface UseChatModelsOptions {
-  /**
-   * localStorage key used to persist the user's model + effort selection across
-   * page loads. Pass `null` to disable persistence.
-   */
   storageKey?: string | null;
-  /**
-   * Disable server-backed model discovery for hosts that provide their own
-   * model list/state, such as Electron Code.
-   */
   enabled?: boolean;
   /**
    * Keep an unavailable explicit choice visible for the host to resolve rather
@@ -56,11 +48,6 @@ export interface UseChatModelsOptions {
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
 
-/**
- * `useChatModels` takes the raw localStorage key while `MultiTabAssistantChat`
- * takes only the namespace suffix — a surface that hand-writes either one stops
- * sharing the selection with the chat it sits next to.
- */
 export function chatModelSelectionStorageKey(
   namespace?: string | null,
 ): string {
@@ -132,12 +119,6 @@ function writePersisted(key: string | null, value: PersistedModelSelection) {
   } catch {}
 }
 
-/**
- * Fetches available engines/models from the agent server and exposes the same
- * model picker state that `MultiTabAssistantChat` wires up — for surfaces like
- * the Dispatch homepage hero composer that need an identical model picker
- * without mounting the full tabbed chat.
- */
 export function useChatModels({
   storageKey = DEFAULT_STORAGE_KEY,
   enabled = true,
@@ -298,8 +279,6 @@ export function useChatModels({
           ) {
             if (scheduleRetry(attempt)) return;
             if (engineResult.state !== "available") {
-              // Without a catalog the picker keeps an unvalidated DEFAULT_MODEL,
-              // which is indistinguishable from a real selection unless we say so.
               console.warn(
                 "[agent-chat] engine list unavailable; model picker is showing an unvalidated default",
               );
@@ -329,15 +308,6 @@ export function useChatModels({
           setAvailableModels(groups);
           setDefaultModel(nextDefaultModel);
 
-          // The static catalog only has the curated suggestion models for
-          // Ollama. Once the engine list is in, ask the configured Ollama
-          // server what it actually has installed and swap those in — a
-          // second, later render, so it never blocks the picker's first
-          // paint on a local network round trip. Gated on Ollama actually
-          // being the current engine (not merely present in the catalog,
-          // which it always is): every app registers it by default, so an
-          // unconditional probe would 502 on every chat load for the vast
-          // majority of setups that never touched Ollama.
           if (currentEngineName === "ai-sdk:ollama") {
             void fetchOllamaModels()
               .then((liveModels) => {
@@ -366,14 +336,6 @@ export function useChatModels({
           const selection =
             unavailableSelectionRef.current ?? selectionRef.current;
 
-          // Default only to a CONFIGURED group, and to nothing when there is
-          // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
-          // unless Builder is connected, and unconfigured groups are kept in the
-          // list for their connect affordance where that is useful — so both
-          // `?? DEFAULT_MODEL` and `?? groups[0]` yield a selection the app
-          // cannot route, which the server silently replaces with its own
-          // default. An empty selection hides the picker instead of showing a
-          // model that will not be used.
           const configuredGroups = groups.filter((g) => g.configured);
           const resolveRoutableSelection = () => {
             const group =
@@ -426,8 +388,6 @@ export function useChatModels({
           if (selectedGroup) {
             unavailableSelectionRef.current = null;
             setUnavailableSelection(null);
-            // Heal a selection stored without an engine (or with a stale one) so
-            // later submits carry the pair the catalog resolved.
             if (selection.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
