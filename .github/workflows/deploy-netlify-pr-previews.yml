@@ -152,6 +152,7 @@ jobs:
       actions: read
       contents: read
       deployments: write
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - name: Find the trusted PR preview deploy record
@@ -241,6 +242,28 @@ jobs:
               core.setFailed('PR preview upload did not return a complete deploy record.');
               return;
             }
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            const isCurrentInternalPullRequest = async () => {
+              const { data: pullRequest } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullRequestNumber,
+              });
+              const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+              return (
+                pullRequest.state === 'open' &&
+                pullRequest.base.ref === 'main' &&
+                pullRequest.base.repo?.full_name?.toLowerCase() === fullName &&
+                pullRequest.head.repo?.full_name?.toLowerCase() === fullName &&
+                pullRequest.user?.type === 'User' &&
+                ['OWNER', 'MEMBER'].includes(pullRequest.author_association) &&
+                pullRequest.head.sha === process.env.SOURCE_REF
+              );
+            };
+            if (!(await isCurrentInternalPullRequest())) {
+              core.notice('PR is no longer an open, internal PR at the authorized head; skipping its deployment record.');
+              return;
+            }
             const environment = `pr-${process.env.PULL_REQUEST_NUMBER}-${record.siteName}`;
             const deployment = await github.rest.repos.createDeployment({
               owner: context.repo.owner,
@@ -261,6 +284,14 @@ jobs:
               environment_url: record.deployUrl,
               log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
             });
+            if (!(await isCurrentInternalPullRequest())) {
+              await github.rest.repos.createDeploymentStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                deployment_id: deployment.data.id,
+                state: 'inactive',
+              });
+            }
 
   cleanup:
     name: Remove closed PR preview for ${{ matrix.site }}

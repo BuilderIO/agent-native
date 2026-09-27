@@ -306,6 +306,21 @@ export function validateNetlifyPrPreviewWorkflow(
     deploymentScript,
     "createDeploymentStatus",
   );
+  const createDeploymentIndex = deploymentScript.indexOf(
+    "github.rest.repos.createDeployment({",
+  );
+  const firstEligibilityCheckIndex = deploymentScript.indexOf(
+    "if (!(await isCurrentInternalPullRequest()))",
+  );
+  const secondEligibilityCheckIndex = deploymentScript.indexOf(
+    "if (!(await isCurrentInternalPullRequest()))",
+    firstEligibilityCheckIndex + 1,
+  );
+  const createSuccessStatusIndex = deploymentScript.indexOf(
+    "github.rest.repos.createDeploymentStatus({",
+  );
+  const createInactiveStatusIndex =
+    deploymentScript.indexOf("state: 'inactive'");
 
   if (
     asRecord(triggers?.workflow_dispatch) ||
@@ -378,6 +393,14 @@ export function validateNetlifyPrPreviewWorkflow(
   }
   if (
     !authorizeScript.includes("github.rest.pulls.get") ||
+    !authorizeScript.includes("pullRequest.author_association") ||
+    !authorizeScript.includes("['OWNER', 'MEMBER']") ||
+    !authorizeScript.includes("pullRequest.user?.type !== 'User'") ||
+    !authorizeScript.includes("pullRequest.state !== 'open'") ||
+    !authorizeScript.includes("pullRequest.base.ref !== 'main'") ||
+    !authorizeScript.includes(
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
     !authorizeScript.includes(
       "core.setOutput('source_ref', pullRequest.head.sha)",
     ) ||
@@ -442,8 +465,11 @@ export function validateNetlifyPrPreviewWorkflow(
     deploymentPermissions?.deployments !== "write" ||
     Object.keys(deploymentPermissions ?? {}).some(
       (permission) =>
-        !["actions", "contents", "deployments"].includes(permission),
+        !["actions", "contents", "deployments", "pull-requests"].includes(
+          permission,
+        ),
     ) ||
+    deploymentPermissions?.["pull-requests"] !== "read" ||
     asRecord(jobs?.comment) ||
     !source.includes("actions/download-artifact@") ||
     !source.includes("actions/github-script@") ||
@@ -468,6 +494,20 @@ export function validateNetlifyPrPreviewWorkflow(
       "environment_url: record.deployUrl",
     ) ||
     !createDeploymentStatusOptions.includes("log_url:") ||
+    !deploymentScript.includes("github.rest.pulls.get") ||
+    !deploymentScript.includes("pullRequest.state === 'open'") ||
+    !deploymentScript.includes("pullRequest.base.ref === 'main'") ||
+    !deploymentScript.includes(
+      "['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+    ) ||
+    !deploymentScript.includes(
+      "pullRequest.head.sha === process.env.SOURCE_REF",
+    ) ||
+    firstEligibilityCheckIndex < 0 ||
+    firstEligibilityCheckIndex >= createDeploymentIndex ||
+    secondEligibilityCheckIndex <= createSuccessStatusIndex ||
+    secondEligibilityCheckIndex < 0 ||
+    createInactiveStatusIndex <= secondEligibilityCheckIndex ||
     !deploymentScript.includes(
       "const environment = `pr-${process.env.PULL_REQUEST_NUMBER}-${record.siteName}`",
     ) ||

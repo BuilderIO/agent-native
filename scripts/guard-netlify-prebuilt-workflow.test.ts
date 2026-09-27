@@ -277,6 +277,7 @@ describe("Netlify PR preview workflow guard", () => {
       actions: "read",
       contents: "read",
       deployments: "write",
+      "pull-requests": "read",
     });
     const deploymentStep = (
       previewJobs.deployment.steps as Array<Workflow>
@@ -288,6 +289,14 @@ describe("Netlify PR preview workflow guard", () => {
     assert.match(
       String((deploymentStep?.with as Workflow).script),
       /createDeploymentStatus/,
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /isCurrentInternalPullRequest/,
+    );
+    assert.match(
+      String((deploymentStep?.with as Workflow).script),
+      /state: 'inactive'/,
     );
     assert.match(reusableSource, /build_args\+=\(--offline\)/);
     assert.match(
@@ -308,6 +317,8 @@ describe("Netlify PR preview workflow guard", () => {
       ["ref: process.env.SOURCE_REF", "ref: process.env.OTHER_REF"],
       ["auto_merge: false", "auto_merge: true"],
       ["state: 'success'", "state: 'failure'"],
+      ["pullRequest.state === 'open'", "pullRequest.state === 'closed'"],
+      ["state: 'inactive'", "state: 'success'"],
       ["createDeployment(", "createDeploymentStatus("],
       [
         "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
