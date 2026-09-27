@@ -123,9 +123,6 @@ test.describe("reparenting rules", () => {
       await page.mouse.move(start.x, start.y, { steps: 8 });
       await page.mouse.move(release.x, release.y, { steps: 12 });
 
-      // In a plain frame, Figma places a child dropped in empty parent space
-      // immediately after the frame it left, before later overlapping siblings.
-      // Assert that live insertion target before mouseup commits it.
       await expect
         .poll(() =>
           page.evaluate(() => {

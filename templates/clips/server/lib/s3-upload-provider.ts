@@ -934,6 +934,7 @@ async function verifyCompletedMultipartObject(
     );
   }
 
+  // Older sessions lack part sizes, so object existence is their only completion signal.
   const hasAllPartSizes = meta.parts.every(
     (part) => typeof part.sizeBytes === "number",
   );
@@ -1139,6 +1140,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
           )
           .join("") +
         "</CompleteMultipartUpload>";
+      // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
       let res: Response;
       try {
         res = await signedS3Request(cfg, meta.objectKey, {

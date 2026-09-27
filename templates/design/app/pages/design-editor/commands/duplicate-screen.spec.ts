@@ -275,7 +275,6 @@ describe("runDuplicateScreen", () => {
     };
     args.liveFrameGeometryRef.current = { ...geometry, copy: copyGeometry };
 
-    // Undo removes both the file and its persisted canvas geometry.
     args.files = screens;
     args.overviewScreens = screens.map(({ id }) => ({ id })) as any;
     args.designDataJsonRef.current = { canvasFrames: geometry };
