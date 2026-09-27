@@ -1836,11 +1836,16 @@ const messages = {
     noReviews: "No agent outputs to review yet",
     summarizeWithAgent: "Summarize with agent",
     regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
     searchReviews: "Search prompts, outcomes, people, or artifacts",
     allArtifactTypes: "All types",
-    summarySending: "Sending summary request…",
-    summarySent: "Summary request sent to agent",
-    summaryFailed: "Could not send the summary request",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
     readOnlyTenant: "Cross-organization review is read-only.",
     showReviewDetails: "Show review details",
     hideReviewDetails: "Hide review details",

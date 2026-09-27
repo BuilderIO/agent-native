@@ -1,7 +1,7 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconAlertCircle,
-  IconCircleCheck,
+  IconClock,
   IconLoader2,
   IconMessageCircle,
   IconRefresh,
@@ -26,7 +26,7 @@ export interface ObservabilityReviewSummaryButtonProps {
   refresh?: boolean;
 }
 
-export type ObservabilityReviewSummaryStatus = "sending" | "sent" | "failed";
+export type ObservabilityReviewSummaryStatus = "sending" | "queued" | "failed";
 
 export function ObservabilityReviewSummaryButton({
   runId,
@@ -38,7 +38,7 @@ export function ObservabilityReviewSummaryButton({
   refresh = false,
 }: ObservabilityReviewSummaryButtonProps) {
   const t = useT();
-  const disabled = status === "sending" || status === "sent";
+  const disabled = status === "sending" || status === "queued";
   const label = t(
     refresh
       ? "observability.regenerateSummary"
@@ -48,12 +48,18 @@ export function ObservabilityReviewSummaryButton({
     ? t(
         status === "sending"
           ? "observability.summarySending"
-          : status === "sent"
-            ? "observability.summarySent"
+          : status === "queued"
+            ? "observability.summaryQueued"
             : "observability.summaryFailed",
       )
     : null;
-  const tooltipLabel = statusLabel ?? label;
+  const tooltipLabel =
+    statusLabel ??
+    t(
+      refresh
+        ? "observability.regenerateSummaryHelp"
+        : "observability.summarizeWithAgentHelp",
+    );
 
   const summarize = async () => {
     const requestRunId = runId;
@@ -80,7 +86,7 @@ export function ObservabilityReviewSummaryButton({
         chatTarget: "local",
         usageLabel: "observability:human-review-summary",
       });
-      onStatusChange(result.delivered ? "sent" : "failed");
+      onStatusChange(result.delivered ? "queued" : "failed");
     } catch {
       onStatusChange("failed");
     }
@@ -105,8 +111,8 @@ export function ObservabilityReviewSummaryButton({
             >
               {status === "sending" ? (
                 <IconLoader2 size={16} className="animate-spin" />
-              ) : status === "sent" ? (
-                <IconCircleCheck size={16} />
+              ) : status === "queued" ? (
+                <IconClock size={16} />
               ) : status === "failed" ? (
                 <IconAlertCircle size={16} />
               ) : compact ? (

@@ -1106,7 +1106,7 @@ function ReviewTab({
   const [pendingNotes, setPendingNotes] = useState<Record<string, boolean>>({});
   const [noteErrors, setNoteErrors] = useState<Record<string, boolean>>({});
   const [summaryStatus, setSummaryStatus] = useState<
-    "sending" | "sent" | "failed" | null
+    "sending" | "queued" | "failed" | null
   >(null);
   const [summaryRequests, setSummaryRequests] = useState<
     Record<string, ObservabilityReviewSummaryStatus>
@@ -1147,11 +1147,11 @@ function ReviewTab({
       const timer = summaryRetryTimers.current.get(runId);
       if (timer !== undefined) window.clearTimeout(timer);
       summaryRetryTimers.current.delete(runId);
-      if (status === "sent") {
+      if (status === "queued") {
         const retryTimer = window.setTimeout(() => {
           if (!summaryRequestMounted.current) return;
           setSummaryRequests((current) => {
-            if (current[runId] !== "sent") return current;
+            if (current[runId] !== "queued") return current;
             const next = { ...current };
             delete next[runId];
             return next;
@@ -1464,7 +1464,7 @@ function ReviewTab({
         !review.summary &&
         !review.readOnly &&
         summaryRequests[review.runId] !== "sending" &&
-        summaryRequests[review.runId] !== "sent"
+        summaryRequests[review.runId] !== "queued"
       );
     }) ?? [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
@@ -1533,7 +1533,7 @@ function ReviewTab({
           chatTarget: "local",
           usageLabel: "observability:human-review-summary",
         });
-        status = result.delivered ? "sent" : "failed";
+        status = result.delivered ? "queued" : "failed";
       } catch {
         status = "failed";
       }
@@ -1543,7 +1543,9 @@ function ReviewTab({
     void Promise.all(requests).then((results) => {
       if (!summaryRequestMounted.current) return;
       setSummaryStatus(
-        results.every((result) => result.status === "sent") ? "sent" : "failed",
+        results.every((result) => result.status === "queued")
+          ? "queued"
+          : "failed",
       );
     });
   };
@@ -1722,8 +1724,8 @@ function ReviewTab({
             {t(
               summaryStatus === "sending"
                 ? "observability.summarySending"
-                : summaryStatus === "sent"
-                  ? "observability.summarySent"
+                : summaryStatus === "queued"
+                  ? "observability.summaryQueued"
                   : "observability.summaryFailed",
             )}
           </span>
