@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// Capture every SQL string + bound args. Reads default to empty results,
-// with selected rows supplied only when a mapper needs exercising.
 interface ExecCall {
   sql: string;
   args: any[];
@@ -19,8 +17,6 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      // Most calls just need to "succeed" with empty rows. SELECTs in this
-      // store return an array shape; provide one to keep the mappers happy.
       return {
         rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
         rowsAffected: 0,
@@ -42,7 +38,6 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Pull the store after the mock is wired so it picks up the capturing db.
 const {
   getTraceSummaries,
   getTraceSummary,
@@ -72,7 +67,6 @@ const {
 } = await import("./store.js");
 
 function lastSelect(): ExecCall {
-  // Skip CREATE/ALTER/INDEX init calls; return the most recent SELECT.
   const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
   if (selects.length === 0) throw new Error("no SELECT was executed");
   return selects[selects.length - 1];
@@ -118,10 +112,6 @@ describe("observability store: per-user isolation", () => {
     });
 
     it("getTraceSummaries omits user_id filter when userId is undefined", async () => {
-      // Internal callers (background reports, admin tools) can pass no
-      // filter to read across all users. The omission must produce a
-      // SELECT without a `user_id =` clause — load-bearing for any
-      // future callers that intentionally want unfiltered reads.
       await getTraceSummaries({ sinceMs: 1000, limit: 50 });
       const call = lastSelect();
       expect(call.sql).not.toMatch(/user_id/);
@@ -209,6 +199,7 @@ describe("observability store: per-user isolation", () => {
         {
           id: "thread-a",
           owner_email: "alice@example.com",
+          org_id: "org-a",
           thread_data: '{"messages":[]}',
           title: "Alice's thread",
           scope_type: "design",
@@ -216,26 +207,31 @@ describe("observability store: per-user isolation", () => {
           scope_label: "Design A",
         },
       ];
-      const threads = await getOrgScopedReviewThreads("org-a", [
-        { ownerEmail: "alice@example.com", threadId: "thread-a" },
-        { ownerEmail: "bob@example.com", threadId: "thread-b" },
+      const threads = await getOrgScopedReviewThreads([
+        {
+          orgId: "org-a",
+          ownerEmail: "alice@example.com",
+          threadId: "thread-a",
+        },
+        { orgId: "org-b", ownerEmail: "bob@example.com", threadId: "thread-b" },
       ]);
       const queryCalls = execCalls.filter((call) =>
         /FROM chat_threads/.test(call.sql),
       );
       expect(queryCalls).toHaveLength(1);
       expect(queryCalls[0]!.sql).toMatch(
-        /SELECT id, owner_email,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title, scope_type, scope_id, scope_label FROM chat_threads\s+WHERE org_id = \? AND \(\(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
+        /SELECT id, owner_email, org_id,\s+CASE WHEN OCTET_LENGTH\(thread_data\) <= \? THEN thread_data ELSE NULL END AS thread_data,\s+title, scope_type, scope_id, scope_label FROM chat_threads\s+WHERE \(\(org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\) OR \(org_id = \? AND LOWER\(owner_email\) = LOWER\(\?\) AND id = \?\)\)/,
       );
       expect(queryCalls[0]!.args).toEqual([
         1_000_000,
         "org-a",
         "alice@example.com",
         "thread-a",
+        "org-b",
         "bob@example.com",
         "thread-b",
       ]);
-      expect(threads.get("thread-a")).toEqual({
+      expect(threads.get(JSON.stringify(["org-a", "thread-a"]))).toEqual({
         ownerEmail: "alice@example.com",
         threadData: '{"messages":[]}',
         title: "Alice's thread",
@@ -250,6 +246,7 @@ describe("observability store: per-user isolation", () => {
         {
           id: "thread-a",
           owner_email: "alice@example.com",
+          org_id: "org-a",
           thread_data: null,
           title: "Alice's thread",
           scope_type: null,
@@ -257,14 +254,18 @@ describe("observability store: per-user isolation", () => {
           scope_label: null,
         },
       ];
-      const threads = await getOrgScopedReviewThreads("org-a", [
-        { ownerEmail: "alice@example.com", threadId: "thread-a" },
+      const threads = await getOrgScopedReviewThreads([
+        {
+          orgId: "org-a",
+          ownerEmail: "alice@example.com",
+          threadId: "thread-a",
+        },
       ]);
 
       expect(lastSelect().sql).toContain(
         "CASE WHEN OCTET_LENGTH(thread_data) <= ? THEN thread_data ELSE NULL END",
       );
-      expect(threads.get("thread-a")).toEqual({
+      expect(threads.get(JSON.stringify(["org-a", "thread-a"]))).toEqual({
         ownerEmail: "alice@example.com",
         threadData: null,
         title: "Alice's thread",
@@ -276,8 +277,10 @@ describe("observability store: per-user isolation", () => {
 
     it("loads recent review runs only through org-owned thread rows", async () => {
       await getRecentReviewRunsForThreads({
-        orgId: "org-a",
-        threadIds: ["thread-a"],
+        threadScopes: [
+          { orgId: "org-a", threadId: "thread-a" },
+          { orgId: "org-b", threadId: "thread-a" },
+        ],
         sinceMs: 100,
         perThreadLimit: 6,
       });
@@ -285,12 +288,23 @@ describe("observability store: per-user isolation", () => {
       expect(call.sql).toMatch(
         /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
       );
-      expect(call.sql).toContain("summary.org_id = ?");
+      expect(call.sql).toContain(
+        "(summary.org_id = ? AND summary.thread_id = ?)",
+      );
       expect(call.sql).toContain(
         "name = 'agent_run:observability:human-review-summary'",
       );
-      expect(call.sql).toContain("PARTITION BY summary.thread_id");
-      expect(call.args).toEqual(["org-a", 100, "thread-a", "org-a", 6]);
+      expect(call.sql).toContain(
+        "PARTITION BY summary.org_id, summary.thread_id",
+      );
+      expect(call.args).toEqual([
+        100,
+        "org-a",
+        "thread-a",
+        "org-b",
+        "thread-a",
+        6,
+      ]);
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {
@@ -356,17 +370,39 @@ describe("observability store: per-user isolation", () => {
           updated_at: 2,
           review_thread_id: "thread-a",
         },
+        {
+          run_id: "run-other-org",
+          org_id: "org-b",
+          ask: "Other org ask",
+          outcome: "Other org outcome",
+          artifacts: "[]",
+          created_by: "other-admin@example.com",
+          created_at: 1,
+          updated_at: 4,
+          review_thread_id: "thread-a",
+        },
       ];
       await expect(
-        getHumanReviewSummariesForThreads("org-a", ["thread-a"]),
+        getHumanReviewSummariesForThreads([
+          { orgId: "org-a", threadId: "thread-a" },
+          { orgId: "org-b", threadId: "thread-a" },
+        ]),
       ).resolves.toMatchObject(
         new Map([
           [
-            "thread-a",
+            JSON.stringify(["org-a", "thread-a"]),
             {
               runId: "run-newest",
               ask: "Current ask",
               outcome: "Current outcome",
+            },
+          ],
+          [
+            JSON.stringify(["org-b", "thread-a"]),
+            {
+              runId: "run-other-org",
+              ask: "Other org ask",
+              outcome: "Other org outcome",
             },
           ],
         ]),
@@ -379,12 +415,12 @@ describe("observability store: per-user isolation", () => {
         /INNER JOIN chat_threads thread\s+ON thread\.id = trace\.thread_id AND thread\.org_id = trace\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(trace\.user_id\)/,
       );
       expect(call.sql).toMatch(
-        /WHERE review\.org_id = \? AND trace\.thread_id IN \(\?\)/,
+        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\)\)/,
       );
       expect(call.sql).toMatch(
         /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
       );
-      expect(call.args).toEqual(["org-a", "thread-a"]);
+      expect(call.args).toEqual(["org-a", "thread-a", "org-b", "thread-a"]);
     });
 
     it("parses valid persisted summary artifacts", async () => {
@@ -698,9 +734,6 @@ describe("observability store: per-user isolation", () => {
 
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
-      // getEvalStats fires two SELECTs (totals + per-criteria); both must
-      // carry the user filter, otherwise the per-criteria breakdown leaks
-      // other users' eval data while only the totals are scoped.
       const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
       expect(selects.length).toBe(2);
       for (const s of selects) {

@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",
@@ -414,11 +421,10 @@ const messages = {
     agentEmptyTitle: "انضم إلى المحادثة",
     agentEmptyDescription:
       "أنشئ حساب Clips مجانيًا للتعليق والتفاعل وطرح الأسئلة حول هذا المقطع.",
-    commentSignupTitle: "امنح وكيل الذكاء الاصطناعي الصورة كاملة",
-    commentSignupContext:
-      "شارك النص المكتوب والإطارات ذات الطوابع الزمنية في رابط واحد",
-    commentSignupFeedback: "حوّل الملاحظات المسجّلة إلى خطوات واضحة",
-    commentSignupDebug: "التقط أخطاء وحدة التحكم والطلبات الفاشلة",
+    commentSignupTitle:
+      "تسجيلات شاشة يستطيع وكيل الذكاء الاصطناعي رؤيتها وسماعها",
+    commentSignupDescription:
+      "Clips مسجل شاشة مجاني ومفتوح المصدر لمشاركة الأخطاء والملاحظات والشروحات خطوة بخطوة مع وكلاء الذكاء الاصطناعي.",
     agentEmptySignInPrompt: "لديك حساب بالفعل؟",
     signUp: "التسجيل",
     ownerInsights: "رؤى المالك",
@@ -820,6 +826,8 @@ const messages = {
     changelogEmpty: "لا توجد تحديثات بعد.",
     changelogCommentSignup:
       "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
+    changelogCommentsEmptyState:
+      "توضح الحالة الفارغة للتعليقات الآن كيف تساعد تسجيلات الشاشة وكلاء الذكاء الاصطناعي.",
     changelogShareLink:
       "يصل المستخدمون المسجّلون الذين يفتحون رابط مشاركة غير متاح أو منتهي الصلاحية أو خاص إلى مكتبتهم عند اختيار «العودة إلى الصفحة الرئيسية» بدلًا من صفحة التسويق العامة.",
     viewAllUpdates: "عرض كل التحديثات",

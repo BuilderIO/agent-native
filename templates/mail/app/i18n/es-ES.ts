@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "Configura tu bandeja con IA",
       aiSetupTagLabel: "Crear una etiqueta de IA",
       aiSetupImportanceLabel: "Correo importante",
-      aiSetupSpamLabel: "Spam y correo no deseado",
+      aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Omitir bandeja de entrada",
       aiSetupSave: "Guardar configuración",
       aiSetupSkip: "Omitir por ahora",
@@ -61,7 +61,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Mensajes que necesitan respuesta o tienen una fecha límite, incluidos los comentarios de personas en GitHub. Omitir comentarios de bots.",
       aiSetupArchiveSpamPrompt:
-        "Archivar automáticamente: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
+        "Omitir bandeja de entrada: notificaciones de GitHub con comentarios de bots o estados automáticos.\nSpam: mensajes claramente promocionales o no deseados que no solicité.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Listo",
       aiSetupRunAgain: "Volver a configurar",
@@ -72,6 +72,27 @@ const messages = {
       aiSetupPromptTravel: "Confirmaciones y reservas de viaje que necesito",
       aiSetupTagFinance: "Finanzas",
       aiSetupPromptFinance: "Facturas y extractos que necesito",
+      aiSetupArchiveExample:
+        "Notificaciones de bots y CI de GitHub, Vercel y Dependabot",
+      aiSetupFilteredExample:
+        "Mensajes de ventas no solicitados y reclutadores a quienes no he respondido",
+      aiSetupSortingHeadline: "Organizando tu bandeja de entrada",
+      aiSetupSortingProgress:
+        "Ordenando correo reciente: {{processed}} de {{total}}",
+      aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupSortingFailed:
+        "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
+      aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupRuleCount: "{{count}} coincidencias",
+      aiSetupNoMatches:
+        "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
+      aiSetupChatTip:
+        "Puedes ajustar o añadir reglas en cualquier momento desde el chat.",
+      aiSetupChatPrompt: "Prioriza los correos de mi jefe…",
+      aiSetupNoRules: "No seleccionaste ninguna regla.",
+      aiSetupPartialFailure: "No se pudieron actualizar {{count}} mensajes.",
+      aiSetupSortInbox: "Ordenar mi bandeja",
+      aiSetupImportantExample: "Todo lo de mi gerente, Priya…",
       priorityFeedbackLabel: "Comentarios sobre importancia",
       priorityScoreHigh: "Importancia alta",
       priorityScoreMedium: "Importancia media",
@@ -545,6 +566,8 @@ const messages = {
         "Añade la etiqueta agent-native-filtered y archiva la conversación. Puedes deshacerlo cuando quieras.",
       learningNote:
         "Conserva el mensaje en Recibidos y enseña al filtro a no repetir el error.",
+      learningProgress:
+        "Has confirmado {{count}} de {{required}} ejemplos. Revisaremos el correo reciente cuando se confirmen los {{required}}.",
       rememberLabel: "Recordar para futuros mensajes (opcional)",
       correctLabel: "¿Qué debería aprender? (opcional)",
       rememberPlaceholder:
@@ -559,11 +582,39 @@ const messages = {
       keptToast: "Se conservaron {{count}} conversación(es) en Recibidos.",
       actionFailed: "No se pudo actualizar el filtro de IA.",
       settingsFailed: "No se pudieron guardar los ajustes del filtro de IA.",
+      automationRulesLoadFailed:
+        "No se pudieron cargar las reglas de clasificación.",
       instructionFailed: "No se pudo guardar la instrucción del filtro de IA.",
       skipInboxMode: "Omitir bandeja de entrada",
       spamMode: "Spam",
       tagMode: "Etiqueta",
       aiTagsTitle: "Etiquetas de IA",
+      ruleHelpLabel: "Explicar las reglas de {{mode}}",
+      aiTagRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev añade esta etiqueta al correo que coincida.",
+      importantRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev marca como importante el correo que coincida.",
+      skipInboxRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev archiva el correo que coincida para omitir la bandeja de entrada.",
+      spamRuleHelp:
+        "Escribe una instrucción en lenguaje natural. Jev añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
+      filteredMode: "Filtrado",
+      manageSettings: "Administrar",
+      askJev: "Preguntar a Jev",
+      askJevPrompt:
+        "Ayúdame a ajustar esta regla de Mail: {{condition}}. Pregúntame qué quiero cambiar y luego actualízala.",
+      composerPlaceholder: "Pídele a Jev que organice tu bandeja…",
+      ruleBackfillStarting: "Aplicando esta regla al correo reciente…",
+      ruleBackfillProgress:
+        "Aplicando al correo reciente: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensajes recientes coinciden",
+      ruleBackfillNoMatches: "Ningún mensaje reciente coincide con esta regla.",
+      ruleBackfillFailed: "No se pudo aplicar esta regla al correo reciente.",
+      ruleBackfillPartialFailure:
+        "No se pudieron actualizar {{count}} mensajes.",
+      ruleBackfillUndoing: "Restaurando el correo reciente…",
+      ruleBackfillUndoComplete: "{{count}} mensajes restaurados",
+      ruleBackfillReview: "Revisar coincidencias",
       importantMode: "Importante",
       notImportantMode: "No importante",
       importantLabel: "Importante con IA",
@@ -606,7 +657,7 @@ const messages = {
       promptRulesCleared: "Reglas de clasificación eliminadas.",
       tagTabsHelp: "Cada etiqueta se convierte en una pestaña de la bandeja",
       addTag: "Añadir etiqueta",
-      triageTitle: "Clasificación",
+      triageTitle: "Clasificación con IA",
       connectJev: "Conectar Jev",
       connectJevToRunTriage: "Conecta Jev para usar el triaje",
       freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
@@ -801,7 +852,7 @@ const messages = {
     deleteSnippetDescription:
       'Eliminar el fragmento "{{name}}"? Esta accion no se puede deshacer.',
     automations: "Automatizaciones",
-    aiFilter: "Clasificación",
+    aiFilter: "Clasificación con IA",
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",

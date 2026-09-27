@@ -36,10 +36,6 @@ interface ProbeProps {
   onContinue?: (tabId: string) => void;
   model?: string;
   engine?: string;
-  /**
-   * Stand-in for the caller's ref: starts null and is replaced with a fresh
-   * object after mount, so a render-time read genuinely sees nothing.
-   */
   selectionRef?: { current: { model?: string; engine?: string } | null };
 }
 
@@ -77,6 +73,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
   beforeEach(() => {
     clearMock.mockClear();
+    coreClientMocks.useGuidedQuestionFlow.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockClear();
     agentChatMocks.sendToDesignAgentChat.mockImplementation(
       () => "generated-tab-id",
@@ -88,9 +85,10 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       description: undefined,
       skipLabel: undefined,
       submitLabel: undefined,
+      isSubmissionBlocked: false,
+      providerStatus: "configured",
+      retryProviderStatus: vi.fn(),
       clear: clearMock,
-      // These are intentionally shadowed by useQuestionFlow's own
-      // handleSubmit/handleSkip — see the hook's inline comment.
       handleSubmit: vi.fn(),
       handleSkip: vi.fn(),
     });
@@ -136,10 +134,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
 
     expect(agentChatMocks.sendToDesignAgentChat).toHaveBeenCalledTimes(1);
     const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0];
-    // Regression guard: without `newTab: true` here, the message would be
-    // posted to whichever tab is currently active while the caller is told
-    // a different, never-actually-used tabId — desyncing generation tracking
-    // (false "stopped, please retry" toasts; completion never detected).
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBeUndefined();
     expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
@@ -168,9 +162,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
-  // The continuation is the turn that actually generates. It must re-send the
-  // selection the design was started with: a fresh thread has no override, and
-  // a reused thread loses its in-memory one across a reload.
   it("carries the starting model selection into the continuation", async () => {
     const { cleanup } = await renderProbe({
       designId: "design-1",
@@ -193,9 +184,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
-  // The caller's source is a ref filled by the generation kickoff effect, which
-  // runs after the render that wires this hook up. Snapshotting a value during
-  // render captured the pre-kickoff null and sent no model at all.
   it("reads the selection at send time, not at render time", async () => {
     const selectionRef: {
       current: { model?: string; engine?: string } | null;
@@ -206,8 +194,6 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
       selectionRef,
     });
 
-    // Filled after mount with no re-render, exactly as the generation kickoff
-    // effect fills the caller's ref.
     selectionRef.current = { model: "gpt-5-6-terra", engine: "builder" };
 
     await act(async () => {
@@ -241,6 +227,47 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect("model" in call).toBe(false);
     expect("engine" in call).toBe(false);
 
+    await cleanup();
+  });
+
+  it("does not submit answers or skip while provider setup is required", async () => {
+    coreClientMocks.useGuidedQuestionFlow.mockReturnValue({
+      payload: null,
+      questions: null,
+      title: undefined,
+      description: undefined,
+      skipLabel: undefined,
+      submitLabel: undefined,
+      isSubmissionBlocked: true,
+      providerStatus: "missing",
+      retryProviderStatus: vi.fn(),
+      clear: clearMock,
+      handleSubmit: vi.fn(),
+      handleSkip: vi.fn(),
+    });
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+      latestHook!.handleSkip();
+    });
+
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+    await cleanup();
+  });
+
+  it("leaves local-runtime continuations outside the hosted provider gate", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      engine: "claude-cli",
+    });
+
+    expect(coreClientMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
+      expect.objectContaining({ providerStatusChecksEnabled: false }),
+    );
     await cleanup();
   });
 

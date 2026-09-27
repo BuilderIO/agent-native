@@ -65,10 +65,6 @@ export default defineAction({
     description: "Render query rows as a native table with CSV download.",
   },
   readOnly: true,
-  // No raw HTTP or connector-catalog route: SQL would land in query strings,
-  // logs, or a caller that lacks this app's schema and data dictionary. This
-  // remains an internal Analytics-agent tool; sibling agents ask Analytics a
-  // natural-language question and Analytics forms the query.
   http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,

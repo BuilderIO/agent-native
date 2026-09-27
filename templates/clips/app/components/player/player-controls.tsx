@@ -72,11 +72,6 @@ export interface PlayerControlsProps {
   onToggleFullscreen: () => void;
   onToggleTheater?: () => void;
   menuPortalContainer?: HTMLElement | null;
-  /**
-   * Surfaces the reaction tray and a comment-composer trigger inline in this
-   * bar (Loom-style), for contexts — namely fullscreen — where the caller's
-   * own reaction/comment row would otherwise be hidden.
-   */
   showReactionsAndComment?: boolean;
   enableReactions?: boolean;
   onReact?: ReactionHandler;

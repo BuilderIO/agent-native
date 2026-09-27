@@ -57,10 +57,6 @@ function InteractiveLayout({ children }: LayoutProps) {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
 
-  // Analytics stages the active primary resource as composer context —
-  // dashboards (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
-  // (`/analyses/:id`). List pages and Ask leave context null so general data
-  // questions still work.
   const analyticsScope = useMemo(() => {
     const dashMatch = location.pathname.match(
       /^\/(?:adhoc|dashboards)\/([^/]+)/,
@@ -139,6 +135,9 @@ function InteractiveLayout({ children }: LayoutProps) {
     description: guidedDescription,
     skipLabel: guidedSkipLabel,
     submitLabel: guidedSubmitLabel,
+    isSubmissionBlocked: guidedSubmissionBlocked,
+    providerStatus: guidedProviderStatus,
+    retryProviderStatus: retryGuidedProviderStatus,
     handleSubmit: handleGuidedSubmit,
     handleSkip: handleGuidedSkip,
   } = useGuidedQuestionFlow({
@@ -156,16 +155,10 @@ function InteractiveLayout({ children }: LayoutProps) {
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
-  // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
-  // toolbar. Skip the framework
-  // Header so there's no double-header.
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
-  // Monitoring renders its own header row (section tabs / "Back to monitors"
-  // + the relocated agent toggle), so skip the framework Header to avoid a
-  // redundant second title bar.
   const isMonitoringRoute =
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
@@ -266,6 +259,9 @@ function InteractiveLayout({ children }: LayoutProps) {
             description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
+            isSubmissionBlocked={guidedSubmissionBlocked}
+            providerStatus={guidedProviderStatus}
+            onRetryProviderStatus={retryGuidedProviderStatus}
           />
         </div>
       )}

@@ -25,7 +25,16 @@ import { useSlidesComposerContext } from "./SlidesComposerContext";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  localStorage.clear();
+  const storage = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => storage.clear(),
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    },
+  });
+  window.localStorage.clear();
   identity.email = "one@example.test";
   identity.orgId = "one";
   query.refresh = 0;
@@ -77,6 +86,44 @@ function attachFrames(
 }
 
 describe("Slides context readiness and identity", () => {
+  it("removes context picker actions while the Home route is inactive", () => {
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, active: false }),
+    );
+
+    expect(result.current.props.contextMenuItems).toEqual([]);
+    expect(callAction).not.toHaveBeenCalled();
+  });
+
+  it("ignores reference reads that finish after the Home route deactivates", async () => {
+    let resolve!: (value: unknown) => void;
+    callAction.mockReturnValue(new Promise((done) => (resolve = done)));
+    const { result, rerender } = renderHook(
+      ({ active }) =>
+        useSlidesComposerContext({
+          ...defaults,
+          active,
+          defaultReferenceDeck: deck,
+        }),
+      { initialProps: { active: true } },
+    );
+
+    await waitFor(() => expect(callAction).toHaveBeenCalledOnce());
+    rerender({ active: false });
+    await act(async () =>
+      resolve({
+        id: "deck",
+        title: "Deck",
+        context: "Loaded after deactivation",
+      }),
+    );
+
+    expect(result.current.props.contextItems[0]).toMatchObject({
+      status: "pending",
+      context: "",
+    });
+  });
+
   it("blocks pending reads and retryable concrete failures before generation", async () => {
     let reject!: (error: Error) => void;
     callAction.mockReturnValue(
@@ -138,7 +185,7 @@ describe("Slides context readiness and identity", () => {
     );
     expect(result.current.props.contextItems).toEqual([]);
     expect(
-      localStorage.getItem("slides-home-context:one@example.test:one"),
+      window.localStorage.getItem("slides-home-context:one@example.test:one"),
     ).toContain('"references":[]');
   });
   it("resets selection for another identity and rejects an in-flight send", async () => {
@@ -341,7 +388,7 @@ describe("Slides context readiness and identity", () => {
     query.enabled = false;
     const key = "slides-home-context:one@example.test:one";
     const saved = JSON.stringify({ designSystemId: "saved", references: [] });
-    localStorage.setItem(key, saved);
+    window.localStorage.setItem(key, saved);
     const { result } = renderHook(() =>
       useSlidesComposerContext({
         ...defaults,
@@ -353,14 +400,17 @@ describe("Slides context readiness and identity", () => {
     ).toEqual(["figma", "website"]);
     expect(result.current.props.contextItems).toEqual([]);
     expect(callAction).not.toHaveBeenCalled();
-    expect(localStorage.getItem(key)).toBe(saved);
+    expect(window.localStorage.getItem(key)).toBe(saved);
     const snapshot = await result.current.beforeSend();
     expect(snapshot.selection.designSystemId).toBeNull();
     expect(snapshot.text).toContain("Do not restore a workspace default");
   });
   it("keeps storage errors blocking even when system workflows are off", () => {
     query.enabled = false;
-    localStorage.setItem("slides-home-context:one@example.test:one", "{broken");
+    window.localStorage.setItem(
+      "slides-home-context:one@example.test:one",
+      "{broken",
+    );
     const { result } = renderHook(() => useSlidesComposerContext(defaults));
     expect(result.current.props.contextItems[0]).toMatchObject({
       key: "context-state",
@@ -370,7 +420,7 @@ describe("Slides context readiness and identity", () => {
   it("preserves a saved system through flag-off retry and source changes, then restores it when enabled", async () => {
     query.enabled = false;
     const key = "slides-home-context:one@example.test:one";
-    localStorage.setItem(
+    window.localStorage.setItem(
       key,
       JSON.stringify({
         designSystemId: "brand",
@@ -400,7 +450,9 @@ describe("Slides context readiness and identity", () => {
         result.current.props.contextItems[0].key,
       ),
     );
-    expect(JSON.parse(localStorage.getItem(key)!).designSystemId).toBe("brand");
+    expect(JSON.parse(window.localStorage.getItem(key)!).designSystemId).toBe(
+      "brand",
+    );
     callAction.mockResolvedValue({
       title: "Brand",
       agentContext: "Saved tokens",
@@ -444,7 +496,7 @@ describe("Slides context readiness and identity", () => {
       url: firstUrl,
     }));
     await act(async () => attachFrames(result.current, many));
-    const saved = localStorage.getItem(
+    const saved = window.localStorage.getItem(
       "slides-home-context:one@example.test:one",
     );
     const calls = callAction.mock.calls.length;
@@ -455,7 +507,7 @@ describe("Slides context readiness and identity", () => {
     ).toThrow("home.context.tooMany");
     expect(result.current.props.contextItems).toHaveLength(20);
     expect(
-      localStorage.getItem("slides-home-context:one@example.test:one"),
+      window.localStorage.getItem("slides-home-context:one@example.test:one"),
     ).toBe(saved);
     expect(callAction).toHaveBeenCalledTimes(calls);
     await act(async () => attachFrames(result.current, many));

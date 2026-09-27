@@ -26,7 +26,6 @@ export {
 
 export interface ScopedAgentAccessTokenOptions extends AgentAccessResourceScope {
   viewerEmail?: string;
-  /** Display name of the agent the link is for. Signed, but display-only. */
   agentLabel?: string;
   ttlSeconds?: number;
 }

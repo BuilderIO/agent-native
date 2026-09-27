@@ -96,7 +96,6 @@ export default defineEventHandler(async (event) => {
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
   }
   if (tokenAccess) {
-    // Tokenized HTML contains a bearer URL; key the shared cache by the full query.
     headers.set("netlify-vary", "query");
     setResponseHeader(event, "netlify-vary", "query");
   }

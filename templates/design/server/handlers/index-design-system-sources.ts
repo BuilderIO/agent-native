@@ -11,11 +11,6 @@ import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
 import { assertDesignSystemWorkflowsEnabled } from "../lib/design-system-workflows.js";
 
-/**
- * Finalizes Builder DSI indexing from upload tokens produced by the
- * browser-streamed resumable upload. The file bytes were streamed straight to
- * storage; this endpoint only forwards the opaque tokens.
- */
 export const indexDesignSystemSources = defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -75,8 +70,6 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    // Forward structured failures (e.g. tier-limit 402s) instead of a
-    // generic 502, so the client can recover the upgrade link.
     if (isActionContractError(err)) {
       setResponseStatus(event, cdnSafeOriginStatus(err.statusCode));
       return {

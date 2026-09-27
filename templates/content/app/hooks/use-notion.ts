@@ -20,13 +20,6 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 
 import { documentQueryFilter } from "./use-documents";
 
-// The server signs a `redirect` query param into the OAuth `state` and the
-// callback route sends the user back there once the connection completes. If
-// we never send it, `state.redirectPath` defaults to "/" server-side and
-// every OAuth round-trip drops the user at the app root regardless of what
-// document/view they started from. Current path + search (no hash — Notion's
-// redirect_uri validation is stricter about odd characters, and in-page
-// anchors aren't meaningful across a page reload anyway).
 export function currentRedirectTarget(): string {
   if (typeof window === "undefined") return "/";
   const { pathname, search } = window.location;
@@ -54,11 +47,6 @@ export function invalidateDocumentQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   documentId: string,
 ) {
-  // Targeted invalidation only — this fires on every link/unlink/pull/push/
-  // resolve-conflict mutation success (including the auto-sync push-on-save
-  // path after every debounced editor save). Invalidating the bare ["action"]
-  // key would refetch every mounted query app-wide (sidebar tree, comments,
-  // database views, search, connection status, ...) on each cycle.
   void queryClient.invalidateQueries(documentQueryFilter(documentId));
   void queryClient.invalidateQueries({
     queryKey: ["action", "list-documents"],
@@ -68,9 +56,6 @@ export function invalidateDocumentQueries(
   });
 }
 
-// `autoSync` only decides how often to refetch, so keying on it split one
-// document's status across two cache entries and two independent poll loops —
-// the toolbar polling at 2s while the sync bar polled the same action at 30s.
 export function documentSyncStatusQueryKey(documentId: string) {
   return [
     "action",
@@ -102,11 +87,6 @@ export async function openNotionOAuthUrl() {
   return fetchNotionAuthUrl();
 }
 
-// Not linked (no pageId) or the workspace isn't connected: there is nothing to
-// sync, so fall back to a slow heartbeat instead of the 2s/30s cadence. This
-// still notices a fresh link/connection made from another tab eventually,
-// without hammering refresh-notion-sync-status (get-document + getSyncLink +
-// connection lookup) for every open, unlinked document.
 const UNLINKED_SYNC_POLL_MS = 60_000;
 
 export function documentSyncRefetchIntervalMs(
@@ -121,10 +101,6 @@ export function useDocumentSyncStatus(documentId: string | null) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
-  // `autoSync` changes what the server does, so every observer of the shared
-  // query key has to agree on it. Read the same per-document toggle the
-  // toolbar writes instead of taking it per mount, where one component could
-  // suppress or enable another's auto-sync through the shared query function.
   const [autoSync] = useLocalStorage(
     `notion-auto-sync:${normalizedDocumentId ?? ""}`,
     false,
@@ -141,12 +117,6 @@ export function useDocumentSyncStatus(documentId: string | null) {
       });
     },
     enabled: !!normalizedDocumentId,
-    // Poll Notion aggressively when auto-sync is on so remote changes appear
-    // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
-    // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
-    // Once we know the doc is unlinked/disconnected, back off to a slow
-    // heartbeat (see documentSyncRefetchIntervalMs) instead of polling at full
-    // speed forever.
     refetchInterval: (query) =>
       documentSyncRefetchIntervalMs(query.state.data, autoSync),
   });
@@ -192,10 +162,6 @@ export function useDocumentSyncStatus(documentId: string | null) {
 
 const AUTO_SYNC_STORAGE_PREFIX = "notion-auto-sync:";
 
-// Disconnect is workspace-wide, so every per-document auto-sync toggle is
-// stale afterward. Without this, a doc that once had auto-sync ON keeps its
-// localStorage flag set to true and re-arms the 2s poll (see
-// documentSyncRefetchIntervalMs) the moment the workspace reconnects.
 export function clearAllAutoSyncToggles() {
   if (typeof window === "undefined") return;
   try {

@@ -1,44 +1,10 @@
 #!/usr/bin/env node
-/**
- * agent-friction-report.mjs
- *
- * Measures how often the user has to correct an agent about the same thing,
- * by reading local Claude Code and Codex transcripts and counting matches for
- * a table of known friction patterns, bucketed by week.
- *
- * Why this exists: on 2026-07-31 an audit claimed unrequested branch creation
- * was a live problem needing a tool-level block. Measuring it showed the
- * opposite — 10 occurrences in early July, then zero in the twelve days after
- * `.agents/skills/new-branch/SKILL.md` gained its activation guard. Guidance
- * had already closed it, and a block would only have fired on the correct
- * post-merge workflow.
- *
- * That is the whole point: a claim about agent behaviour is checkable, and the
- * check is cheap. Before adding any mechanism that constrains agents, run this
- * and confirm the pattern is still live. After changing a skill, run it again
- * a couple of weeks later and confirm the pattern actually declined. A rule
- * nobody measures is a rule nobody can tell is working.
- *
- * Usage:
- *   node scripts/agent-friction-report.mjs                # last 8 weeks
- *   node scripts/agent-friction-report.mjs --weeks 4
- *   node scripts/agent-friction-report.mjs --pattern cheap-model
- *   node scripts/agent-friction-report.mjs --self-test
- *
- * Reads only local transcript files; makes no network calls and writes nothing.
- */
 
 import { readdirSync, statSync, createReadStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-/**
- * Each entry is a correction the user should not have to repeat. `fixedBy`
- * records the guidance that was supposed to close it, so a pattern that keeps
- * climbing after its skill landed is a visible failure of that skill — not a
- * reason to reach for a tool-level block first.
- */
 const FOLLOWUP_ACTION = String.raw`(?:check(?:ed)?(?:\s+(?:back|whether|if))?|re-?check(?:ed)?|follow(?:ed)?[ -]+up(?:\s+(?:on|with))?|re-?read|revisit|re-?triage|disposition)`;
 const FOLLOWUP_TARGET = String.raw`(?:clarification|unanswered\s+feedback|follow[ -]?up|reporter|repl(?:y|ies|ied)|response|thread)`;
 const MISSED_FOLLOWUP_CONTEXT = String.raw`(?:miss(?:ed|ing)|prior|previous(?:ly)?|unanswered|pending|no\s+(?:reply|response)|still\s+(?:waiting|unanswered|no\s+(?:reply|response))|waiting\s+for|asked\s+for|requested\s+(?:a\s+)?clarification|reporter\s+(?:hasn['’]t|didn['’]t|never)\s+(?:repl(?:y|ied|ies)|respond))`;
@@ -71,6 +37,24 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const RESOURCE_CLEANUP_TARGET = String.raw`(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)`;
+const RESOURCE_CLEANUP_FAILURE = String.raw`(?:fail(?:ed)? to (?:close|stop)|(?:don['’]?t|do not|didn['’]?t|did not|can['’]?t|cannot|never|not) (?:close|stop|shut down|closing|stopping)|orphan(?:ed|ing)?|(?:left|leave|leaving)[^.!?\n]{0,50}(?:open|running|unclosed))`;
+const RESOURCE_CLEANUP_RE = new RegExp(
+  String.raw`\b(?:agents?|claude(?: code)?|codex)\b[^.!?\n]{0,200}(?:\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_FAILURE}\b|\b${RESOURCE_CLEANUP_FAILURE}\b[^.!?\n]{0,160}\b${RESOURCE_CLEANUP_TARGET}\b)|\b${RESOURCE_CLEANUP_TARGET}\b[^.!?\n]{0,80}\b(?:left open|left running|not closed|not stopped|orphaned)\b`,
+  "i",
+);
+const RESOURCE_CLEANUP_REGEX_CASES = [
+  [
+    true,
+    "Agents constantly spawn browser tabs and don't close them when done, then spawn node processes and don't stop them.",
+  ],
+  [true, "Agents fail to close browser tabs after the task."],
+  [true, "The Node process was left running."],
+  [false, "Agents spawn browser tabs for a quick check."],
+  [false, "Agents are leaving browser tabs for the next session."],
+  [false, "Open a browser tab for a quick check."],
+];
+
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
@@ -80,7 +64,6 @@ const WORKTREE_BRANCH_CONTEXT_RE =
   /\b(?:(?:creat(?:e|ing)|mak(?:e|ing)|switch(?:ing)?|mov(?:e|ing)|rotat(?:e|ing)|chang(?:e|ing))\s+(?:a\s+)?(?:new\s+)?branch(?:es)?|branch(?:es)?\s+(?:creation|changes?|movement|rotation|switch(?:es)?)|new\s+branches?|switch(?:ing)?\s+to\s+(?:a\s+)?task\s+branch(?:es)?)\b/i;
 const WORKTREE_BRANCH_PERMISSION_RE = {
   test(text) {
-    // Keep unrelated branch mentions in neighboring sentences out of this metric.
     return text
       .split(/[.!?;\n]/)
       .some(
@@ -152,8 +135,8 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
   [
-    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?=\s*(?:[.!?]|$))`,
-    String.raw`\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\b(?:codex|agents?|sessions?|threads?|i|we|this\s+task|the\s+task)\b[^.!?\n]{0,80}\b(?:couldn['’]?t|could not|were unable to)\s+(?:get|acquire|renew)\b[^.!?\n]{0,50}\bleases?\b[^.!?\n]{0,40}\b(?:so|then|and then|therefore)\b\s+(?:would\s+)?(?:just\s+)?(?:(?:it|they|i|we|the\s+(?:session|task|thread|agent)|(?:session|task|thread|agent|codex))\s+)?stop\w*(?:\s+working)?\b(?![.!?]\s*(?:this|that|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
+    String.raw`(?:^|[.!?\n])\s*(?!(?:if|when|unless|should|suppose|assuming)\b)(?![^.!?\n]{0,80}\b(?:hypothet\w*|examples?|illustrat\w*|fiction\w*)\b)[^.!?\n]{0,80}?\bi\s+(?:(?:had|have) to\s+)?(?:tell|told|asked|reminded)\s+(?:at\s+)?(?:the\s+)?(?:threads?|sessions?|agents?)\s+(?:to\s+)?finish(?:ing)?\s+shipping\s+and\s+(?:to\s+)?(?:ignore|bypass)\s+(?:the\s+)?leases?(?:\s+stuff)?\b(?![.!?]\s*(?:this|that|it|the above|the preceding|that sentence)\s+(?:is|was)\s+(?:(?:just|only|merely)\s+)?(?:an?\s+)?(?:illustrat\w*|hypothet\w*|fiction\w*|examples?)\b)(?=\s*(?:[.!?]|$))`,
   ].join("|"),
   "i",
 );
@@ -451,8 +434,6 @@ const SHIP_STOPPED_BEFORE_MERGE_RE = { test: isShipStoppedBeforeMerge };
 
 const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
-// A bare namespace mention is routine documentation. Count it only when the
-// same sentence also says the repair was wrong or describes a repair action.
 const CREDENTIAL_NAMESPACE_RE = new RegExp(
   [
     String.raw`\b${CREDENTIAL_NAMESPACE_SIGNAL}\b[^.!?]{0,120}\b${CREDENTIAL_CORRECTION_CONTEXT}\b`,
@@ -689,6 +670,14 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [true, "This task couldn't renew the PR lease, so it stopped."],
   [true, "I told the threads to finish shipping and ignore the lease stuff."],
   [
+    false,
+    "As a hypothetical example, I told the threads to finish shipping and ignore the lease stuff.",
+  ],
+  [
+    false,
+    "I told the threads to finish shipping and ignore the lease stuff. This is illustrative.",
+  ],
+  [
     true,
     "I had to tell at the threads to finish shipping and ignore the lease stuff.",
   ],
@@ -716,6 +705,34 @@ const BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES = [
   [
     false,
     "The lease expired then the task stopped because CI was unavailable.",
+  ],
+  [
+    false,
+    "Hypothetically, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "As a hypothetical example, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "Consider this hypothetical: Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. This is illustrative.",
+  ],
+  [
+    false,
+    "The task could not renew the PR lease, so it stopped working. That was just an example.",
+  ],
+  [
+    false,
+    "In a hypothetical scenario, Codex couldn't renew the PR lease, so it stopped working.",
+  ],
+  [
+    false,
+    "For example, Codex couldn't renew the PR lease, so it stopped working.",
   ],
   [
     false,
@@ -1005,6 +1022,11 @@ if (process.argv.includes("--self-test")) {
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
   );
   failures.push(
+    ...RESOURCE_CLEANUP_REGEX_CASES.filter(
+      ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
     ),
@@ -1059,7 +1081,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1067,9 +1089,6 @@ if (process.argv.includes("--self-test")) {
 
 const PATTERNS = [
   {
-    // Added 2026-09-02 after the Design E2E suite surfaced 63 failures that had
-    // rotted for weeks: the suite ran post-merge only, so no fix ever had to
-    // prove itself against a test that failed first.
     key: "no-failing-test-first",
     label: "Had to ask for a failing test before the fix",
     fixedBy:
@@ -1077,8 +1096,6 @@ const PATTERNS = [
     re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
   },
   {
-    // Added 2026-08-27 after the PR queue exposed routine main merges and
-    // generic ship commits as a measurable source of CI churn.
     key: "shipping-churn",
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
@@ -1114,8 +1131,6 @@ const PATTERNS = [
     re: WORKTREE_BRANCH_PERMISSION_RE,
   },
   {
-    // Added 2026-09-11 after a user correction made clear the feedback scope
-    // rule was treating concrete Design/UX feedback as out of scope.
     key: "design-feedback-scope",
     label: "Had to ask to act on design feedback",
     fixedBy:
@@ -1140,8 +1155,6 @@ const PATTERNS = [
     label: "Reported a list/read that is slow in production",
     fixedBy:
       "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
-    // Anchored to a LIST/READ subject so an unrelated "the build is so slow"
-    // does not inflate the count the guard is measured against.
     re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
@@ -1149,6 +1162,12 @@ const PATTERNS = [
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(stop stopping|keep stopping|why (did|do) you stop|don'?t stop|still queued|should be doing everything now)\b/i,
+  },
+  {
+    key: "resource-cleanup",
+    label: "Had to ask agents to close spawned tabs or stop processes",
+    fixedBy: "AGENTS.md + personal global resource-cleanup rule (2026-09-25)",
+    re: RESOURCE_CLEANUP_RE,
   },
   {
     key: "ship-stopped-before-merge",
@@ -1174,8 +1193,6 @@ const PATTERNS = [
     label: "Had to stop a credential rotation that was the wrong fix",
     fixedBy:
       "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
-    // The failure is repairing one namespace while the flow reads the other,
-    // so the repair verifies clean and changes nothing.
     re: new RegExp(
       [
         String.raw`\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b`,
@@ -1195,8 +1212,6 @@ const PATTERNS = [
     key: "unanswered-feedback-followup",
     label: "Had to ask whether unanswered feedback was rechecked",
     fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
-    // Keep this correction-specific: routine re-triage, answered-clarification,
-    // eyes-only, and reporter-status text are not friction by themselves.
     re: UNANSWERED_FEEDBACK_FOLLOWUP_RE,
   },
   {
@@ -1217,9 +1232,6 @@ const PATTERNS = [
     fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
     re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
   },
-  // Added 2026-08-20 after repeated confusion between automatic beta deploys
-  // and the separate manual production promotion path. Watch whether the
-  // shipping-skill split makes this correction disappear.
   {
     key: "beta-production-split",
     label: "Had to clarify beta auto-deploy vs manual production",
@@ -1242,9 +1254,6 @@ const PATTERNS = [
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
   {
-    // Added 2026-09-24 to measure omissions in non-auto-approved PR handoffs.
-    // Match corrective feedback only; ordinary first-time review requests are
-    // not user friction.
     key: "pr-review-handoff",
     label:
       "Had to ask for PR handoff detail or stop repeated external follow-ups",
@@ -1259,22 +1268,6 @@ const PATTERNS = [
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
     re: FEEDBACK_EYES_RE,
   },
-  // Added 2026-09-01. `feedback-reply-tone` counts duplicate and unfriendly
-  // questions but not their volume, so the 2026-09-01 sweep that posted 23
-  // questions in one hour (4% answered, against 88% for the runs that asked
-  // one or two) scored zero on every existing key. The cap in
-  // review-latest-feedback is what this key has to move; if it stays at zero
-  // while the user keeps saying the asks are odd, the key is wrong, not the
-  // behavior. Watch it alongside `unanswered-feedback-followup`, which has
-  // read zero since it landed because a per-run state file could not see the
-  // previous run's questions at all.
-  // Added 2026-09-02. Distinct from `repeat-issue` and `done-while-broken`:
-  // this is specifically the sweep re-fixing a bug the channel already
-  // reported and was already told was fixed. Measured because a repeat report
-  // is the only falsification signal the workflow gets for its own Fixed
-  // claims, and it was previously invisible - one Analytics outage drew three
-  // separate investigations, and the same Zoom invalid_client was answered
-  // twice 17 hours apart with neither reply linking the other.
   {
     key: "repeat-report-refix",
     label: "Told we keep re-fixing an already-reported bug",
@@ -1303,16 +1296,6 @@ const PATTERNS = [
       "external-agents skill + initialToolNames→MCP instructions (2026-09-05)",
     re: /\b(?:use|call) (?:the )?(?:right |correct |named )?tool\b|\bwrong tool\b|\bdon['’]t (?:use|call) ask_app\b|\b(?:write|author) (?:it|the (?:content|copy|text|deck|slide|design)) yourself\b|\bdon['’]t delegate (?:this|that|authoring)\b|\bstop waiting (?:on|for) the (?:in-app agent|app['’]s agent)\b/i,
   },
-  // Measured for the first time on 2026-08-12, after three prose rewrites of the
-  // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
-  // That is why the 2026-08-09 attempt could delete its own concrete rules nine
-  // minutes after writing them and no number moved. Baseline the day the key
-  // landed: 51 · 28 over the two weeks to 2026-08-12, total 79 — the largest row
-  // in this table, and the only correction in it never previously counted.
-  // Windowing is by file mtime, so read a sample of matches, not just the count:
-  // a resumed session re-enters the window, a quiet fortnight cannot be told
-  // apart from a vocabulary change, and roughly one match in ten is an untagged
-  // subagent brief that `humanText` below does not recognize yet.
   {
     key: "text-heavy-ui",
     label: "Told the UI has too much text / chrome upfront",
@@ -1320,15 +1303,6 @@ const PATTERNS = [
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
   },
-  // Measured for the first time on 2026-08-13, alongside the app-config schema
-  // and the `configuration` skill. There was no key while core grew to 301
-  // distinct environment variables, 253 of which are product behavior rather
-  // than secrets — so the habit was never counted, only noticed once the total
-  // was large enough to argue about. Baseline over the two weeks to 2026-08-13
-  // is recorded in plans/core-configuration-attack-plan.md; the number to watch
-  // is whether it stays flat while the schema absorbs domains, because a rising
-  // count means declaring a field is still more expensive than reaching for
-  // `process.env` and step 9 (generated docs and key sets) is the missing half.
   {
     key: "config-sprawl",
     label: "Told to stop adding environment variables / bespoke config",
@@ -1337,11 +1311,6 @@ const PATTERNS = [
     re: /\b((another|a new|more|adding|stop adding|why (another|a new|an?))[^.!?]{0,40}\benv(ironment)? ?(vars?|variables?|keys?)|env(ironment)? ?(vars?|variables?) (should (only|just|not)|are (only|just)|only for)|shouldn'?t need (an? )?env|without (needing |requiring )?(an? )?env(ironment)? ?(var|variable|key)|no more env|too many env|why (is|does) this (an? )?env|hardcod\w+ (the )?(env|config)|second (way|namespace) to (set|configure))/i,
   },
   {
-    // Added 2026-09-22 after a Builder Code agent "made a teammate admin" by
-    // adding a hardcoded databaseHooks.user.create email check: it ran before
-    // the lazily-created default org existed, never fired again for an
-    // account that had already signed up, and wrote a role system nothing
-    // gated on — so the teammate still wasn't admin after logging in.
     key: "admin-grant-hack",
     label: "Had to fix a hardcoded-email admin grant",
     fixedBy: ".agents/skills/sharing (make-me-admin recipe, 2026-09-22)",
@@ -1349,24 +1318,6 @@ const PATTERNS = [
   },
 ];
 
-/**
- * Both harnesses replay machine-authored text through the user role. Two kinds
- * arrive, and conflating them is how a pattern count lies in both directions.
- *
- * AUTHORED — a subagent brief, delegation envelope, or watchdog transcript. No
- * human typed it. A brief that says "reduces text overload" is not the user
- * asking for anything, and counting it inflated this table by roughly a third
- * before these filters existed. Drop the whole message.
- *
- * ATTACHED — ambient UI state, a pasted screenshot, injected skill bodies:
- * wrappers around text the user really did type. The user's sharpest UI
- * corrections arrive with an `<image>` attached, so dropping these loses the
- * signal being measured. Strip the wrapper and keep the remainder.
- *
- * Never returns text a human did not type, and never returns "" — "machine
- * only" and "user said nothing" must stay the same answer, so a message that
- * strips to empty is not counted as friction.
- */
 const AUTHORED_BY_AGENT =
   /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
 const ATTACHED_BLOCK =
@@ -1407,8 +1358,6 @@ for (const source of sources) {
   const files = walk(source.root).filter(
     (f) => f.endsWith(".jsonl") && mtime(f) >= cutoff,
   );
-  // A source with no readable transcripts is not "no friction" — say so, or a
-  // missing history directory reads as a clean report.
   if (files.length === 0) {
     process.stderr.write(
       `[friction] no ${source.name} transcripts newer than ${weeks}w under ${source.root}\n`,
@@ -1462,8 +1411,6 @@ function humanText(raw) {
   const raw_ = String(raw ?? "");
   if (AUTHORED_BY_AGENT.test(raw_)) return null;
   const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
-  // A message that is still nothing but markup after stripping is machinery
-  // whose wrapper this script does not know yet — not a quiet user.
   if (!text || text.startsWith("<")) return null;
   return text.length > 2 ? text : null;
 }

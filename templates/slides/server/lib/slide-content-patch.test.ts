@@ -178,9 +178,6 @@ describe("applySlideContentEdits", () => {
       error = caught;
     }
 
-    // Nothing applied: collapsing whitespace to match could otherwise
-    // silently rewrite semantically significant whitespace (<pre>, embedded
-    // JS/CSS) if it were spliced in.
     expect(error).toBeInstanceOf(SlideContentEditError);
     const message = (error as Error).message;
     expect(message).toContain("Closest matches in the current slide:");
@@ -254,12 +251,6 @@ describe("applySlideContentEdits", () => {
 });
 
 describe("SlideContentEditError transport contract", () => {
-  // Regression for a light-mode restyle that failed twice against beta on
-  // 2026-09-09: the agent's `find` strings did not match the slide, and the
-  // real reason ("replace expected 1 match(es), found 0") was flattened to
-  // "Internal server error" by the action route. It then retried the identical
-  // arguments and gave up. These failures are caller-correctable, so the route
-  // has to be able to recognise them.
   it("marks an unmatched find as a caller-correctable contract error", async () => {
     const slide = '<div style="background: #0a0a0a; color: #faf9f5;">Hi</div>';
 
@@ -301,9 +292,6 @@ describe("SlideContentEditError transport contract", () => {
   });
 
   it("refuses a regex-replace pattern that can backtrack catastrophically", async () => {
-    // `matchAll` over slide content is unbounded work for a pattern like this,
-    // and nothing can interrupt it once V8 is inside the match, so the refusal
-    // has to happen before the first match attempt.
     const error = await applySlideContentEdits("<p>aaaaaaaaaaaaaaaaaaaa!</p>", [
       { op: "regex-replace", pattern: "^([A-Za-z]+\\s?)+$", replace: "x" },
     ]).catch((caught: unknown) => caught);
@@ -322,8 +310,6 @@ describe("SlideContentEditError transport contract", () => {
   });
 
   it("judges a regex-replace pattern with the flags it will run under", async () => {
-    // `(a|A)+` is unambiguous on its own and catastrophic under `i`, so the
-    // verdict has to see the same flags the RegExp is built with.
     const safe = await applySlideContentEdits("<p>aaa</p>", [
       { op: "regex-replace", pattern: "(a|A)+", replace: "x" },
     ]);
@@ -336,10 +322,6 @@ describe("SlideContentEditError transport contract", () => {
   });
 
   it("refuses a pattern too long to analyze rather than stalling on it", async () => {
-    // regex-replace reaches the analyzer directly, without the length cap
-    // `compileUserRegex` applies. The analysis is itself super-linear in the
-    // source length, so the bound lives in the analyzer and this proves the
-    // Slides path inherits it.
     const pattern = `^(${Array.from({ length: 400 }, (_, i) => `a${i}`).join("|")})+$`;
     const started = Date.now();
     const error = await applySlideContentEdits("<p>a1a2</p>", [

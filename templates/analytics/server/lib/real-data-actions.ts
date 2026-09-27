@@ -21,17 +21,6 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
-// Inspecting or cloning an existing dashboard/extension template is
-// construction progress, not a metric query. These do not satisfy
-// hasDataQueryAttempt, but they should stop the guard from steering a
-// template-clone turn into "connect a missing source". Deliberately limited
-// to read/inspection actions: update-dashboard/mutate-dashboard/
-// compose-dashboard/create-extension/
-// update-extension can all author brand-new SQL or extension content, so
-// calling one of those alone is not proof the turn actually inspected a
-// template rather than inventing it from scratch. If the tool run also
-// includes one of these read actions, the bypass still applies even when an
-// authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -41,11 +30,6 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
-// Dashboard authoring/save actions. Unlike the read actions above, running one
-// of these is proof the turn actually edited or built a dashboard/extension —
-// which is a legitimate non-query completion. A saved SQL panel the user runs
-// themselves is not a fabricated metric, so the guard only needs to keep
-// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
 export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "mutate-dashboard",
   "update-dashboard",
@@ -54,10 +38,6 @@ export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "update-extension",
 ]);
 
-// A turn that already searched the saved-query catalog or dashboard
-// references found something to adapt or found nothing, either way it did
-// discovery work. The guard's catch-all fallback must not treat that turn
-// identically to one that never looked.
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
@@ -101,22 +81,11 @@ function isToolName(name: string, expected: string): boolean {
 
 let groundingActionNames: ReadonlySet<string> | null = null;
 
-/**
- * Read the action names whose definitions declare `grounding: true`.
- *
- * Takes the registry as an argument rather than importing
- * `.generated/actions-registry` because that registry imports every action, and
- * `save-analysis` imports this module — importing it back here would close an
- * evaluation cycle. The agent-chat plugin passes it in once at module load.
- */
 export function deriveGroundingActionNames(
   registry: Record<string, unknown>,
 ): string[] {
   return Object.entries(registry)
     .filter(([, module]) => {
-      // Action modules reach the registry either as the module namespace or as
-      // an already-unwrapped definition, the same two shapes
-      // `loadActionsFromStaticRegistry` normalizes.
       const candidate = module as
         | { grounding?: boolean; default?: { grounding?: boolean } }
         | undefined;
@@ -127,7 +96,6 @@ export function deriveGroundingActionNames(
     .map(([name]) => name);
 }
 
-/** Publish the derived set for the response guard to consult. */
 export function registerGroundingActions(names: Iterable<string>): void {
   groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
@@ -170,9 +138,6 @@ function isCatalogDiscoveryActionName(name: string): boolean {
   return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
 }
 
-// "Build/clone/template" language targeting a dashboard/extension/panel is
-// dashboard construction, distinct from an analytics-result question. Turns
-// like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
   /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
@@ -304,8 +269,6 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  // Do not let an action inside an automation request masquerade as the
-  // top-level dashboard artifact ("create an automation to refresh ...").
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")
     .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
@@ -503,11 +466,6 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
       "",
     );
   }
-  // Compatibility with callers deployed before A2A hints were wrapped in the
-  // structured block above. The legacy transport note includes words such as
-  // "full transcripts" and "create ... dashboard"; allowing those framework
-  // words into intent classification falsely triggered corpus and dashboard
-  // guards for ordinary delegated metric questions.
   requestText = requestText.replace(
     /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
     "",
@@ -631,16 +589,8 @@ const SETUP_REQUEST_FRAMING =
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
-// An explicit request to review a code artifact is never a data question,
-// whatever dates or metric words it also carries ("review the signup
-// changelog from last week").
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
-// A bare mention of a PR, diff, commit, or reviewer feedback makes the
-// message about a change rather than live data — unless it also asks for a
-// result ("how many signups came from each PR?"), which is a data question
-// with a pull-request dimension. Bare "reviewer" is not enough: "how many
-// calls did our reviewers handle" is about people, not a code review.
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
@@ -652,9 +602,6 @@ const DASHBOARD_BARE_STATUS_QUERY_TERMS =
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
-// Questions about schema, metadata, or available sources — these do NOT require
-// a live provider data call. They should be answered from the data dictionary,
-// schema introspection tools, or the agent's knowledge of configured sources.
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
 
@@ -770,9 +717,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
 
-  // Metadata/data-dictionary questions do not need a live provider query.
-  // Checking what's available, what a metric means, or what schema exists
-  // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
 
   if (
@@ -816,27 +760,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   );
 }
 
-// Each unit alternative after the number carries its own trailing `\b`
-// instead of one shared after the group: `%` is not a word character, so a
-// shared `\b` right after it can never match (neither "%" nor the following
-// space is a word char) and silently dropped every percentage claim, e.g.
-// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\b(?:higher|lower) than\b)/i;
 
-// Reuse the same broad unsupported-result-claim vocabulary that gates
-// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
-// bypass the no-query fallback just by avoiding the narrower set of units a
-// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-// Up to 40 characters of the same clause that never name an artifact: "the
-// signup dashboard was improved" is an edit summary, not a signup result.
 const NON_ARTIFACT_GAP =
   "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
 
-// A qualitative verdict about a metric ("signup conversion was strong last
-// week", "signups performed poorly") is a result claim with no number in it.
-// Anchored to a result term earlier in the same clause so an edit summary
-// such as "improved the dashboard layout" does not read as a claim.
 const METRIC_VERDICT_PHRASES =
   "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
@@ -844,8 +773,6 @@ const QUALITATIVE_METRIC_VERDICT = new RegExp(
   "i",
 );
 
-// "signups were 480" / "conversion: 4.2" put the metric before the figure,
-// which the unit-after-number shapes above never see.
 const METRIC_THEN_FIGURE = new RegExp(
   `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
   "i",
@@ -916,9 +843,6 @@ const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
 
-// The first sentence of the canned fallback, lowercased, with the trailing
-// period dropped. Matching this prefix (rather than the whole message) still
-// catches a model paraphrase that continues differently after "successfully".
 const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
   GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
     0,
@@ -938,9 +862,6 @@ const SAFE_NO_DATA_RESPONSE =
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  // This is the guard's own last-resort fallback. If a model emits it before
-  // attempting a query, it must go through the retry path instead of being
-  // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
   if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
@@ -1205,10 +1126,6 @@ export function hasCorpusWorkflowAttempt(
       return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
-    // Connected provider MCP tools can expose broad search/list/request
-    // primitives directly. Treat those as corpus-capable when they succeed so
-    // apps are not forced through provider-api-request if a native MCP source
-    // already provides the right general API surface.
     return isCorpusCapableMcpTool(name);
   });
 }

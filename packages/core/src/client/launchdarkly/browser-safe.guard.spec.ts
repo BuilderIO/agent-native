@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// Either specifier would pull the LaunchDarkly Node SDK — and whatever SDK
-// key it might see through a misconfigured import — into the browser bundle.
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const FORBIDDEN_SPECIFIERS = [

@@ -14,13 +14,19 @@ const mocks = vi.hoisted(() => ({
     createdByMe: true,
     aspectRatio: "16:9",
     slides: [] as unknown[],
-    generationContext: { generationAttemptId: "attempt-1" },
+    generationContext: {
+      generationAttemptId: "attempt-1",
+      generationMode: undefined as string | undefined,
+    },
   },
   broadGenerating: true,
   attemptGenerating: false,
   attemptObservedRun: false,
+  attemptTimedOut: false,
+  attemptCanContinueAfterStall: false,
   targetTabId: "target-tab",
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
+  startedTabId: null as string | null,
   analyticsSessionId: "session-1",
   updateDeck: vi.fn((_id: string, _changes: Record<string, unknown>) => {}),
   refreshOpenDeck: vi.fn(),
@@ -29,7 +35,13 @@ const mocks = vi.hoisted(() => ({
     async (
       _message: string,
       _context: string,
-      _options?: { submitMessageId?: string },
+      _options?: {
+        submitMessageId?: string;
+        targetTabId?: string;
+        openSidebar?: boolean;
+        generationAttemptId?: string;
+        generationOutputId?: string;
+      },
     ) => ({
       tabId: "target-tab",
       delivered: true,
@@ -37,6 +49,9 @@ const mocks = vi.hoisted(() => ({
   ),
   revision: 0,
   listeners: new Set<() => void>(),
+  sendToAgentChat: vi.fn(),
+  abortStalledRun: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
@@ -46,6 +61,7 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
 
   return {
     ...original,
+    getStartedGenerationAttemptTabId: () => mocks.startedTabId,
     useAgentGenerating: (options?: { tabId: string | null }) => {
       useSyncExternalStore(
         (listener) => {
@@ -78,7 +94,9 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
         runError: false,
         stopReason: null,
         observedRun: isTargetTab && mocks.attemptObservedRun,
-        timedOut: false,
+        timedOut: mocks.attemptTimedOut,
+        canContinueAfterStall: mocks.attemptCanContinueAfterStall,
+        abortStalledRun: mocks.abortStalledRun,
         submit: vi.fn(),
         submitAndConfirm: mocks.submitAndConfirm,
       };
@@ -119,6 +137,7 @@ vi.mock("@/context/DeckContext", () => ({
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   AGENT_CHAT_SUBMIT_TARGET_EVENT: "agentNative.chatSubmitTarget",
   AGENT_CHAT_SUBMIT_RESULT_EVENT: "agentNative.chatSubmitResult",
+  sendToAgentChat: mocks.sendToAgentChat,
   useGuidedQuestionFlow: () => ({
     questions: [],
     handleSubmit: vi.fn(),
@@ -126,6 +145,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     refetchPendingQuestion: vi.fn(async () => false),
   }),
 }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   const original =
     await importOriginal<
@@ -197,6 +217,14 @@ vi.mock("@/hooks/use-deck-role", () => ({
 }));
 vi.mock("@/hooks/use-slide-comments", () => ({
   useSlideComments: () => ({ data: [] }),
+}));
+vi.mock("@/hooks/use-slide-file-storage-status", () => ({
+  useSlideFileStorageStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
 }));
 vi.mock("@/lib/pending-deck-changes", () => ({
   shouldBlockPendingDeckNavigation: () => false,
@@ -283,11 +311,15 @@ describe("DeckEditor generation signal wiring", () => {
     });
     window.localStorage.clear();
     mocks.deck.slides = [];
+    mocks.deck.generationContext.generationMode = undefined;
     Object.assign(mocks, {
       broadGenerating: true,
       attemptGenerating: false,
       attemptObservedRun: false,
       targetTabId: "target-tab",
+      attemptTimedOut: false,
+      attemptCanContinueAfterStall: false,
+      startedTabId: null,
       analyticsSessionId: "session-1",
       revision: 0,
     });
@@ -300,9 +332,15 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.submitAndConfirm
       .mockReset()
       .mockResolvedValue({ tabId: "target-tab", delivered: true });
-    mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
+    mocks.abortStalledRun.mockReset().mockResolvedValue(true);
+    mocks.deck.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: undefined,
+    };
     mocks.scopedCalls = [];
     mocks.listeners.clear();
+    mocks.sendToAgentChat.mockClear();
+    mocks.toastError.mockClear();
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
   });
@@ -1024,7 +1062,10 @@ describe("DeckEditor generation signal wiring", () => {
     router?.dispose();
     router = undefined;
     mocks.attemptObservedRun = false;
-    mocks.deck.generationContext = { generationAttemptId: "attempt-1" };
+    mocks.deck.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationMode: undefined,
+    };
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -1055,7 +1096,10 @@ describe("DeckEditor generation signal wiring", () => {
   it("restores retry run tracking from the persisted submit-to-tab mapping", async () => {
     const submitMessageId = "retry-submit";
     const tabId = "retry-tab";
-    mocks.deck.generationContext = { generationAttemptId: "retry-attempt" };
+    mocks.deck.generationContext = {
+      generationAttemptId: "retry-attempt",
+      generationMode: undefined,
+    };
     mocks.targetTabId = tabId;
     mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
@@ -1097,6 +1141,54 @@ describe("DeckEditor generation signal wiring", () => {
         failure_code: "no_output",
       }),
     );
+  });
+
+  it("offers a stalled action-owned generation in its original chat", async () => {
+    mocks.attemptTimedOut = true;
+    mocks.attemptCanContinueAfterStall = true;
+    mocks.startedTabId = "target-tab";
+    mocks.deck.generationContext.generationMode = "action";
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "deckEditor.generationStalled",
+        expect.objectContaining({
+          description: "deckEditor.generationStalledDescription",
+          action: expect.objectContaining({
+            label: "deckEditor.continueInChat",
+            onClick: expect.any(Function),
+          }),
+        }),
+      ),
+    );
+
+    const options = mocks.toastError.mock.calls[0]?.[1] as {
+      action: { onClick: () => void | Promise<void> };
+    };
+    await act(async () => options.action.onClick());
+
+    expect(mocks.abortStalledRun).toHaveBeenCalledOnce();
+    expect(mocks.submitAndConfirm).toHaveBeenCalledWith(
+      "deckEditor.continueGenerationPrompt",
+      expect.stringContaining("Deck ID: deck-1"),
+      expect.objectContaining({
+        openSidebar: true,
+        targetTabId: "target-tab",
+        generationAttemptId: "attempt-1",
+        generationOutputId: "deck-1",
+      }),
+    );
+    expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
   });
 
   it("keeps a submitted attempt open when pagehide enters the back-forward cache", () => {

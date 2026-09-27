@@ -1,6 +1,14 @@
 import enUS from "./en-US";
 
 const ptBR = {
+  agentChat: {
+    setup: {
+      checkingProvider: "Verificando a conexão com a IA…",
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+    common: { retry: "Tentar novamente" },
+  },
   language: {
     label: "Idioma",
     system: "Sistema",
@@ -745,7 +753,6 @@ const ptBR = {
         answer5:
           "Sim. Compartilhe painéis com colegas de equipe ou sua organização com acesso de visualizador, editor ou administrador. Você também pode agendar relatórios por e-mail com os resultados atuais do painel, ou configurar alertas para as condições que quiser acompanhar.",
       },
-      // Copy V3 da landing page (2026-09-14) — do hero ao CTA final abaixo.
       heroEyebrow: "Analytics",
       heroTitle:
         "Faça uma pergunta. Obtenha o gráfico, a consulta e o contexto.",
@@ -876,7 +883,6 @@ const ptBR = {
           "Sim. Adicione coanfitriões obrigatórios, e o Calendar verifica as informações de livre/ocupado deles antes de oferecer um horário. Para também respeitar o horário de trabalho configurado de cada coanfitrião, você e esse coanfitrião precisam adicionar os calendários um do outro como sobreposições. Sem esse compartilhamento mútuo, o Calendar verifica apenas as informações de livre/ocupado deles.",
       },
       s001: "Captura de tela do modelo Calendar",
-      // Cópia V3 da página de destino (10/09/2026) — do hero ao CTA final.
       heroEyebrow: "Calendar",
       heroTitle:
         "Encontre tempo, marque reuniões e adapte seu dia com um agente",
@@ -1061,7 +1067,6 @@ const ptBR = {
           "Sim. Crie uma cópia com a CLI, adicione suas actions, dados e interface, e implante sua aplicação. Configure a autenticação e o acesso a provedores para seu ambiente, e teste os fluxos de trabalho que você adicionar antes de compartilhá-los com seus usuários.",
       },
       s001: "Captura de tela do app Chat",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "Construa seu próprio app de chat com IA",
       heroDescription:
@@ -1107,7 +1112,6 @@ const ptBR = {
     },
     clips: {
       s001: "Captura de tela do modelo Clips",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "Gravações de tela que seu agente de IA pode ver e ouvir",
       heroDescription:
@@ -1276,7 +1280,6 @@ const ptBR = {
           "Sim. Novos documentos são privados por padrão. Compartilhe-os com acesso de visualização, edição ou administração, e use o histórico de versões da página para restaurar um snapshot anterior. Restaurar um snapshot substitui o conteúdo atual da página.",
       },
       s001: "Captura de tela do modelo Content",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "Crie e organize seu trabalho com seu agente de IA",
       heroDescription:
@@ -1400,7 +1403,6 @@ const ptBR = {
           "Exporte o HTML ou um ZIP dos arquivos de design, ou prepare um repasse para um agente de programação. O protótipo oferece um ponto de partida para o desenvolvimento; a lógica da aplicação, integrações, testes e implantação ainda precisam de implementação e revisão. As exportações em HTML podem usar recursos externos em tempo de execução.",
       },
       s001: "Captura de tela do modelo Design",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "Crie protótipos interativos com seu agente de IA",
       heroDescription:
@@ -1523,7 +1525,6 @@ const ptBR = {
           "Não. Em um workspace de equipe, o Dispatch pode exigir revisão das próprias alterações que faz em recursos e configurações compartilhados. Ações dentro de aplicativos conectados, como enviar e-mail, seguem os controles desses aplicativos. A fila de aprovações do Dispatch não é um portão universal para toda ação de agente.",
       },
       s001: "Captura de tela do modelo Dispatch",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "Coordene seus agentes de IA em um só lugar",
       heroDescription:
@@ -1762,21 +1763,22 @@ const ptBR = {
           "Sim. Um colega de equipe pode solicitar um rascunho que aparece na sua fila de revisão. Abra-o, edite a mensagem e envie quando estiver pronto. Quem solicitou não pode enviá-lo em seu nome; quem controla o envio é o dono do rascunho ou um administrador da organização.",
       },
       s001: "Captura de tela do modelo Mail",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "Gerencie sua caixa de entrada com seu agente de IA",
+      heroTitle: "Assuma o controle da sua caixa de entrada com Jev",
       heroDescription:
-        "O Mail traz classificação de prioridade, rótulos sensíveis ao contexto, resumos de conversas e regras de segundo plano em uma caixa de entrada do Gmail com teclado, com um agente que pode dar o próximo passo.",
+        "Diga ao Jev em linguagem natural o que importa. Ele mantém visíveis os comentários humanos do GitHub, destaca as mensagens do seu gerente e tira as notificações de bots do caminho — aprendendo com suas correções.",
       heroCta: "Gerencie sua caixa de entrada",
-      useCasesHeading: "Deixe o Mail dar o primeiro passo",
+      mobileArchiveToast:
+        "1.167 notificações de bots arquivadas · 4 comentários de PR mantidos",
+      useCasesHeading: "Uma caixa de entrada mais inteligente, com Jev",
       useCasesBody:
-        "Revele conversas urgentes, rotule as mensagens por significado e mantenha o trabalho repetitivo da caixa de entrada em andamento enquanto você mantém o controle.",
-      useCase1Title: "Veja o que precisa de você hoje",
+        "Crie uma regra em linguagem natural. Jev prioriza pessoas e conversas importantes, aplica os rótulos certos e arquiva mensagens repetitivas assim que chegam.",
+      useCase1Title: "Mantenha as pessoas. Arquive os bots.",
       useCase1Body:
-        "O Mail classifica os tópicos por urgência, prazos e quem está esperando e, em seguida, fornece um resumo da caixa de entrada com as próximas ações úteis.",
-      useCase2Title: "Rotular mensagens por significado",
+        "Diga ao Jev o que importa: mantenha no Product os comentários de pessoas em pull requests do GitHub, arquive notificações de bots e mova os e-mails da sua liderança para Important. Ajuste cada regra com um prompt e ensine o filtro de spam com seu feedback.",
+      useCase2Title: "Cada e-mail com o rótulo certo",
       useCase2Body:
-        "O agente pode aplicar rótulos do contexto do remetente e da conversa, para que as conversas de pesquisa, finanças e clientes fiquem fáceis de encontrar.",
+        "Jev classifica conversas pelo significado, não apenas por palavras-chave, para que notas de clientes, recibos e pesquisas cheguem ao lugar certo.",
       useCase3Title: "Automatize o trabalho de rotina",
       useCase3Body:
         "Defina regras para rotular ou arquivar novos e-mails em segundo plano e revise o histórico de execução sempre que desejar.",
@@ -1798,9 +1800,9 @@ const ptBR = {
       feature5Title: "Revise antes de enviar",
       feature5Body:
         "Peça ao agente para redigir ou revisar uma resposta e, em seguida, revise-a e edite-a antes que ela saia da sua caixa de entrada.",
-      feature6Title: "Pesquisa em várias contas",
+      feature6Title: "Um filtro de spam que aprende",
       feature6Body:
-        "Pesquise contas do Gmail conectadas e use a mesma prioridade, rótulos e ferramentas de agente em um só lugar.",
+        "Marque uma mensagem filtrada como desejada ou sinalize um e-mail indesejado. Jev aprende com cada correção e aplica isso a mensagens semelhantes.",
       finalCtaHeading: "Comece com seu próximo e-mail",
       finalCtaBody:
         "Abra uma conversa e peça ao seu agente de IA um resumo ou um rascunho de resposta.",
@@ -1953,7 +1955,6 @@ const ptBR = {
           "Exporte um arquivo PPTX para abrir no PowerPoint. Para usar a apresentação no Google Slides, importe esse arquivo lá. Revise fontes e layouts após a exportação, pois podem ser renderizados de forma diferente entre os editores.",
       },
       s001: "Captura de tela do modelo Slides",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "Crie apresentações com seu agente de IA",
       heroDescription:

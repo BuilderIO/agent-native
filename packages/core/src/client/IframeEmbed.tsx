@@ -35,10 +35,6 @@ function aspectToPaddingBottom(aspect: string): string {
   return `${(h / w) * 100}%`;
 }
 
-/**
- * Parses the body of a ```embed fenced block. Accepts simple `key: value`
- * lines, ignoring blanks and unknown keys. No YAML — keeps the surface small.
- */
 export function parseEmbedBody(body: string): Partial<IframeEmbedProps> {
   const out: Partial<IframeEmbedProps> = {};
   for (const raw of body.split(/\r?\n/)) {
@@ -75,10 +71,6 @@ function BlockedEmbed({ reason, src }: { reason: string; src?: string }) {
   );
 }
 
-/**
- * Inline iframe embed for assistant chat. Rendered from a ```embed fenced
- * code block. Same-origin paths only; sandboxed.
- */
 export function IframeEmbed({ src, aspect, title, height }: IframeEmbedProps) {
   const [loaded, setLoaded] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);

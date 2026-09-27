@@ -1,5 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { docsUrl } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
@@ -87,6 +89,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const fileUploadStatus = useFileUploadStatus();
   const importSource = useActionMutation("import-design-source");
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -125,6 +128,10 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     total: number;
   } | null>(null);
   const [figUploadBusy, setFigUploadBusy] = useState(false);
+  const [figUploadStorageRequired, setFigUploadStorageRequired] =
+    useState(false);
+  const [figUploadStorageUnavailable, setFigUploadStorageUnavailable] =
+    useState(false);
   const [figImportPreview, setFigImportPreview] =
     useState<FigImportPreview | null>(null);
   const [figImportSelection, setFigImportSelection] = useState<Set<string>>(
@@ -133,7 +140,25 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const pendingFigImportRef = useRef<PreparedFigImport | null>(null);
   const unmountedRef = useRef(false);
 
-  // A prepared import holds a Worker with the decoded document in it.
+  const ensureStorageForFigFallback = useCallback(async () => {
+    const status = fileUploadStatus.isSuccess
+      ? fileUploadStatus
+      : await fileUploadStatus.refetch();
+    const configured = status.isSuccess && status.data.configured === true;
+    setFigUploadStorageRequired(
+      status.isSuccess && status.data.configured === false,
+    );
+    setFigUploadStorageUnavailable(!status.isSuccess);
+    return configured;
+  }, [fileUploadStatus]);
+
+  useEffect(() => {
+    if (fileUploadStatus.isSuccess && fileUploadStatus.data.configured) {
+      setFigUploadStorageRequired(false);
+      setFigUploadStorageUnavailable(false);
+    }
+  }, [fileUploadStatus.data?.configured, fileUploadStatus.isSuccess]);
+
   useEffect(() => {
     unmountedRef.current = false;
     return () => {
@@ -380,6 +405,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             "[fig-import] in-browser conversion failed; falling back to the upload route.",
             localError,
           );
+          if (!(await ensureStorageForFigFallback())) return;
           setFigUploadPhase("uploading");
           result = await uploadDesignFile({
             designId: context.designId,
@@ -394,7 +420,13 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
         clearFigUploadState();
       }
     },
-    [clearFigUploadState, context.designId, finishImport, t],
+    [
+      clearFigUploadState,
+      context.designId,
+      ensureStorageForFigFallback,
+      finishImport,
+      t,
+    ],
   );
 
   const handleFigFileChange = useCallback(
@@ -416,9 +448,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       try {
         let prepared: PreparedFigImport;
         try {
-          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
-          // plus three codec packages, and an editor that never opens a `.fig`
-          // should not pay for them on first paint.
           const { prepareFigImport, shouldWarnForFigImport } =
             await import("@/lib/fig-client-import");
           prepared = await prepareFigImport(file, ({ phase }) => {
@@ -452,6 +481,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
             "[fig-import] in-browser decode failed; falling back to the upload route.",
             localError,
           );
+          if (!(await ensureStorageForFigFallback())) return;
           setFigUploadPhase("uploading");
           const result = await uploadDesignFile({
             designId: context.designId,
@@ -476,6 +506,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
     [
       clearFigUploadState,
       context.designId,
+      ensureStorageForFigFallback,
       finishImport,
       runPreparedFigImport,
       t,
@@ -770,6 +801,28 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescriptionShort")}
               </p>
+              {figUploadStorageRequired || figUploadStorageUnavailable ? (
+                <div
+                  className="space-y-2"
+                  data-testid="fig-upload-storage-gate"
+                >
+                  <FileStorageSetupPopover
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        setFigUploadStorageRequired(false);
+                        setFigUploadStorageUnavailable(false);
+                      }
+                    }}
+                    {...(figUploadStorageUnavailable
+                      ? {
+                          status: "unavailable" as const,
+                          onRetry: () => void ensureStorageForFigFallback(),
+                        }
+                      : { status: "missing" as const })}
+                  />
+                </div>
+              ) : null}
               {figImportPreview ? (
                 <div
                   className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs"
@@ -1057,7 +1110,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   );
 }
 
-/** Memoized: toggling one of a few hundred frames re-renders only its row. */
 const FigImportFrameRow = memo(function FigImportFrameRow({
   frame,
   checked,

@@ -9,13 +9,6 @@ import type { ElementInfo } from "@/components/design/types";
 import { resolveCodeLayerNodeFromElementInfo } from "./code-layer-state";
 import { describeFlowContainer, type FlowContainerInfo } from "./nudge-intent";
 
-/**
- * Figma parity — paste goes INSIDE a selected frame and AFTER a selected
- * object. Treating every selection as an object is the difference between
- * "paste into this card" and "paste a second card beside it".
- */
-
-/** Elements that render their own content and can never host a pasted layer. */
 const REPLACED_TAGS = new Set([
   "area",
   "audio",
@@ -40,8 +33,6 @@ const REPLACED_TAGS = new Set([
   "wbr",
 ]);
 
-/** Elements a designer reads as a text object rather than a frame, even when
- * markup nests inline children inside them. */
 const TEXT_LEAF_TAGS = new Set([
   "a",
   "b",
@@ -138,19 +129,9 @@ export function resolvePastePlacementForSelection(args: {
 
 export interface PasteSourceAnchor {
   fileId: string;
-  /**
-   * null when the entries do not share one resolvable parent. Never an empty
-   * array — a caller must not read "unresolved" as "insert at the root here",
-   * because the stored left/top are relative to a parent that is not there.
-   */
   parentSelectors: string[] | null;
 }
 
-/**
- * A copied layer's left/top are parent-relative, so a paste that lands
- * anywhere else reads them in the wrong coordinate space. Null means the
- * source is unknown — never "the document root".
- */
 export function resolvePasteSourceAnchor(args: {
   entries: ReadonlyArray<{ rootNodeId?: string; sourceFileId: string }>;
   getContent: (fileId: string) => string | undefined;
@@ -180,8 +161,6 @@ export function resolvePasteSourceAnchor(args: {
     return node?.parentId ?? null;
   });
   const [sharedParentId] = parentIds;
-  // Layers copied out of different parents have no common coordinate space, so
-  // forcing them into the first one's parent moves the rest.
   if (!sharedParentId || parentIds.some((id) => id !== sharedParentId)) {
     return unresolved;
   }
@@ -191,9 +170,6 @@ export function resolvePasteSourceAnchor(args: {
   if (!parent) return unresolved;
   const parentNodeId = parent.dataAttributes["data-agent-native-node-id"];
   const parentSelectors = [
-    // A node-id selector is unique by construction; the projection's
-    // class/path aliases can match several siblings, and
-    // insertClonedHtmlLayers fails closed on that ambiguity.
     parentNodeId
       ? `[data-agent-native-node-id="${parentNodeId.replace(/["\\]/g, "\\$&")}"]`
       : null,

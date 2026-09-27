@@ -3,7 +3,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -31,7 +31,6 @@ export default defineAction({
   run: async ({ designId, breakpointId, editScope }) => {
     await assertAccess("design", designId, "editor");
 
-    // Persist as application state so view-screen returns it and the UI reflects it.
     await writeAppState(`design-active-breakpoint:${designId}`, {
       designId,
       activeBreakpointId: breakpointId,

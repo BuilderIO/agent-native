@@ -8,6 +8,7 @@ import { TooltipProvider } from "../ui/tooltip.js";
 import {
   ComposerContextMenu,
   getComposerContextMenuEntries,
+  type ComposerContextPickerConfig,
   type ComposerContextMenuItem,
   type ComposerContextPageControls,
 } from "./ComposerContextMenu.js";
@@ -136,24 +137,10 @@ describe("connected composer menus", () => {
   async function click(label: string) {
     await act(async () => row(label).click());
   }
-  async function search(placeholder: string, value: string) {
-    const input = document.querySelector<HTMLInputElement>(
-      `input[placeholder="${placeholder}"]`,
-    )!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
-  it("keeps all anchored panels visible with category search overrides and w64", async () => {
+  it("shows complete options in each anchored menu with w64", async () => {
     await render(items, { addAttachment: vi.fn() });
     await open();
-    expect(
-      document.querySelector('input[placeholder="Search…"]'),
-    ).not.toBeNull();
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     expect(row("Upload File").querySelector("svg")?.getAttribute("width")).toBe(
       "16",
     );
@@ -162,14 +149,54 @@ describe("connected composer menus", () => {
     await click("Archive");
     expect(menus()).toHaveLength(4);
     expect(menus().every((menu) => menu.classList.contains("w-64"))).toBe(true);
-    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(4);
-    expect(
-      document.querySelector('input[placeholder="Search documents…"]'),
-    ).not.toBeNull();
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     expect(row("Documents").getAttribute("aria-expanded")).toBe("true");
     expect(row("Meeting notes").getAttribute("role")).toBe("menuitem");
+    expect(row("Project brief")).toBeDefined();
   });
-  it("filters root and category search without flattening the hierarchy", async () => {
+  it("closes a context picker when its composer becomes disabled", async () => {
+    const onDismiss = vi.fn();
+    const picker = {
+      presentation: {
+        type: "dialog" as const,
+        mode: "multiple" as const,
+        onAttach: vi.fn(),
+      },
+      searchPlaceholder: "Search sources",
+      scopeKey: "account",
+      load: async () => ({ items: [], hasMore: false }),
+    } satisfies ComposerContextPickerConfig;
+    const entries: ComposerContextMenuItem[] = [
+      { id: "source", label: "Source", picker, onDismiss },
+    ];
+    let draft: HTMLInputElement | null = null;
+    const onDisabledFocus = vi.fn(() => draft?.focus());
+    await render(entries, { onDisabledFocus });
+    draft = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Prompt draft"]',
+    );
+    await open();
+    await click("Add context");
+    await click("Source");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+    await render(entries, { disabled: true, onDisabledFocus });
+    await act(
+      async () =>
+        await new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+    );
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onDisabledFocus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(draft);
+  });
+  it("keeps the menu hierarchy while listing every option", async () => {
     const select = vi.fn();
     await render(
       [
@@ -187,27 +214,19 @@ describe("connected composer menus", () => {
       { addAttachment: vi.fn() },
     );
     await open();
-    await search("Search…", "brief");
-    expect(menus()[0].textContent).not.toContain("Upload File");
+    expect(row("Upload File")).toBeDefined();
     await click("Add context");
-    await search("Search context…", "documents");
-    expect(menus()[1].textContent).not.toContain("Library");
+    expect(row("Library")).toBeDefined();
     await click("Documents");
-    await search("Search documents…", "brief");
-    expect(menus()[2].textContent).not.toContain("Notes");
+    expect(row("Notes")).toBeDefined();
+    expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     await click("Project brief");
     expect(select).toHaveBeenCalledOnce();
     expect(menus()).toHaveLength(0);
   });
-  it("keeps typing out of typeahead and supports native ArrowRight, Left and Escape", async () => {
+  it("supports native ArrowRight, Left and Escape navigation", async () => {
     await render();
     await open();
-    const input =
-      document.querySelector<HTMLInputElement>('[role="searchbox"]')!;
-    await key(input, "d");
-    expect(document.activeElement).toBe(input);
-    await key(input, "ArrowDown");
-    expect(document.activeElement).toBe(row("Add context"));
     await key(row("Add context"), "ArrowRight");
     await key(row("Documents"), "ArrowRight");
     expect(menus()).toHaveLength(3);
@@ -250,6 +269,18 @@ describe("connected composer menus", () => {
     );
     expect(attach.mock.calls.map(([file]) => file)).toEqual(files);
     expect(error).toHaveBeenCalledWith("Upload unavailable");
+  });
+  it("requests gated upload after the menu closes", async () => {
+    const onAttachmentRequest = vi.fn();
+    await render([], { onAttachmentRequest });
+    await open();
+    await click("Upload File");
+    await act(
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(menus()).toHaveLength(0);
   });
   it("preserves legacy render, latest updates, dismissal and resume without reselecting", async () => {
     let controls!: ComposerContextPageControls;

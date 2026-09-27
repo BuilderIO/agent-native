@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
@@ -19,19 +20,27 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
-import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
+import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "../../actions/_document-edit-mutation.js";
+import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
+import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { nfmToDoc } from "../../shared/nfm.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
+import { recordDocumentBodyIntent } from "./document-body-intents.js";
+import { recordDocumentHistoryTransition } from "./document-history.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
@@ -159,23 +168,9 @@ function matchesDocumentRevision(
     typeof document.content === "string"
       ? documentRevisionToken(document.bodyRevision, document.content)
       : null;
-  // Suggestions created before the body revision token shipped persisted the
-  // document timestamp as their basis. Keep those proposals reviewable while
-  // all new get-document callers use the canonical token.
   return (
     baseRevision === canonicalRevision || baseRevision === document.updatedAt
   );
-}
-
-function decisionChatContext(ctx: Record<string, unknown> | undefined) {
-  const context = Object.fromEntries(
-    (["threadId", "runId", "turnId"] as const).flatMap((key) =>
-      typeof ctx?.[key] === "string" && ctx[key].trim()
-        ? [[key, ctx[key]]]
-        : [],
-    ),
-  );
-  return Object.keys(context).length ? JSON.stringify(context) : null;
 }
 
 type ContentDecisionCoordination = {
@@ -293,13 +288,6 @@ function unsupportedSuggestionStructure(
   return result;
 }
 
-/**
- * The two sides with the edit's own span cut out — the part of the Page the
- * suggestion leaves alone. Comparing each side against this, rather than
- * against each other, is what separates "the edit moved or rewrote an
- * unsupported node" from "an untouched image sits after a block the edit added
- * or removed".
- */
 function unchangedSurround(before: string, after: string): string {
   let prefix = 0;
   while (
@@ -370,6 +358,80 @@ function drizzleTransactionForExec(transaction: DbExec) {
     },
     { schema },
   );
+}
+
+async function assertSuggestionBodyTarget(
+  transaction: DbExec,
+  documentId: string,
+) {
+  const row = (
+    await transaction.execute({
+      sql: `SELECT
+              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ?) AS is_database,
+              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership`,
+      args: [documentId, documentId],
+    })
+  ).rows[0];
+  if (row?.is_database) {
+    fail("Collection Pages cannot receive body suggestions.", {
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
+  }
+  const memberships = (
+    await transaction.execute({
+      sql: `SELECT d.document_id AS database_document_id, d.system_role, p.id AS primary_id
+            FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ? AND d.deleted_at IS NULL
+            ORDER BY d.id`,
+      args: [documentId],
+    })
+  ).rows;
+  const ordinaryMemberships = memberships.filter(
+    (membership) => membership.system_role === null,
+  );
+  const eligibleDocumentIds = ordinaryMemberships
+    .filter((membership) => membership.primary_id)
+    .map((membership) => String(membership.database_document_id));
+  const identityDb = drizzleTransactionForExec(transaction);
+  const accessibleIds = await accessibleDocumentIds(
+    eligibleDocumentIds,
+    undefined,
+    identityDb,
+    transaction,
+  );
+  let hasAccessiblePrimary = accessibleIds.size > 0;
+  if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
+    hasAccessiblePrimary = memberships.some(
+      (membership) =>
+        membership.system_role === "files" && membership.primary_id,
+    );
+  }
+  if (
+    !hasSuggestionBodyTarget({
+      hasDatabaseMembership: Boolean(row?.has_membership),
+      hasPrimaryBlocksField: hasAccessiblePrimary,
+    })
+  ) {
+    fail(
+      "This database item has no primary Blocks field for body suggestions.",
+      {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      },
+    );
+  }
+  return memberships
+    .filter(
+      (membership) =>
+        membership.primary_id &&
+        ((membership.system_role === null &&
+          accessibleIds.has(String(membership.database_document_id))) ||
+          (membership.system_role === "files" && !ordinaryMemberships.length)),
+    )
+    .map((membership) => String(membership.primary_id));
 }
 
 function replacePreparedCollabContent(
@@ -488,20 +550,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       });
     }
     const exclusions = await (transaction ?? getDbExec()).execute({
-      sql: `SELECT 'database' AS kind
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            UNION ALL
-            SELECT 'external' AS kind FROM document_sync_links WHERE document_id = ? AND state != 'unlinked'
-            LIMIT 1`,
-      args: [input.resourceId, input.resourceId],
+      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+      args: [input.resourceId],
     });
     if (exclusions.rows.length) {
-      throw new Error(
-        "Database item and externally linked Pages cannot receive suggestions yet",
-      );
+      throw new Error("Externally linked Pages cannot receive suggestions yet");
     }
+    await assertSuggestionBodyTarget(
+      transaction ?? getDbExec(),
+      input.resourceId,
+    );
     const operations = validateOperations(input.operations);
     const before = markdownPayload(operations[0]!.before, "before");
     const after = markdownPayload(operations[0]!.after, "after");
@@ -593,33 +651,95 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       currentContent,
       nextContent,
     );
-    const membership = await tx.execute({
-      sql: `SELECT i.id
-            FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id
-            WHERE i.document_id = ? AND d.system_role IS NULL
-            LIMIT 1`,
-      args: [context.resourceId],
-    });
-    if (membership.rows.length) {
-      throw new Error(
-        "Database item Pages cannot receive body suggestions yet",
-      );
-    }
     if (currentContent.includes("<InlineDatabase")) {
       throw new Error(
         "Pages containing inline databases cannot accept suggestions yet",
       );
     }
+    const eligiblePrimaryIds = await assertSuggestionBodyTarget(
+      tx,
+      context.resourceId,
+    );
     const identityTx = drizzleTransactionForExec(tx);
+    await tx.execute({
+      sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    });
+    // Memberships have no document foreign key. Never wait for the table after
+    // locking the Page: other editors lock memberships before the Page.
+    try {
+      await tx.execute(
+        "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+      );
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "55P03"
+      ) {
+        fail("The Page is busy. Try accepting the suggestion again.", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      throw error;
+    }
     const primaryBlocksFields = await lockPrimaryBlocksFields(
       identityTx,
       context.resourceId,
     );
+    const currentTargets = await tx.execute({
+      sql: `SELECT d.system_role, p.id FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ?`,
+      args: [context.resourceId],
+    });
+    const hasOrdinaryMembership = currentTargets.rows.some(
+      (row) => row.system_role === null,
+    );
+    const hasEligibleTarget = currentTargets.rows.some(
+      (row) =>
+        (row.system_role === null ||
+          (row.system_role === "files" && !hasOrdinaryMembership)) &&
+        eligiblePrimaryIds.includes(String(row.id)) &&
+        primaryBlocksFields.some((field) => field.propertyId === row.id),
+    );
+    if (
+      !hasEligibleTarget &&
+      (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
+    ) {
+      fail(
+        "This database item has no primary Blocks field for body suggestions.",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_body_unavailable",
+        },
+      );
+    }
     replacePreparedCollabContent(coordination.ydoc, nextDocument);
     const now = new Date().toISOString();
     const nextBodyRevision = currentDocument.bodyRevision + 1;
     const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
+    const intent = {
+      writerId: `suggestion:${String(current.owner_email)}`,
+      operationId: context.suggestion.id,
+      authoredBaseRevision: currentDocument.bodyRevision,
+    };
+    const planned = mergeDocumentBodyIntents({
+      authoredBaseContent: currentContent,
+      authoredCandidateContent: nextContent,
+      currentContent,
+      currentRevision: currentDocument.bodyRevision,
+      incoming: intent,
+      priorIntents: [],
+    });
+    if (planned.status !== "resolved") {
+      throw new Error(
+        "The accepted suggestion cannot preserve document structure",
+      );
+    }
     const applied = await commitCanonicalDocumentBodyMutation({
       write: async () => {
         const updated = await tx.execute({
@@ -649,17 +769,32 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
             now,
           });
         }
-        await tx.execute({
-          sql: "INSERT INTO document_versions (id,owner_email,document_id,title,content,chat_context,created_at) VALUES (?,?,?,?,?,?,?)",
-          args: [
-            globalThis.crypto.randomUUID(),
-            current.owner_email,
-            context.resourceId,
-            current.title,
-            current.content,
-            decisionChatContext(context.ctx),
-            now,
-          ],
+        await recordDocumentHistoryTransition({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          documentId: context.resourceId,
+          before: { title: String(current.title), content: currentContent },
+          after: { title: String(current.title), content: nextContent },
+          beforeBodyRevision: currentDocument.bodyRevision,
+          afterBodyRevision: nextBodyRevision,
+          cause: {
+            ctx: context.ctx as ActionRunContext | undefined,
+            operation: "accept-suggestion",
+            origin: "suggestion",
+          },
+          now,
+        });
+        await recordDocumentBodyIntent({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          orgId: context.suggestion.orgId ?? "",
+          documentId: context.resourceId,
+          intent,
+          candidateHash: documentContentHash(nextContent),
+          committedRevision: nextBodyRevision,
+          changedBlockIndexes: planned.changedBlockIndexes,
+          canonicalChanged: true,
+          now,
         });
         await coordination.ydoc.persist(tx, nextContent);
         await coordination.sync.persist(tx);

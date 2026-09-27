@@ -142,7 +142,6 @@ describe("applyComponentAnnotations", () => {
     expect(content).toContain(`${COMPONENT_NAME_ATTR}="PrimaryButton"`);
     expect(content).toContain('data-agent-native-prop-variant="outline"');
 
-    // The re-projected node is now a recognised component instance.
     const reprojected = buildCodeLayerProjection(content);
     const reNode = reprojected.nodes.find((n) => n.tag === "button");
     expect(reNode).toBeTruthy();

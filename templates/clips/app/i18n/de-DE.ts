@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Klicken Sie zuerst diesen Abschnitt an und ziehen Sie dann die rote Linie nach rechts.",
@@ -440,12 +447,10 @@ const messages = {
     agentEmptyTitle: "Mach bei der Unterhaltung mit",
     agentEmptyDescription:
       "Erstelle ein kostenloses Clips-Konto, um zu kommentieren, zu reagieren und Fragen zu diesem Clip zu stellen.",
-    commentSignupTitle: "Gib deinem KI-Agenten das vollständige Bild",
-    commentSignupContext:
-      "Teile Transkript und zeitgestempelte Einzelbilder über einen Link",
-    commentSignupFeedback:
-      "Wandle aufgezeichnetes Feedback in klare nächste Schritte um",
-    commentSignupDebug: "Erfasse Konsolenfehler und fehlgeschlagene Anfragen",
+    commentSignupTitle:
+      "Bildschirmaufnahmen, die dein KI-Agent sehen und hören kann",
+    commentSignupDescription:
+      "Clips ist ein kostenloser Open-Source-Bildschirmrekorder, um Bugs, Feedback und Schritt-für-Schritt-Anleitungen mit KI-Agenten zu teilen.",
     agentEmptySignInPrompt: "Du hast bereits ein Konto?",
     signUp: "Registrieren",
     ownerInsights: "Eigentümer-Einblicke",
@@ -851,6 +856,8 @@ const messages = {
     changelogEmpty: "Noch keine Updates.",
     changelogCommentSignup:
       "Die leere Kommentar-Seitenleiste erklärt kurz, warum sich Clips lohnt, und bietet einen klaren Weg zur Registrierung.",
+    changelogCommentsEmptyState:
+      "Der leere Kommentarbereich erklärt jetzt, wie Bildschirmaufnahmen KI-Agenten helfen.",
     changelogShareLink:
       "Angemeldete Nutzer mit einem nicht verfügbaren, abgelaufenen oder privaten Freigabelink gelangen bei „Zur Startseite“ jetzt zu ihrer Bibliothek statt zur öffentlichen Marketingseite.",
     viewAllUpdates: "Alle Updates anzeigen",

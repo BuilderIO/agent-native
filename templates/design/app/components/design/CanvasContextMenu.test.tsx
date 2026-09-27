@@ -470,8 +470,6 @@ describe("CanvasContextMenu shortcut hints", () => {
       onGroup: vi.fn(),
     });
 
-    // happy-dom reports a non-Apple platform, which is exactly the case the
-    // hardcoded ⌘/⇧ glyphs used to get wrong.
     expect(view.findButton("Group selection")?.textContent).toContain("Ctrl+G");
     expect(view.container.textContent).not.toContain("⌘");
     expect(view.container.textContent).not.toContain("⇧");

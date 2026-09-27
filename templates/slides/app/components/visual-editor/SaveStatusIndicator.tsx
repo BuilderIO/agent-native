@@ -5,17 +5,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface SaveStatusIndicatorProps {
-  /**
-   * True while a save is in flight or pending (debounced). Deliberately NOT
-   * rendered: automatic saving is silent (Figma-style) — a "Saving…/Saved"
-   * ticker is clutter. Only exceptional failure states get UI.
-   */
   saving: boolean;
-  /** True when the current deck has an unconfirmed local write. */
   hasUnsavedChanges?: boolean;
-  /** True when the current deck exhausted its save retries. */
   saveFailed?: boolean;
-  /** True when the browser is offline. */
   offline?: boolean;
   onDownloadBackup?: () => void;
   onImportBackup?: () => void;
@@ -34,7 +26,6 @@ export function SaveStatusIndicator({
   const t = useT();
   const showWarning = saveFailed || (offline && hasUnsavedChanges);
 
-  // Only the actionable, exceptional state renders — silent otherwise.
   if (showWarning) {
     const label = saveFailed ? t("settings.saveFailed") : t("raw.offline");
     const description = saveFailed

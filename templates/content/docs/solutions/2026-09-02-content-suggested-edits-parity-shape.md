@@ -9,6 +9,10 @@ governingArtifactRevision: content-suggested-edits-shape-r7
 
 # Content Suggested Edits parity
 
+The September 24 database-item follow-up at the end governs the current bounded
+repair. Earlier parity and review-flow records remain in force for their own
+scopes; they do not expand this follow-up.
+
 ## September 22: comment paste and optimistic review follow-up
 
 This addendum shapes Alice's two reported failures on branch
@@ -1210,6 +1214,241 @@ status: return-to-shape
 invalidation-banner: WORK PAUSED — RETURNING TO SHAPE
 ```
 
-## Next step
+## Existing parity acceptance next step (separate scope)
 
 Execute r5 H1–H18 in the owning task, repair failures under the unchanged A/R assertions, mark affected evidence stale and rerun. Record the final exact artifact and every remaining gap in this document. No new Work invocation or independent human tester is required. Full acceptance remains open until the cumulative story, including role/agent/live-peer and deployed evidence boundaries, is demonstrated.
+
+## September 24 follow-up: suggestions on database-item Pages
+
+Revision: database-item-suggestions-r1. Status: shaped; implementation and acceptance pending.
+
+### Outcome and scope
+
+A person opening an ordinary, locally owned database-item Page can choose
+**Suggest edits**, propose supported changes to its primary page body, and
+review those changes just as on a standalone Page. Collection membership alone
+must not remove this capability. The same shared Actions support agent proposals.
+
+This follow-up covers the full-page editor and database preview. It reuses the
+existing supported text/block/inline-format operations and review lifecycle.
+Secondary Blocks fields and collection properties do not gain suggestions;
+secondary body editors must be read-only while suggesting. A collection context
+with no available primary body must not offer a misleading suggesting mode.
+Collection container Pages, inline-database bodies, externally linked/source-owned
+Pages, and existing access restrictions retain their current boundaries.
+No new feature flag or schema is planned. This repair does not inherit the
+historical first-release default-off rollout plan above.
+
+Product context: `content.object.page`, `content.revision.suggestions`, and
+`content.feature.review-changes-in-place`. A collection row is a Page; this is
+a repair to that shared behavior, not a new document type.
+
+### Evidence and implementation approach
+
+Source inspected: `origin/main` at `d4d91eb159d56d03b8f0a79a10bd7f64bdc67008`
+(September 24). At shaping time, the worktree HEAD was older and lacked the implementation.
+Before Work, recheck the merged implementation and current branch; do not
+implement against the September 3 feature scaffold. Branch switching,
+rebasing, and other branch movement require the user's explicit authorization.
+
+1. Remove the ordinary-membership veto from `_suggestion-eligibility.ts` and its
+   `get-document.ts` / `list-documents.ts` callers. Remove only the now-unused
+   membership checks; preserve access, source, collection-container and body
+   restrictions. Keep get/list eligibility consistent.
+2. Remove the same veto from proposal validation and acceptance in
+   `server/lib/suggested-edits.ts`. Retain external-link checks, exact revision
+   checks, structural validation, stale handling, and access enforcement.
+   Reuse the existing transaction: it already locks primary Blocks fields for
+   all memberships, persists their identities, writes body/history, and persists
+   Yjs and sync state together. Prove this on ordinary memberships rather than
+   introducing a parallel mutation path or granting collection-schema access.
+3. Wire suggesting state through `DocumentEditor` / `DocumentBlockFields` so
+   secondary editors cannot save canonical body changes in this mode. Today
+   `editorCanEdit` is independent of suggesting, and secondary fields save directly.
+   Resolve the visible primary-body target before enabling mode; handle loading,
+   unavailable properties, missing primary fields and collection-context changes
+   explicitly. Preserve pre-existing pending saves when entering mode without
+   treating subsequent typing as a direct edit. Reuse the shared toolbar and
+   primary suggestion editor in full-page and preview; do not add a second composer.
+4. Update targeted regression coverage, the relevant Content product evidence,
+   and the app changelog. Update localized copy together if any copy changes.
+   Scope should stay in Content; a necessary Core change needs a changeset and
+   proportional independent technical review.
+
+### Acceptance story
+
+Use disposable native Pages and a collection with a primary Content field, an
+extra Blocks field, and a normal property. Include a Page in two collections,
+an equivalent standalone Page, and commenter/editor/viewer sessions. Do not
+modify the user's article to prove acceptance.
+
+| ID     | Observable assertion                                                                                                                                                                                                                                                                                                            |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DSI-01 | An eligible row opened from its collection, direct link, or preview offers Suggest edits. Owner/editor/commenter can propose; viewer cannot. Reload and navigation preserve correct eligibility.                                                                                                                                |
+| DSI-02 | Enter suggesting and perform the existing supported text insertion, deletion, replacement, block and inline-format operations. Proposals are reviewable; canonical content in another session stays unchanged until acceptance.                                                                                                 |
+| DSI-03 | Accept one proposal and reject another. Exactly the accepted change appears in the Page and its primary Content representation across both memberships and live clients; comments, decisions and history survive reload. Properties and secondary body values remain unchanged.                                                 |
+| DSI-04 | During suggesting, secondary Blocks fields cannot directly save typed changes. Entering mode with a pending direct save preserves that prior edit. Missing/unavailable primary body, failed property loads, and context changes never expose an editable wrong target or falsely active mode.                                   |
+| DSI-05 | Agent creation through suggest-document-edit uses the same proposal and review path. Duplicate requests/decisions apply once; overlapping edits and permission changes give an explicit conflict/denial without overwriting newer content. Failed acceptance leaves body, field identities, disposition and history consistent. |
+| DSI-06 | Standalone-page suggestions still work. Collection containers, inline-database bodies and source-owned/externally linked Pages retain their existing exclusions. Ordinary direct editing resumes after leaving suggesting.                                                                                                      |
+| DSI-07 | The complete full-page and preview flow works through visible controls and keyboard, with correct focus and no clipped review controls at desktop and a supported narrow viewport.                                                                                                                                              |
+
+### Proof and handoff
+
+Extend `actions/content-database-lifecycle.db.test.ts` for matching get/list
+eligibility; `actions/suggest-document-edit.db.test.ts` for agent proposal parity;
+`server/lib/suggested-edits.db.test.ts` and `.spec.ts` for ordinary and multiple
+memberships, atomic application, history, conflicts and retries. Extend existing
+`DocumentBlockFields`, toolbar and suggestion-isolation tests for DSI-04. Run
+the explicit database suites (the fast suite does not include them), Content
+typechecking, formatting and applicable repository guards. Reuse existing tests
+where they already prove an unaffected invariant.
+
+Before integration, execute DSI-01 through DSI-07 through the real Content UI
+under the human-qa skill, with supporting Action/database assertions where needed.
+Independence is preferred; same-context custody is allowed. Obtain bounded
+independent technical review of authorization and transactional/body isolation.
+Record the tested build, fixture cleanup, representative final UI evidence and
+any failed assertions here. API success alone does not establish UI acceptance.
+If pre-integration proof cannot be established, surface the missing decision;
+do not silently defer required acceptance until after merge.
+
+Destination: this repository's current task branch for implementation, then
+Content Beta through the separately authorized normal integration/deployment
+workflow. No runtime, deployment or production-data changes are authorized by
+this Shape. Next action is implementation of this follow-up against current
+code, followed by the frozen acceptance story above.
+
+### September 24 Work evidence
+
+The current task branch merged `origin/main` with Alice's explicit permission,
+then removed the database-row suggestion veto. Eligibility now requires a
+primary Blocks target for rows; collection containers and metadata-only rows
+remain excluded. Proposal and acceptance check that target, and acceptance
+uses the existing canonical body/primary-field/Yjs transaction. Suggesting
+keeps secondary Blocks fields read-only while allowing saves queued before
+entry to complete. An empty body can now produce its first suggested text block.
+
+Seven focused Content suites pass (135 tests), and direct Content TypeScript
+checking passes. An independent bounded review found and closed the pending
+save, draft-availability, and metadata-only/container gaps. In a task-owned
+local Content instance, an empty collection row offered Suggest edits in
+preview; submitting its first line left the canonical body empty, and accepting
+the review item populated the body. The accepted content persisted on the full
+page after navigation. The full-page menu also offered Suggest edits at an
+800-pixel viewport without clipping. The separate nonempty-row proposal and
+acceptance path also persisted after reload. These are sampled real-interface
+checks for DSI-01, DSI-02, DSI-03, and DSI-07. A second preview proposal was
+rejected and left the canonical body unchanged. After adding a secondary Blocks
+field, its editor became read-only during suggesting and editable on exit,
+while its existing value stayed visible. Collection containers had no Suggest
+edits menu item. Adding that secondary field initially failed because the UI
+sent Blocks options excluded by the property's action schema; omitting those
+options lets the action create the field with its own safe default. The
+disposable collection and its two rows were moved to local Trash. A targeted
+permanent-delete attempt remains pending in the local Trash UI, so that local
+data has not been verified purged. No fixture was created on Content Beta.
+Role, multi-membership, conflict, and additional formatting cases have
+automated coverage where added but have not all been replayed through the UI.
+
+`guard:i18n-changed-copy` passes. `guard:i18n-catalogs` and
+`guard:content-product-docs` fail on repository-wide Windows path/line-ending
+baseline mismatches unrelated to this diff. The aggregate `pnpm guards`
+runner exits before checks with Node `spawn EINVAL` on this Windows host.
+The targeted `DocumentProperties.test.ts` suite passes (24 tests); its
+source-layout companion has one Windows CRLF-sensitive assertion failure.
+Before integration, finish the full DSI-01–07 real-interface matrix and run
+the affected repository guards in a working CI environment.
+
+### September 24–25 UI acceptance replay
+
+Tested the committed `d38eb1a8b5` build through a task-owned local Content
+server in Chromium, using disposable Pages, two ordinary collections, and
+separate owner, editor, commenter, and viewer accounts. The shared Page was
+attached to both collections. No beta or user article was changed.
+
+| Assertion | Observed result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DSI-01    | The row offered Suggest edits in collection preview and full page, from a direct link and after reload. Owner, editor, and commenter had the action with access to both row and collection; viewer did not. A row-only share left collection properties unavailable and did not expose Suggest edits.                                                                                                                                                                                                                                                                                                                                                   |
+| DSI-02    | Insert, delete, inline bold, and a new block produced review cards. A second live session retained the canonical body until acceptance. An attempted replacement was rejected and left the body unchanged.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| DSI-03    | Accepted changes appeared once in the other live session and through both collection memberships after reload. Rejected changes did not appear. Resolved cards and version history survived reload. The Text property (`Metadata baseline`) and secondary Blocks value (`Secondary only`) remained unchanged.                                                                                                                                                                                                                                                                                                                                           |
+| DSI-04    | Secondary Blocks was read-only in Suggesting and editable on exit. A secondary Blocks edit was followed immediately by entering Suggesting; its `set-document-property` request succeeded and `Queued secondary` survived reload. Removing Collection B's primary Blocks field hid Suggest edits in that context while Collection A remained eligible; navigating into the unavailable context exited Suggesting. Aborting the Collection A property-load request displayed Retry and hid Suggest edits; retry restored the editor. A deliberately delayed network response retains mounted regression coverage rather than a browser timing assertion. |
+| DSI-05    | Browser-exposed `suggest-document-edit` created a pending review card. Replaying its idempotency key returned the same suggestion and thread. A viewer's action call was denied. Two full replacement proposals for the same base text were reviewed in sequence: the first accepted, the second displayed Conflict, and the body retained the first choice. The earlier partially overlapping proposals safely rebased to `Conflict. Agent.`; they were not used as the conflict assertion. Transactional failure and field-identity details retain database-test coverage rather than a browser fault-injection assertion.                            |
+| DSI-06    | Standalone suggestion and subsequent ordinary editing worked. Collection containers and disposable source-owned, inline-database, and externally linked Pages omitted Suggest edits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| DSI-07    | Full-page and preview menus, review cards, accept/reject controls, and keyboard menu activation worked. At 800 × 700, the full-page menu and collection preview menu remained visible and unclipped; the compact preview's Comments panel showed its pending card and reachable Accept/Reject controls.                                                                                                                                                                                                                                                                                                                                                 |
+
+The seven original fixture documents and collection Pages were moved to local
+Trash. The collection and shared row were briefly restored for the compact
+preview check; the restored shared row then returned as Document unavailable
+because its membership was absent, so a new disposable compact row was used.
+That row, the shared row, and the collection were returned to Trash afterward.
+An exact seven-item permanent-purge plan found all eligible, but the app's
+WebMCP approval gate rejected execution with `approval_required`; no broad
+Trash purge was attempted. The three disposable local test accounts remain in
+the local development database. The earlier Work fixtures described above also
+remain unverified in Trash.
+
+After merging the newer `origin/main` into this task branch, a fresh local
+collection row again showed Suggest edits in its preview, accepted an empty-body
+insertion through the Comments card, and displayed the accepted body. That
+two-item smoke fixture was returned to Trash. Seven focused Content suites
+passed (168 tests), as did Content typechecking and the focused adapter rerun
+after updating two query-count assertions. The Windows aggregate guard runner
+still exits with `spawn EINVAL`; catalog and product-doc guards report the
+previously observed path/baseline errors on this host, so CI is needed for
+their final result.
+
+PR review identified an active-draft permission-loss trap. In a fresh
+collection-row fixture, a commenter typed an unsaved suggestion, then the
+owner downgraded both row and collection access to Viewer. The attempted
+suggestion save was denied; the editor kept the exact draft visible and offered
+Copy my unsaved text and Discard draft. Copy succeeded, Discard exited
+Suggesting, and the canonical body remained empty at revision 0. The fixture
+was returned to local Trash. This replay exercises the repaired failure path
+on the same Content row surface.
+
+The next PR review found that the generic suggestion action accepted a Page
+share while ignoring access to the ordinary collection supplying its primary
+Blocks field. The proposal and acceptance paths now require an accessible
+ordinary membership; a private Files system container remains an internal
+body context for a standalone shared Page. Direct and list reads select an
+accessible eligible membership consistently when a Page also belongs to a
+metadata-only collection. Database regressions verify row-only action denial,
+eligibility after a collection share, and stable context-free selection. Nine
+focused Content suites pass (183 tests), along with Content typechecking.
+
+Follow-up review found that direct Page reads and the document list resolved
+collection access once per membership. They now use one access-scoped batch
+query for the distinct collection Pages. It also found a draft-recovery gap
+when the primary Blocks field vanished during Suggesting; the existing
+Copy/Discard banner now covers any unavailable suggestion body target. Ten
+focused suites pass (300 tests), including the editor layout suite, and Content
+typechecking passes.
+
+In a fresh collection-row preview, an unsaved suggestion remained recoverable
+after its only Blocks property was deleted in a second Chromium tab. The open
+preview displayed Copy my unsaved text and Discard draft; Discard exited
+Suggesting. The disposable collection and row were moved to local Trash.
+
+The final review pass also identified sequential membership access during
+proposal and acceptance, a membership insert race during acceptance, and a
+soft-deleted collection Page that could appear standalone. Eligibility now
+batches direct access checks within the transaction and uses transaction-aware
+organization membership checks and Content-space resolution for remaining
+collection Pages. The same batch resolver supplies Page reads and suggestions,
+including access through a non-active organization and a validated Content
+space, while excluding an unrelated user. Acceptance takes a transaction-scoped
+exclusive lock on the membership table after locking the Page and before capturing the memberships whose
+primary fields it reconciles; the Page row lock alone cannot exclude inserts
+because membership rows have no Page foreign key. Proposal
+and acceptance both exclude soft-deleted collection containers. A targeted
+database regression covers deleted containers and another covers non-active
+organization access. A final acceptance regression removes the eligible field
+between authorization and the membership lock; the transaction rejects it and
+keeps the canonical body unchanged. The affected Content database suites and
+document discovery suite pass locally (92 tests), along with Content typechecking.
+A final regression also covers accepting a standalone Page with no collection
+membership, which must not require a primary Blocks field.
+The locked membership recheck also rejects a Page that gains an ordinary
+collection membership between authorization and the lock.
+The membership lock is acquired without waiting after the Page lock; a competing
+membership write returns a retryable suggestion conflict instead of deadlocking.

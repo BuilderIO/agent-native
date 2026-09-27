@@ -105,10 +105,6 @@ function bodyProximityScore(
   return sql<number>`case when ${content} ILIKE ${`%${escapeLike(phrase)}%`} ESCAPE '\\' then 1 else 0 end`;
 }
 
-/**
- * Returns lexicographic ranking keys. The first key is a protected match tier:
- * no recency or repetition signal can move a body match above a title match.
- */
 export function documentSearchRanking(
   parsed: ParsedSearchQuery,
   columns: DocumentSearchRankingColumns,

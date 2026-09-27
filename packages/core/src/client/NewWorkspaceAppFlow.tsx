@@ -190,9 +190,6 @@ export function NewWorkspaceAppFlow({
       ? defaultDispatchBasePath(sourceApp)
       : dispatchBasePath;
 
-  // Enabled only while the connect CTA is on screen. Left always-on, the hook
-  // would poll Builder status on every mount and fire onConnected on its first
-  // status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
     provisionAccount: true,

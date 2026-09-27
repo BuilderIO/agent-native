@@ -4,7 +4,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createZoomMeeting } from "./zoom.js";
+import { createZoomMeeting, needsZoomCancellationReview } from "./zoom.js";
 
 const mocks = vi.hoisted(() => ({
   providerError: null as Error | null,
@@ -142,5 +142,51 @@ describe("createZoomMeeting", () => {
       }),
     ).rejects.toBe(timeout);
     expect(mocks.providerCreateMeeting).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("needsZoomCancellationReview", () => {
+  it.each([
+    "https://zoom.us/j/123456789",
+    "https://us02web.zoom.com/j/123456789",
+    "https://gov.zoomgov.com/j/123456789",
+  ])(
+    "requires review for legacy Zoom links without provider IDs: %s",
+    (url) => {
+      expect(needsZoomCancellationReview({ meetingLink: url })).toBe(true);
+    },
+  );
+
+  it("does not treat lookalike hosts as Zoom", () => {
+    expect(
+      needsZoomCancellationReview({
+        meetingLink: "https://zoom.us.example.com/j/123456789",
+      }),
+    ).toBe(false);
+  });
+
+  it("requires review for legacy Zoom bookings with no saved link or IDs", () => {
+    expect(
+      needsZoomCancellationReview({
+        conferencing: JSON.stringify({ type: "zoom" }),
+        zoomNeedsReview: false,
+      }),
+    ).toBe(true);
+  });
+
+  it.each(["{", JSON.stringify({ type: "unknown" })])(
+    "requires review when a booking link conferencing config is unreadable: %s",
+    (conferencing) => {
+      expect(needsZoomCancellationReview({ conferencing })).toBe(true);
+    },
+  );
+
+  it("does not require review for cancelled legacy Zoom bookings", () => {
+    expect(
+      needsZoomCancellationReview({
+        conferencing: JSON.stringify({ type: "zoom" }),
+        status: "cancelled",
+      }),
+    ).toBe(false);
   });
 });

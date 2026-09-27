@@ -67,8 +67,6 @@ beforeEach(() => {
     insert: insertMock,
   };
   getDbMock.mockReturnValue({
-    // The parked-PR pre-scan awaits `.where()` itself, while the in-transaction
-    // lookups await `.limit()`; mocking both the same way breaks confusingly.
     select: () => ({ from: () => ({ where: async () => [] }) }),
     transaction: async (run: (tx: unknown) => Promise<void>) => run(tx),
   });
@@ -134,10 +132,6 @@ describe("selectParkedRowsForRecheck", () => {
     ).toEqual([]);
   });
 
-  // `/pulls?state=open` sorts by creation, so a long-parked pull request that
-  // later gets human feedback is only reachable through this extra set. Raise
-  // the limit if real inventory outgrows it; do not park items in `active` to
-  // keep them on the listed page.
   it("rotates through the oldest rechecks up to the default limit", async () => {
     const { selectParkedRowsForRecheck, PARKED_PR_RECHECK_EXTRA_LIMIT } =
       await import("./poll-github-sources.js");
@@ -479,8 +473,6 @@ describe("poll-github-sources action", () => {
 });
 
 describe("poll-github-sources author filter", () => {
-  // Mirrors GitHubOpenItemPage. Built through a helper so a page mock cannot
-  // omit a required count and feed NaN into the audit totals.
   function page<T>(
     items: T[],
     extra: { hasMore?: boolean; unparsed?: number } = {},
@@ -569,8 +561,6 @@ describe("poll-github-sources author filter", () => {
         details: expect.objectContaining({
           authorFiltered: 1,
           added: 1,
-          // Skipping an open item means the run did not observe the whole
-          // repository, so it must not report a complete observation.
           truncated: true,
           providerHasMore: false,
         }),
@@ -643,7 +633,6 @@ describe("poll-github-sources author filter", () => {
     const getPullRequestSummary = vi.fn();
     createGitHubClientMock.mockReturnValue({
       listOpenIssues: async () => page([]),
-      // Parked rows are only rechecked when they fall off the open page.
       listOpenPullRequests: async () => page([]),
       getPullRequestSummary,
     });
@@ -795,8 +784,6 @@ describe("poll-github-sources author filter", () => {
 
     await action.run(input, context);
 
-    // PR 1 fills the inbox limit of 1 in count only: it is already queued, so
-    // it consumes no capacity and must not end the walk before PR 2.
     expect(seenPages).toEqual([1, 2]);
   });
 
@@ -865,8 +852,6 @@ describe("poll-github-sources author filter", () => {
       context,
     );
 
-    // Those three are fetched as pull requests instead, so the run is not
-    // truncated — but the zero issue count still needs an explanation.
     expect(result).toMatchObject({ unparsed: 3, truncated: false });
     expect(recordFactoryAuditMock).toHaveBeenCalledWith(
       expect.anything(),

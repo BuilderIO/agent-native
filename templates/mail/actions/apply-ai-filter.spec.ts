@@ -55,16 +55,15 @@ describe("apply-ai-filter Jev gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
-    mocks.getAiFilterState.mockResolvedValue({
-      enabled: true,
-      autoFilter: false,
+    mocks.saveAiFilterState.mockResolvedValue({
+      enabled: false,
+      autoFilter: true,
       autoFilterThreshold: 0.92,
       suggestionThreshold: 0.72,
       labelName: "agent-native-filtered",
       feedback: [],
       decisions: [],
     });
-    mocks.saveAiFilterState.mockImplementation(async (_owner, state) => state);
     mocks.writeAppState.mockResolvedValue(undefined);
     mocks.assertMailJevEnabled.mockRejectedValue(
       Object.assign(new Error("Jev is not enabled for this account."), {
@@ -81,11 +80,30 @@ describe("apply-ai-filter Jev gate", () => {
     });
 
     expect(mocks.assertMailJevEnabled).not.toHaveBeenCalled();
-    expect(mocks.saveAiFilterState).toHaveBeenCalledWith(
-      "owner@example.test",
-      expect.objectContaining({ enabled: false }),
-    );
+    expect(mocks.saveAiFilterState).toHaveBeenCalledWith("owner@example.test", {
+      enabled: false,
+    });
     expect(result.state.enabled).toBe(false);
+  });
+
+  it("reads settings without writing when no patch is provided", async () => {
+    const currentState = {
+      enabled: true,
+      autoFilter: false,
+      autoFilterThreshold: 0.92,
+      suggestionThreshold: 0.72,
+      labelName: "agent-native-filtered",
+      feedback: [],
+      decisions: [],
+    };
+    mocks.getAiFilterState.mockResolvedValue(currentState);
+
+    const result = await action.run({ mode: "settings" });
+
+    expect(mocks.getAiFilterState).toHaveBeenCalledWith("owner@example.test");
+    expect(mocks.saveAiFilterState).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(result.state).toEqual(currentState);
   });
 
   it.each([

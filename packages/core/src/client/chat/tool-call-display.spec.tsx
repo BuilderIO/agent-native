@@ -53,6 +53,20 @@ vi.mock("../ConnectBuilderCard.js", () => ({
   ),
 }));
 
+vi.mock("../FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="file-storage-dialog" /> : null,
+}));
+
+vi.mock("../uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => ({
+    data: { configured: false },
+    isError: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("../use-agent-chat-context.js", () => ({
   useAgentChatContext: builderHandoffMocks.useAgentChatContext,
 }));
@@ -141,6 +155,23 @@ describe("ToolCallDisplay native renderers", () => {
 
   it("waits five minutes before showing the long-running hint", () => {
     expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  });
+
+  it("does not reopen storage setup for a restored tool result", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="connect-file-storage"
+          args={{}}
+          result={JSON.stringify({ kind: "connect-file-storage-card" })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    act(() => container.querySelector("button")?.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
   });
 
   it("renders the provider logo for catalog-backed MCP tools", async () => {
@@ -1892,9 +1923,6 @@ describe("ReasoningCell", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(container.textContent).not.toContain("verify the join keys first.");
 
-    // Opening "Worked for…" reveals the thought's own collapsed row, not its
-    // prose — reasoning is collapsible in there just like the tool calls it
-    // sits between.
     act(() => {
       container.querySelector("button")?.click();
     });
@@ -2659,11 +2687,6 @@ describe("ApprovalAffordance", () => {
   });
 
   it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
-    // Mirrors a failed resume: the server's resume never consumed the grant
-    // (expired TTL, turn-id mismatch) and re-enters the gate, re-emitting
-    // `approval_required` for the SAME toolCallId with a fresh `askId`. The
-    // approval host (AssistantChat) retains resolutions per askId, so the
-    // stale "approved" mark from the first ask must not apply to the new one.
     const onApprove = vi.fn();
     const resolutionsByIdentity = new Map<string, "approved" | "denied">();
     const identity = (
@@ -2709,8 +2732,6 @@ describe("ApprovalAffordance", () => {
     expect(onApprove).toHaveBeenCalledWith("approval-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
 
-    // The failed resume re-emits approval_required for the same toolCallId
-    // with a new askId.
     act(() => root.render(<ReissuedApproval askId="ask-2" />));
 
     expect(container.textContent).not.toContain("Approved. Re-running bash...");

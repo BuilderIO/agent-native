@@ -1,12 +1,3 @@
-/**
- * Provider host matching shared by the client integration catalog and the
- * server-side connected-provider lookup.
- *
- * This lives outside `client/resources/mcp-integration-catalog.ts` because that
- * module imports the inlined base64 logo table; pulling it into a server path
- * would put megabytes of icon data in the deployed bundle.
- */
-
 export const MCP_LINK_HOSTS: Record<string, string[]> = {
   amplitude: ["amplitude.com"],
   apollo: ["apollo.io"],
@@ -45,20 +36,6 @@ export const MCP_LINK_HOSTS: Record<string, string[]> = {
   zapier: ["zapier.com"],
 };
 
-/**
- * Canonical remote MCP endpoint per catalog provider.
- *
- * The client catalog matches a saved server against `integration.url` before it
- * falls back to host matching, and several endpoints sit outside their
- * provider's link hosts (`api.githubcopilot.com`, `mcp.semgrep.ai`,
- * `netlify-mcp.netlify.app`). Host matching alone therefore reports those
- * providers disconnected.
- *
- * These hosts are deliberately NOT folded into `MCP_LINK_HOSTS`: that table also
- * resolves provider links found in prose, and `netlify.app` in particular serves
- * arbitrary user sites. Kept in sync with the catalog by
- * `mcp-provider-hosts.parity.spec.ts`.
- */
 export const MCP_PROVIDER_ENDPOINTS: Record<string, string> = {
   amplitude: "https://mcp.amplitude.com/mcp",
   apollo: "https://mcp.apollo.io/mcp",
@@ -112,21 +89,12 @@ export function normalizeMcpUrl(value: string): string {
   }
 }
 
-/** True when this module has any rule that can answer for `providerId`. */
 export function hasMcpProviderMatchRules(providerId: string): boolean {
   return Boolean(
     MCP_PROVIDER_ENDPOINTS[providerId] || MCP_LINK_HOSTS[providerId]?.length,
   );
 }
 
-/**
- * True when a saved remote MCP server URL belongs to `providerId`.
- *
- * Mirrors the client catalog's two tiers: the provider's canonical endpoint is
- * compared first, then its link hosts. Returns `null` — not `false` — when
- * `serverUrl` cannot be parsed, so callers can tell "this row is for another
- * provider" apart from "this row is corrupt".
- */
 export function mcpServerUrlMatchesProvider(
   providerId: string,
   serverUrl: string,

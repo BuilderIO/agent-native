@@ -13,12 +13,6 @@ const TEMPLATE_REF_TYPES = new Set(["template", "preset"]);
 type TemplateRow = typeof schema.assetTemplates.$inferSelect;
 type LibraryRow = typeof schema.assetLibraries.$inferSelect;
 
-/**
- * When a user tags one or more templates (or a legacy `@preset` mention),
- * embed each template's aesthetics and creative philosophy into the model-facing
- * message so the agent internalizes the brief before it generates. The user's
- * visible message is untouched — only the message the model reads is augmented.
- */
 export async function prepareTemplateChatContext(args: {
   message: string;
   references: AgentChatReference[];

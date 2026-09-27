@@ -1,4 +1,11 @@
 const messages = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在檢查 AI 連線…",
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
+    common: { retry: "重試" },
+  },
   timelineTrack: {
     helpOtherSide: "先點一下那一段，再把紅線往右拖。",
     helpOtherSideTerm: "改為從右側那一段裁掉素材",
@@ -401,10 +408,9 @@ const messages = {
     agentEmptyTitle: "加入對話",
     agentEmptyDescription:
       "建立免費的 Clips 帳號，即可留言、回應並詢問此剪輯。",
-    commentSignupTitle: "讓 AI 代理掌握完整脈絡",
-    commentSignupContext: "透過一個連結分享逐字稿和附有時間戳記的畫面",
-    commentSignupFeedback: "將錄製的回饋轉化為明確的後續步驟",
-    commentSignupDebug: "擷取主控台錯誤和失敗的請求",
+    commentSignupTitle: "AI 代理看得見也聽得見的螢幕錄影",
+    commentSignupDescription:
+      "Clips 是一款免費開源的螢幕錄影工具，可與 AI 代理分享 bug、回饋和逐步操作示範。",
     agentEmptySignInPrompt: "已經有帳號了嗎？",
     signUp: "註冊",
     ownerInsights: "擁有者洞察",
@@ -783,6 +789,8 @@ const messages = {
     changelogEmpty: "暫無更新。",
     changelogCommentSignup:
       "沒有留言時，側邊欄會簡要說明 Clips 的價值，並提供清楚的註冊入口。",
+    changelogCommentsEmptyState:
+      "沒有留言時，現在會說明螢幕錄影如何幫助 AI 代理。",
     changelogShareLink:
       "已登入的使用者在無法使用、已過期或私人分享連結中選擇「返回首頁」時，現在會前往媒體庫，而不是公開行銷頁面。",
     viewAllUpdates: "檢視所有更新",

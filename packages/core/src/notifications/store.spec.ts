@@ -2,9 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
-// Real in-memory PGlite behind the raw getDbExec client. This lets the
-// owner-scoping invariants (you cannot mark/delete another owner's
-// notification) be tested for real rather than by inspecting captured SQL.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
@@ -56,8 +53,6 @@ const {
 const ALICE = "alice@example.com";
 const BOB = "bob@example.com";
 
-// Seed a row with an explicit created_at so ordering/cursor tests are
-// deterministic (the store stamps Date.now() which collides under fast loops).
 async function seedRow(opts: {
   id: string;
   owner: string;
@@ -76,8 +71,6 @@ async function seedRow(opts: {
 
 beforeEach(async () => {
   pglite = await createTestPglite();
-  // The store caches CREATE TABLE in a module-level _initPromise; create the
-  // table per fresh DB ourselves so each test starts clean.
   await pglite.exec(`CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
@@ -124,7 +117,6 @@ describe("insertNotification", () => {
       key: ALICE,
     });
 
-    // Round-trips through list (metadata deserialized, createdAt ISO).
     const [listed] = await listNotifications(ALICE);
     expect(listed.metadata).toEqual({ url: "/settings", code: 42 });
     expect(listed.body).toBe("Only 2% free");
@@ -152,7 +144,6 @@ describe("listNotifications", () => {
   const T3 = T1 + 2000;
 
   beforeEach(async () => {
-    // Three Alice notifications at distinct timestamps; one Bob notification.
     await seedRow({ id: "a1", owner: ALICE, title: "A1", createdAt: T1 });
     await seedRow({ id: "a2", owner: ALICE, title: "A2", createdAt: T2 });
     await seedRow({ id: "a3", owner: ALICE, title: "A3", createdAt: T3 });
@@ -162,7 +153,6 @@ describe("listNotifications", () => {
   it("scopes to the owner and orders newest-first", async () => {
     const rows = await listNotifications(ALICE);
     expect(rows.map((r) => r.title)).toEqual(["A3", "A2", "A1"]);
-    // Bob's notification never appears in Alice's list.
     expect(rows.some((r) => r.title === "B1")).toBe(false);
   });
 
@@ -177,7 +167,6 @@ describe("listNotifications", () => {
     const older = await listNotifications(ALICE, {
       before: new Date(T2).toISOString(),
     });
-    // Only A1 is strictly older than A2.
     expect(older.map((r) => r.title)).toEqual(["A1"]);
   });
 
@@ -205,7 +194,6 @@ describe("countUnread", () => {
     await expect(countUnread(ALICE)).resolves.toBe(2);
     await markNotificationRead(a2.id, ALICE);
     await expect(countUnread(ALICE)).resolves.toBe(1);
-    // Bob's count is independent.
     await expect(countUnread(BOB)).resolves.toBe(1);
   });
 });
@@ -222,7 +210,6 @@ describe("markNotificationRead — owner scoping", () => {
     await expect(markNotificationRead(n.id, ALICE)).resolves.toBe(true);
     expect(recordChange).toHaveBeenCalledTimes(1);
 
-    // Already read → no rows affected, returns false, no extra poll bump.
     recordChange.mockClear();
     await expect(markNotificationRead(n.id, ALICE)).resolves.toBe(false);
     expect(recordChange).not.toHaveBeenCalled();
@@ -236,7 +223,6 @@ describe("markNotificationRead — owner scoping", () => {
     });
 
     await expect(markNotificationRead(n.id, BOB)).resolves.toBe(false);
-    // Alice's notification is still unread.
     await expect(countUnread(ALICE)).resolves.toBe(1);
   });
 });
@@ -249,10 +235,8 @@ describe("markAllNotificationsRead — owner scoping", () => {
 
     await expect(markAllNotificationsRead(ALICE)).resolves.toBe(2);
     await expect(countUnread(ALICE)).resolves.toBe(0);
-    // Bob is untouched.
     await expect(countUnread(BOB)).resolves.toBe(1);
 
-    // No unread left → returns 0 and does not bump poll.
     recordChange.mockClear();
     await expect(markAllNotificationsRead(ALICE)).resolves.toBe(0);
     expect(recordChange).not.toHaveBeenCalled();
@@ -277,7 +261,6 @@ describe("deleteNotification — owner scoping", () => {
       title: "A1",
     });
     await expect(deleteNotification(n.id, BOB)).resolves.toBe(false);
-    // Still present for Alice.
     await expect(listNotifications(ALICE)).resolves.toHaveLength(1);
   });
 });

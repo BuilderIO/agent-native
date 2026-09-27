@@ -8,21 +8,9 @@ import {
   createZoomProvider,
   ZoomProviderError,
 } from "@agent-native/scheduling/server/providers";
-/**
- * Zoom integration for the calendar template.
- *
- * Wraps the scheduling package's `createZoomProvider` with the token-
- * storage plumbing this template uses (core's `oauth_tokens`). Each
- * user's Zoom account is stored as a distinct row keyed by the Zoom user
- * id returned from /users/me, with `owner = <user_email>`.
- *
- * - `getZoomAuthUrl` — start the OAuth flow
- * - `exchangeZoomCode` — callback handler; stores tokens
- * - `getZoomStatus` — used by the UI to render the Connect Zoom banner
- * - `createZoomMeeting` — called from the booking route to create a
- *   real Zoom meeting for a new booking
- */
 import { nanoid } from "nanoid";
+
+import { parseBookingConferencingConfig } from "./booking-link-utils.js";
 
 const PROVIDER = "zoom_video";
 const SCOPES = [
@@ -56,10 +44,51 @@ export function getZoomAuthUrl(redirectUri: string, state: string) {
   return `https://zoom.us/oauth/authorize?${params}`;
 }
 
-/**
- * Exchange an authorization code for Zoom tokens. Stores them in
- * `oauth_tokens(provider="zoom_video", account_id=<zoom_user_id>, owner=<ownerEmail>)`.
- */
+function createProvider(creds: { clientId: string; clientSecret: string }) {
+  return createZoomProvider({
+    clientId: creds.clientId,
+    clientSecret: creds.clientSecret,
+    getAccessToken: (credentialId) => resolveAccessToken(credentialId),
+    updateTokens: async (credentialId, tokens) => {
+      const existing = await getOAuthTokens(PROVIDER, credentialId);
+      await saveOAuthTokens(PROVIDER, credentialId, {
+        ...existing,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? (existing as any)?.refreshToken,
+        expiresAt: tokens.expiresAt?.getTime(),
+      });
+    },
+  });
+}
+
+export function needsZoomCancellationReview(booking: {
+  zoomNeedsReview?: boolean;
+  meetingLink?: string | null;
+  zoomMeetingId?: string | null;
+  zoomAccountId?: string | null;
+  conferencing?: string | null;
+  status?: string;
+}): boolean {
+  if (booking.status === "cancelled") return false;
+  if (booking.zoomMeetingId && booking.zoomAccountId) return false;
+  if (booking.zoomNeedsReview) return true;
+  const conferencing = parseBookingConferencingConfig(booking.conferencing);
+  if (conferencing.status === "invalid") return true;
+  if (conferencing.status === "valid" && conferencing.config.type === "zoom") {
+    return true;
+  }
+  if (!booking.meetingLink) return false;
+
+  try {
+    const hostname = new URL(booking.meetingLink).hostname.toLowerCase();
+    return ["zoom.us", "zoom.com", "zoomgov.com"].some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+  } catch {
+    return true;
+  }
+}
+
 export async function exchangeZoomCode(
   code: string,
   redirectUri: string,
@@ -95,8 +124,6 @@ export async function exchangeZoomCode(
     expires_in?: number;
   };
 
-  // Identify the user via /users/me so we can key the token row by zoom
-  // user id (so a user can connect + re-connect without duplicates).
   const whoRes = await fetch("https://api.zoom.us/v2/users/me", {
     headers: { authorization: `Bearer ${tokens.access_token}` },
   });
@@ -133,10 +160,6 @@ export async function exchangeZoomCode(
   return { accountId: zoomUserId, email, displayName };
 }
 
-/**
- * Returns `{ connected: true, accounts: [...] }` when the user has at
- * least one Zoom account linked.
- */
 export async function getZoomStatus(ownerEmail?: string | null) {
   const configured = isZoomConfigured();
   if (!configured) {
@@ -163,12 +186,13 @@ export async function disconnectZoom(ownerEmail: string) {
   for (const a of accounts) await deleteOAuthTokens(PROVIDER, a.accountId);
 }
 
-/**
- * Create a Zoom meeting for a new booking. Picks the first Zoom account
- * owned by the host. `not_started` means the meeting creation request was not sent.
- */
 export type ZoomMeetingResult =
-  | { status: "created"; meetingUrl: string; meetingId: string }
+  | {
+      status: "created";
+      meetingUrl: string;
+      meetingId: string;
+      accountId: string;
+    }
   | { status: "not_started" }
   | { status: "rejected" };
 
@@ -176,8 +200,8 @@ export async function createZoomMeeting(opts: {
   hostEmail: string;
   title: string;
   description?: string;
-  startTime: string; // ISO
-  endTime: string; // ISO
+  startTime: string;
+  endTime: string;
   timezone: string;
   attendees?: Array<{ email: string; name?: string }>;
 }): Promise<ZoomMeetingResult> {
@@ -248,13 +272,22 @@ export async function createZoomMeeting(opts: {
     status: "created",
     meetingUrl: result.meetingUrl,
     meetingId: result.meetingId,
+    accountId: credentialId,
   };
 }
 
-/**
- * Resolve a fresh access token for a Zoom credential, refreshing it if it's
- * expired (or near-expiry). Persists the refreshed tokens back to oauth_tokens.
- */
+export async function deleteZoomMeeting(opts: {
+  accountId: string;
+  meetingId: string;
+}): Promise<void> {
+  const creds = getZoomCreds();
+  if (!creds) throw new Error("Zoom OAuth is not configured");
+  await createProvider(creds).deleteMeeting!({
+    credentialId: opts.accountId,
+    meetingId: opts.meetingId,
+  });
+}
+
 async function resolveAccessToken(credentialId: string): Promise<string> {
   const record: any = await getOAuthTokens(PROVIDER, credentialId);
   if (!record?.accessToken) {

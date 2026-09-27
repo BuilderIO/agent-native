@@ -768,8 +768,6 @@ describe("buildSessionReplayDiagnostics", () => {
       maxConsoleEntries: 3,
     });
 
-    // Priority (error) entry is kept even though it's chronologically last,
-    // and the cap only holds 2 of the 10 routine logs alongside it.
     expect(diagnostics.console.entries).toHaveLength(3);
     expect(
       diagnostics.console.entries.some((entry) => entry.level === "error"),
@@ -802,7 +800,6 @@ describe("buildSessionReplayDiagnostics", () => {
       offset: 0,
     });
 
-    // Chronological: first 3 by offsetMs, regardless of level priority.
     expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
       "log 0",
       "log 1",
@@ -840,7 +837,6 @@ describe("buildSessionReplayDiagnostics", () => {
       Array.from({ length: 10 }, (_, i) => `entry ${i + 10}`),
       Array.from({ length: 5 }, (_, i) => `entry ${i + 20}`),
     ]);
-    // Union of all pages is the full chronological set, no dupes/gaps.
     const union = pages.flat();
     expect(union).toHaveLength(25);
     expect(new Set(union).size).toBe(25);
@@ -857,7 +853,6 @@ describe("buildSessionReplayDiagnostics", () => {
         }),
       );
     }
-    // offsetMs values will be 0, 100, 200, ..., 900 (startedAt = 1000).
 
     const diagnostics = buildSessionReplayDiagnostics(events as any, {
       fromMs: 200,
@@ -870,7 +865,6 @@ describe("buildSessionReplayDiagnostics", () => {
       "entry 4",
       "entry 5",
     ]);
-    // total reflects the windowed population (4), not the full 10.
     expect(diagnostics.console.total).toBe(4);
     expect(diagnostics.console.truncated).toBe(false);
     expect(diagnostics.console.hasMore).toBe(false);
@@ -895,7 +889,6 @@ describe("buildSessionReplayDiagnostics", () => {
       maxConsoleEntries: 2,
     });
 
-    // Windowed population is entries 2..9 (offsetMs 200-900, 8 entries).
     expect(diagnostics.console.total).toBe(8);
     expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
       "entry 4",

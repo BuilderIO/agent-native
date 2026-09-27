@@ -847,8 +847,6 @@ describe("shouldShowEventsSkeleton", () => {
   });
 
   it("shows the skeleton when navigating to a new, unfetched date range", () => {
-    // keepPreviousData serves last week's events as placeholder while next week
-    // loads — showing them in next week's grid would be wrong, so we skeleton.
     expect(
       shouldShowEventsSkeleton({
         isLoading: false,
@@ -860,9 +858,6 @@ describe("shouldShowEventsSkeleton", () => {
   });
 
   it("does NOT show the skeleton when only the calendar set changes (the bug)", () => {
-    // Removing/adding a feed or person overlay changes the query key but not the
-    // date range. keepPreviousData keeps the user's events on screen, so we must
-    // keep showing them rather than wiping the calendar behind a skeleton.
     expect(
       shouldShowEventsSkeleton({
         isLoading: false,
@@ -1002,12 +997,6 @@ describe("reconcileUpdatedEventList", () => {
   });
 
   it("skips list-events cache entries holding the overlay-status inventory shape instead of an event array", () => {
-    // useOverlayCalendarStatus queries the same "list-events" action with
-    // `format: "inventory"` and caches an `{ sourceCoverage }` object under
-    // the same ["action", "list-events", ...] key prefix that event-array
-    // queries use. A create-event cache update must not treat that object as
-    // a CalendarEvent[] — doing so throws "<value>.filter is not a function"
-    // even though the event was created successfully.
     const queryClient = new QueryClient();
     const eventsKey = [
       "action",
@@ -1054,14 +1043,6 @@ describe("reconcileUpdatedEventList", () => {
   });
 
   it("does not seed a not-yet-loaded overlay-status inventory query with an event array", () => {
-    // A `format: "inventory"` query can be registered in the cache with no
-    // data yet (still loading, or after a reset) — `data === undefined` looks
-    // just like "no events fetched yet" for a normal list-events query. The
-    // skip must key off the query's params, not off the current data shape,
-    // or this loop seeds the inventory key with a CalendarEvent[] the first
-    // time an event is created while that query's range happens to overlap
-    // the new event (mergeCalendarEventIntoList turns `undefined` into
-    // `[event]`, which looks like a perfectly normal "no events yet" result).
     const queryClient = new QueryClient();
     const overlayStatusKey = [
       "action",

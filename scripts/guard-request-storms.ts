@@ -62,7 +62,6 @@ function lineAt(source: string, index: number): number {
   return line;
 }
 
-/** Mask comments and string literals while preserving offsets and newlines. */
 function maskNonCode(source: string): string {
   const output = source.split("");
   let state: "code" | "line" | "block" | "single" | "double" | "template" =

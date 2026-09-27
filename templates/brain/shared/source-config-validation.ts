@@ -14,9 +14,7 @@ export type SourceConfigIssueCode =
 export interface SourceConfigIssue {
   field: SourceListField;
   code: SourceConfigIssueCode;
-  /** The offending entry exactly as the user typed it, before normalization. */
   value: string;
-  /** 1-based position of the entry within its field. */
   line: number;
 }
 
@@ -30,28 +28,15 @@ interface RawListEntry {
   line: number;
 }
 
-/**
- * Slack conversation IDs are uppercase and prefixed by conversation kind.
- * Only C (public channel) and G (private channel) are accepted: `resolveSlackChannel`
- * resolves a D-prefixed ref to an IM, and `isUsableSlackChannel` then drops it, so a
- * D-only source syncs successfully against zero channels.
- */
 const SLACK_CHANNEL_ID = /^[CG][A-Z0-9]{6,20}$/;
 
 const SLACK_DIRECT_MESSAGE_ID = /^D[A-Z0-9]{6,20}$/i;
 
-/**
- * Slack channel names allow non-Latin letters, so this rejects the characters
- * Slack forbids instead of allow-listing ASCII and locking out those names.
- * Symbols and emoji are forbidden too: Slack permits letters, numbers, hyphens
- * and underscores only, so an emoji can never match a real channel name.
- */
 const SLACK_NAME_FORBIDDEN =
   /[\s!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]|\p{S}|\p{Extended_Pictographic}/u;
 
 const SLACK_NAME_MAX_LENGTH = 80;
 
-/** Repository names may contain dots; GitHub owners may not. */
 const GITHUB_OWNER = /^[A-Za-z0-9_-]+$/;
 const GITHUB_REPO = /^[A-Za-z0-9_.-]+$/;
 
@@ -73,16 +58,6 @@ export function isValidSlackChannelRef(value: string) {
   return !/[A-Z]/.test(ref);
 }
 
-/**
- * Returns the canonical `owner/repo` form, or null when the value is not a
- * repository reference at all. Callers must treat null as invalid input rather
- * than filtering it away.
- *
- * The bare-host form (`github.com/owner/repo`) has to be stripped before the
- * split, or the host becomes the owner and a different repository is addressed
- * silently. Rejecting a dotted owner is what stops the same confusion for any
- * other host.
- */
 export function normalizeGitHubRepoRef(value: string): string | null {
   const trimmed = value.trim().replace(/\.git$/, "");
   if (!trimmed) return null;
@@ -103,10 +78,6 @@ export function isValidGitHubRepoRef(value: string) {
   return normalizeGitHubRepoRef(value) !== null;
 }
 
-/**
- * Splits a multi-line list field while keeping the line the user typed each
- * entry on, so an inline error can point at the offending row.
- */
 export function parseSourceListInput(raw: string): ParsedSourceListEntry[] {
   const entries: ParsedSourceListEntry[] = [];
   const lines = raw.split(/\n/g);
@@ -210,16 +181,6 @@ function objectValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/**
- * Collects list entries exactly as the caller supplied them.
- *
- * The storage-side readers (`slackChannelRefsFromConfig`, `githubReposFromConfig`)
- * drop blanks and non-strings before returning, which would hide precisely the
- * malformed entries this validator exists to catch and let an action caller
- * persist what the drawer refuses. A delimited string is split like the textarea,
- * so blank segments around separators are skipped; an array element is a discrete
- * value and is always inspected, blank or not.
- */
 function rawListEntriesFromConfig(
   config: Record<string, unknown>,
   keys: readonly string[],
@@ -262,11 +223,6 @@ function hasGitHubRepositoryPatch(config: Record<string, unknown>) {
   );
 }
 
-/**
- * Validates only the list fields the caller actually supplied, so editing an
- * unrelated field on a source that already holds bad data is not blocked by
- * that pre-existing data.
- */
 export function validateSourceConfig(
   provider: string,
   config: Record<string, unknown>,

@@ -63,9 +63,6 @@ export default defineAction({
         threadId: threadIdList?.[i],
         accountEmail: accountEmailList?.[i] || args.accountEmail,
       }));
-      // Resolve every target's account once, up front, with the same rule
-      // used by the single-item path — so the Gmail mutation below and the
-      // store mirror after it never group by different accounts.
       const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
@@ -92,8 +89,6 @@ export default defineAction({
         {
           add: isStarred ? ["STARRED"] : undefined,
           remove: isStarred ? undefined : ["STARRED"],
-          // Message-scoped: star targets are message ids, not whole threads
-          // (see applyLocalLabelDelta's scope handling).
           scope: "message",
         },
       );

@@ -41,7 +41,7 @@ const messages = {
       aiSetupTitle: "अपना AI इनबॉक्स सेट करें",
       aiSetupTagLabel: "AI टैग बनाएँ",
       aiSetupImportanceLabel: "महत्वपूर्ण मेल",
-      aiSetupSpamLabel: "स्पैम और अनचाहा मेल",
+      aiSetupSpamLabel: "स्पैम",
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
       aiSetupSave: "सेटअप सहेजें",
       aiSetupSkip: "अभी छोड़ें",
@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "जिन संदेशों का जवाब देना है या समय-सीमा है, उनमें GitHub पर लोगों की टिप्पणियाँ भी शामिल हैं। बॉट टिप्पणियाँ छोड़ें।",
       aiSetupArchiveSpamPrompt:
-        "अपने-आप संग्रह करें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
+        "इनबॉक्स छोड़ें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
       aiSetupCustomTag: "कस्टम",
       aiSetupDone: "हो गया",
       aiSetupRunAgain: "सेटअप फिर चलाएँ",
@@ -68,6 +68,24 @@ const messages = {
       aiSetupPromptTravel: "यात्रा की ज़रूरी पुष्टि और बुकिंग",
       aiSetupTagFinance: "वित्त",
       aiSetupPromptFinance: "ज़रूरी बिल और खाता विवरण",
+      aiSetupArchiveExample: "GitHub, Vercel और Dependabot से बॉट और CI सूचनाएँ",
+      aiSetupFilteredExample:
+        "अनचाहे बिक्री संदेश और वे रिक्रूटर जिन्हें मैंने जवाब नहीं दिया",
+      aiSetupSortingHeadline: "आपका इनबॉक्स व्यवस्थित हो रहा है",
+      aiSetupSortingProgress:
+        "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
+      aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
+      aiSetupSortingFailed:
+        "इनबॉक्स व्यवस्थित नहीं हो सका। आपके नियम सहेजे गए हैं; फिर कोशिश करें।",
+      aiSetupUndoComplete: "{{count}} संदेश अपनी पिछली स्थिति में लौटे।",
+      aiSetupRuleCount: "{{count}} मेल मिले",
+      aiSetupNoMatches: "पिछले 14 दिनों में कोई संदेश इन नियमों से मेल नहीं खाता।",
+      aiSetupChatTip: "आप चैट में कभी भी नियम बदल या जोड़ सकते हैं।",
+      aiSetupChatPrompt: "मेरे बॉस के ईमेल को प्राथमिकता दें…",
+      aiSetupNoRules: "कोई नियम नहीं चुना गया।",
+      aiSetupPartialFailure: "{{count}} संदेश अपडेट नहीं हो सके।",
+      aiSetupSortInbox: "मेरा इनबॉक्स व्यवस्थित करें",
+      aiSetupImportantExample: "मेरी मैनेजर Priya के सभी संदेश…",
       priorityFeedbackLabel: "महत्व पर प्रतिक्रिया",
       priorityScoreHigh: "अधिक महत्व",
       priorityScoreMedium: "मध्यम महत्व",
@@ -538,6 +556,8 @@ const messages = {
         "agent-native-filtered लेबल जोड़कर बातचीत को संग्रहित करता है। आप इसे कभी भी वापस ले सकते हैं।",
       learningNote:
         "संदेश को इनबॉक्स में रखकर फ़िल्टर को यह गलती दोहराने से रोकना सिखाता है।",
+      learningProgress:
+        "{{required}} में से {{count}} उदाहरणों की पुष्टि हुई। सभी {{required}} की पुष्टि होने पर हाल के ईमेल जाँचे जाएँगे।",
       rememberLabel: "आने वाले मेल के लिए याद रखें (वैकल्पिक)",
       correctLabel: "इसे क्या सीखना चाहिए? (वैकल्पिक)",
       rememberPlaceholder: "उदा. राजनीतिक अभियानों के ऐसे मेल अनचाहे हैं",
@@ -549,11 +569,37 @@ const messages = {
       keptToast: "{{count}} बातचीत इनबॉक्स में रखी गईं।",
       actionFailed: "AI फ़िल्टर अपडेट नहीं किया जा सका।",
       settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
+      automationRulesLoadFailed: "ट्रायेज नियम लोड नहीं हो सके।",
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
       tagMode: "टैग",
       aiTagsTitle: "AI टैग",
+      ruleHelpLabel: "{{mode}} नियम समझाएँ",
+      aiTagRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर यह टैग जोड़ता है।",
+      importantRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
+      skipInboxRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
+      spamRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
+      filteredMode: "फ़िल्टर किए गए",
+      manageSettings: "प्रबंधित करें",
+      askJev: "Jev से पूछें",
+      askJevPrompt:
+        "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
+      composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      ruleBackfillStarting: "यह नियम हाल के मेल पर लागू हो रहा है…",
+      ruleBackfillProgress:
+        "हाल के मेल पर लागू हो रहा है: {{total}} में से {{processed}}",
+      ruleBackfillMatches: "{{count}} हाल के संदेश मेल खाते हैं",
+      ruleBackfillNoMatches: "हाल का कोई संदेश इस नियम से मेल नहीं खाता।",
+      ruleBackfillFailed: "यह नियम हाल के मेल पर लागू नहीं हो सका।",
+      ruleBackfillPartialFailure: "{{count}} संदेश अपडेट नहीं हो सके।",
+      ruleBackfillUndoing: "हाल के मेल बहाल हो रहे हैं…",
+      ruleBackfillUndoComplete: "{{count}} संदेश बहाल हुए",
+      ruleBackfillReview: "मेल देखें",
       importantMode: "महत्वपूर्ण",
       notImportantMode: "महत्वपूर्ण नहीं",
       importantLabel: "AI महत्वपूर्ण",
@@ -590,7 +636,7 @@ const messages = {
       promptRulesCleared: "ट्रायेज नियम हटाए गए।",
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
-      triageTitle: "ट्रायेज",
+      triageTitle: "AI ट्रायेज",
       connectJev: "Jev कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
@@ -779,7 +825,7 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
-    aiFilter: "ट्रायेज",
+    aiFilter: "AI ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",

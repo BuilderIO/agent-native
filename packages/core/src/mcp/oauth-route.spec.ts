@@ -1138,13 +1138,11 @@ describe("MCP OAuth route", () => {
       "/authorize",
       { appName: "Mail" },
     );
-    // The browser tab gets a real HTML page instead of dangling on cursor://…
     expect(authorize.status).toBe(200);
     expect(authorize.headers.get("content-type")).toContain("text/html");
     const page = await authorize.text();
     expect(page).toContain("You're all set");
     expect(page).toContain("Open Cursor");
-    // The deep link (carrying the auth code + state) is still handed to the client.
     const link = (
       page.match(/id="return-link" href="([^"]+)"/)?.[1] ?? ""
     ).replace(/&amp;/g, "&");
@@ -1687,7 +1685,6 @@ describe("MCP OAuth route", () => {
       "/token",
     );
     const body = await tokenRes.json();
-    // expires_in must equal the TTL seconds constant (30d = 2592000s), not 3600.
     expect(body.expires_in).toBe(30 * 86400);
     expect(body.expires_in).not.toBe(3600);
   });
@@ -1838,7 +1835,6 @@ describe("MCP OAuth route", () => {
     expect(rowBefore).toBeTruthy();
     const expiryBefore = rowBefore.expiresAt;
 
-    // Simulate time passing and use the refresh token.
     const laterTime = Date.now() + 1000;
     vi.spyOn(Date, "now").mockReturnValue(laterTime);
     await handleMcpOAuth(
@@ -1854,7 +1850,6 @@ describe("MCP OAuth route", () => {
     );
 
     const rowAfter = refreshRows.get(firstToken.refresh_token);
-    // Expiry must have slid forward from the original creation expiry.
     expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
     expect(rowAfter.lastUsedAt).toBe(laterTime);
   });

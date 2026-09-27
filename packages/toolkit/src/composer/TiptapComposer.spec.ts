@@ -378,6 +378,103 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("moves focus outside Home when its hidden context picker closes", async () => {
+    const contextMenuItems = [
+      {
+        id: "source",
+        label: "Source",
+        picker: {
+          presentation: {
+            type: "dialog" as const,
+            mode: "multiple" as const,
+            onAttach: vi.fn(),
+          },
+          searchPlaceholder: "Search sources",
+          scopeKey: "account",
+          load: async () => ({ items: [], hasMore: false }),
+        },
+      },
+    ];
+
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement("button", { id: "visible-page-target" }, "Next"),
+          React.createElement(
+            "div",
+            { hidden: disabled },
+            React.createElement(TiptapComposer, {
+              disabled,
+              contextMenuItems,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              toolbarSlot: React.createElement(
+                "button",
+                { type: "button" },
+                "Model selector",
+              ),
+              voiceEnabled: false,
+            }),
+          ),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: false }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const addContext = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(addContext).not.toBeNull();
+    await act(async () => {
+      addContext!.focus();
+      addContext!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const clickMenuItem = async (label: string) => {
+      const item = Array.from(
+        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+      ).find((element) => element.textContent?.trim() === label);
+      expect(item, label).toBeDefined();
+      await act(async () => {
+        item!.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await clickMenuItem("Add context");
+    await clickMenuItem("Source");
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(
+      async () =>
+        new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => resolve()),
+        ),
+    );
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector("#visible-page-target"),
+    );
+  });
+
   it("syncs identical text after switching draft scopes", async () => {
     const runs: Array<ReadonlyArray<{ content?: unknown }>> = [];
     const recordingAdapter: ChatModelAdapter = {
@@ -441,9 +538,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("clears the persisted draft even when the host unmounts the composer before onSubmit resolves", async () => {
-    // Mirrors standalone prompt popovers (e.g. Design's "New Design" dialog)
-    // that close/unmount themselves as soon as submit starts, without
-    // waiting for the submit round trip to finish.
     const scope = "unmount-before-resolve";
     let resolveSubmit: (() => void) | undefined;
     const onSubmit = vi.fn(
@@ -503,11 +597,6 @@ describe("createTiptapComposerExtensions", () => {
       "abandoned prompt",
     );
 
-    // The host closes/unmounts the popover immediately after kicking off
-    // submit, destroying this editor instance while onSubmit is still
-    // pending. tiptap-react defers the actual `editor.destroy()` by one
-    // tick (see EditorInstanceManager.scheduleDestroy) so the wait below is
-    // required for the destruction to have actually happened.
     act(() => localRoot.unmount());
     localContainer.remove();
     await act(async () => {
@@ -524,11 +613,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("does not clear a newer draft when a stale submit from an unmounted, same-scope composer instance finally resolves", async () => {
-    // Two independent mounts can share the exact same draftScope (e.g. the
-    // host reopens the same "New design" popover before the first submit's
-    // round trip settles). The stale instance's late-resolving submit must
-    // not wipe out whatever the fresh instance has since persisted under
-    // that shared key.
     const scope = "reused-scope-after-unmount";
     let resolveFirstSubmit: (() => void) | undefined;
     const firstSubmit = vi.fn(
@@ -588,16 +672,12 @@ describe("createTiptapComposerExtensions", () => {
       "stale prompt",
     );
 
-    // The host closes/unmounts the first popover instance while its submit
-    // is still pending.
     act(() => firstRoot.unmount());
     firstContainer.remove();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
 
-    // The host reopens the same popover (same draftScope) and the visitor
-    // types a brand-new draft, which persists to the exact same key.
     const secondFocusRef = React.createRef<TiptapComposerHandle>();
     const secondContainer = document.createElement("div");
     document.body.appendChild(secondContainer);
@@ -635,8 +715,6 @@ describe("createTiptapComposerExtensions", () => {
       "fresh prompt",
     );
 
-    // The stale first submit finally resolves. It must not blow away the
-    // second instance's freshly persisted draft under the shared key.
     await act(async () => {
       resolveFirstSubmit?.();
       await Promise.resolve();
@@ -1172,6 +1250,58 @@ describe("createTiptapComposerExtensions", () => {
     expect(added[0]?.name).toMatch(/^\d+-[a-z0-9]+-image\.png$/);
   });
 
+  it("consumes but does not attach file drops while uploads are disabled", () => {
+    const file = new File(["fake"], "image.png", { type: "image/png" });
+    const added = vi.fn();
+    let prevented = false;
+    let stopped = false;
+    const handled = handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation: () => {
+          stopped = true;
+        },
+      } as unknown as DragEvent,
+      addAttachment: added,
+      attachmentsEnabled: false,
+    });
+
+    expect(handled).toBe(true);
+    expect(prevented).toBe(true);
+    expect(stopped).toBe(true);
+    expect(added).not.toHaveBeenCalled();
+  });
+
+  it("reports the filename of a rejected dropped attachment", async () => {
+    const file = new File(["fake"], "unsupported.xlsm", {
+      type: "application/vnd.ms-excel.sheet.macroEnabled.12",
+    });
+    const onError = vi.fn();
+    handleComposerFileDrop({
+      event: {
+        dataTransfer: { files: [file] },
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as unknown as DragEvent,
+      addAttachment: async () => {
+        throw new Error("File type .xlsm is not accepted.");
+      },
+      onError,
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "File type .xlsm is not accepted.",
+        }),
+        "unsupported.xlsm",
+      );
+    });
+  });
+
   it("caps the model picker height without forcing empty vertical space", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
       fontSize: 13,
@@ -1196,7 +1326,6 @@ describe("createTiptapComposerExtensions", () => {
         { configured: false },
       ]),
     ).toBe(false);
-    // No CTA to fall back on — keep the list rather than empty the popover.
     expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
   });
 
@@ -1219,10 +1348,6 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("still renders the picker when nothing is configured, even though that leaves selectedModel empty", () => {
-    // Nothing routable yet means useChatModels() resolves selectedModel to
-    // "" (never null/undefined) so it can't be pre-selected — that must not
-    // read as "no picker to show": the connect-provider CTAs still live
-    // inside the picker itself.
     const unconfigured = [
       {
         engine: "openai",
@@ -1232,8 +1357,6 @@ describe("createTiptapComposerExtensions", () => {
       },
     ];
     expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
-    // An empty list is the initial discovery/setup state. Keep the button so
-    // the picker can show loading or provider setup rather than disappearing.
     expect(shouldRenderModelSelector([], () => {})).toBe(true);
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
@@ -1478,6 +1601,164 @@ describe("createTiptapComposerExtensions", () => {
     await act(async () => {});
 
     expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "claude-cli");
+  });
+});
+
+describe("TiptapComposer storage gate", () => {
+  it("opens storage setup from Upload File without exposing a file picker", async () => {
+    const onAttachmentRequest = vi.fn();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            onAttachmentRequest,
+            plusMenuMode: "upload-only",
+            includeDefaultSlashSkills: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    const plusButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    );
+    expect(plusButton).not.toBeNull();
+    await act(async () => {
+      plusButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+      plusButton?.dispatchEvent(
+        new MouseEvent("pointerup", { bubbles: true, button: 0 }),
+      );
+      plusButton?.click();
+    });
+
+    const uploadItem = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ).at(0);
+    expect(uploadItem).toBeDefined();
+    await act(async () => uploadItem?.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+});
+
+describe("TiptapComposer paste handling", () => {
+  it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
+    const pastedText = "Keep this text";
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const clipboardData = {
+      files: [new File(["image"], "image.png", { type: "image/png" })],
+      getData: (type: string) => (type === "text/plain" ? pastedText : ""),
+    };
+    const pasteEvent = new Event("paste", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: clipboardData,
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(editor?.textContent).toBe(pastedText);
+    expect(pasteEvent.defaultPrevented).toBe(true);
+  });
+
+  it("keeps large plain-text pastes in the composer when uploads are disabled", async () => {
+    const pastedText = "A".repeat(3200);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            attachmentsEnabled: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const clipboardData = {
+      files: [],
+      getData: (type: string) => (type === "text/plain" ? pastedText : ""),
+    };
+    const pasteEvent = new Event("paste", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: clipboardData,
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(editor?.textContent).toBe(pastedText);
   });
 });
 
@@ -1759,7 +2040,6 @@ describe("composerModelCostTier", () => {
   });
 
   it("returns undefined for unmapped models so no cost label renders", () => {
-    // A guessed tier is worse than none — these render without a `$` label.
     expect(composerModelCostTier("auto")).toBeUndefined();
     expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
     expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();

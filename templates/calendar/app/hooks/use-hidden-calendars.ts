@@ -3,9 +3,9 @@ import { useState, useCallback } from "react";
 const STORAGE_KEY = "hidden-calendars";
 
 interface HiddenCalendars {
-  people: string[]; // overlay person emails
-  external: string[]; // external calendar IDs
-  accounts: string[]; // own Google account emails
+  people: string[];
+  external: string[];
+  accounts: string[];
 }
 
 function load(): HiddenCalendars {

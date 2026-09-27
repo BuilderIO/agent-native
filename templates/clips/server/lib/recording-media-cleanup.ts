@@ -82,15 +82,6 @@ async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
   );
 }
 
-/**
- * Delete exactly one stored media object.
- *
- * Redaction needs this: when a screenshot's blurred version replaces the
- * original, the original file has to leave storage, or the unblurred pixels
- * are still one URL away — which is the whole failure mode redaction exists to
- * prevent. Reports whether the object is actually gone so the caller can
- * refuse to claim a redaction that only half happened.
- */
 export async function deleteStoredMediaUrl(url: string): Promise<boolean> {
   if (!url || url.startsWith("data:")) return false;
   return (

@@ -75,36 +75,38 @@ export const getPublicAvailability = defineEventHandler(
         .from(schema.bookingLinks)
         .where(eq(schema.bookingLinks.slug, slug))
         .then((rows) => rows[0]);
-      if (link?.ownerEmail) {
-        const ownerConfig = (await getUserSetting(
-          link.ownerEmail,
-          "calendar-availability",
-        )) as unknown as AvailabilityConfig | null;
-        if (ownerConfig) return ownerConfig;
-        const ownerSettings = (await getUserSetting(
-          link.ownerEmail,
-          "calendar-settings",
-        )) as { timezone?: string } | null;
-        return createDefaultAvailability(
-          ownerSettings?.timezone || "America/New_York",
-        );
+      const usernameOwnerEmail = username
+        ? await getBookingUsernameOwner(username)
+        : null;
+      if (
+        username &&
+        (!usernameOwnerEmail ||
+          (link && link.ownerEmail !== usernameOwnerEmail))
+      ) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Booking page not found",
+        });
       }
 
-      if (username) {
-        const ownerEmail = await getBookingUsernameOwner(username);
-        if (!ownerEmail) {
-          throw createError({
-            statusCode: 404,
-            statusMessage: "Booking page not found",
-          });
-        }
-
+      const ownerEmail = link?.ownerEmail || usernameOwnerEmail;
+      if (ownerEmail) {
         const ownerConfig = (await getUserSetting(
           ownerEmail,
           "calendar-availability",
         )) as unknown as AvailabilityConfig | null;
-        if (ownerConfig?.bookingPageSlug === slug) return ownerConfig;
-        if (!ownerConfig && slug === "book") {
+        if (
+          ownerConfig &&
+          (link?.ownerEmail ||
+            !username ||
+            ownerConfig.bookingPageSlug === slug)
+        ) {
+          return ownerConfig;
+        }
+        if (
+          !ownerConfig &&
+          (link?.ownerEmail || !username || slug === "book")
+        ) {
           const ownerSettings = (await getUserSetting(
             ownerEmail,
             "calendar-settings",
@@ -113,16 +115,15 @@ export const getPublicAvailability = defineEventHandler(
             ownerSettings?.timezone || "America/New_York",
           );
         }
-
-        throw createError({
-          statusCode: 404,
-          statusMessage: "Booking page not found",
-        });
+        if (username) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Booking page not found",
+          });
+        }
       }
     }
 
-    // Username-scoped pages fail closed above; legacy links without a username
-    // still use defaults and never read the unscoped availability setting.
     return createDefaultAvailability("America/New_York");
   },
 );
@@ -133,10 +134,6 @@ export const updateAvailability = defineEventHandler(async (event: H3Event) => {
     const config: AvailabilityConfig = await readBody(event);
     const configRecord = config as unknown as Record<string, unknown>;
     await putUserSetting(email, "calendar-availability", configRecord);
-    // Do NOT also write to the deploy-wide `calendar-availability` key. The
-    // earlier dual-write let every signed-in user clobber the global config —
-    // a brand-new user's public booking link then surfaced the previous
-    // editor's working hours/timezone. See PLAN.md / 01-data-leakage.md.
     return config;
   } catch (error: any) {
     setResponseStatus(event, 500);

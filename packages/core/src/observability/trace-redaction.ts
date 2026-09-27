@@ -1,6 +1,3 @@
-/** Keys whose values are stripped from persisted tool inputs. Matched
- *  case-insensitively across namespace, snake/kebab, camelCase, and
- *  credential suffixes. */
 const SENSITIVE_FIELD_PATTERN =
   /^(authorization|cookie|jwt|password|secret|token|bearer)$/i;
 const SENSITIVE_FIELD_SUFFIXES = [
@@ -27,7 +24,6 @@ function isSensitiveFieldName(field: string): boolean {
   });
 }
 
-/** Recursively redact sensitive fields without mutating the input. */
 export function redactSensitiveFields(value: unknown): unknown {
   return redactWalk(value, new WeakSet<object>());
 }

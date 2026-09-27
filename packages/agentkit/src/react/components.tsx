@@ -113,7 +113,6 @@ interface AgentKitErrorBoundaryState {
   resetKey?: string | number;
 }
 
-/** Isolates custom renderers so one extension cannot take down the chat. */
 export class AgentKitErrorBoundary extends Component<
   AgentKitErrorBoundaryProps,
   AgentKitErrorBoundaryState
@@ -212,7 +211,6 @@ function AgentKitRegionSlot({
 const allowedAgentProtocols = new Set(["http:", "https:", "mailto:", "blob:"]);
 const allowedAgentImageProtocols = new Set(["http:", "https:", "blob:"]);
 
-/** Keeps an unfinished bold delimiter literal while a streamed message grows. */
 function escapeIncompleteStrongMarkdown(text: string): string {
   const delimiterPositions = new Map<"**" | "__", number[]>();
   let inFence = false;
@@ -280,7 +278,6 @@ function escapeIncompleteStrongMarkdown(text: string): string {
     );
 }
 
-/** Rejects executable and embedded-data URLs before they reach a default anchor. */
 export function safeAgentHref(href?: string): string | undefined {
   if (!href) return undefined;
   try {
@@ -337,7 +334,6 @@ function AgentMarkdown({ text }: { text: string }) {
   );
 }
 
-/** Keeps participant avatars on image-capable, non-executable URL schemes. */
 export function safeAgentImageSrc(src?: string): string | undefined {
   if (!src) return undefined;
   try {
@@ -1727,7 +1723,6 @@ export function AgentMessagePartView({
   }
 }
 
-/** Resolves the stable server request identity without exposing local UI ids. */
 export function resolveAgentMessageRequestId(
   message: AgentMessage,
   events: readonly AgentEvent[],
@@ -2155,11 +2150,8 @@ export interface AgentKitComposerProps extends Pick<
   className?: string;
   queueWhileRunning?: boolean;
   showModelSelector?: boolean;
-  /** Controlled execution mode for agent-native act/plan workflows. */
   mode?: "act" | "plan";
-  /** Initial execution mode when the composer is uncontrolled. */
   defaultMode?: "act" | "plan";
-  /** Called when the execution mode changes. */
   onModeChange?: (mode: "act" | "plan") => void;
 }
 
@@ -2201,9 +2193,6 @@ export function AgentKitComposer({
   const modelSelectionCapability = useAgentCapability("modelSelection");
   const canQueue = queueCapability.enabled;
   const canUpload = uploadsCapability.enabled;
-  // The host opts in through showModelSelector, so a capability the backend
-  // never reported keeps the selector instead of silently removing a control
-  // the host asked for. Only an explicit denial or outage takes it away.
   const canSelectModel =
     modelSelectionCapability.state === "unknown" ||
     modelSelectionCapability.enabled;
@@ -2430,11 +2419,8 @@ export interface AgentKitChatProps {
   title?: ReactNode;
   toolbar?: ReactNode;
   composer?: boolean;
-  /** Configures the reference composer without replacing its slot. */
   composerProps?: Omit<AgentKitComposerProps, "threadId">;
-  /** New conversations center the composer; embedded panels can anchor it. */
   emptyComposerPlacement?: "center" | "bottom";
-  /** Follow new output until the user deliberately scrolls away. */
   autoScroll?: boolean;
   className?: string;
 }

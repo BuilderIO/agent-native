@@ -7,7 +7,6 @@ const PREFS_PATH = "/_agent-native/assets/user-prefs";
 export interface AssetsPrefsState {
   prefs: AssetsUserPrefs;
   loading: boolean;
-  /** Applies the patch optimistically and rolls back if the write fails. */
   save: (patch: AssetsUserPrefs) => Promise<void>;
 }
 

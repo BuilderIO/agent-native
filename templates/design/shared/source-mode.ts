@@ -43,71 +43,34 @@ import {
 
 export const DESIGN_SOURCE_TYPES = ["inline", "localhost", "fusion"] as const;
 
-/**
- * Source-level provenance for a selected DOM element, populated from
- * data attributes emitted by the connected app's build-time transform
- * (e.g. @vitejs/plugin-react jsxDEV source maps or a Babel source plugin).
- *
- * - data-source-file / data-loc "file:line:col" → sourceFile
- * - data-source-line / data-loc                 → line
- * - data-source-column / data-loc               → column
- * - data-component-name                         → component
- *
- * All fields are optional because cross-origin localhost iframes cannot be
- * read (same-origin policy), and inline screens may not carry these attrs.
- */
 export interface ElementProvenance {
-  /** Runtime/compiler family that exposed this location. */
   framework?: ElementProvenanceFramework;
   sourceFile?: string;
   line?: number;
   column?: number;
   component?: string;
-  /**
-   * Where the nearest enclosing component was instantiated (`<Card …>` in the
-   * parent), as opposed to the element's own authoring site above. All
-   * `.map()`-produced siblings share one owner site, so `ownerKey` — their
-   * React key — is the only source-derived signal that separates them.
-   */
   ownerSourceFile?: string;
   ownerLine?: number;
   ownerColumn?: number;
   ownerComponentName?: string;
   ownerKey?: string;
-  /**
-   * Which tier produced `line`/`column`. Absent means the tier was never
-   * reported, which is NOT the same as authored — see
-   * `sourcePositionPrecision`.
-   */
   method?: ElementProvenanceMethod;
-  /**
-   * Which tier produced `ownerLine`/`ownerColumn`. Separate from `method`
-   * because the two tiers routinely differ: a source plugin stamps an
-   * authored `data-attribute` position on the element while the owner site is
-   * only reachable through a React 19 owner stack (transformed).
-   */
   ownerMethod?: ElementProvenanceMethod;
-  /**
-   * Set when the element resolved to NO location, so callers can tell "this
-   * app never exposes source locations" from "the runtime has not reported
-   * yet". Never set alongside a resolved `sourceFile`.
-   */
   unavailableReason?: ElementProvenanceUnavailableReason;
 }
 
 export type ElementProvenanceUnavailableReason =
   | "not-framework"
-  | "not-react" // legacy bridge payload
+  | "not-react"
   | "no-debug-info";
 
-/** Which tier produced a provenance position. */
 export type ElementProvenanceMethod =
-  | "data-attribute" // build-time transform's data-source-*/data-loc attributes
-  | "debug-source" // React <=18 structured `_debugSource` fiber field
-  | "debug-stack" // React 19 `_debugStack` owner stack
-  | "debug-stack-remapped" // React 19 stack position remapped through a source map
-  | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
-  | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
+  | "data-attribute"
+  | "debug-source"
+  | "debug-stack"
+  | "debug-stack-remapped"
+  | "vue-inspector"
+  | "svelte-meta";
 
 export type ElementProvenanceFramework =
   | "html"
@@ -117,13 +80,6 @@ export type ElementProvenanceFramework =
   | "angular"
   | "lwc";
 
-/**
- * Runtime component boundary discovered by a framework bridge. This is
- * deliberately separate from the durable component annotations used by the
- * inline component model: the bridge can identify an unannotated React
- * boundary before promotion, while promotion still writes the canonical
- * `data-agent-native-component` marker.
- */
 export interface RuntimeComponentIdentity {
   componentId: string;
   instanceId: string;
@@ -150,20 +106,6 @@ export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
 
 export type SourcePositionPrecision = "authored" | "transformed" | "unknown";
 
-/**
- * React 19 deleted `_debugSource`, and its `jsxDEV` drops the authored
- * `__source` argument the dev transform still emits, so the only surviving
- * position is a `_debugStack` frame — a position in the file the dev server
- * SERVES. Under any transforming dev server that is the transformed line, not
- * the authored one: measured on the React 19.2 + Vite 8 target, `<h1>`
- * authored at line 13 reports as line 26.
- *
- * So an unmapped `debug-stack` position must never be presented as the
- * authored JSX line, and deterministic writers must not seek to it. A
- * `debug-stack-remapped` position has crossed a verified source map and is
- * authored again. `unknown` (no tier reported) is deliberately not folded
- * into `authored`.
- */
 export function sourcePositionPrecision(
   method: ElementProvenanceMethod | undefined,
 ): SourcePositionPrecision {
@@ -218,8 +160,6 @@ export interface DesignBridgeCapability {
   reason?: string;
 }
 
-// Re-export `DesignSourceCapabilities` so callers that import from
-// `source-mode` continue to resolve the type without an extra import.
 export type { DesignSourceCapabilities };
 
 export interface LocalhostDesignRoute {
@@ -251,24 +191,7 @@ export interface LocalhostDesignConnectionConfig {
   bridgeUrl?: string;
   rootPath?: string;
   routeManifest: LocalhostDesignRouteManifest;
-  /**
-   * Low-level bridge operation capabilities (legacy shape).
-   *
-   * Kept for backward compatibility with existing persistence and consumers
-   * (`connect-localhost`, `list-localhost-connections`).  New code should read
-   * `sourceCapabilities` for the higher-level capability vocabulary that UI
-   * panels and agent actions gate on.
-   */
   capabilities: DesignBridgeCapability[];
-  /**
-   * High-level capability map for this connection (the preferred gate).
-   *
-   * Derived from and/or overrides `LOCALHOST_DEFAULT_CAPABILITIES`.  Absent
-   * means the caller should fall back to the tier defaults via
-   * `resolveDescriptorCapabilities()`.  Populated by the bridge handshake and
-   * persisted alongside the connection so capability checks remain correct
-   * across reconnects.
-   */
   sourceCapabilities?: DesignSourceCapabilities;
   status: "connected" | "detected" | "manual" | "error";
   lastSeenAt?: string;
@@ -282,13 +205,6 @@ export interface InlineDesignSource {
   fileId?: string;
   filename?: string;
   revision?: string;
-  /**
-   * Optional proven capability set for this source.
-   *
-   * When present, UI panels and actions MUST read capabilities from here
-   * rather than inferring them from `sourceType`.  Absent means "use the
-   * tier defaults from `resolveDescriptorCapabilities()`".
-   */
   capabilities?: DesignSourceCapabilities;
 }
 
@@ -300,14 +216,6 @@ export interface LocalhostDesignSource {
   url?: string;
   bridgeUrl?: string;
   revision?: string;
-  /**
-   * Optional proven capability set for this source.
-   *
-   * Populated after a successful bridge handshake; overrides the conservative
-   * `LOCALHOST_DEFAULT_CAPABILITIES` for capabilities the bridge has verified.
-   * Use `resolveDescriptorCapabilities(source)` to merge defaults with proven
-   * overrides.
-   */
   capabilities?: DesignSourceCapabilities;
 }
 
@@ -317,34 +225,7 @@ export interface FusionDesignSource {
   url?: string;
   revision?: string;
   metadata?: Record<string, unknown>;
-  /**
-   * Whether Builder credentials are configured and a branch project is set for
-   * this fusion source.
-   *
-   * When `true`, `resolveDescriptorCapabilities()` returns
-   * `FUSION_CONNECTED_CAPABILITIES` (indexComponents + branch + deployPreview +
-   * deploy available; source writes still planned until bridge hardening).
-   *
-   * When `false` or absent, returns `FUSION_DISCONNECTED_CAPABILITIES`
-   * (preview-only — no real-app write or branch operations).
-   *
-   * Set this field after verifying Builder connection status via
-   * `resolveIsBuilderBranchingEnabled()` from `@agent-native/core/server`.
-   * Callers that need the capability map without a descriptor can use
-   * `resolveFusionCapabilities(connected)` from `capability-resolver.ts`.
-   */
   connected?: boolean;
-  /**
-   * Optional proven capability set for this source.
-   *
-   * When present, UI panels and actions MUST read capabilities from here
-   * rather than inferring them from `sourceType` or `connected`.  Absent means
-   * "use the connection-aware tier defaults from
-   * `resolveDescriptorCapabilities()`".
-   *
-   * Populated once the Builder-hosted bridge has proven additional capabilities
-   * beyond the defaults (e.g. specific `writeFile` or `applyEdit` readiness).
-   */
   capabilities?: DesignSourceCapabilities;
 }
 
@@ -448,11 +329,6 @@ export function isDesignSourceType(value: unknown): value is DesignSourceType {
   );
 }
 
-/**
- * Screens whose content is a URL into a running app. Their markup lives in the
- * app's source, so every edit is a handoff, never a design-file write — the
- * distinction the editor keeps having to make, and keeps making per-call-site.
- */
 export function isRunningAppSourceType(value: unknown): boolean {
   const sourceType = normalizeDesignSourceType(value);
   return sourceType === "localhost" || sourceType === "fusion";
@@ -486,7 +362,6 @@ export function normalizeDesignSourceType(
   return null;
 }
 
-/** Resolve per-screen source metadata before falling back to the design tier. */
 export function designScreenSourceTypeFromData(
   data: Record<string, unknown>,
   fileId: string,
@@ -590,20 +465,14 @@ export function designConnectionIdsFromData(value: unknown): string[] {
 
 export function makeLocalhostRouteId(path: string): string {
   const normalized = path.trim() || "/";
-  // Encode structural characters distinctly BEFORE collapsing non-alphanumerics,
-  // otherwise paths like "/design/:id" and "/design-id", or "/users" and
-  // "/users/*", produce identical ids and silently overwrite each other in the
-  // route manifest map.
   const slug = normalized
     .replace(/^\/+/, "")
-    .replace(/\*/g, "w") // wildcard segment
-    .replace(/:/g, "p") // route param prefix (":id" -> "pid")
-    .replace(/[[\]]/g, "") // strip [id] bracket syntax
+    .replace(/\*/g, "w")
+    .replace(/:/g, "p")
+    .replace(/[[\]]/g, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  // Slugs are readable but lossy. Hash every normalized path so separators,
-  // reserved words, router syntax, and query-state variants remain distinct.
   const readable =
     normalized === "/"
       ? "root"
@@ -637,65 +506,9 @@ export function titleFromRoutePath(path: string): string {
   );
 }
 
-/**
- * Return the effective `DesignSourceCapabilities` for a source descriptor.
- *
- * **Preferred over reading `sourceType` directly.**  The function honours the
- * three-level capability contract from DESIGN-STUDIO-PLAN.md §1.1:
- *
- * 1. If the descriptor already carries a proven `capabilities` map (populated
- *    after a bridge handshake or capability verification), return that map.
- * 2. For **fusion** sources, honour the `connected` flag on the descriptor:
- *    - `connected === true` → `FUSION_CONNECTED_CAPABILITIES`: `indexComponents`,
- *      `branch`, `deployPreview`, `deploy` are **available**; source writes
- *      (`writeFile`, `writeTokens`, `writeMotion`) remain **planned** until
- *      bridge hardening.
- *    - `connected === false` / absent → `FUSION_DISCONNECTED_CAPABILITIES`:
- *      preview-only; no real-app write or branch operations.
- * 3. Otherwise fall back to the conservative tier defaults
- *    (`INLINE_DEFAULT_CAPABILITIES` / `LOCALHOST_DEFAULT_CAPABILITIES`).
- *
- * Usage:
- * ```ts
- * import { resolveDescriptorCapabilities } from "./source-mode";
- * import { hasCapability } from "./design-source-capabilities";
- *
- * const caps = resolveDescriptorCapabilities(source);
- * if (hasCapability(caps, "branch")) { ... }
- * ```
- *
- * To set the fusion connection state on a descriptor before resolving:
- * ```ts
- * import { resolveIsBuilderBranchingEnabled } from "@agent-native/core/server";
- *
- * const connected = await resolveIsBuilderBranchingEnabled();
- * const source: FusionDesignSource = { ...existing, connected };
- * const caps = resolveDescriptorCapabilities(source);
- * ```
- *
- * To record proven capabilities discovered after a bridge handshake, spread
- * the defaults and override the specific entries before storing on the
- * descriptor:
- * ```ts
- * import { resolveFusionCapabilities, available } from "./capability-resolver";
- *
- * const caps = {
- *   ...resolveFusionCapabilities(true),
- *   writeFile: available("Bridge write hardening complete"),
- * };
- * const source: FusionDesignSource = { ...existing, capabilities: caps };
- * ```
- *
- * Note: this module cannot import from `capability-resolver.ts` at runtime
- * because `capability-resolver.ts` already imports `DesignSourceType` from
- * here (circular).  The helper is therefore implemented inline using the same
- * canonical default maps re-imported from `design-source-capabilities.ts`.
- */
 export function resolveDescriptorCapabilities(
   source: DesignSourceDescriptor,
 ): DesignSourceCapabilities {
-  // If the descriptor carries a proven capability map, use it as-is.
-  // (A proven map overrides both sourceType and connected state.)
   if (source.capabilities) return source.capabilities;
 
   switch (source.sourceType) {
@@ -704,18 +517,6 @@ export function resolveDescriptorCapabilities(
     case "localhost":
       return LOCALHOST_DEFAULT_CAPABILITIES;
     case "fusion":
-      // Honour the connection status flag on the descriptor.
-      //
-      // - `connected === true` → `FUSION_CONNECTED_CAPABILITIES`:
-      //     indexComponents, branch, deployPreview, deploy are available;
-      //     source writes (writeFile/writeTokens/writeMotion) remain planned.
-      // - `connected === false` or absent → `FUSION_DISCONNECTED_CAPABILITIES`:
-      //     preview-only; no real-app write or branch operations.
-      //
-      // Callers should set `source.connected` after verifying Builder status
-      // via `resolveIsBuilderBranchingEnabled()`.  When the status is unknown
-      // (e.g. a stale descriptor without the field), the conservative
-      // disconnected default is returned.
       return source.connected
         ? FUSION_CONNECTED_CAPABILITIES
         : FUSION_DISCONNECTED_CAPABILITIES;

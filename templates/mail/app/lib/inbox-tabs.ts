@@ -9,18 +9,6 @@ import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
 import type { EmailMessage, SavedMailFilter } from "@shared/types";
 
-/**
- * Shared helpers for inbox tab destinations and client-side partitioning.
- *
- * The badge counts (AppLayout) and the rendered list (InboxPage) BOTH go
- * through these helpers so a tab's number can never disagree with the emails
- * it shows. Before this existed, the badge sliced the loaded inbox query
- * client-side while the list fired a separate Gmail `label:` search with a
- * different membership rule, so e.g. a tab could read "7" yet list nothing.
- */
-
-/** System views that render as their own collapsible sections, not triage
- * tabs that partition inbox mail. */
 export const COLLAPSIBLE_VIEW_IDS = [
   "unread",
   "starred",
@@ -30,8 +18,6 @@ export const COLLAPSIBLE_VIEW_IDS = [
   "trash",
 ] as const;
 
-// Keep the synthetic remainder tab's UI identity separate from user-label IDs.
-// Its public URL remains `tab=other` for existing links and agent commands.
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
@@ -41,7 +27,6 @@ export function inboxThreadKey(
   return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
 }
 
-/** Use Important as the pinned-tab fallback before the user saves pin choices. */
 export function resolvePinnedLabels(
   userPinnedLabels: readonly string[] | undefined,
   isGoogleConnected: boolean,
@@ -52,20 +37,11 @@ export function resolvePinnedLabels(
   return [...userPinnedLabels];
 }
 
-// labels are filed/archived independently of the inbox — routing them
-// through /inbox forces `in:inbox` server-side and hides every message the
-// user has archived out of the inbox while keeping the label, which reads as
-// "label is empty" even though it has mail. Route those through /all so the
-// label search is unscoped.
 export function labelTabHref(labelId: string): string {
   const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
   return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
-/**
- * Resolves the default destination when opening the mail app. All is the
- * default unless hidden or the user has enabled Combined Inbox.
- */
 export function resolveDefaultMailHref(opts: {
   combineInbox?: boolean;
   showAllTab?: boolean;
@@ -92,19 +68,12 @@ export function resolveDefaultMailHref(opts: {
   return "/inbox";
 }
 
-/** Pinned labels that act as inbox triage tabs (drop system views). */
 export function pinnedTriageLabels(pinnedLabels: readonly string[]): string[] {
   return pinnedLabels.filter(
     (id) => !(COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(id),
   );
 }
 
-/**
- * Self-addressed threads get a virtual "note-to-self" label when that tab is
- * pinned. Other self-sent mail still gets virtual "important" so it lands in
- * the matching triage tab. Both the count and the list apply this so they
- * agree on self-authored threads.
- */
 export function augmentSelfSentLabels(
   emails: EmailMessage[],
   opts: {
@@ -154,15 +123,6 @@ export function augmentSelfSentLabels(
   });
 }
 
-/**
- * Does a thread (represented by its latest message's labels) belong to the
- * given top-bar tab?
- *
- * - `tab === null` → the "Other" remainder: latest message carries none of the
- *   pinned triage labels.
- * - otherwise → latest message carries `tab`. "important" is exclusive: a
- *   thread that also matches another pinned tab belongs to that tab instead.
- */
 export function qualifiesForInboxTab(
   latestLabelIds: readonly string[],
   tab: string | null,
@@ -186,7 +146,6 @@ export function qualifiesForInboxTab(
   return true;
 }
 
-/** Latest message per thread, by date. */
 function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
@@ -199,7 +158,6 @@ function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   return map;
 }
 
-/** Threads claimed by saved query tabs, with Gmail's thread-level membership. */
 export function savedFilterThreadIds(
   emails: EmailMessage[],
   savedFilterQueries: readonly string[] = [],
@@ -216,14 +174,6 @@ export function savedFilterThreadIds(
   return matched;
 }
 
-/**
- * Filter a flat inbox message list down to the messages of every thread that
- * belongs to `tab` (or the "Other" remainder when `tab` is null). Returns all
- * messages of qualifying threads so thread grouping/detail stays intact.
- *
- * This is the list-side counterpart of {@link qualifiesForInboxTab} — the same
- * latest-message rule the badge counts use.
- */
 export function filterInboxTabEmails(
   emails: EmailMessage[],
   tab: string | null,

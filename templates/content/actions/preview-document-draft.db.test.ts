@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +81,19 @@ async function documentRowForDraftTest(documentId: string) {
   return document;
 }
 
+async function authoredSaveBase(documentId: string, candidate: string) {
+  const current = await documentRowForDraftTest(documentId);
+  const revision = `body:${current.bodyRevision}:sha256:${createHash("sha256")
+    .update(current.content)
+    .digest("hex")}`;
+  return {
+    baseRevision: revision,
+    authoredBaseRevision: revision,
+    authoredBaseContent: current.content,
+    authoredCandidateContent: candidate,
+  };
+}
+
 async function legacyClaimId(args: {
   documentId: string;
   expectedDraftVersion: number;
@@ -120,6 +134,86 @@ function asUser<T>(userEmail: string, fn: () => Promise<T>, orgId?: string) {
 }
 
 describe("private preview document drafts", () => {
+  it("applies Keep mine with a recorded authored body intent", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "resolved", choice: "keep_mine" });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Local recovery",
+      bodyRevision: 1,
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, documentId)),
+    ).toEqual([
+      expect.objectContaining({
+        authoredBaseRevision: 0,
+        committedRevision: 1,
+        canonicalChanged: true,
+      }),
+    ]);
+  });
+
+  it("retains Keep mine when an update requires preservation", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const updateSpy = vi.spyOn(updateDocument, "run").mockResolvedValueOnce({
+      preservationRequired: true,
+      id: documentId,
+      document: { ...(await documentRowForDraftTest(documentId)) },
+      reason: "provenance",
+      checkpointId: "preserved-draft",
+    } as any);
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "document_conflict" });
+    updateSpy.mockRestore();
+    expect(
+      (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
+    ).toMatchObject({ content: "Local recovery" });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Server body",
+    });
+  });
+
   it("allows only one request to apply a claimed recovery choice", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
@@ -718,6 +812,48 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it("keeps an edit that lands between the Keep mine claim and save", async () => {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+      }),
+    );
+    const originalRun = updateDocument.run.bind(updateDocument);
+    const updateSpy = vi
+      .spyOn(updateDocument, "run")
+      .mockImplementationOnce(async (args, ctx) => {
+        await originalRun({ id: documentId, content: "Intervening edit" });
+        return originalRun(args, ctx);
+      });
+    try {
+      const result = await asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "keep_mine",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Local recovery",
+          expectedDocumentUpdatedAt: before.updatedAt,
+        }),
+      );
+      expect(result.status).toBe("document_conflict");
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        "Intervening edit",
+      );
+      expect(
+        (await asUser(OWNER, () => getDraft.run({ documentId }))).draft
+          ?.content,
+      ).toBe("Local recovery");
+    } finally {
+      updateSpy.mockRestore();
+    }
+  });
+
   it("preserves a claimed draft in Version History when a newer draft wins restoration", async () => {
     const documentId = await createDocument();
     const [before] = await getDb()
@@ -831,6 +967,149 @@ describe("private preview document drafts", () => {
         operation: "use-saved-preview-draft",
       }),
     ]);
+  });
+
+  it("rejects a delayed browser save after Use saved settles its generation", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "use-saved-tab";
+    const editGeneration = 6;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Discarded local body"),
+          deferredReason: "conflict",
+          editorSessionId,
+          editGeneration,
+        },
+      }),
+    );
+
+    await expect(
+      asUser(OWNER, () =>
+        resolveDraft.run({
+          choice: "use_saved",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: "Discarded local body",
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      ),
+    ).resolves.toEqual({ status: "resolved", choice: "use_saved" });
+
+    const beforeDelayedSave = await documentRowForDraftTest(documentId);
+    const historyBeforeDelayedSave = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+
+    const delayed = await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Discarded local body",
+          editorSessionId,
+          editorEditGeneration: editGeneration,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Discarded local body",
+          browserSaveAttemptId: "delayed-use-saved-attempt",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(delayed).toMatchObject({
+      superseded: true,
+      document: { content: "Server body" },
+      editorSessionId,
+      editGeneration,
+      discardedGeneration: editGeneration,
+    });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Server body",
+      bodyRevision: 0,
+      updatedAt: beforeDelayedSave.updatedAt,
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, documentId)),
+    ).toHaveLength(historyBeforeDelayedSave.length);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBodyIntents)
+        .where(eq(schema.documentBodyIntents.documentId, documentId)),
+    ).toHaveLength(0);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentBrowserSaveAttempts)
+        .where(eq(schema.documentBrowserSaveAttempts.documentId, documentId)),
+    ).toHaveLength(0);
+  });
+
+  it("accepts a newer browser generation after Use saved", async () => {
+    const documentId = await createDocument();
+    const editorSessionId = "continued-use-saved-tab";
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Discarded generation six"),
+          deferredReason: "conflict",
+          editorSessionId,
+          editGeneration: 6,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "use_saved",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: "Discarded generation six",
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      }),
+    );
+
+    const saveBase = await authoredSaveBase(
+      documentId,
+      "Authored generation seven",
+    );
+    const saved = await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Authored generation seven",
+          ...saveBase,
+          editorSessionId,
+          editorEditGeneration: 7,
+          editorSnapshotTitle: "Builder row",
+          editorSnapshotContent: "Authored generation seven",
+          browserSaveAttemptId: "generation-after-use-saved",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+
+    expect(saved).toMatchObject({
+      content: "Authored generation seven",
+      browserSaveAttempt: { result: "applied" },
+    });
+    expect(await documentRowForDraftTest(documentId)).toMatchObject({
+      content: "Authored generation seven",
+      bodyRevision: 1,
+    });
   });
 
   it("keeps the exact draft when Use saved was reviewed against an older page", async () => {
@@ -1330,11 +1609,14 @@ describe("private preview document drafts", () => {
       }),
     );
 
+    const saveBase = await authoredSaveBase(documentId, "Saved generation two");
     await asUser(OWNER, () =>
       updateDocument.run(
         {
           id: documentId,
           content: "Saved generation two",
+          ...saveBase,
+          browserSaveAttemptId: "saved-generation-two",
           historySessionId: "history-one",
           editorSessionId,
           editorEditGeneration: 2,
@@ -1673,11 +1955,17 @@ describe("private preview document drafts", () => {
       }),
     );
 
+    const saveBase = await authoredSaveBase(
+      documentId,
+      "Server hunk and local body",
+    );
     await asUser(OWNER, () =>
       updateDocument.run(
         {
           id: documentId,
           content: "Server hunk and local body",
+          ...saveBase,
+          browserSaveAttemptId: "rebase-generation-eight",
           editorSessionId: "rebase-tab",
           editorEditGeneration: 8,
           editorSnapshotTitle: "Builder row",

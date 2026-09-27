@@ -8,8 +8,6 @@ import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
 import type { KeepaliveWrite, Rect, SnapRecord, Snapshot } from "./in-page.ts";
 
-// ---------------------------------------------------------------- pixels ---
-
 let codecs: { pixelmatch: any; PNG: any } | null = null;
 async function loadCodecs() {
   if (!codecs) {
@@ -24,19 +22,12 @@ async function loadCodecs() {
 }
 
 export interface PixelDiff {
-  /** Percent of compared pixels that differ. */
   pct: number;
   diffPixels: number;
   comparedPixels: number;
   sizeMismatch: boolean;
 }
 
-/**
- * pixelmatch at threshold 0.1 over the overlap of two PNGs. Excluded rects are
- * blanked in both images and left out of the denominator, so a larger
- * exclusion can never read as a better score. A size mismatch is reported,
- * never resized away.
- */
 export async function diffPngs(
   a: Buffer,
   b: Buffer,
@@ -92,7 +83,6 @@ export async function diffPngs(
   };
 }
 
-/** Padding around exclusion rects: anti-aliasing and focus rings bleed. */
 export function padRect(r: Rect, pad = 4): Rect {
   return {
     x: r.x - pad,
@@ -117,9 +107,7 @@ export interface StyleDelta {
 }
 
 export interface StyleDiff {
-  /** Non-geometry property changes on records present on both sides. */
   deltas: StyleDelta[];
-  /** Position/size changes beyond 1px. */
   geometry: StyleDelta[];
   missing: Array<{ key: string; inside: boolean }>;
   added: Array<{ key: string; inside: boolean }>;
@@ -362,7 +350,6 @@ const styleTexts = (s: string) =>
     m[1].replace(/\s+/g, " ").trim(),
   );
 
-/** Markers of editor/renderer state leaking into the stored source. */
 export function hardFailures(stored: string, saved: string): string[] {
   const out: string[] = [];
   for (const [name, re] of Object.entries(HARD_FAIL_PATTERNS)) {
@@ -382,7 +369,6 @@ export function hardFailures(stored: string, saved: string): string[] {
   return out;
 }
 
-/** Minimal line diff (LCS) for canonical HTML; `-` stored, `+` saved. */
 export function lineDiff(a: string[], b: string[], max = 120): string[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
@@ -498,7 +484,6 @@ const STATUS_RANK: Record<Status, number> = {
   error: 3,
 };
 
-/** Ratcheted numbers per case/slide/target/scenario. */
 export interface ScenarioMetrics {
   status: Status;
   editingPct: number;
@@ -535,7 +520,6 @@ const COUNT_FIELDS = [
 
 export type BaselineEntry = ScenarioMetrics;
 
-/** Same slack as the Design harness: d + max(0.1, 15% of d). */
 export function ceilingFor(pct: number): number {
   return Number((pct + Math.max(0.1, pct * 0.15)).toFixed(3));
 }
@@ -571,12 +555,6 @@ export function ratchetBaselineEntry(
   return next;
 }
 
-/**
- * Regressions against the ratchet. `expected` lists keys that should have run
- * this time (within the run's filters and limits); a baselined key among them
- * that produced no result is a problem, because a harness that silently runs
- * less can never fail.
- */
 export function findBaselineProblems(
   results: Map<string, ScenarioMetrics>,
   baseline: Record<string, BaselineEntry>,
@@ -584,7 +562,6 @@ export function findBaselineProblems(
 ): string[] {
   const problems: string[] = [];
   for (const [key, m] of results) {
-    // An error measured nothing, so no baseline can make it a pass.
     if (m.status === "error") {
       problems.push(`${key}: errored`);
       continue;

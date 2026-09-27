@@ -60,11 +60,17 @@ function ResolvedTitle({ pathname }: { pathname: string }) {
   );
 }
 
-function HeaderControls({ children }: { children?: ReactNode }) {
+function HeaderControls({
+  children,
+  showNotifications = true,
+}: {
+  children?: ReactNode;
+  showNotifications?: boolean;
+}) {
   return (
     <div className="flex items-center justify-end gap-2 shrink-0">
       {children}
-      <NotificationsBell pollMs={30_000} />
+      {showNotifications ? <NotificationsBell pollMs={30_000} /> : null}
       <RunsTray pollMs={0} />
       <AgentToggleButton />
     </div>
@@ -80,10 +86,8 @@ export function HomeHeaderActions({
 }) {
   return (
     <>
-      <div className="slides-home-search w-full min-w-0 max-w-175">
-        {search}
-      </div>
-      <HeaderControls>{children}</HeaderControls>
+      <div className="slides-home-search w-full min-w-0">{search}</div>
+      <HeaderControls showNotifications={false}>{children}</HeaderControls>
     </>
   );
 }
@@ -98,7 +102,7 @@ export function Header() {
     <header
       className={cn(
         "hidden shrink-0 border-b border-border bg-background md:block",
-        home && "slides-home-header",
+        home && "slides-home-header border-b-0",
       )}
     >
       <div

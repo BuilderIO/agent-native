@@ -24,9 +24,6 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   }
 }
 
-// Postgres 22P02 ("invalid_text_representation") is what the `::jsonb` cast
-// below throws for a row whose `data` isn't valid JSON. Drizzle wraps the
-// driver error in a DrizzleQueryError with the original on `.cause`.
 const INVALID_TEXT_REPRESENTATION = "22P02";
 
 function isInvalidJsonCastError(error: unknown): boolean {
@@ -233,16 +230,7 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      // Column-projected listing for cheap add/remove diffing (the client's
-      // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large. The client requests
-      // the preview projection below only while showing the grid, where
-      // DeckCard renders it; while a deck is open it uses the metadata-only
-      // path, since previewSlide is never displayed there.
       if (args.includePreview === "true") {
-        // Keep the list bounded at the database boundary. `data` is an opaque
-        // full-deck blob, so selecting it and parsing it here scales with every
-        // slide even though the caller only needs the first one.
         const previewSlideProjection = sql<
           string | null
         >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
@@ -267,15 +255,6 @@ export default defineAction({
         try {
           rows = await previewQuery;
         } catch (error) {
-          // The `::jsonb` cast above runs per row inside the query itself, so
-          // one deck whose `data` isn't valid JSON (a legacy/corrupted row)
-          // fails this cast and 500s the whole listing, not just that deck's
-          // owner. Fall back to reading `data` as plain text and parsing it
-          // per row in JS, so one bad deck loses only its own preview. Only
-          // that specific failure gets the fallback — a timeout, a dropped
-          // connection, or pool exhaustion is a real failure, and retrying it
-          // as a second, heavier full-`data` scan would double the load on
-          // the DB at the worst possible moment.
           if (!isInvalidJsonCastError(error)) throw error;
           captureError(error, {
             route: "list-decks",
@@ -308,9 +287,6 @@ export default defineAction({
                 aspectRatio = parsed.aspectRatio;
               }
             } catch (parseError) {
-              // This is the specific deck that broke the fast path above —
-              // surface its id so it can be fixed instead of silently
-              // missing its preview on every future listing too.
               captureError(parseError, {
                 route: "list-decks",
                 extra: { deckId: meta.id },
@@ -374,9 +350,6 @@ export default defineAction({
     }
 
     if (args.includeSlides !== "true") {
-      // The deck body is an opaque JSON blob containing every slide's HTML.
-      // Metadata callers must opt into it explicitly; the frontend opens one
-      // deck at a time through get-deck instead of downloading every body.
       const rows = await db
         .select({
           id: schema.decks.id,
