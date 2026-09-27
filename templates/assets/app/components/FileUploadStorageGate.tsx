@@ -1,7 +1,5 @@
-import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-
-import { Button } from "@/components/ui/button";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { useEffect } from "react";
 
 export type FileUploadStorageState = "configured" | "missing" | "unknown";
 
@@ -18,35 +16,27 @@ export function getFileUploadStorageState(status: {
 
 export function FileUploadStorageGate({
   state,
+  open,
+  onOpenChange,
   onRetry,
-  className,
 }: {
   state: FileUploadStorageState;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onRetry: () => void;
-  className?: string;
 }) {
-  const t = useT();
+  useEffect(() => {
+    if (open && state === "configured") onOpenChange(false);
+  }, [onOpenChange, open, state]);
 
-  if (state === "configured") return null;
-  if (state === "missing") {
-    return (
-      <div className={className}>
-        <FileStorageSetupCard />
-      </div>
-    );
-  }
-
+  if (!open || state === "configured") return null;
   return (
-    <div
-      role="status"
-      className={`flex items-center justify-between gap-3 text-sm text-muted-foreground ${className ?? ""}`}
-    >
-      <span>
-        {t("settings.storage")}: {t("settings.statusUnavailable")}
-      </span>
-      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
-        {t("brandKitDetail.refresh")}
-      </Button>
-    </div>
+    <FileStorageSetupPopover
+      open={open}
+      onOpenChange={onOpenChange}
+      {...(state === "unknown"
+        ? { status: "unavailable" as const, onRetry }
+        : { status: "missing" as const })}
+    />
   );
 }

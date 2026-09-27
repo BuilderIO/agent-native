@@ -341,7 +341,7 @@ function SetupResults({
                   : mode === "important"
                     ? t("mail.aiFilter.importantMode")
                     : mode === "archive"
-                      ? t("mail.aiFilter.autoArchiveMode")
+                      ? t("mail.aiFilter.skipInboxMode")
                       : labelName}
               </a>
             </Button>
@@ -703,7 +703,7 @@ export function AiInboxSetup({
             <div className="space-y-3">
               <SetupRuleRow
                 icon={<IconArchive className="size-4" />}
-                title={t("mail.aiFilter.autoArchiveMode")}
+                title={t("mail.aiFilter.skipInboxMode")}
                 condition={archivePrompt}
                 enabled={archiveEnabled}
                 onConditionChange={setArchivePrompt}
@@ -730,7 +730,7 @@ export function AiInboxSetup({
                       >
                         {t(
                           mode === "archive"
-                            ? "mail.aiFilter.autoArchiveMode"
+                            ? "mail.aiFilter.skipInboxMode"
                             : "mail.aiFilter.filteredMode",
                         )}
                       </button>

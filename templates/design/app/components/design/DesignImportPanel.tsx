@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { docsUrl } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
@@ -130,6 +130,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const [figUploadBusy, setFigUploadBusy] = useState(false);
   const [figUploadStorageRequired, setFigUploadStorageRequired] =
     useState(false);
+  const [figUploadStorageUnavailable, setFigUploadStorageUnavailable] =
+    useState(false);
   const [figImportPreview, setFigImportPreview] =
     useState<FigImportPreview | null>(null);
   const [figImportSelection, setFigImportSelection] = useState<Set<string>>(
@@ -143,13 +145,17 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       ? fileUploadStatus
       : await fileUploadStatus.refetch();
     const configured = status.isSuccess && status.data.configured === true;
-    setFigUploadStorageRequired(!configured);
+    setFigUploadStorageRequired(
+      status.isSuccess && status.data.configured === false,
+    );
+    setFigUploadStorageUnavailable(!status.isSuccess);
     return configured;
   }, [fileUploadStatus]);
 
   useEffect(() => {
     if (fileUploadStatus.isSuccess && fileUploadStatus.data.configured) {
       setFigUploadStorageRequired(false);
+      setFigUploadStorageUnavailable(false);
     }
   }, [fileUploadStatus.data?.configured, fileUploadStatus.isSuccess]);
 
@@ -795,25 +801,26 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescriptionShort")}
               </p>
-              {figUploadStorageRequired ? (
+              {figUploadStorageRequired || figUploadStorageUnavailable ? (
                 <div
                   className="space-y-2"
                   data-testid="fig-upload-storage-gate"
                 >
-                  {!fileUploadStatus.isSuccess ? (
-                    <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2 text-xs text-muted-foreground">
-                      <span>{t("common.genericError")}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void ensureStorageForFigFallback()}
-                      >
-                        {t("agentChat.common.retry")}
-                      </Button>
-                    </div>
-                  ) : null}
-                  <FileStorageSetupCard />
+                  <FileStorageSetupPopover
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        setFigUploadStorageRequired(false);
+                        setFigUploadStorageUnavailable(false);
+                      }
+                    }}
+                    {...(figUploadStorageUnavailable
+                      ? {
+                          status: "unavailable" as const,
+                          onRetry: () => void ensureStorageForFigFallback(),
+                        }
+                      : { status: "missing" as const })}
+                  />
                 </div>
               ) : null}
               {figImportPreview ? (

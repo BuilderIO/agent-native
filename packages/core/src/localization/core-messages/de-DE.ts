@@ -80,7 +80,6 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
-  "onboarding.useOwnApiKeys": "Meine eigenen API-Schlüssel verwenden",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
   "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
@@ -118,10 +117,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
   "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
+  "onboarding.fileStorage.statusUnavailable":
+    "Speicherstatus konnte nicht geprüft werden",
   "onboarding.fileStorage.description":
     "Verbinde Builder.io (kostenlos) oder konfiguriere deinen eigenen S3-kompatiblen Objektspeicher.",
   "onboarding.fileStorage.reconnectBuilder": "Builder.io erneut verbinden",
-  "onboarding.fileStorage.custom": "Eigene Objektspeicherschlüssel hinzufügen",
+  "onboarding.fileStorage.custom": "Eigene Schlüssel verwenden",
   "onboarding.fileStorage.customDescription":
     "Konfiguriere einen S3-kompatiblen Bucket mit einer stabilen öffentlichen URL.",
   "onboarding.capability.voiceInput.label": "Spracheingabe",

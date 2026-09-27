@@ -22,7 +22,33 @@ import type { Deck } from "@/context/DeckContext";
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => <div data-testid="file-storage-setup-card" />,
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: "missing" | "unavailable";
+    onRetry?: () => void;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label={
+          status === "unavailable"
+            ? "Couldn't check storage"
+            : "Connect storage to upload files"
+        }
+        data-testid="file-storage-setup-card"
+      >
+        {status === "unavailable" ? <h2>Couldn't check storage</h2> : null}
+        {status === "unavailable" ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : null}
+      </div>
+    ) : null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -205,15 +231,17 @@ describe("<NewDeckReferenceStep>", () => {
     });
   });
 
-  it("explains when it cannot check file storage", async () => {
+  it("only shows storage setup after a file import is requested", async () => {
     isReferenceStorageReadyMock.mockRejectedValue(
       new TypeError("Failed to fetch"),
     );
     await renderStep({}, null);
 
-    expect((await screen.findByRole("alert")).textContent).toContain(
-      "The import request timed out or lost its network connection. Check your connection and retry.",
-    );
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     });
@@ -221,32 +249,30 @@ describe("<NewDeckReferenceStep>", () => {
   });
 
   it.each([
-    [
-      Object.assign(new Error("private storage response"), {
-        code: "reference_storage_auth_required",
-      }),
-      "Complete any required sign-in, then retry the import.",
-    ],
-    [
-      Object.assign(new Error("Storage status request failed (503)"), {
-        code: "reference_storage_http_failed",
-      }),
-      "Couldn't check object storage. Retry before uploading files.",
-    ],
-    [
-      Object.assign(new Error("Storage status response is invalid"), {
-        code: "reference_storage_contract_failed",
-      }),
-      "Couldn't check object storage. Retry before uploading files.",
-    ],
-  ])("maps storage check failures to safe guidance", async (error, message) => {
+    Object.assign(new Error("private storage response"), {
+      code: "reference_storage_auth_required",
+    }),
+    Object.assign(new Error("Storage status request failed (503)"), {
+      code: "reference_storage_http_failed",
+    }),
+    Object.assign(new Error("Storage status response is invalid"), {
+      code: "reference_storage_contract_failed",
+    }),
+  ])("shows generic storage guidance after a failed check", async (error) => {
     isReferenceStorageReadyMock.mockRejectedValue(error);
     await renderStep({}, null);
 
-    expect((await screen.findByRole("alert")).textContent).toContain(message);
     expect(
-      screen.queryByText(/private storage|503|response is invalid/i),
+      screen.queryByRole("dialog", { name: "Couldn't check storage" }),
     ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    const setup = await screen.findByRole("dialog", {
+      name: "Couldn't check storage",
+    });
+    expect(setup.textContent).toContain("Couldn't check storage");
+    expect(setup.textContent).not.toMatch(
+      /private storage|503|response is invalid/i,
+    );
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {
@@ -278,22 +304,14 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
-  it("blocks file imports and shows storage setup when storage is unavailable", async () => {
+  it("shows storage setup only after a file import is requested", async () => {
     const { onImport } = await renderStep({}, false);
 
     const input = document.querySelector('input[accept=".pdf"]')!;
     expect(input).toHaveProperty("disabled", true);
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
     expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.change(input, {
-        target: {
-          files: [
-            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
-          ],
-        },
-      });
-    });
 
     expect(onImport).not.toHaveBeenCalled();
   });
@@ -319,14 +337,14 @@ describe("<NewDeckReferenceStep>", () => {
     });
 
     expect(
-      document.querySelector('label[aria-label="PDF - Importing..."]')
+      document.querySelector('button[aria-label="PDF - Importing..."]')
         ?.textContent,
     ).toContain("Importing...");
     expect(
-      document.querySelector('label[aria-label="PPT"]')?.textContent,
+      document.querySelector('button[aria-label="PPT"]')?.textContent,
     ).toContain("PPT");
     expect(
-      document.querySelector('label[aria-label="DOCX"]')?.textContent,
+      document.querySelector('button[aria-label="DOCX"]')?.textContent,
     ).toContain("DOCX");
 
     await act(async () => {

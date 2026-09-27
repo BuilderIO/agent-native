@@ -200,6 +200,20 @@ describe("AiInboxSetup", () => {
     );
   });
 
+  it("uses the shared Skip inbox label on the cleanup step", () => {
+    render(<AiInboxSetup forceOpen />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.autoArchiveMode")).toBeNull();
+  });
+
   it("keeps account and Jev loading gates when setup is force-opened", () => {
     const { rerender } = render(<AiInboxSetup forceOpen />);
     mocks.googleStatus.isLoading = true;
@@ -660,7 +674,7 @@ describe("AiInboxSetup", () => {
     ).toBe(labelTabHref(AI_IMPORTANT_LABEL));
     expect(
       screen
-        .getByRole("link", { name: "mail.aiFilter.autoArchiveMode" })
+        .getByRole("link", { name: "mail.aiFilter.skipInboxMode" })
         .getAttribute("href"),
     ).toBe("/archive");
     expect(

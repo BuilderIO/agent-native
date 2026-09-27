@@ -18,6 +18,7 @@ import {
   IconChevronDown,
   IconDotsVertical,
   IconGripVertical,
+  IconInfoCircle,
   IconPlus,
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
@@ -43,6 +44,11 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   useAiFilter,
   useManageAiFilterBackfill,
   useManageAiFilter,
@@ -63,6 +69,30 @@ type RuleMode = AiFilterRuleMode;
 
 const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
 const EMPTY_RULES: AutomationRule[] = [];
+const RULE_MODE_HELP_KEYS: Record<RuleMode, string> = {
+  important: "mail.aiFilter.importantRuleHelp",
+  tag: "mail.aiFilter.aiTagRuleHelp",
+  filtered: "mail.aiFilter.spamRuleHelp",
+  archive: "mail.aiFilter.skipInboxRuleHelp",
+};
+
+function RuleModeHelp({ mode, label }: { mode: RuleMode; label: string }) {
+  const t = useT();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("mail.aiFilter.ruleHelpLabel", { mode: label })}
+          className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconInfoCircle className="size-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t(RULE_MODE_HELP_KEYS[mode])}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function reviewHrefForRule(rule: AutomationRule): string | null {
   const mode = aiFilterRuleMode(rule);
@@ -852,17 +882,23 @@ export function AiFilterSection() {
                 aria-label={t("mail.aiFilter.rulesTitle")}
               >
                 {RULE_MODES.map((mode) => (
-                  <Button
-                    key={mode}
-                    type="button"
-                    size="sm"
-                    variant={newRuleMode === mode ? "secondary" : "ghost"}
-                    aria-pressed={newRuleMode === mode}
-                    disabled={!jevConfigured || savingNewRule}
-                    onClick={() => setNewRuleMode(mode)}
-                  >
-                    {modeLabel(mode)}
-                  </Button>
+                  <Tooltip key={mode}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={newRuleMode === mode ? "secondary" : "ghost"}
+                        aria-pressed={newRuleMode === mode}
+                        disabled={!jevConfigured || savingNewRule}
+                        onClick={() => setNewRuleMode(mode)}
+                      >
+                        {modeLabel(mode)}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(RULE_MODE_HELP_KEYS[mode])}
+                    </TooltipContent>
+                  </Tooltip>
                 ))}
               </div>
               {newRuleMode === "tag" && (
@@ -927,9 +963,12 @@ export function AiFilterSection() {
               if (mode !== "filtered" && modeRules.length === 0) return null;
               return (
                 <section key={mode} className="space-y-2">
-                  <h4 className="text-sm font-semibold text-foreground">
-                    {modeLabel(mode)}
-                  </h4>
+                  <div className="flex items-center gap-1">
+                    <h4 className="text-sm font-semibold text-foreground">
+                      {modeLabel(mode)}
+                    </h4>
+                    <RuleModeHelp mode={mode} label={modeLabel(mode)} />
+                  </div>
                   <div className="overflow-hidden rounded-lg border border-border/50">
                     {mode === "filtered" && modeRules.length === 0 && (
                       <Button

@@ -8,8 +8,13 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import enUS from "../../i18n/en-US";
 
 const mocks = vi.hoisted(() => ({
   rules: [] as Array<Record<string, any>>,
@@ -146,8 +151,16 @@ const importantRule = () => ({
   updatedAt: "2026-09-25T00:00:00.000Z",
 });
 
+function TestProviders({ children }: PropsWithChildren) {
+  return (
+    <MemoryRouter>
+      <TooltipProvider>{children}</TooltipProvider>
+    </MemoryRouter>
+  );
+}
+
 function renderSection() {
-  return render(<AiFilterSection />, { wrapper: MemoryRouter });
+  return render(<AiFilterSection />, { wrapper: TestProviders });
 }
 
 describe("AiFilterSection", () => {
@@ -305,6 +318,33 @@ describe("AiFilterSection", () => {
     expect(summary?.className).toContain("list-none");
     expect(summary?.querySelector("svg")).not.toBeNull();
     expect(screen.getByText(condition).className).toContain("line-clamp-2");
+  });
+
+  it.each([
+    ["importantMode", "importantRuleHelp"],
+    ["aiTagsTitle", "aiTagRuleHelp"],
+    ["filteredMode", "spamRuleHelp"],
+    ["autoArchiveMode", "skipInboxRuleHelp"],
+  ])("explains %s rule prompts", async (modeKey, helpKey) => {
+    renderSection();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+    );
+    fireEvent.focus(
+      screen.getByRole("button", { name: `mail.aiFilter.${modeKey}` }),
+    );
+
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      `mail.aiFilter.${helpKey}`,
+    );
+  });
+
+  it("describes Filtered rules without promising Gmail Spam", () => {
+    const help = enUS.mail.aiFilter.spamRuleHelp;
+    expect(help).toContain("agent-native-filtered");
+    expect(help).toContain("archives");
+    expect(help).toContain("not Gmail Spam");
   });
 
   it("creates a rule from one sentence and a selected mode", async () => {
