@@ -858,6 +858,7 @@ describe("tool-call result ledger", () => {
   });
 
   it("returns a completed journal result without re-executing a write tool", async () => {
+    const chatUIResult = { subject: "Launch notes", to: "ana@example.test" };
     currentTurnEventsMock.mockResolvedValue([
       {
         type: "tool_start",
@@ -868,10 +869,14 @@ describe("tool-call result ledger", () => {
         type: "tool_done",
         tool: "save-data",
         result: "journaled-result",
+        chatUI: { renderer: "mail.draft-created" },
+        chatUIResult,
       },
     ]);
 
     const action = makeWriteAction();
+    const when = vi.fn(() => true);
+    action.chatUI = { renderer: "mail.draft-created", when };
     const events: any[] = [];
 
     await runAgentLoop({
@@ -896,6 +901,9 @@ describe("tool-call result ledger", () => {
     );
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.result).toContain("Already completed");
+    expect(toolDone?.chatUI).toEqual({ renderer: "mail.draft-created" });
+    expect(toolDone?.chatUIResult).toEqual(chatUIResult);
+    expect(when).not.toHaveBeenCalled();
   });
 
   it("executes normally when the ledger has no entry for the tool input", async () => {
@@ -956,6 +964,7 @@ describe("tool-call result ledger", () => {
   it("records a write tool rejected by a run abort as interrupted, not failed", async () => {
     const controller = new AbortController();
     const action = makeWriteAction();
+    action.chatUI = { renderer: "mail.draft-created" };
     (action.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       controller.abort();
       throw new Error("socket closed");
@@ -979,6 +988,7 @@ describe("tool-call result ledger", () => {
       "Interrupted before this tool returned a result.",
     );
     expect(toolDone?.completedSideEffect).not.toBe(true);
+    expect(toolDone?.chatUI).toBeUndefined();
   });
 
   it("does not count an aborted write toward the repeated-error breaker", async () => {

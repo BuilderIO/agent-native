@@ -1,3 +1,4 @@
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
@@ -11,6 +12,8 @@ export interface ToolCallJournalEntry {
   order: number;
   result?: string;
   artifacts?: ArtifactReceipt[];
+  chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
+  chatUIResult?: unknown;
 }
 
 export interface ToolCallJournal {
@@ -116,6 +119,16 @@ export function classifyToolCallJournal(
         entry.result = event.result ?? "";
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
+        if (event.chatUI && event.chatUIResult !== undefined) {
+          entry.chatUI = {
+            renderer: event.chatUI.renderer,
+            ...(event.chatUI.title ? { title: event.chatUI.title } : {}),
+            ...(event.chatUI.description
+              ? { description: event.chatUI.description }
+              : {}),
+          };
+          entry.chatUIResult = event.chatUIResult;
+        }
         completed.push(entry);
       }
       continue;

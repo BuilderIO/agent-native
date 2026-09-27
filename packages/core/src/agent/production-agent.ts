@@ -5815,6 +5815,12 @@ export async function runAgentLoop(opts: {
             ...(journaled.artifacts?.length
               ? { artifacts: journaled.artifacts }
               : {}),
+            ...(journaled.chatUI && journaled.chatUIResult !== undefined
+              ? {
+                  chatUI: journaled.chatUI,
+                  chatUIResult: journaled.chatUIResult,
+                }
+              : {}),
           });
           recordToolResult(result, false, journaled.artifacts);
           noteToolCallSucceeded(actionEntry);
