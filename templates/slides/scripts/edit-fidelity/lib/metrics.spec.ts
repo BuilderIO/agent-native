@@ -368,6 +368,19 @@ describe("isDraftRevert", () => {
     expect(check([patch(draft), patch(stored)])).toBe(true);
   });
 
+  it("rejects a style change alongside the typed token", () => {
+    const restyledDraft = draft.replace(
+      'style="color: #1F4E79; font-weight: 700"',
+      'style="color: red; font-weight: 700"',
+    );
+    expect(check([patch(restyledDraft), patch(stored)])).toBe(false);
+  });
+
+  it("rejects a wrapper inserted around the typed token", () => {
+    const wrappedDraft = draft.replace("Qx4", "Q<strong>x</strong>4");
+    expect(check([patch(wrappedDraft), patch(stored)])).toBe(false);
+  });
+
   it("rejects churn: a draft without the key, a loose revert, or extra writes", () => {
     const nbsp = stored.replace("Q3 ", "Q3&nbsp;");
     expect(check([patch(nbsp), patch(stored)])).toBe(false);

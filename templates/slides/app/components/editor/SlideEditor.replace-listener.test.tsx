@@ -52,6 +52,86 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("saves a text edit when the page hides before the draft debounce fires", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onUpdateSlide = vi.fn(
+      (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+        undefined,
+    );
+    const noop = () => {};
+    const slide = {
+      id: "slide-pagehide",
+      content: '<div class="fmd-slide"><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={onUpdateSlide}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    const edited = document.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    (edited.firstChild as Text).data = "Caption typed";
+    fireEvent.input(edited);
+    fireEvent(window, new Event("pagehide"));
+
+    expect(onUpdateSlide).toHaveBeenCalledWith(
+      { content: expect.stringContaining("Caption typed") },
+      slide.id,
+      { preserveLocalState: true },
+    );
+  });
+
+  it("cancels a plain link drop without treating it as an image", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onDropImageUrl = vi.fn();
+    const noop = () => {};
+    const slide = {
+      id: "slide-link-drop",
+      content: '<div class="fmd-slide"><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onDropImageUrl={onDropImageUrl}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    const canvas = document.querySelector<HTMLElement>(
+      ".slide-image-clickable",
+    )!;
+    const dataTransfer = {
+      files: [],
+      items: [],
+      types: ["text/html", "text/uri-list"],
+      dropEffect: "none",
+      getData: (type: string) =>
+        type === "text/html" ? '<a href="https://example.test">Link</a>' : "",
+    } as unknown as DataTransfer;
+
+    fireEvent.dragOver(canvas, { dataTransfer });
+    const wasNotCanceled = fireEvent.drop(canvas, { dataTransfer });
+
+    expect(wasNotCanceled).toBe(false);
+    expect(onDropImageUrl).not.toHaveBeenCalled();
+  });
+
   it("saves an open edit on top of it after the editor first showed an Excalidraw slide", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});

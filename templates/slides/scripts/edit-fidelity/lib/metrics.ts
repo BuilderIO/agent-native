@@ -318,9 +318,62 @@ export function isDraftRevert(
   ) {
     return false;
   }
-  const textOf = (html: string) => collapse(visibleTextOf(parse(html)));
-  const want = textOf(stored.slice(element.start, element.end));
-  const have = textOf(draft.slice(element.start, draft.length - after.length));
+  if (!typed) return false;
+  const beforeTree = parse(stored.slice(element.start, element.end));
+  const afterTree = parse(
+    draft.slice(element.start, draft.length - after.length),
+  );
+  let changedTextNodes = 0;
+  const attrsOf = (node: P5.Node) =>
+    "attrs" in node
+      ? node.attrs
+          .map((attr) =>
+            JSON.stringify([
+              attr.namespace,
+              attr.prefix,
+              attr.name,
+              attr.value,
+            ]),
+          )
+          .sort()
+      : [];
+  const childrenOf = (node: P5.Node): P5.Node[] => [
+    ...("childNodes" in node ? node.childNodes : []),
+    ...("content" in node ? node.content.childNodes : []),
+  ];
+  const sameTree = (a: P5.Node, b: P5.Node): boolean => {
+    if (a.nodeName !== b.nodeName) return false;
+    for (const prop of [
+      "tagName",
+      "namespaceURI",
+      "prefix",
+      "data",
+      "name",
+      "publicId",
+      "systemId",
+    ]) {
+      if ((a as any)[prop] !== (b as any)[prop]) return false;
+    }
+    if (JSON.stringify(attrsOf(a)) !== JSON.stringify(attrsOf(b))) return false;
+    if (a.nodeName === "#text") {
+      if (
+        collapse((a as P5.TextNode).value) !==
+        collapse((b as P5.TextNode).value)
+      ) {
+        changedTextNodes++;
+      }
+    }
+    const aChildren = childrenOf(a);
+    const bChildren = childrenOf(b);
+    return (
+      aChildren.length === bChildren.length &&
+      aChildren.every((child, i) => sameTree(child, bChildren[i]))
+    );
+  };
+  if (!sameTree(beforeTree, afterTree) || changedTextNodes !== 1) return false;
+  const textOf = (node: P5.Node) => collapse(visibleTextOf(node));
+  const want = textOf(beforeTree);
+  const have = textOf(afterTree);
   for (let i = 0; i < have.length; i++) {
     if (
       have.startsWith(typed, i) &&

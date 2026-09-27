@@ -2351,9 +2351,13 @@ export default function SlideEditor({
   );
 
   const flushInlineEditDraft = useCallback(() => {
+    const activeSlideId = textSessionRef.current?.slideId;
+    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
     const draft = inlineEditDraftRef.current;
     if (!draft) return false;
-    if (draft.slideId === slide.id) captureInlineEditDraft(draft.slideId);
+    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+      captureInlineEditDraft(draft.slideId);
+    }
     flushPendingSaves();
     return true;
   }, [captureInlineEditDraft, slide.id]);
@@ -7848,7 +7852,14 @@ export default function SlideEditor({
       // No native file — check for a dragged <img> instead (e.g. one dragged
       // out of the agent chat panel's generated-image preview).
       const url = extractDraggedImageUrl(e.dataTransfer);
-      if (!url) return;
+      if (!url) {
+        const types = Array.from(e.dataTransfer.types ?? []);
+        if (types.includes("text/html") && types.includes("text/uri-list")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       if (textSessionRef.current) exitInlineEditRef.current();
