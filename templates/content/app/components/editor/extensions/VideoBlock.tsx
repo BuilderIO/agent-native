@@ -156,6 +156,7 @@ export function VideoBlock({
   const fileStorageConfigured =
     fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -412,6 +413,15 @@ export function VideoBlock({
     }
   }
 
+  function requestVideoFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canMutateMediaNow()) return;
@@ -476,18 +486,19 @@ export function VideoBlock({
 
         {sourceTab === "upload" ? (
           <div className="media-source-panel__body">
-            {fileStorageConfigured ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {t("editor.media.uploadFile")}
-              </Button>
-            ) : (
-              <FileStorageStatusGate status={fileUploadStatus} />
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={requestVideoFilePicker}
+            >
+              {t("editor.media.uploadFile")}
+            </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>

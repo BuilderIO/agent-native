@@ -44,6 +44,33 @@ describe("dashboard-panel-query: first-party source", () => {
     );
   });
 
+  it("does not mix the reviewer identity into a cross-org first-party query", async () => {
+    mocks.queryFirstPartyAnalytics.mockResolvedValue({
+      rows: [{ count: 1 }],
+      schema: [{ name: "count", type: "number" }],
+    });
+
+    await runDashboardPanelQuery({
+      source: "first-party",
+      query: "SELECT COUNT(*) AS count FROM analytics_events",
+      ctx: {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+    });
+
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      { cache: true },
+    );
+  });
+
   it("returns a typed unsupported-backend state that is not an empty result", async () => {
     mocks.queryFirstPartyAnalytics.mockRejectedValue(
       new FirstPartyAnalyticsUnsupportedSqlError(

@@ -209,6 +209,9 @@ export function RecordingPill() {
     null,
   );
   const playheadConfirmOpenRef = useRef(false);
+  const stopDispatchRef = useRef<Promise<{ finishingHoldSet: boolean }> | null>(
+    null,
+  );
 
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -543,13 +546,9 @@ export function RecordingPill() {
     setAnnouncement(transition === "pause" ? "Paused" : "Recording");
   }
 
-  function stop() {
-    if (
-      !enabledRef.current ||
-      modeRef.current === "done" ||
-      playheadConfirmOpenRef.current
-    )
-      return;
+  function stop(options?: { requireFinishingHold?: boolean }) {
+    if (!enabledRef.current || modeRef.current === "done") return false;
+    playheadConfirmOpenRef.current = false;
     setDoneDurationMs(elapsedRef.current);
     setDoneStage("finishing");
     setViewUrl(sessionRef.current.viewUrl ?? null);
@@ -558,9 +557,26 @@ export function RecordingPill() {
     completionActionsRef.current = null;
     setCompletionActionError(null);
     setCompletionActionBusy(false);
-    void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
-      void safeEmit("clips:recorder-stop");
-    });
+    const stopDispatch = (async () => {
+      let finishingHoldSet = true;
+      if (hasTauri) {
+        try {
+          await invoke("set_toolbar_finishing", { hold: true });
+        } catch (error) {
+          finishingHoldSet = false;
+          console.error("[record-pill] finishing hold failed:", error);
+        }
+      }
+      if (!finishingHoldSet && options?.requireFinishingHold) {
+        return { finishingHoldSet };
+      }
+      await safeEmit("clips:recorder-stop");
+      return { finishingHoldSet };
+    })();
+    stopDispatchRef.current = stopDispatch;
+    void stopDispatch.catch((error) =>
+      console.error("[record-pill] recorder stop dispatch failed:", error),
+    );
     resizeWindowTo(340, 180);
     setMode("done");
     if (demoMode) {
@@ -571,6 +587,7 @@ export function RecordingPill() {
         });
       }, 2_000);
     }
+    return true;
   }
 
   function scheduleCloseFallback(action: string) {
@@ -903,10 +920,39 @@ export function RecordingPill() {
       ),
     );
     track(
-      safeListen("clips:tray-stop-request", () => {
-        if (enabledRef.current && modeRef.current !== "done") stop();
-        else void safeInvoke("show_popover");
-      }),
+      safeListen<{ fallback?: boolean; requestId?: string }>(
+        "clips:tray-stop-request",
+        async (payload) => {
+          const requestId = payload?.requestId;
+          const alreadyDone = modeRef.current === "done";
+          const requireFinishingHold = Boolean(requestId || payload?.fallback);
+          if (
+            !alreadyDone &&
+            (!enabledRef.current || !stop({ requireFinishingHold }))
+          ) {
+            void safeInvoke("show_popover");
+            return;
+          }
+          if (alreadyDone && !requestId) {
+            if (!payload?.fallback) void safeInvoke("show_popover");
+            return;
+          }
+          if (requestId) {
+            try {
+              if (stopDispatchRef.current) {
+                const { finishingHoldSet } = await stopDispatchRef.current;
+                if (!finishingHoldSet) return;
+              }
+              await safeEmit("clips:tray-stop-ack", requestId);
+            } catch (error) {
+              console.error(
+                "[record-pill] shortcut stop acknowledgement failed:",
+                error,
+              );
+            }
+          }
+        },
+      ),
     );
     void Promise.allSettled(registrations).then((results) => {
       const failures = results.flatMap((r) =>

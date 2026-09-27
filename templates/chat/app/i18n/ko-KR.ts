@@ -36,6 +36,8 @@ const messages = {
     recents: "최근",
     retryPreviousRequest:
       "모델 공급자가 연결되었으니 이전 요청을 다시 시도해 주세요.",
+    retryAttachmentUnavailable:
+      "Chat에서 이 첨부 파일을 다시 열어 재시도할 수 없습니다. 접근 가능한 파일 URL을 추가한 뒤 다시 시도하세요.",
     renameChat: "채팅 이름 바꾸기",
     renameFailed: "이름 변경 실패",
     renameThread: "스레드 이름 바꾸기",

@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
+import { mailLabelMatches } from "@shared/gmail-labels";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -12,18 +14,10 @@ import {
   IconSquareCheck,
   IconSend,
   IconX,
-  IconThumbUp,
-  IconThumbDown,
 } from "@tabler/icons-react";
 import { memo, useRef, useState, useCallback } from "react";
-import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -38,7 +32,6 @@ import { cn, formatEmailDate } from "@/lib/utils";
 interface EmailListItemProps {
   email: EmailMessage;
   labelNames?: ReadonlyMap<string, string>;
-  importanceScore?: number;
   thread?: ThreadSummary;
   isSelected: boolean;
   isFocused: boolean;
@@ -117,7 +110,6 @@ function getAccountColor(
 export const EmailListItem = memo(function EmailListItem({
   email,
   labelNames,
-  importanceScore,
   thread,
   isSelected,
   isFocused,
@@ -494,7 +486,6 @@ export const EmailListItem = memo(function EmailListItem({
           isSelected && "selected",
           isFocused && !isSelected && "focused",
           isMultiSelected && "multi-selected",
-          importanceScore !== undefined && "has-importance",
         )}
       >
         {/* Multi-select left border indicator */}
@@ -563,15 +554,32 @@ export const EmailListItem = memo(function EmailListItem({
         {displayLabels.length > 0 && (
           <div data-an-mask className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
-              const style = getLabelStyle(labelId);
               const labelName =
                 labelNames?.get(labelId) ??
                 labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-              const displayName = mailLabelDisplayName(labelName);
+              const isAiImportant = mailLabelMatches(
+                labelName,
+                AI_IMPORTANT_LABEL,
+              );
+              const style = isAiImportant
+                ? { bg: "bg-muted", text: "text-muted-foreground" }
+                : getLabelStyle(labelId);
+              const displayName = isAiImportant
+                ? t("mail.aiFilter.importantMode")
+                : mailLabelDisplayName(labelName);
+              const sizeToContent = displayName === "automated notifications";
               return (
                 <span
                   key={labelId}
-                  className={cn("label-badge", style.bg, style.text)}
+                  className={cn(
+                    "label-badge",
+                    sizeToContent && "shrink-0",
+                    style.bg,
+                    style.text,
+                  )}
+                  style={
+                    sizeToContent ? { maxWidth: "max-content" } : undefined
+                  }
                 >
                   {displayName}
                 </span>
@@ -605,79 +613,7 @@ export const EmailListItem = memo(function EmailListItem({
           <span className="row-time text-xs text-muted-foreground tabular-nums sm:text-[12px]">
             {formatEmailDate(email.date)}
           </span>
-          {importanceScore !== undefined && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => event.stopPropagation()}
-                  className="email-importance-score ms-2 text-[11px] tabular-nums"
-                  style={
-                    {
-                      "--mail-importance-hue": `${25 + 125 * importanceScore}deg`,
-                    } as React.CSSProperties
-                  }
-                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
-                >
-                  {importanceScore.toFixed(2)}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                className="w-72 p-3"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className="email-importance-score text-xl font-semibold tabular-nums"
-                    style={
-                      {
-                        "--mail-importance-hue": `${25 + 125 * importanceScore}deg`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    {importanceScore.toFixed(2)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {t(
-                      importanceScore >= 0.7
-                        ? "mail.sort.priorityScoreHigh"
-                        : importanceScore >= 0.35
-                          ? "mail.sort.priorityScoreMedium"
-                          : "mail.sort.priorityScoreLow",
-                    )}
-                  </span>
-                </div>
-                <div className="mail-importance-ramp mt-2" aria-hidden />
-                <div className="mt-3 grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onImportanceFeedback?.("important")}
-                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <IconThumbUp className="size-3.5" />
-                    {t("mail.aiFilter.importantMode")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onImportanceFeedback?.("not-important")}
-                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <IconThumbDown className="size-3.5" />
-                    {t("mail.aiFilter.notImportantMode")}
-                  </button>
-                </div>
-                <Link
-                  to="/settings?section=ai-filter#importance-rules"
-                  className="mt-2 flex items-center justify-between px-0.5 pt-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  {t("mail.sort.priorityEditRules")}
-                </Link>
-              </PopoverContent>
-            </Popover>
-          )}
-
-          {/* Hover actions overlay the preview while the time and score stay fixed. */}
+          {/* Hover actions overlay the preview while the time stays fixed. */}
           <div className="hover-actions gap-0.5">
             {onToggleRead && (
               <Tooltip>

@@ -895,6 +895,71 @@ export interface ActionEntry {
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
 
+interface ResolvedActionChatUI {
+  chatUI: Omit<
+    import("../action-ui.js").ActionChatUIConfig,
+    "when" | "projectResult"
+  >;
+  result: unknown;
+}
+
+function actionChatUIForResult(
+  actionName: string,
+  actionEntry: ActionEntry,
+  args: Record<string, unknown>,
+  result: unknown,
+  isError: boolean,
+  storedWidgetResult = false,
+): ResolvedActionChatUI | undefined {
+  const chatUI = actionEntry.chatUI;
+  if (!chatUI || isError) return undefined;
+  if (!storedWidgetResult && chatUI.when) {
+    try {
+      if (!chatUI.when(args, result)) return undefined;
+    } catch (error) {
+      console.warn(
+        `Could not evaluate chatUI.when for ${actionName}; preserving action result.`,
+        error,
+      );
+      return undefined;
+    }
+  }
+  let widgetResult = result;
+  if (!storedWidgetResult && chatUI.projectResult) {
+    try {
+      widgetResult = chatUI.projectResult(args, result);
+    } catch (error) {
+      console.warn(
+        `Could not project chatUI result for ${actionName}; omitting the widget.`,
+        error,
+      );
+      return undefined;
+    }
+  }
+  return {
+    chatUI: {
+      renderer: chatUI.renderer,
+      ...(chatUI.title ? { title: chatUI.title } : {}),
+      ...(chatUI.description ? { description: chatUI.description } : {}),
+    },
+    result: widgetResult,
+  };
+}
+
+function parseRecoveredActionResult(
+  result: string,
+  resultIsString: boolean | undefined,
+): { value: unknown } | undefined {
+  if (resultIsString === undefined) return undefined;
+  if (resultIsString) return { value: result };
+  try {
+    return { value: JSON.parse(result) as unknown };
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+}
+
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
 
@@ -3080,10 +3145,14 @@ export function isCachedToolResultVisibleInContext(
 
 const INTERRUPTED_TOOL_RESULT_MARKER =
   "Interrupted before this tool returned a result.";
-const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
+const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+
+function isToolCallTimeoutResult(content: string): boolean {
+  return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
+}
 
 export interface TerminalActionStop {
   message: string;
@@ -3119,7 +3188,8 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
-        part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER)
+        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
+          (part.isError === true && isToolCallTimeoutResult(part.content)))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -3579,7 +3649,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   timeoutMs: number;
   signal: AbortSignal;
   send: (event: AgentChatEvent) => void;
-}): Promise<{ result: string; artifacts: ArtifactReceipt[] } | null> {
+}): Promise<Awaited<ReturnType<typeof readLedgerEntry>>> {
   const pollMs = INTERRUPTED_TOOL_LEDGER_POLL_MS;
   const maxWaitMs =
     process.env.NODE_ENV === "test" ? 1 : Math.max(0, opts.timeoutMs);
@@ -5750,6 +5820,12 @@ export async function runAgentLoop(opts: {
             ...(journaled.artifacts?.length
               ? { artifacts: journaled.artifacts }
               : {}),
+            ...(journaled.chatUI && journaled.chatUIResult !== undefined
+              ? {
+                  chatUI: journaled.chatUI,
+                  chatUIResult: journaled.chatUIResult,
+                }
+              : {}),
           });
           recordToolResult(result, false, journaled.artifacts);
           noteToolCallSucceeded(actionEntry);
@@ -5768,19 +5844,42 @@ export async function runAgentLoop(opts: {
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
 
-        if (priorInterruptions > 0 && opts.threadId) {
-          const ledgerResult = await waitForInterruptedToolLedgerEntry({
-            threadId: opts.threadId,
-            toolKey: writeCacheKey,
-            toolName: toolCall.name,
-            timeoutMs: toolTimeoutMs,
-            signal,
-            send,
-          });
+        if (priorInterruptions > 0) {
+          const ledgerResult = opts.threadId
+            ? await waitForInterruptedToolLedgerEntry({
+                threadId: opts.threadId,
+                toolKey: writeCacheKey,
+                toolName: toolCall.name,
+                timeoutMs: Math.min(
+                  toolTimeoutMs,
+                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
+                ),
+                signal,
+                send,
+              })
+            : null;
           if (ledgerResult !== null) {
             const result =
               `(Recovered from prior interrupted chunk — action already completed.)\n\n` +
               ledgerResult.result;
+            const recoveredActionResult = parseRecoveredActionResult(
+              ledgerResult.result,
+              ledgerResult.resultIsString,
+            );
+            const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
+            const recoveredChatUIResult = hasStoredChatUIResult
+              ? { value: ledgerResult.chatUIResult }
+              : recoveredActionResult;
+            const resolvedChatUI = recoveredChatUIResult
+              ? actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  recoveredChatUIResult?.value,
+                  false,
+                  hasStoredChatUIResult,
+                )
+              : undefined;
             send({
               type: "tool_start",
               id: toolCall.id,
@@ -5797,7 +5896,10 @@ export async function runAgentLoop(opts: {
               ...(ledgerResult.artifacts.length > 0
                 ? { artifacts: ledgerResult.artifacts }
                 : {}),
-              ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+              ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+              ...(resolvedChatUI
+                ? { chatUIResult: resolvedChatUI.result }
+                : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
             noteToolCallSucceeded(actionEntry);
@@ -5809,13 +5911,9 @@ export async function runAgentLoop(opts: {
               content: result,
             };
           }
-        }
-
-        if (priorInterruptions >= MAX_WRITE_TOOL_INTERRUPTIONS) {
           const result =
-            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in this session — ` +
-            `likely a connection timeout with a large payload. Please start a new chat and try again, ` +
-            `or split the request into smaller pieces.`;
+            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
+            `I stopped without running it again. Check whether it completed before asking me to retry.`;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -5829,15 +5927,13 @@ export async function runAgentLoop(opts: {
             input: toolCall.input as Record<string, unknown>,
             result,
             isError: true,
-            completedSideEffect: false,
           });
           recordToolResult(result, true);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) in a row. ` +
-              `This usually means the connection timed out while processing a large request. ` +
-              `Please start a new chat and try again, or break the request into smaller parts.`,
-            errorCode: "repeated_write_tool_interruption",
+              `I stopped because the ${toolCall.name} action was interrupted ${priorInterruptions} time(s) and its result is unknown. ` +
+              `Check whether it completed before asking me to retry.`,
+            errorCode: "write_tool_outcome_unknown",
           };
           return {
             type: "tool-result" as const,
@@ -6036,6 +6132,7 @@ export async function runAgentLoop(opts: {
         }
 
         let result: string;
+        let chatUIResult: unknown;
         let isError = false;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
@@ -6150,11 +6247,22 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   toolCall.name,
                 );
+                const zombieChatUI = actionChatUIForResult(
+                  toolCall.name,
+                  actionEntry,
+                  toolCall.input as Record<string, unknown>,
+                  zombieResultForAgent,
+                  false,
+                );
                 void writeLedgerEntry(
                   ledgerThreadId,
                   ledgerToolKey,
                   zombieStr,
                   zombieArtifacts,
+                  typeof zombieResultForAgent === "string",
+                  zombieChatUI
+                    ? JSON.stringify(zombieChatUI.result)
+                    : undefined,
                 );
               })
               .catch(() => {
@@ -6210,6 +6318,7 @@ export async function runAgentLoop(opts: {
               toolResultImages = extracted.images;
             }
           }
+          chatUIResult = resultForAgent;
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
@@ -6283,6 +6392,18 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
+        if (
+          !actionEntry.readOnly &&
+          isError &&
+          typeof result === "string" &&
+          isToolCallTimeoutResult(result)
+        ) {
+          const key = toolCallCacheKey(toolCall.name, toolCall.input);
+          writeToolInterruptions.set(
+            key,
+            (writeToolInterruptions.get(key) ?? 0) + 1,
+          );
+        }
         if (isError) {
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
             result = finalizeToolErrorResult(result);
@@ -6295,6 +6416,14 @@ export async function runAgentLoop(opts: {
         if (agentWarnings.length > 0) {
           result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
         }
+
+        const resolvedChatUI = actionChatUIForResult(
+          toolCall.name,
+          actionEntry,
+          toolCall.input as Record<string, unknown>,
+          chatUIResult,
+          isError,
+        );
 
         if (!isError) {
           try {
@@ -6331,7 +6460,8 @@ export async function runAgentLoop(opts: {
               ? { completedSideEffect: true }
               : {}),
           ...(mcpApp ? { mcpApp } : {}),
-          ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+          ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+          ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });

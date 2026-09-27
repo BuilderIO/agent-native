@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findStreamOwnershipViolations } from "./guard-agentkit-stream-ownership.ts";
+import {
+  findLegacyChatOwnerViolations,
+  findStreamOwnershipViolations,
+} from "./guard-agentkit-stream-ownership.ts";
 
 function violations(source: string): string[] {
   return findStreamOwnershipViolations("example.ts", source).map(
@@ -87,6 +90,83 @@ test("allows either owner on its own", () => {
   assert.deepEqual(
     violations(
       `import { createAgentKitClient } from "@agent-native/agentkit";`,
+    ),
+    [],
+  );
+});
+
+test("flags a compatibility shell that still mounts the legacy transcript", () => {
+  assert.equal(
+    findLegacyChatOwnerViolations(
+      "packages/core/src/client/MultiTabAssistantChat.tsx",
+      `import { AssistantChat } from "./AssistantChat.js";\n\nreturn <AssistantChat />;`,
+    ).length,
+    1,
+  );
+});
+
+test("flags legacy assistant-ui chat adapters even without a mounted surface", () => {
+  for (const symbol of [
+    "createAgentChatAdapter",
+    "createCodeAgentChatAdapter",
+    "createAgentChatRuntimeAdapter",
+    "codeAgentTranscriptEventsToContent",
+  ]) {
+    assert.equal(
+      findLegacyChatOwnerViolations(
+        "packages/core/src/client/chat/legacy.ts",
+        `export { ${symbol} };`,
+      ).length,
+      1,
+    );
+  }
+});
+
+test("flags legacy component imports from public chat barrels", () => {
+  assert.equal(
+    findLegacyChatOwnerViolations(
+      "templates/example/app/Layout.tsx",
+      `import { AssistantChat } from "@agent-native/core/client/agent-chat";`,
+    ).length,
+    1,
+  );
+});
+
+test("allows compatibility types and sidebar/thread shells", () => {
+  assert.deepEqual(
+    findLegacyChatOwnerViolations(
+      "packages/core/src/client/AgentSidebar.tsx",
+      `import type { AssistantChatProps } from "./AssistantChat.js";\nimport { MultiTabAssistantChat } from "./MultiTabAssistantChat.js";\nreturn <MultiTabAssistantChat />;`,
+    ),
+    [],
+  );
+});
+
+test("flags an exported legacy transcript controller even without callers", () => {
+  assert.equal(
+    findLegacyChatOwnerViolations(
+      "packages/core/src/client/AssistantChat.tsx",
+      `export const AssistantChat = forwardRef(() => null);`,
+    ).length,
+    1,
+  );
+});
+
+test("flags legacy assistant-ui transcript primitives outside shared composer", () => {
+  assert.equal(
+    findLegacyChatOwnerViolations(
+      "packages/core/src/client/chat/message-components.tsx",
+      `import { MessagePrimitive } from "@assistant-ui/react";`,
+    ).length,
+    1,
+  );
+});
+
+test("allows assistant-ui composer primitives in the shared composer", () => {
+  assert.deepEqual(
+    findLegacyChatOwnerViolations(
+      "packages/toolkit/src/composer/AgentComposerFrame.tsx",
+      `import { ComposerPrimitive, useComposer } from "@assistant-ui/react";`,
     ),
     [],
   );

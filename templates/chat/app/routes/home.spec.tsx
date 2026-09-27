@@ -58,6 +58,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
+  agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
@@ -67,6 +68,12 @@ vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
   }: {
     children: React.ReactNode;
   }) => <div data-core-composer-runtime="">{children}</div>,
+}));
+vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+  CoreAgentKitRoot: (props: Record<string, unknown>) => {
+    routeState.rootProps = props;
+    return <>{props.children as React.ReactNode}</>;
+  },
 }));
 vi.mock("@agent-native/core/client/agentkit-chat/connections", () => ({
   McpAgentKitConnectionRequestCard: () => null,
@@ -137,13 +144,6 @@ vi.mock("@agent-native/agentkit/react/context", () => ({
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
 }));
-vi.mock("@agent-native/agentkit/react/root", () => ({
-  AgentKitRoot: (props: Record<string, unknown>) => {
-    routeState.rootProps = props;
-    return <>{props.children as React.ReactNode}</>;
-  },
-}));
-
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -450,6 +450,53 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       container.querySelector("[data-testid='generic-run-failure']"),
     ).not.toBeNull();
+  });
+
+  it("does not retry a file-ID-only attachment and shows a typed error", () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "Summarize this file" },
+          { type: "file", name: "brief.pdf", fileId: "file-1" },
+        ],
+      },
+    ];
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    const failure = slots.runFailure;
+    act(() =>
+      root.render(
+        React.createElement(failure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        ?.click(),
+    );
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(container.querySelector("[role='alert']")?.textContent).toBe(
+      "chat.retryAttachmentUnavailable",
+    );
   });
 
   it("keeps one owned transport across routed threads", () => {

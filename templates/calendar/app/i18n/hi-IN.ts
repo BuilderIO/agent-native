@@ -47,6 +47,11 @@ export default {
     noEventId: "कोई इवेंट ID नहीं दिया गया। URL में ?id=<eventId> जोड़ें।",
     openCalendar: "कैलेंडर खोलें",
   },
+  eventCreation: {
+    created: "इवेंट बनाया गया",
+    zoomNotAdded: "इवेंट बनाया गया, लेकिन Zoom नहीं जोड़ा जा सका।",
+    openInCalendar: "Calendar में इवेंट खोलें",
+  },
   agentSidebar: {
     emptyState: "अपने कैलेंडर के बारे में कुछ भी पूछें",
     suggestions: {
@@ -245,6 +250,14 @@ export default {
     weekStartSunday: "रविवार - शनिवार",
     weekStartMonday: "सोमवार - रविवार",
     eventRules: "निमंत्रण नियम",
+    eventRulesConnectJev: "निमंत्रण नियम चलाने के लिए Jev कनेक्ट करें",
+    eventRulesFreeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
+    eventRulesConnectBuilder: "Builder.io कनेक्ट करें",
+    eventRulesAddJevApiKey: "API कुंजी जोड़ें",
+    eventRulesTabRules: "नियम",
+    eventRulesHelpLabel: "निमंत्रण नियम प्रॉम्प्ट के बारे में",
+    eventRulesHelp:
+      "Jev को बताने के लिए प्रॉम्प्ट लिखें कि किन निमंत्रणों को स्वीकार, अस्वीकार या छिपाना है।",
     eventRuleAccept: "अपने-आप स्वीकार करें",
     eventRuleDecline: "अपने-आप अस्वीकार करें",
     eventRuleHide: "अपने-आप छिपाएँ",
@@ -254,6 +267,7 @@ export default {
       "उदाहरण: विक्रेता डेमो और काम के घंटों के बाद के कार्यक्रम अस्वीकार करें",
     eventRulePlaceholderHide: "उदाहरण: फ़ोकस समय और रिमाइंडर छिपाएँ",
     eventRulesSave: "नियम सहेजें",
+    eventRulesClearSaved: "सहेजे गए नियम साफ़ करें",
     eventRulesRecentActivity: "हाल की गतिविधि",
     eventRulesNoActivity: "अभी कोई गतिविधि नहीं",
     eventRuleActivityAccepted: "स्वीकार किया",

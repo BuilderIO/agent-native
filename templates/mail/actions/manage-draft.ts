@@ -145,6 +145,28 @@ export default defineAction({
     "delete before a matching create - to draft a reply, first call with " +
     "action=create, mode=reply, replyToId, to, subject, body.",
   schema: manageDraftSchema,
+  chatUI: {
+    renderer: "mail.draft-created",
+    when: (args, result) => {
+      if (args.action !== "create" || !result || typeof result !== "object") {
+        return false;
+      }
+      const record = result as Record<string, unknown>;
+      return (
+        typeof record.deepLink === "string" &&
+        Boolean(record.draft) &&
+        typeof record.draft === "object"
+      );
+    },
+    projectResult: (_args, result) => {
+      const record = result as Record<string, unknown>;
+      const draft = record.draft as Record<string, unknown>;
+      return {
+        draft: { subject: draft.subject, to: draft.to },
+        deepLink: record.deepLink,
+      };
+    },
+  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({

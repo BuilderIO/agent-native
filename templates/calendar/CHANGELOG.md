@@ -5,9 +5,24 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-09-26
 
+### Improved
+
+- Calendar confirms created events in chat with the time and links to open or join them
+- Loading screens now reflect the app's home layout.
+- Manage AI invitation rules and recent activity in separate tabs, with Jev connection options
+
+### Fixed
+
+- Calendar users can clear saved invitation rules after Jev is disconnected
+- Cancellation emails now send guests back to the correct Calendar booking page.
+
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Security
+
+- Signing out clears lingering sign-in sessions so another account cannot reappear.
 
 ## 2026-09-25
 

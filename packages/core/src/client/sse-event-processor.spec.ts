@@ -3511,6 +3511,57 @@ describe("SSE event processor error classification", () => {
     expect(last.metadata?.custom?.runWarning).toBeUndefined();
   });
 
+  it("treats a connect-required result as final after an earlier assistant reply", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "I need access to Builder.io to continue." },
+          {
+            type: "tool_start",
+            tool: "create-workspace-app",
+            id: "call-connect",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "create-workspace-app",
+            id: "call-connect",
+            result: JSON.stringify({
+              connectRequired: {
+                provider: "builder",
+                providerLabel: "Builder.io",
+                reason: "Builder.io is not connected for this workspace.",
+                message:
+                  "Builder.io is not connected. Connect Builder.io to continue.",
+              },
+            }),
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-connect-required",
+      ),
+    );
+
+    const final = results.at(-1) as any;
+    expect(final.metadata?.custom?.runWarning).toBeUndefined();
+    expect(final.content).toEqual([
+      { type: "text", text: "I need access to Builder.io to continue." },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "create-workspace-app",
+        result: expect.stringContaining('"connectRequired"'),
+      }),
+    ]);
+    expect(
+      final.content.some(
+        (part: { type: string; text?: string }) =>
+          part.type === "text" && part.text?.includes("final message"),
+      ),
+    ).toBe(false);
+  });
+
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {
     const results = await drain(
       readSSEStream(

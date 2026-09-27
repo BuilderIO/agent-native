@@ -10,6 +10,7 @@ import {
 import { IconChevronRight, IconGripVertical } from "@tabler/icons-react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,6 +47,17 @@ interface DocumentBlockFieldsProps {
   databaseId: string | null;
   databaseDocumentId: string | null;
   canEdit: boolean;
+  suggesting?: boolean;
+  enteringSuggestion?: boolean;
+  onPrimaryFieldAvailabilityChange?: (
+    scope: string,
+    available: boolean,
+  ) => void;
+  /**
+   * The fully-wired collaborative body editor for the primary "Content" field.
+   * Rendered as-is when solo (chromeless) and inside a header/collapsible shell
+   * when there are multiple Blocks fields.
+   */
   primaryEditor: ReactNode;
   onAdditionalContentChange?: (
     documentId: string,
@@ -232,11 +244,35 @@ export function blockFieldsRenderState(args: {
   };
 }
 
+export function primaryBlocksFieldAvailable(
+  state: BlockFieldsRenderState,
+): boolean {
+  if (state.kind === "solo") return state.target === "document_body";
+  return (
+    state.kind === "multi" &&
+    state.fields.some((field) => isPrimaryBlocksField(field.definition.options))
+  );
+}
+
+/**
+ * Renders all Blocks fields for a database row.
+ *
+ * - Exactly ONE Blocks field → chromeless: just the editing surface, exactly
+ *   like the current Notion-style body (no header).
+ * - TWO or more → every field shows its name as a header and each is
+ *   collapsible and reorderable.
+ *
+ * Solo reversibility: deleting down to one field returns to chromeless but keeps
+ * the surviving field's stored name.
+ */
 export function DocumentBlockFields({
   documentId,
   databaseId,
   databaseDocumentId,
   canEdit,
+  suggesting = false,
+  enteringSuggestion = false,
+  onPrimaryFieldAvailabilityChange,
   primaryEditor,
   onAdditionalContentChange,
 }: DocumentBlockFieldsProps) {
@@ -253,6 +289,16 @@ export function DocumentBlockFields({
     [properties],
   );
 
+  const loaded = isLoadedForDocument(documentId, databaseId, query.data);
+  const state = blockFieldsRenderState({ loaded, blockFields });
+  const primaryAvailable = !query.isError && primaryBlocksFieldAvailable(state);
+  const scope = `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
+  useLayoutEffect(() => {
+    onPrimaryFieldAvailabilityChange?.(scope, primaryAvailable);
+  }, [onPrimaryFieldAvailabilityChange, primaryAvailable, scope]);
+
+  // A failed property read is not an empty field list. Rendering the editor in
+  // that state could bind the body before we know which storage target owns it.
   if (query.isError) {
     return (
       <div className="grid gap-1" data-block-fields-state="error">
@@ -265,9 +311,8 @@ export function DocumentBlockFields({
     );
   }
 
-  const loaded = isLoadedForDocument(documentId, databaseId, query.data);
-  const state = blockFieldsRenderState({ loaded, blockFields });
-
+  // Placeholder data may belong to the previous row or database. Trust it only
+  // after both response identities match the active scope.
   switch (state.kind) {
     case "loading":
       return (
@@ -298,7 +343,8 @@ export function DocumentBlockFields({
               documentId={documentId}
               databaseDocumentId={databaseDocumentId ?? documentId}
               property={state.field}
-              canEdit={canEditFields}
+              canEdit={canEditFields && !suggesting}
+              allowPendingSave={canEditFields && enteringSuggestion}
               onContentChange={onAdditionalContentChange}
             />
           </div>
@@ -315,7 +361,8 @@ export function DocumentBlockFields({
           documentId={documentId}
           databaseId={databaseId ?? ""}
           databaseDocumentId={databaseDocumentId ?? documentId}
-          canEdit={canEditFields}
+          canEdit={canEditFields && !suggesting}
+          allowPendingSave={canEditFields && enteringSuggestion}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           onAdditionalContentChange={onAdditionalContentChange}
@@ -330,6 +377,7 @@ function MultiBlockFields({
   databaseId,
   databaseDocumentId,
   canEdit,
+  allowPendingSave,
   blockFields,
   primaryEditor,
   onAdditionalContentChange,
@@ -339,6 +387,7 @@ function MultiBlockFields({
   databaseId: string;
   databaseDocumentId: string;
   canEdit: boolean;
+  allowPendingSave: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   onAdditionalContentChange?: (
@@ -516,6 +565,7 @@ function MultiBlockFields({
                   databaseDocumentId={databaseDocumentId}
                   property={property}
                   canEdit={canEdit}
+                  allowPendingSave={allowPendingSave}
                   onContentChange={onAdditionalContentChange}
                 />
               )}
@@ -669,6 +719,7 @@ export function useBlockFieldEditor({
   editorResetVersion: number;
   onChange: (markdown: string) => void;
   onSaveContent: (markdown: string) => Promise<boolean>;
+  isPendingContent: (markdown: string) => boolean;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -787,7 +838,17 @@ export function useBlockFieldEditor({
     return controller.lastSaved === markdown;
   }
 
-  return { content, editorResetVersion, onChange, onSaveContent };
+  function isPendingContent(markdown: string) {
+    return controllerRef.current?.pending === markdown;
+  }
+
+  return {
+    content,
+    editorResetVersion,
+    onChange,
+    onSaveContent,
+    isPendingContent,
+  };
 }
 
 function AdditionalBlockEditor({
@@ -795,12 +856,14 @@ function AdditionalBlockEditor({
   databaseDocumentId,
   property,
   canEdit,
+  allowPendingSave,
   onContentChange,
 }: {
   documentId: string;
   databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
+  allowPendingSave: boolean;
   onContentChange?: (
     documentId: string,
     propertyId: string,
@@ -816,19 +879,24 @@ function AdditionalBlockEditor({
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
-  const { content, editorResetVersion, onChange, onSaveContent } =
-    useBlockFieldEditor({
-      documentId,
-      propertyId,
-      initialContent,
-      initialRevision: property.blocksField?.revision ?? 0,
-      save: setProperty.mutateAsync,
-      onRevisionConflict: () =>
-        toast.error(t("editor.blocksFieldRevisionConflict")),
-      onReleaseSettled: (evicted) => {
-        if (evicted) onContentChange?.(documentId, propertyId, null);
-      },
-    });
+  const {
+    content,
+    editorResetVersion,
+    onChange,
+    onSaveContent,
+    isPendingContent,
+  } = useBlockFieldEditor({
+    documentId,
+    propertyId,
+    initialContent,
+    initialRevision: property.blocksField?.revision ?? 0,
+    save: setProperty.mutateAsync,
+    onRevisionConflict: () =>
+      toast.error(t("editor.blocksFieldRevisionConflict")),
+    onReleaseSettled: (evicted) => {
+      if (evicted) onContentChange?.(documentId, propertyId, null);
+    },
+  });
 
   useEffect(() => {
     onContentChange?.(documentId, propertyId, content);
@@ -839,10 +907,14 @@ function AdditionalBlockEditor({
       key={`${propertyId}:${editorResetVersion}`}
       documentId={documentId}
       content={content}
-      onChange={onChange}
-      onSaveContent={async (markdown) =>
-        (await onSaveContent(markdown)) ? "persisted" : "failed"
-      }
+      onChange={(markdown) => {
+        if (canEdit) onChange(markdown);
+      }}
+      onSaveContent={async (markdown) => {
+        if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
+          return "failed";
+        return (await onSaveContent(markdown)) ? "persisted" : "failed";
+      }}
       editable={canEdit}
       localFileMode
     />

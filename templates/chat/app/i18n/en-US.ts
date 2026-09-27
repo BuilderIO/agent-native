@@ -35,6 +35,8 @@ const messages = {
     recents: "Recents",
     retryPreviousRequest:
       "Retry my previous request now that the model provider is connected.",
+    retryAttachmentUnavailable:
+      "Chat can't reopen this attachment for retry. Add an accessible file URL, then retry.",
     renameChat: "Rename Chat",
     renameFailed: "Rename Failed",
     renameThread: "Rename Thread",

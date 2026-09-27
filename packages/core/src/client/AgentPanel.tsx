@@ -50,11 +50,11 @@ const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
 import { useLocation, useNavigate } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
 } from "./agent-sidebar-events.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
@@ -71,11 +71,11 @@ import { URLSync } from "./agent-sidebar-url-sync.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath } from "./api-path.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import { fetchBuilderStatus } from "./client-status-requests.js";
 import { getFramePostMessageTargetOrigin } from "./frame.js";
 import { useT } from "./i18n.js";

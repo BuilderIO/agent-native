@@ -45,11 +45,26 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 vi.mock("@/components/editor/UploadStorageGate", () => ({
-  UploadStorageGate: ({ onRetry }: { onRetry: () => void }) => (
-    <button type="button" onClick={onRetry}>
-      Connect object storage
-    </button>
-  ),
+  UploadStorageGate: ({
+    open,
+    unavailable,
+    onRetry,
+  }: {
+    open: boolean;
+    unavailable: boolean;
+    onRetry: () => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Connect storage to upload files">
+        {unavailable ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : (
+          <button type="button">Connect Builder.io</button>
+        )}
+      </div>
+    ) : null,
 }));
 
 import { ImportDeckButton } from "./ImportDeckButton";
@@ -130,9 +145,14 @@ describe("toolbar deck import", () => {
       .mockImplementation(() => {});
     render(<Harness onImport={vi.fn()} />);
     openMenu();
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
     expect(click).not.toHaveBeenCalled();
-    expect(screen.getByText("Connect object storage")).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", {
+        name: "Connect storage to upload files",
+      }),
+    ).toBeTruthy();
     expect(
       (screen.getByLabelText("Import file") as HTMLInputElement).disabled,
     ).toBe(true);
@@ -143,7 +163,7 @@ describe("toolbar deck import", () => {
     render(<Harness onImport={vi.fn()} />);
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
-    fireEvent.click(screen.getByText("Connect object storage"));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it("offers retry instead of setup while status is unresolved", () => {
@@ -152,7 +172,7 @@ describe("toolbar deck import", () => {
     render(<Harness onImport={vi.fn()} />);
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "PDF" }));
-    fireEvent.click(screen.getByText("Connect object storage"));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(storageStatus.refetch).toHaveBeenCalledOnce();
   });
   it.each(["pdf", "pptx"] as const)(

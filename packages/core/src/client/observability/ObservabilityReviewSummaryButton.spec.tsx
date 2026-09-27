@@ -76,7 +76,7 @@ describe("ObservabilityReviewSummaryButton", () => {
 
     act(() => button?.focus());
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
-      "observability.summarizeWithAgent",
+      "observability.summarizeWithAgentHelp",
     );
 
     await act(async () => button?.click());
@@ -107,10 +107,10 @@ describe("ObservabilityReviewSummaryButton", () => {
       button?.focus();
     });
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
-      "observability.summarySent",
+      "observability.summaryQueued",
     );
     const status = container.querySelector('[role="status"]');
-    expect(status?.textContent).toBe("observability.summarySent");
+    expect(status?.textContent).toBe("observability.summaryQueued");
     expect(status?.classList.contains("sr-only")).toBe(false);
     expect(button?.getAttribute("aria-disabled")).toBe("true");
     await act(async () => button?.click());
@@ -135,7 +135,7 @@ describe("ObservabilityReviewSummaryButton", () => {
     const button = container.querySelector<HTMLButtonElement>("button");
     act(() => button?.focus());
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
-      "observability.regenerateSummary",
+      "observability.regenerateSummaryHelp",
     );
 
     await act(async () => button?.click());
@@ -154,6 +154,21 @@ describe("ObservabilityReviewSummaryButton", () => {
     );
 
     await act(async () => resolveSubmit({ delivered: true }));
+  });
+
+  it("labels the detail regenerate action and explains it in a tooltip", async () => {
+    await act(async () => {
+      root.render(
+        <SummaryButtonHarness runId="run-42" orgId="org-a" refresh />,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button?.textContent).toContain("observability.regenerateSummary");
+    act(() => button?.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      "observability.regenerateSummaryHelp",
+    );
   });
 
   it("keeps request feedback scoped when the selected run changes", async () => {
@@ -188,7 +203,7 @@ describe("ObservabilityReviewSummaryButton", () => {
     await act(async () => resolveByRun.get("run-b")?.({ delivered: true }));
     expect(button?.getAttribute("aria-busy")).toBe("false");
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "observability.summarySent",
+      "observability.summaryQueued",
     );
   });
 

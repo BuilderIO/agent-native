@@ -48,6 +48,11 @@ export default {
       "イベント ID が指定されていません。URL に ?id=<eventId> を追加してください。",
     openCalendar: "カレンダーを開く",
   },
+  eventCreation: {
+    created: "予定を作成しました",
+    zoomNotAdded: "予定は作成されましたが、Zoomを追加できませんでした。",
+    openInCalendar: "Calendarで予定を開く",
+  },
   agentSidebar: {
     emptyState: "カレンダーについて何でも聞いてください",
     suggestions: {
@@ -251,6 +256,15 @@ export default {
     weekStartSunday: "日曜日 - 土曜日",
     weekStartMonday: "月曜日 - 日曜日",
     eventRules: "招待ルール",
+    eventRulesConnectJev: "招待ルールを実行するには Jev を接続",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io なら無料、または API キーを追加。",
+    eventRulesConnectBuilder: "Builder.io を接続",
+    eventRulesAddJevApiKey: "API キーを追加",
+    eventRulesTabRules: "ルール",
+    eventRulesHelpLabel: "招待ルールのプロンプトについて",
+    eventRulesHelp:
+      "Jev に自動で承諾、辞退、非表示にする招待を指示するプロンプトを入力します。",
     eventRuleAccept: "自動承諾",
     eventRuleDecline: "自動辞退",
     eventRuleHide: "自動非表示",
@@ -259,6 +273,7 @@ export default {
       "例: ベンダーのデモや営業時間外の予定を辞退する",
     eventRulePlaceholderHide: "例: 集中時間やリマインダーを非表示にする",
     eventRulesSave: "ルールを保存",
+    eventRulesClearSaved: "保存済みルールを消去",
     eventRulesRecentActivity: "最近のアクティビティ",
     eventRulesNoActivity: "まだアクティビティはありません",
     eventRuleActivityAccepted: "承諾済み",

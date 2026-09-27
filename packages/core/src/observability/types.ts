@@ -86,9 +86,11 @@ export interface OutputReviewListRow {
   inlineAppTitle?: string;
   threadTitle: string;
   summary: HumanReviewSummaryPayload | null;
+  summaryUpdatedAt?: number;
   artifacts: HumanReviewArtifactRef[];
   runs: OutputReviewRun[];
   runCount: number;
+  authorEmail?: string;
   authorName?: string;
   authorAvatar?: string;
   model: string;
@@ -101,6 +103,7 @@ export interface OutputReviewRun {
   runId: string;
   model: string;
   createdAt: number;
+  summaryUpdatedAt?: number;
 }
 
 export interface HumanReviewArtifactRef {

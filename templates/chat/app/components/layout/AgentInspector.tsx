@@ -15,6 +15,7 @@ interface AgentInspectorProps {
   chatHomeHandoffPending: boolean;
 }
 
+/** Contextual inspector shell used on secondary chat routes. */
 export function AgentInspector({
   children,
   chatHomeHandoffActive,

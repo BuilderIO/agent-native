@@ -47,6 +47,11 @@ export default {
     noEventId: "لم يتم تقديم ID للحدث. أضف ?id=<eventId> إلى URL.",
     openCalendar: "فتح التقويم",
   },
+  eventCreation: {
+    created: "تم إنشاء الحدث",
+    zoomNotAdded: "تم إنشاء الحدث، ولكن تعذرت إضافة Zoom.",
+    openInCalendar: "فتح الحدث في Calendar",
+  },
   agentSidebar: {
     emptyState: "اسألني أي شيء عن تقويمك",
     suggestions: {
@@ -262,6 +267,14 @@ export default {
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",
     eventRules: "قواعد الدعوات",
+    eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
+    eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
+    eventRulesConnectBuilder: "ربط Builder.io",
+    eventRulesAddJevApiKey: "إضافة مفتاح API",
+    eventRulesTabRules: "القواعد",
+    eventRulesHelpLabel: "حول تعليمات قواعد الدعوات",
+    eventRulesHelp:
+      "اكتب تعليمات تحدد لـ Jev الدعوات التي يقبلها أو يرفضها أو يخفيها تلقائيًا.",
     eventRuleAccept: "قبول تلقائي",
     eventRuleDecline: "رفض تلقائي",
     eventRuleHide: "إخفاء تلقائي",
@@ -270,6 +283,7 @@ export default {
       "مثال: ارفض عروض الموردين والفعاليات بعد ساعات العمل",
     eventRulePlaceholderHide: "مثال: أخفِ أوقات التركيز والتذكيرات",
     eventRulesSave: "حفظ القواعد",
+    eventRulesClearSaved: "مسح القواعد المحفوظة",
     eventRulesRecentActivity: "النشاط الأخير",
     eventRulesNoActivity: "لا يوجد نشاط بعد",
     eventRuleActivityAccepted: "تم القبول",

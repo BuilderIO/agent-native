@@ -35,6 +35,8 @@ const messages = {
     recents: "最近",
     retryPreviousRequest:
       "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
+    retryAttachmentUnavailable:
+      "Chat ではこの添付ファイルを再試行のために開けません。アクセス可能なファイル URL を追加して、もう一度お試しください。",
     renameChat: "チャット名を変更",
     renameFailed: "名前の変更に失敗しました",
     renameThread: "スレッド名を変更",
