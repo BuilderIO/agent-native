@@ -102,7 +102,7 @@ describe("public design screenshot access", () => {
 });
 
 describe("screenshot image handoff", () => {
-  it("keeps PNG data out of screenshot results and exposes it only for export", async () => {
+  it("retains PNG bytes only for MCP export calls", async () => {
     const png = Buffer.from("test png bytes");
     const diagnostics = {
       documentWidthPx: 900,
@@ -145,8 +145,12 @@ describe("screenshot image handoff", () => {
       caller: "tool",
       actionName: "take-design-screenshot",
     });
-    const exportResult = await action.run(args, {
-      caller: "tool",
+    const httpExportResult = await action.run(args, {
+      caller: "http",
+      actionName: "export-png",
+    });
+    const mcpExportResult = await action.run(args, {
+      caller: "mcp",
       actionName: "export-png",
     });
 
@@ -157,8 +161,11 @@ describe("screenshot image handoff", () => {
     expect(
       getScreenshotPngData(screenshotResult.screenshots[0]),
     ).toBeUndefined();
-    expect(getScreenshotPngData(exportResult.screenshots[0])).toEqual(png);
-    expect(exportResult.screenshots[0].url).toBe(
+    expect(
+      getScreenshotPngData(httpExportResult.screenshots[0]),
+    ).toBeUndefined();
+    expect(getScreenshotPngData(mcpExportResult.screenshots[0])).toEqual(png);
+    expect(mcpExportResult.screenshots[0].url).toBe(
       "https://files.example.test/screen.png",
     );
   });

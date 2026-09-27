@@ -20,8 +20,9 @@ function suggestedPngFilename(filename: string): string {
 export default defineAction({
   description:
     "Export one Design screen as a PNG image. Pass fileId, or pass designId " +
-    "and filename, to choose the screen. Returns a durable image URL and an " +
-    "inline PNG preview when it fits the image limit. The screen is rendered " +
+    "and filename, to choose the screen. Returns a durable image URL; MCP " +
+    "callers also receive an inline PNG preview when it fits the image limit. " +
+    "The screen is rendered " +
     "at 1440px wide by default and full-page height.",
   schema: z
     .object({
@@ -106,20 +107,25 @@ export default defineAction({
     }
 
     const screenFilename = result.filename ?? filename ?? "screen.html";
-    const png = getScreenshotPngData(screenshot);
-    const imageData = png?.toString("base64");
-    const agentImages =
-      imageData && imageData.length <= MAX_TOOL_RESULT_IMAGE_BASE64_CHARS
-        ? [
-            {
-              data: imageData,
-              mediaType: "image/png" as const,
-              label: `${screenFilename} (${screenshot.viewport.label})`,
-            },
-          ]
+    const png =
+      ctx?.caller === "mcp" ? getScreenshotPngData(screenshot) : undefined;
+    const maxInlinePngBytes =
+      Math.floor(MAX_TOOL_RESULT_IMAGE_BASE64_CHARS / 4) * 3;
+    const imageData =
+      png && Buffer.byteLength(png) <= maxInlinePngBytes
+        ? png.toString("base64")
         : undefined;
+    const agentImages = imageData
+      ? [
+          {
+            data: imageData,
+            mediaType: "image/png" as const,
+            label: `${screenFilename} (${screenshot.viewport.label})`,
+          },
+        ]
+      : undefined;
     const message =
-      imageData && !agentImages
+      ctx?.caller === "mcp" && png && !imageData
         ? "The PNG exceeds the inline image limit; use its durable URL to view it."
         : undefined;
 

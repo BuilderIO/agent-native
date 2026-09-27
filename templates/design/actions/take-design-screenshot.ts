@@ -616,7 +616,11 @@ export default defineAction({
             },
           } satisfies ScreenshotResult;
           screenshots.push(screenshot);
-          if (screenshots.length === 1 && ctx?.actionName === "export-png") {
+          if (
+            screenshots.length === 1 &&
+            ctx?.caller === "mcp" &&
+            ctx.actionName === "export-png"
+          ) {
             screenshotPngs.set(screenshot, png);
           }
         } finally {
