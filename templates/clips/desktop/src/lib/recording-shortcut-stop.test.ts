@@ -38,17 +38,17 @@ describe("requestRecordingShortcutStop", () => {
     );
   });
 
-  it("waits for listener registration before starting the acknowledgement timeout", async () => {
+  it("keeps the stop deadline when listener registration is slow", async () => {
     let registerListener!: (unlisten: () => void) => void;
     listen.mockImplementation(
       () =>
-        new Promise((resolve) => {
+        new Promise<() => void>((resolve) => {
           registerListener = resolve;
         }),
     );
 
     const stopRequest = requestRecordingShortcutStop();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(150);
     expect(emit).not.toHaveBeenCalled();
 
     registerListener(vi.fn());
@@ -57,10 +57,24 @@ describe("requestRecordingShortcutStop", () => {
       "clips:tray-stop-request",
       expect.objectContaining({ requestId: expect.any(String) }),
     );
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
+    await vi.advanceTimersByTimeAsync(1);
     await stopRequest;
 
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
+  });
+
+  it("stops directly when listener registration never completes", async () => {
+    listen.mockImplementation(() => new Promise(() => {}));
+
+    const stopRequest = requestRecordingShortcutStop();
+    await vi.advanceTimersByTimeAsync(399);
+    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
+    await vi.advanceTimersByTimeAsync(1);
+    await stopRequest;
+
+    expect(emit).toHaveBeenCalledExactlyOnceWith("clips:recorder-stop");
   });
 
   it("stops directly when the pill does not acknowledge the request", async () => {
@@ -72,7 +86,7 @@ describe("requestRecordingShortcutStop", () => {
       requestId: expect.any(String),
     });
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(400);
     await stopRequest;
 
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
