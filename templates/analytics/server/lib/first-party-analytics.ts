@@ -37,6 +37,7 @@ import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-vo
 export interface AnalyticsScope {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 }
 
 export interface IncomingAnalyticsEvent {
@@ -1093,9 +1094,22 @@ function scopedTableSource(
   args: Array<string | null>;
 } {
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
+    if (scope.credentialScope === "org" && !scope.orgId) {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`,
+        args: [],
+      };
+    }
     const tenantKeys = scope.orgId
-      ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
-      : [`user:${scope.userEmail}`];
+      ? [
+          `org:${scope.orgId}`,
+          ...(scope.credentialScope === "org"
+            ? []
+            : [`user:${scope.userEmail}`]),
+        ]
+      : scope.credentialScope === "org"
+        ? []
+        : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
       return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
@@ -1109,11 +1123,20 @@ function scopedTableSource(
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
+    if (scope.credentialScope === "org") {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)})`,
+        args: [scope.orgId, today],
+      };
+    }
     const ownerParameter = parameterOffset + 3;
     return {
       sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
+  }
+  if (scope.credentialScope === "org") {
+    return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
     sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,

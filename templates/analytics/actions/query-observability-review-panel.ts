@@ -12,6 +12,7 @@ import { z } from "zod";
 import { resolveDefaultFilterVars } from "../app/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../app/pages/adhoc/sql-dashboard/panel-sql";
+import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import {
   isDashboardPanelSource,
   normalizeDashboardPanelQuery,
@@ -55,8 +56,12 @@ export default defineAction({
     if (!dashboard || dashboard.kind !== "sql" || !dashboard.orgId) {
       fail("Dashboard not found.", { statusCode: 404 });
     }
-    const panels = Array.isArray(dashboard.config.panels)
-      ? dashboard.config.panels.filter(
+    const config = repairKnownFirstPartyDashboardQueries(
+      dashboard.id,
+      dashboard.config,
+    ).config;
+    const panels = Array.isArray(config.panels)
+      ? config.panels.filter(
           (value): value is Record<string, unknown> =>
             typeof value === "object" &&
             value !== null &&
@@ -87,16 +92,21 @@ export default defineAction({
       failClosedTimeVariables: true,
     });
     const query = normalizeDashboardPanelQuery(source, resolvedSql);
+    const crossOrganizationPreview =
+      scope.kind === "super-organization" && dashboard.orgId !== activeOrgId;
+    const credentialContext = {
+      userEmail: email,
+      orgId: dashboard.orgId,
+      ...(crossOrganizationPreview ? { credentialScope: "org" as const } : {}),
+    };
     const context = {
       ...getRequestContext(),
       userEmail: email,
       orgId: dashboard.orgId,
+      ...(crossOrganizationPreview ? { credentialScope: "org" as const } : {}),
     };
     return runWithRequestContext(context, () =>
-      resolveAnalyticsPanelSource(
-        { source, query },
-        { userEmail: email, orgId: dashboard.orgId },
-      ),
+      resolveAnalyticsPanelSource({ source, query }, credentialContext),
     );
   },
 });

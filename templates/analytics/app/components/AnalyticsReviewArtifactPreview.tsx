@@ -173,7 +173,7 @@ function AnalyticsReviewDashboardPreview({
       className={
         compact
           ? "pointer-events-none h-[600%] w-[600%] origin-top-left scale-[0.166667] overflow-hidden"
-          : "h-full min-h-64 w-full overflow-hidden"
+          : "min-h-64 w-full overflow-visible"
       }
       data-preview-kind="analytics-sql-chart"
     >

@@ -2032,7 +2032,7 @@ function ReviewTab({
                             className="min-w-0 p-3 sm:p-4"
                             aria-label={t("observability.reviewPreview")}
                           >
-                            <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-hidden">
+                            <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-auto">
                               <OutputPreview
                                 answer={selectedAnswer ?? ""}
                                 artifactPreviewUrl={

@@ -299,7 +299,9 @@ function ReviewPreviewFrame({
       className={
         compact
           ? "relative size-full overflow-hidden bg-background"
-          : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+          : kind === "analytics-dashboard"
+            ? "relative w-full max-w-full bg-background"
+            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
       }
       data-preview-kind={dataKind}
       data-preview-state={

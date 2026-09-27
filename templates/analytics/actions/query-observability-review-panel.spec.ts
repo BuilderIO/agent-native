@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   resolveAnalyticsPanelSource: vi.fn(),
+  repairDashboardQueries: vi.fn(),
   runWithRequestContext: vi.fn(),
   superOrgId: undefined as string | undefined,
 }));
@@ -27,6 +28,10 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboardForReview: mocks.getDashboardForReview,
+}));
+
+vi.mock("../server/lib/canonical-first-party-dashboard-repair", () => ({
+  repairKnownFirstPartyDashboardQueries: mocks.repairDashboardQueries,
 }));
 
 vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
@@ -73,6 +78,12 @@ describe("query-observability-review-panel access", () => {
     mocks.getRequestContext.mockReturnValue({ requestId: "request-1" });
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
     mocks.getDashboardForReview.mockResolvedValue(dashboard());
+    mocks.repairDashboardQueries.mockImplementation(
+      (_id: string, config: Record<string, unknown>) => ({
+        config,
+        changed: false,
+      }),
+    );
     mocks.resolveAnalyticsPanelSource.mockResolvedValue({
       rows: [{ total: 42 }],
       schema: [{ name: "total", type: "number" }],
@@ -127,8 +138,57 @@ describe("query-observability-review-panel access", () => {
         requestId: "request-1",
         userEmail: "admin@example.com",
         orgId: "customer-org",
+        credentialScope: "org",
       },
       expect.any(Function),
+    );
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      {
+        source: "bigquery",
+        query: "SELECT * FROM orders WHERE customer = 'O''Brien'",
+      },
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+    );
+  });
+
+  it("queries the same canonical SQL repair shown by get-sql-dashboard", async () => {
+    const saved = dashboard();
+    mocks.getDashboardForReview.mockResolvedValueOnce({
+      ...saved,
+      id: "agent-native-first-party",
+    });
+    mocks.repairDashboardQueries.mockReturnValueOnce({
+      config: {
+        ...saved.config,
+        panels: [
+          {
+            ...saved.config.panels[0],
+            sql: "SELECT repaired FROM analytics_events",
+          },
+        ],
+      },
+      changed: true,
+    });
+
+    await queryReviewPanel.run({
+      dashboardId: "agent-native-first-party",
+      panelId: "panel-1",
+    });
+
+    expect(mocks.repairDashboardQueries).toHaveBeenCalledWith(
+      "agent-native-first-party",
+      saved.config,
+    );
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      {
+        source: "bigquery",
+        query: "SELECT repaired FROM analytics_events",
+      },
+      { userEmail: "admin@example.com", orgId: "customer-org" },
     );
   });
 

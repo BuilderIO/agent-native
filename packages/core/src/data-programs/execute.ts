@@ -87,7 +87,11 @@ export interface RunDataProgramArgs {
   appId?: string;
   code?: string;
   params?: Record<string, unknown>;
-  ctx: { userEmail?: string; orgId?: string | null };
+  ctx: {
+    userEmail?: string;
+    orgId?: string | null;
+    credentialScope?: "org";
+  };
   triggeredBy: DataProgramTriggeredBy;
   forceRefresh?: boolean;
   timeoutMs?: number;
@@ -236,6 +240,9 @@ function buildActionRunContext(
     caller: "tool",
     userEmail: ctx.userEmail,
     orgId: ctx.orgId ?? null,
+    ...(ctx.credentialScope === "org"
+      ? { credentialScope: "org" as const }
+      : {}),
   };
 }
 

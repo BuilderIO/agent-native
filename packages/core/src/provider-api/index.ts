@@ -3269,6 +3269,9 @@ export async function defaultProviderApiCredentialResolver(
       connectionId: options.connectionId,
       userEmail: options.ctx.userEmail,
       orgId: options.ctx.orgId,
+      ...(options.ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     });
     if (result.available && result.value) {
       return {

@@ -216,6 +216,50 @@ describe("OutputPreview saved MCP Apps", () => {
   });
 });
 
+describe("OutputPreview saved Analytics dashboards", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps the expanded dashboard content at full height instead of clipping it to a thumbnail frame", () => {
+    mockUseActionQuery.mockReturnValue({
+      data: {},
+      isLoading: false,
+      isError: false,
+      isSuccess: false,
+    });
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="Saved dashboard"
+          artifactPreviewContent={<div data-dashboard-panels>all panels</div>}
+          artifactPreviewId="dashboard-42"
+          artifactOnly
+          previewLabel="Dashboard preview"
+        />,
+      );
+    });
+
+    const frame = container.querySelector(
+      '[data-preview-kind="analytics-dashboard"]',
+    );
+    expect(frame?.className).not.toContain("aspect-[16/10]");
+    expect(frame?.className).not.toContain("overflow-hidden");
+    expect(container.querySelector("[data-dashboard-panels]")).not.toBeNull();
+  });
+});
+
 describe("OutputPreview artifact reads", () => {
   let container: HTMLDivElement;
   let root: Root;
