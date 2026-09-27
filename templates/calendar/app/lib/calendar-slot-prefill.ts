@@ -1,3 +1,4 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { CalendarEventDraft } from "@shared/api";
 import { isCalendarTimezone } from "@shared/timezone";
 
@@ -61,4 +62,41 @@ export function createCalendarSlotDraft(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export async function createOrLoadCalendarSlotDraft(
+  prefill: CalendarSlotPrefill,
+  id: string,
+): Promise<CalendarEventDraft> {
+  const path = agentNativePath(
+    `/_agent-native/application-state/calendar-draft-${id}`,
+  );
+  const draft = createCalendarSlotDraft(prefill, id);
+  const response = await fetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected: null, next: draft }),
+  });
+  if (!response.ok) throw new Error("Could not create calendar slot draft");
+
+  const result = (await response.json()) as { changed?: unknown };
+  if (result.changed === true) return draft;
+  if (result.changed !== false) {
+    throw new Error("Could not create calendar slot draft");
+  }
+
+  const savedResponse = await fetch(path);
+  if (!savedResponse.ok) {
+    throw new Error("Could not load existing calendar slot draft");
+  }
+  const saved = (await savedResponse.json()) as unknown;
+  if (
+    typeof saved !== "object" ||
+    saved === null ||
+    Array.isArray(saved) ||
+    (saved as { id?: unknown }).id !== id
+  ) {
+    throw new Error("Could not load existing calendar slot draft");
+  }
+  return saved as CalendarEventDraft;
 }

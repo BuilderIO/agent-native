@@ -107,7 +107,7 @@ import {
 } from "@/lib/calendar-event-identity";
 import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
-  createCalendarSlotDraft,
+  createOrLoadCalendarSlotDraft,
   type CalendarSlotPrefill,
 } from "@/lib/calendar-slot-prefill";
 import {
@@ -499,19 +499,28 @@ export default function CalendarView({
 
     const prefillKey = `${slotPrefill.start}|${slotPrefill.end}|${slotPrefill.timezone}`;
     if (appliedSlotPrefillRef.current === prefillKey) return;
-    appliedSlotPrefillRef.current = prefillKey;
-
-    const draft = createCalendarSlotDraft(
+    let cancelled = false;
+    void createOrLoadCalendarSlotDraft(
       slotPrefill,
       `slot-${Date.parse(slotPrefill.start)}-${Date.parse(slotPrefill.end)}`,
-    );
-    persistCalendarDraft(draft);
-    setEventDraft(draft);
+    )
+      .then((draft) => {
+        if (cancelled) return;
+        appliedSlotPrefillRef.current = prefillKey;
+        setEventDraft(draft);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error(t("common.loadFailed"));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     setEventDraft,
     slotPrefill?.end,
     slotPrefill?.start,
     slotPrefill?.timezone,
+    t,
   ]);
 
   useEffect(() => {
