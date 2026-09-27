@@ -28,7 +28,7 @@ export function isPersistenceReloadFrameworkGetReset(
     method === "GET" &&
     pathname.startsWith("/_agent-native/") &&
     status === 500 &&
-    /\bECONNRESET\b/i.test(body)
+    (body.trim() === "" || /\bECONNRESET\b/i.test(body))
   );
 }
 

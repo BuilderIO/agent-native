@@ -93,6 +93,16 @@ describe("standalone chat persistence reload framework errors", () => {
       isPersistenceReloadFrameworkGetReset(
         500,
         "GET",
+        "/_agent-native/application-state",
+        "",
+        true,
+      ),
+      true,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
         "/_agent-native/agent-chat/threads",
         "Error: read ECONNRESET",
         true,
@@ -115,6 +125,16 @@ describe("standalone chat persistence reload framework errors", () => {
         "GET",
         "/_agent-native/poll",
         "Error: read ECONNRESET",
+        false,
+      ),
+      false,
+    );
+    assert.equal(
+      isPersistenceReloadFrameworkGetReset(
+        500,
+        "GET",
+        "/_agent-native/application-state",
+        "",
         false,
       ),
       false,
