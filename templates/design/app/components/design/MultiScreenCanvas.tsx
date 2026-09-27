@@ -12198,7 +12198,7 @@ const Screen = memo(function Screen({
   const labelInfoMaxWidth = Math.min(
     frameScreenWidth,
     Math.max(
-      64,
+      0,
       frameScreenWidth -
         (compactFullView
           ? FRAME_HEADER_COMPACT_BUTTON_RESERVE

@@ -190,12 +190,20 @@ test("Cmd+R renames a Screen selected on canvas or in Layers without renaming th
   try {
     const fileId = await createScreen(request, designId, {
       content: FILL_HTML,
-      metadata: { sourceType: "inline", width: 390, height: 844 },
-      geometry: { x: 0, y: 0, width: 390, height: 844, z: 0 },
+      metadata: { sourceType: "inline", width: 320, height: 844 },
+      geometry: { x: 0, y: 0, width: 320, height: 844, z: 0 },
     });
     const original = await readDesign(request, designId);
     expect(original.title).toBeTruthy();
     await enterEditor(page, designId);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomPercentage = page.getByRole("textbox", {
+      name: "Zoom percentage",
+    });
+    await zoomPercentage.fill("25%");
+    await zoomPercentage.press("Enter");
+    await expect(zoomControl).toHaveText("25%");
     const screenTitle = page
       .locator(`[data-screen-shell][data-frame-id="${fileId}"]`)
       .locator("[data-frame-title]")
