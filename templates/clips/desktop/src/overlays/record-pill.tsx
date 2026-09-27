@@ -155,11 +155,12 @@ function formatDurationCopy(ms: number): string {
  *
  *   receives → `clips:recorder-state` { paused, elapsedMs },
  *              `clips:toolbar-enabled`, `clips:toolbar-preparing`,
+ *              `clips:tray-stop-request` { requestId? },
  *              `clips:recorder-session` { viewUrl, recordingId, localOnly },
  *              `clips:native-upload-progress` / `-finished`,
  *              `voice:audio-level` { level, source }
  *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`,
- *              `:cancel`, `clips:toolbar-ready`
+ *              `:cancel`, `clips:toolbar-ready`, `clips:tray-stop-ack`
  *
  * Stop must NOT close this window: it invokes `set_toolbar_finishing(true)`
  * BEFORE emitting stop so every teardown path skips the toolbar label, then
@@ -1005,10 +1006,20 @@ export function RecordingPill() {
       // route its click through the same stop flow so the finishing hold and
       // completion card run. Before capture is live there is nothing to stop,
       // so the click falls back to opening Clips.
-      safeListen("clips:tray-stop-request", () => {
-        if (enabledRef.current && modeRef.current !== "done") stop();
-        else void safeInvoke("show_popover");
-      }),
+      safeListen<{ requestId?: string }>(
+        "clips:tray-stop-request",
+        (payload) => {
+          const requestId = payload?.requestId;
+          const canHandleStop =
+            enabledRef.current || modeRef.current === "done";
+          if (enabledRef.current && modeRef.current !== "done") stop();
+          else if (!canHandleStop) {
+            void safeInvoke("show_popover");
+            return;
+          }
+          if (requestId) void safeEmit("clips:tray-stop-ack", requestId);
+        },
+      ),
     );
     // The handshake goes out only once our own listeners exist. The recorder
     // answers `toolbar-ready` immediately, and `listen()` is asynchronous, so

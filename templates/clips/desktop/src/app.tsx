@@ -183,6 +183,7 @@ import {
   RECORDING_SESSION_EXPIRED,
   isStorageSetupFailureMessage,
 } from "./lib/recording-request";
+import { requestRecordingShortcutStop } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -4035,7 +4036,7 @@ export function App({
       return;
     }
     if (recorder) {
-      emit("clips:tray-stop-request").catch(() => {});
+      void requestRecordingShortcutStop().catch(() => {});
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {

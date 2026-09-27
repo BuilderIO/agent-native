@@ -5,6 +5,47 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { completionActionCopy } from "../i18n/completion-en-US";
 
+const tauriEvents = vi.hoisted(() => {
+  const listeners = new Map<
+    string,
+    Set<(event: { payload: unknown }) => void>
+  >();
+  return {
+    listeners,
+    emit: vi.fn(async (event: string, payload: unknown) => {
+      for (const listener of listeners.get(event) ?? []) listener({ payload });
+    }),
+    listen: vi.fn(
+      async (
+        event: string,
+        listener: (event: { payload: unknown }) => void,
+      ) => {
+        const handlers = listeners.get(event) ?? new Set();
+        handlers.add(listener);
+        listeners.set(event, handlers);
+        return () => handlers.delete(listener);
+      },
+    ),
+  };
+});
+
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: tauriEvents.emit,
+  listen: tauriEvents.listen,
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => undefined),
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  currentMonitor: vi.fn(async () => null),
+  getCurrentWindow: vi.fn(() => ({
+    close: vi.fn(async () => undefined),
+    outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
+    outerSize: vi.fn(async () => ({ width: 150, height: 42 })),
+    scaleFactor: vi.fn(async () => 1),
+  })),
+}));
+
 vi.mock("../../../shared/recording-playhead", () => ({
   RecordingPlayhead: ({ onStop }: { onStop: () => void }) => (
     <button onClick={onStop}>Stop recording</button>
@@ -21,6 +62,9 @@ describe("completion card actions", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
+    tauriEvents.listeners.clear();
+    tauriEvents.emit.mockClear();
+    tauriEvents.listen.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const stored = new Map<string, string>();
     const storage = {
@@ -70,6 +114,7 @@ describe("completion card actions", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   });
 
   function button(label: string) {
@@ -176,5 +221,48 @@ describe("completion card actions", () => {
     expect(host.querySelector('[aria-label="Dismiss"]')).not.toBeNull();
     expect(copy).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("shows Copy and Open after a tray stop request reaches the pill", async () => {
+    await act(async () => root.unmount());
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    vi.resetModules();
+    const { RecordingPill } = await import("./record-pill");
+    root = createRoot(host);
+    await act(async () => root.render(<RecordingPill />));
+    expect("__TAURI_INTERNALS__" in window).toBe(true);
+    expect(tauriEvents.listeners.has("clips:tray-stop-request")).toBe(true);
+
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    await act(async () => {
+      await tauriEvents.emit("clips:tray-stop-request", {
+        requestId: "shortcut-stop-1",
+      });
+    });
+    expect(tauriEvents.emit).toHaveBeenCalledWith(
+      "clips:tray-stop-ack",
+      "shortcut-stop-1",
+    );
+    await act(async () => {
+      await tauriEvents.emit("clips:native-upload-finished", {
+        recordingId: "example-clip",
+        ok: true,
+        viewUrl: url,
+      });
+    });
+
+    expect(host.textContent).toContain("Recording saved");
+    expect(button("Copy")).toBeDefined();
+    expect(button("Open")).toBeDefined();
   });
 });
