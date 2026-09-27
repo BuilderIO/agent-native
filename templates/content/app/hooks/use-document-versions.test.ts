@@ -188,6 +188,49 @@ describe("document history hooks", () => {
     expect(refetch).toHaveBeenCalledOnce();
     client.clear();
   });
+  it("refreshes the page's children branch and blocks-field properties, not unrelated branches", () => {
+    const client = new QueryClient();
+    const branch = (parentId: string | null) => [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", limit: 20, navigation: { parentId } },
+    ];
+    const children = branch("page-1");
+    const parentBranch = branch("parent");
+    const unrelatedBranch = branch("other");
+    const properties = [
+      "action",
+      "list-document-properties",
+      { documentId: "page-1", databaseId: "files" },
+    ];
+    client.setQueryData(children, { items: [] });
+    client.setQueryData(parentBranch, {
+      items: [{ documentId: "page-1", title: "Page" }],
+    });
+    client.setQueryData(unrelatedBranch, {
+      items: [{ documentId: "other-child", title: "Other" }],
+    });
+    client.setQueryData(properties, { properties: [] });
+    invalidateQueries.mockImplementation((filter) =>
+      client.invalidateQueries(filter),
+    );
+    const options = useRestoreDocumentVersion("page-1") as unknown as {
+      onSuccess: (restored: Record<string, unknown>) => void;
+    };
+
+    options.onSuccess({
+      id: "page-1",
+      title: "Page",
+      content: "Restored body with an inline collection",
+      updatedAt: "2026-09-08T14:00:00.000Z",
+    });
+
+    expect(client.getQueryState(children)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(parentBranch)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(properties)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(unrelatedBranch)?.isInvalidated).toBe(false);
+    client.clear();
+  });
   it("refreshes space names when restoring a space files page", () => {
     patchContentSpaceNameCaches.mockReturnValue(true);
     const options = useRestoreDocumentVersion("files-page") as unknown as {

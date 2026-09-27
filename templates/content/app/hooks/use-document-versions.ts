@@ -104,7 +104,8 @@ export function useRestoreDocumentVersion(documentId: string) {
         });
       }
     },
-    // A restored body can bring back or drop inline collections.
+    // A restored body can bring back or drop inline collections (child
+    // pages) and rewrites blocks-field values.
     invalidates: [
       documentQueryFilter(documentId),
       ["action", "list-document-history"],
@@ -112,8 +113,12 @@ export function useRestoreDocumentVersion(documentId: string) {
       ["action", "get-document-history-checkpoint"],
       ["action", "get-content-database"],
       contentDatabaseConstrainedQueryFilter(),
-      contentNavigationBranchFilter({ documentIds: [documentId] }),
+      contentNavigationBranchFilter({
+        documentIds: [documentId],
+        parentIds: [documentId],
+      }),
       contentNavigationContextFilter([documentId]),
+      ["action", "list-document-properties"],
       ["action", "list-content-databases"],
       ["action", "list-trashed-content-databases"],
       ["action", "list-documents"],

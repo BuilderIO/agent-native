@@ -81,7 +81,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  contentNavigationBranchFilter,
+  contentFilesCollectionFilter,
+  contentRowTargets,
   invalidateContentQueries,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
@@ -2023,7 +2024,8 @@ export function DocumentSidebar({
     skipActionQueryInvalidation: true,
     onSuccess: (_result, { documentId }) =>
       invalidateContentQueries(queryClient, [
-        contentNavigationBranchFilter({ documentIds: [documentId] }),
+        ...contentRowTargets(queryClient, [documentId]),
+        contentFilesCollectionFilter(),
       ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);

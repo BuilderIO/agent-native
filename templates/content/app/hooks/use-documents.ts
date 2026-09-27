@@ -43,9 +43,11 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  contentFilesCollectionFilter,
   contentNavigationBranchFilter,
   contentNavigationContextFilter,
   contentPlacementTargets,
+  contentRowTargets,
   contentSpaceFilesDatabaseId,
   documentScopedQueryFilter,
   invalidateContentQueries,
@@ -1175,8 +1177,8 @@ export function useUpdateDocument() {
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
-            contentNavigationBranchFilter({ documentIds: [variables.id] }),
-            contentNavigationContextFilter([variables.id]),
+            ...contentRowTargets(queryClient, [variables.id]),
+            ["action", "search-documents"],
           ]);
         }
         if (renamedContentSpace) {
@@ -1331,6 +1333,7 @@ export function useDeleteDocument() {
       ["action", "get-content-database"],
       ["action", "list-content-spaces"],
       ["action", "get-content-recent"],
+      ["action", "search-documents"],
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });
@@ -1375,9 +1378,11 @@ export function restoredDocumentTargets(
     contentDatabaseNavigationQueryFilter(),
     contentNavigationContextFilter([documentId]),
     documentScopedQueryFilter(documentId),
+    contentDatabaseConstrainedQueryFilter(),
     ["action", "list-documents"],
     ["action", "get-content-database"],
     ["action", "get-content-recent"],
+    ["action", "search-documents"],
     ...TRASH_LIST_QUERY_KEYS,
   ];
 }
@@ -1433,6 +1438,7 @@ export function useMoveDocument() {
           : undefined,
       }),
       documentQueryFilter(variables.id),
+      contentFilesCollectionFilter(),
       ["action", "list-documents"],
       ...(variables.spaceId
         ? [

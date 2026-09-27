@@ -113,7 +113,12 @@ export function useDeleteContentSpace() {
     { success: boolean; spaceId: string; deletedDocuments: number },
     { spaceId: string }
   >("delete-content-space", {
-    invalidates: [["action", "get-content-recent"]],
+    invalidates: [
+      ["action", "get-content-recent"],
+      ["action", "list-trashed-documents"],
+      ["action", "list-trashed-content-databases"],
+      ["action", "list-content-trash"],
+    ],
     onSuccess: async () => {
       await Promise.all([
         queryClient.refetchQueries({

@@ -109,7 +109,11 @@ export function documentScopedQueryFilter(documentId: string): QueryFilters {
   };
 }
 
-function navigationBranch(query: Pick<Query, "queryKey">) {
+type NavigationBranch = { databaseId: unknown; parentId: unknown };
+
+function navigationBranch(
+  query: Pick<Query, "queryKey">,
+): NavigationBranch | null {
   const params = queryParams(query);
   const navigation = params?.navigation as { parentId?: unknown } | undefined;
   if (!navigation) return null;
@@ -129,19 +133,38 @@ function navigationBranchListsAny(
   return data?.items?.some((item) => documentIds.has(item.documentId)) === true;
 }
 
+/** The cached sidebar branches (parent and collection) that list any of `documentIds`. */
+function branchesListing(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  documentIds: readonly string[],
+): NavigationBranch[] {
+  const ids = new Set(documentIds);
+  const branches: NavigationBranch[] = [];
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: navigationQueryKey })) {
+    const branch = navigationBranch(query);
+    if (branch && navigationBranchListsAny(query, ids)) branches.push(branch);
+  }
+  return branches;
+}
+
 /**
  * Sidebar Files branches (`query-content-database-items` with `navigation`):
- * those listing any of `documentIds`, and those listing the children of any
- * of `parentIds`. A root parent (`null`) is limited to `databaseId` when known.
+ * those listing any of `documentIds`, every loaded page of `branches`, and
+ * those listing the children of any of `parentIds`. A root parent (`null`)
+ * is limited to `databaseId` when known.
  */
 export function contentNavigationBranchFilter({
   documentIds = [],
   parentIds = [],
   databaseId,
+  branches = [],
 }: {
   documentIds?: readonly string[];
   parentIds?: readonly (string | null)[];
   databaseId?: string | null;
+  branches?: readonly NavigationBranch[];
 }): QueryFilters {
   const listed = new Set(documentIds);
   const parents = new Set(parentIds);
@@ -155,6 +178,15 @@ export function contentNavigationBranchFilter({
         (branch.parentId !== null ||
           !databaseId ||
           branch.databaseId === databaseId)
+      ) {
+        return true;
+      }
+      if (
+        branches.some(
+          (candidate) =>
+            candidate.parentId === branch.parentId &&
+            candidate.databaseId === branch.databaseId,
+        )
       ) {
         return true;
       }
@@ -184,6 +216,22 @@ export function contentNavigationContextFilter(
   };
 }
 
+/**
+ * Reads of a space's Files collection as a collection: the local-files tree,
+ * the Files page and its table views. Their Parent column follows every page's
+ * placement, which the sidebar's paged branches do not cover.
+ */
+export function contentFilesCollectionFilter(): QueryFilters {
+  return {
+    queryKey: ["action"],
+    predicate: (query) =>
+      (query.queryKey[1] === "get-content-database" ||
+        query.queryKey[1] === "query-content-database-items") &&
+      !navigationBranch(query) &&
+      query.meta?.contentDatabaseSystemRole === "files",
+  };
+}
+
 /** The Files collection behind a space's root branch, from the cached space list. */
 export function contentSpaceFilesDatabaseId(
   queryClient: Pick<QueryClient, "getQueriesData">,
@@ -200,11 +248,29 @@ export function contentSpaceFilesDatabaseId(
 }
 
 /**
- * Targets for a write that adds, removes, or reparents pages: the branches
- * that list them now, the children of each destination parent, the rows of
- * the old and new parents (their expand control follows `hasChildren`), and
- * any breadcrumb path through the pages. Call it before the write's own cache
- * updates take the pages out of their current branches.
+ * Targets for a write that changes pages where they stand (a rename, or a copy
+ * placed beside them): every loaded page of the branches that list them, since
+ * a sorted branch can move a row to another page, and any path through them.
+ */
+export function contentRowTargets(
+  queryClient: Pick<QueryClient, "getQueryCache">,
+  documentIds: readonly string[],
+): ContentQueryTarget[] {
+  return [
+    contentNavigationBranchFilter({
+      documentIds,
+      branches: branchesListing(queryClient, documentIds),
+    }),
+    contentNavigationContextFilter(documentIds),
+  ];
+}
+
+/**
+ * Targets for a write that adds, removes, or reparents pages: every loaded
+ * page of the branches that list them now, the children of each destination
+ * parent, the rows of the old and new parents (their expand control follows
+ * `hasChildren`), and any breadcrumb path through the pages. Call it before the
+ * write's own cache updates take the pages out of their current branches.
  */
 export function contentPlacementTargets(
   queryClient: Pick<QueryClient, "getQueryCache">,
@@ -218,28 +284,22 @@ export function contentPlacementTargets(
     databaseId?: string | null;
   },
 ): ContentQueryTarget[] {
-  const moving = new Set(documentIds);
-  const oldParentIds: string[] = [];
-  let currentDatabaseId: unknown;
-  for (const query of queryClient
-    .getQueryCache()
-    .findAll({ queryKey: navigationQueryKey })) {
-    const branch = navigationBranch(query);
-    if (!branch || !navigationBranchListsAny(query, moving)) continue;
-    currentDatabaseId ??= branch.databaseId;
-    if (typeof branch.parentId === "string") oldParentIds.push(branch.parentId);
-  }
+  const current = branchesListing(queryClient, documentIds);
+  const currentDatabaseId = current.find(
+    (branch) => typeof branch.databaseId === "string",
+  )?.databaseId as string | undefined;
   return [
     contentNavigationBranchFilter({
       documentIds: [
         ...documentIds,
-        ...oldParentIds,
+        ...current.flatMap((branch) =>
+          typeof branch.parentId === "string" ? [branch.parentId] : [],
+        ),
         ...parentIds.filter((id): id is string => id !== null),
       ],
       parentIds,
-      databaseId:
-        databaseId ??
-        (typeof currentDatabaseId === "string" ? currentDatabaseId : undefined),
+      databaseId: databaseId ?? currentDatabaseId,
+      branches: current,
     }),
     contentNavigationContextFilter(documentIds),
   ];

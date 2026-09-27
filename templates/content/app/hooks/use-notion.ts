@@ -15,6 +15,7 @@ import { useEffect, useRef } from "react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 
 import {
+  contentFilesCollectionFilter,
   contentNavigationBranchFilter,
   contentNavigationContextFilter,
   documentScopedQueryFilter,
@@ -59,7 +60,11 @@ export function invalidateDocumentQueries(
   });
 }
 
-/** Link-state writes touch the page and its sync status; a pull can also retitle it. */
+/**
+ * Link-state writes touch the page and its sync status. A pull can also
+ * retitle it, create child pages, move children under it, and move children
+ * it no longer references to the top level.
+ */
 function notionDocumentTargets(
   documentId: string,
   { pulled }: { pulled: boolean },
@@ -67,8 +72,12 @@ function notionDocumentTargets(
   return pulled
     ? [
         documentScopedQueryFilter(documentId),
-        contentNavigationBranchFilter({ documentIds: [documentId] }),
+        contentNavigationBranchFilter({
+          documentIds: [documentId],
+          parentIds: [documentId, null],
+        }),
         contentNavigationContextFilter([documentId]),
+        contentFilesCollectionFilter(),
         ["action", "get-content-recent"],
         ["action", "list-documents"],
       ]

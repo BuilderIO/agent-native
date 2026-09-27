@@ -61,10 +61,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { documentQueryFilter } from "../lib/document-query";
 import {
+  contentNavigationBranchFilter,
   contentNavigationContextFilter,
   contentPlacementTargets,
   contentSpaceFilesDatabaseId,
-  documentScopedQueryFilter,
   invalidateContentQueries,
   useContentActionMutation,
   type ContentQueryTarget,
@@ -1056,10 +1056,22 @@ export function useRemoveDatabaseItems(documentId: string) {
     ContentDatabaseResponse,
     DatabaseItemsBatchRequest
   >("remove-database-items", {
-    invalidates: (data, variables) => [
-      ...contentDatabaseRowTargets(documentId, data.database.id),
-      ...(variables.documentIds ?? []).map(documentScopedQueryFilter),
-    ],
+    invalidates: (data, variables) => {
+      const removed = data.removedDocumentIds ?? variables.documentIds ?? [];
+      return [
+        ...contentDatabaseRowTargets(documentId, data.database.id),
+        // The sidebar lists Favorites by collection id rather than page id.
+        ["action", "get-content-database", { databaseId: data.database.id }],
+        ...removed.flatMap((id) => [
+          documentQueryFilter(id),
+          ["action", "list-document-properties", { documentId: id }],
+        ]),
+        contentNavigationContextFilter(removed),
+        ...(data.database.systemRole === "favorites"
+          ? [contentNavigationBranchFilter({ documentIds: removed })]
+          : []),
+      ];
+    },
   });
 }
 
