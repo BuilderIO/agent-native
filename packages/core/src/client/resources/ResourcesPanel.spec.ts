@@ -452,4 +452,60 @@ describe("ResourcesPanel storage retries", () => {
     expect(storageMocks.refetch).toHaveBeenCalledTimes(3);
     expect(storageMocks.upload).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores an upload probe after its attempt was dismissed", async () => {
+    let resolveDismissedProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    let resolveCurrentProbe!: (result: {
+      isError: boolean;
+      data?: { configured?: unknown };
+    }) => void;
+    storageMocks.refetch
+      .mockResolvedValueOnce({ isError: true })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDismissedProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCurrentProbe = resolve;
+          }),
+      );
+    renderPanel();
+    await chooseFile(new File(["old"], "old.png", { type: "image/png" }));
+    await chooseFile(
+      new File(["dismissed"], "dismissed.png", { type: "image/png" }),
+    );
+    act(() => storageMocks.dismiss?.());
+    await chooseFile(
+      new File(["current"], "current.png", { type: "image/png" }),
+    );
+
+    await act(async () => {
+      resolveDismissedProbe({ isError: false, data: { configured: true } });
+      storageMocks.status = {
+        data: { configured: true },
+        isError: false,
+        isSuccess: true,
+      };
+      await Promise.resolve();
+    });
+    renderPanel();
+    expect(storageMocks.upload).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCurrentProbe({ isError: false, data: { configured: true } });
+      await Promise.resolve();
+    });
+
+    expect(storageMocks.upload).toHaveBeenCalledTimes(1);
+    expect(
+      (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
+    ).toBe("current.png");
+  });
 });
