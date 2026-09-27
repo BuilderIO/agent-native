@@ -347,6 +347,7 @@ test.afterAll(() => {
 
 for (const target of targets) {
   test(`agent review of ${target.environment} ${target.app} signup`, async ({
+    browser,
     page,
   }, testInfo) => {
     test.setTimeout(420_000);
@@ -498,6 +499,99 @@ for (const target of targets) {
         ),
       );
     });
+
+    if (target.app === "content") {
+      await test.step("return to Recent from a new session", async () => {
+        const context = await browser.newContext();
+        try {
+          const signInPage = await context.newPage();
+          await signInPage.goto(`${target.origin}/sign-in`, {
+            waitUntil: "domcontentloaded",
+          });
+          await renderedText(signInPage, `${target.origin}/sign-in`);
+          const emailRequestedAt = Date.now() - 5_000;
+          const emailResult = waitForVerificationEmail(
+            email,
+            emailRequestedAt,
+          ).then(
+            (message) => ({ status: "fulfilled" as const, message }),
+            (error) => ({ status: "rejected" as const, error }),
+          );
+          await fillMagicLinkEmail(signInPage, email);
+          await signInPage.locator("#magic-link-submit").click();
+          const result = await emailResult;
+          if (result.status === "rejected") {
+            if (isMailosaurInconclusiveError(result.error)) {
+              const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+              mkdirSync(dirname(marker), { recursive: true });
+              writeFileSync(marker, `${result.error.message}\n`, "utf8");
+              testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+              return;
+            }
+            throw result.error;
+          }
+
+          const returningPage = await context.newPage();
+          const { errors: returningErrors } = collectAppPageErrors(
+            returningPage,
+            target.origin,
+          );
+          const returningNetwork = trackNetwork(returningPage, target.origin);
+          await returningPage.goto(
+            verificationLinkFor(result.message, target.origin),
+            { waitUntil: "domcontentloaded" },
+          );
+          expect(
+            await waitForPostLinkState(
+              returningPage,
+              returningNetwork.pendingRequests,
+            ),
+          ).toBe("app");
+
+          const recentToggle = returningPage.getByRole("button", {
+            name: "Recent",
+            exact: true,
+          });
+          await expect(recentToggle).toBeVisible();
+          if ((await recentToggle.getAttribute("aria-expanded")) !== "true") {
+            await recentToggle.click();
+          }
+          const recentSection = returningPage
+            .locator("section")
+            .filter({ has: recentToggle });
+          const recentNav = recentSection.getByRole("navigation", {
+            name: "Recent",
+            exact: true,
+          });
+          const recentEmpty = recentSection.getByText(/No recent visits/i);
+          await expect
+            .poll(
+              async () =>
+                (await recentNav.count()) + (await recentEmpty.count()),
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            )
+            .toBeGreaterThan(0);
+          await expect(
+            recentSection.getByText(/Something went wrong/i),
+          ).toHaveCount(0);
+          await expect(
+            recentSection.getByRole("button", { name: /Retry/i }),
+          ).toHaveCount(0);
+          steps.push(
+            await capture(
+              returningPage,
+              "content Recent after returning sign-in",
+              [...errors, ...returningErrors],
+              returningNetwork.networkEvents,
+              returningNetwork.pendingRequests,
+              testInfo,
+            ),
+          );
+        } finally {
+          await context.close();
+        }
+      });
+    }
 
     if (target.app === "design") {
       await test.step("open API keys after signup", async () => {
