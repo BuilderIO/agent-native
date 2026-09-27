@@ -3123,6 +3123,7 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
+        part.isError === true &&
         (part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER) ||
           isToolCallTimeoutResult(part.content))
       ) {
@@ -6289,6 +6290,7 @@ export async function runAgentLoop(opts: {
         }
         if (
           !actionEntry.readOnly &&
+          isError &&
           typeof result === "string" &&
           isToolCallTimeoutResult(result)
         ) {
