@@ -468,6 +468,40 @@ describe("startMailAiFilterBackfill", () => {
     ).toBe(true);
   });
 
+  it("does not let an older delayed overlap block a ready run", async () => {
+    const olderRule = {
+      ...rule("rule-a"),
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const currentRule = rule("rule-a");
+    mocks.rules = [currentRule];
+    const delayedState = backfillState([olderRule]) as Record<string, any>;
+    delayedState.retryAfterAt = Date.now() + 60_000;
+    delayedState.candidates = [];
+    const delayedRun = {
+      ...runningRow([olderRule]),
+      id: "delayed-run",
+      status: "queued",
+      stateJson: JSON.stringify(delayedState),
+      createdAt: Date.now() - 1_000,
+    };
+    const readyState = backfillState([currentRule]);
+    readyState.candidates = [];
+    const readyRun = {
+      ...runningRow([currentRule]),
+      id: "ready-run",
+      status: "queued",
+      stateJson: JSON.stringify(readyState),
+      createdAt: Date.now(),
+    };
+    database.rows.push(delayedRun, readyRun);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(readyRun.status).toBe("completed");
+    expect(delayedRun.status).toBe("queued");
+  });
+
   it("retries wrapped credential refresh failures in the worker", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];

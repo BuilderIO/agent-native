@@ -5104,16 +5104,33 @@ async function refreshGoogleOAuthToken(
   } | null = null;
   let lastStatusText = "refresh failed";
   for (const credentials of credentialCandidates) {
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: refreshToken,
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        grant_type: "refresh_token",
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          refresh_token: refreshToken,
+          client_id: credentials.clientId,
+          client_secret: credentials.clientSecret,
+          grant_type: "refresh_token",
+        }),
+      });
+    } catch (error) {
+      const isRetryableTransportError =
+        error instanceof TypeError ||
+        (typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name === "AbortError");
+      if (!isRetryableTransportError) throw error;
+      const retryableError = new Error(
+        `Google OAuth refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+      Object.assign(retryableError, { retryable: true });
+      throw retryableError;
+    }
     lastStatusText = res.statusText;
     try {
       data = (await res.json()) as {

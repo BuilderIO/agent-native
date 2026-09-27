@@ -2005,6 +2005,7 @@ async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
     const requested = new Set(ruleIdsForBackfillRow(currentRow));
     const earlierQueued = (other: BackfillRow) =>
       other.status === "queued" &&
+      (retryAfterAtFromState(other.stateJson) ?? 0) <= now &&
       (other.createdAt < currentRow.createdAt ||
         (other.createdAt === currentRow.createdAt && other.id < currentRow.id));
     if (
