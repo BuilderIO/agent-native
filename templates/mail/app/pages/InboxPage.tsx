@@ -381,6 +381,7 @@ export function InboxPage() {
   }, [changeSortMode, showPrioritySort, sortMode]);
   useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
+  const isOnboardingPreview = searchParams.get("onboarding") === "preview";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -587,6 +588,7 @@ export function InboxPage() {
 
   useEffect(() => {
     if (
+      isOnboardingPreview ||
       settingsLoading ||
       settingsError ||
       !settings ||
@@ -614,6 +616,7 @@ export function InboxPage() {
     activeInboxTab,
     activeLabel,
     combineInbox,
+    isOnboardingPreview,
     isGoogleConnected,
     navigate,
     routeThreadId,
@@ -626,7 +629,7 @@ export function InboxPage() {
   ]);
 
   useEffect(() => {
-    if (!shouldNormalizeCombinedInboxRoute) return;
+    if (isOnboardingPreview || !shouldNormalizeCombinedInboxRoute) return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("label");
     nextParams.delete("tab");
@@ -638,7 +641,12 @@ export function InboxPage() {
       },
       { replace: true },
     );
-  }, [navigate, searchParams, shouldNormalizeCombinedInboxRoute]);
+  }, [
+    isOnboardingPreview,
+    navigate,
+    searchParams,
+    shouldNormalizeCombinedInboxRoute,
+  ]);
 
   const isPinnedTab =
     !!activeLabel &&

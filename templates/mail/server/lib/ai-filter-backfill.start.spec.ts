@@ -221,7 +221,8 @@ vi.mock("./automation-actions.js", () => ({
   buildLabelCache: mocks.buildLabelCache,
   ensureGmailLabel: mocks.ensureGmailLabel,
 }));
-vi.mock("./google-api.js", () => ({
+vi.mock("./google-api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./google-api.js")>()),
   gmailBatchGetThreads: vi.fn(),
   gmailGetThread: mocks.gmailGetThread,
   gmailListThreads: vi.fn(),
