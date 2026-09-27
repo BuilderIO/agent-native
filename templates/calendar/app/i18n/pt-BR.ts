@@ -261,6 +261,15 @@ export default {
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Segunda-feira - domingo",
     eventRules: "Regras de convite",
+    eventRulesConnectJev: "Conecte o Jev para executar as regras de convite",
+    eventRulesFreeBuilderOrApiKey:
+      "Grátis com Builder.io ou adicione uma chave de API.",
+    eventRulesConnectBuilder: "Conectar Builder.io",
+    eventRulesAddJevApiKey: "Adicionar chave de API",
+    eventRulesTabRules: "Regras",
+    eventRulesHelpLabel: "Sobre as instruções de convite",
+    eventRulesHelp:
+      "Escreva instruções para o Jev aceitar, recusar ou ocultar convites.",
     eventRuleAccept: "Aceitar automaticamente",
     eventRuleDecline: "Recusar automaticamente",
     eventRuleHide: "Ocultar automaticamente",

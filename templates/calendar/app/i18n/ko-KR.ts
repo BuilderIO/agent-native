@@ -247,6 +247,15 @@ export default {
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
     eventRules: "초대 규칙",
+    eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
+    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesAddJevApiKey: "API 키 추가",
+    eventRulesTabRules: "규칙",
+    eventRulesHelpLabel: "초대 규칙 프롬프트 안내",
+    eventRulesHelp:
+      "Jev가 자동으로 수락, 거절 또는 숨길 초대를 지정하는 프롬프트를 작성하세요.",
     eventRuleAccept: "자동 수락",
     eventRuleDecline: "자동 거절",
     eventRuleHide: "자동 숨기기",

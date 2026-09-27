@@ -58,7 +58,7 @@ const messages = {
       aiSetupImportantPrompt:
         "답장이 필요하거나 기한이 있는 메시지. GitHub의 사람 댓글을 포함하고 봇 댓글은 제외합니다.",
       aiSetupArchiveSpamPrompt:
-        "자동 보관: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
+        "받은편지함 건너뛰기: 봇 댓글이나 자동 상태 업데이트가 포함된 GitHub 알림.\n스팸: 요청하지 않은 명백한 홍보성 또는 원치 않는 메시지.",
       aiSetupCustomTag: "사용자 지정",
       aiSetupDone: "완료",
       aiSetupRunAgain: "설정 다시 실행",
@@ -576,8 +576,16 @@ const messages = {
       spamMode: "스팸",
       tagMode: "태그",
       aiTagsTitle: "AI 태그",
+      ruleHelpLabel: "{{mode}} 규칙 설명",
+      aiTagRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일에 이 태그를 추가합니다.",
+      importantRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 중요 메일로 표시합니다.",
+      skipInboxRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 보관해 받은편지함을 건너뜁니다.",
+      spamRuleHelp:
+        "자연어로 지침을 작성하세요. 일치하는 메일을 스팸으로 표시하고 보관합니다.",
       filteredMode: "필터됨",
-      autoArchiveMode: "자동 보관",
       manageSettings: "관리",
       askJev: "Jev에게 묻기",
       askJevPrompt:
@@ -630,7 +638,7 @@ const messages = {
       promptRulesCleared: "분류 규칙을 삭제했습니다.",
       tagTabsHelp: "각 태그가 받은편지함 탭이 됩니다",
       addTag: "태그 추가",
-      triageTitle: "분류",
+      triageTitle: "AI 분류",
       connectJev: "Jev 연결",
       connectJevToRunTriage: "분류를 실행하려면 Jev를 연결하세요",
       freeBuilderOrApiKey: "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
@@ -820,7 +828,7 @@ const messages = {
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
     automations: "자동화",
-    aiFilter: "분류",
+    aiFilter: "AI 분류",
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",

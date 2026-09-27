@@ -8,8 +8,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const mocks = vi.hoisted(() => ({
   rules: [] as Array<Record<string, any>>,
@@ -146,8 +149,16 @@ const importantRule = () => ({
   updatedAt: "2026-09-25T00:00:00.000Z",
 });
 
+function TestProviders({ children }: PropsWithChildren) {
+  return (
+    <MemoryRouter>
+      <TooltipProvider>{children}</TooltipProvider>
+    </MemoryRouter>
+  );
+}
+
 function renderSection() {
-  return render(<AiFilterSection />, { wrapper: MemoryRouter });
+  return render(<AiFilterSection />, { wrapper: TestProviders });
 }
 
 describe("AiFilterSection", () => {
@@ -218,7 +229,7 @@ describe("AiFilterSection", () => {
     expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
   });
 
-  it("groups important, tag, filtered, and auto-archive rules in one editor", () => {
+  it("groups Important, AI tag, Spam, and Skip inbox rules in one editor", () => {
     mocks.rules = [
       importantRule(),
       {
@@ -252,8 +263,8 @@ describe("AiFilterSection", () => {
     for (const key of [
       "mail.aiFilter.importantMode",
       "mail.aiFilter.aiTagsTitle",
-      "mail.aiFilter.filteredMode",
-      "mail.aiFilter.autoArchiveMode",
+      "mail.aiFilter.spamMode",
+      "mail.aiFilter.skipInboxMode",
     ]) {
       expect(screen.getByText(key)).not.toBeNull();
     }
@@ -265,6 +276,27 @@ describe("AiFilterSection", () => {
     ).not.toBeNull();
   });
 
+  it.each([
+    ["importantMode", "importantRuleHelp"],
+    ["aiTagsTitle", "aiTagRuleHelp"],
+    ["spamMode", "spamRuleHelp"],
+    ["skipInboxMode", "skipInboxRuleHelp"],
+  ])("explains %s rule prompts", async (modeKey, helpKey) => {
+    renderSection();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
+    );
+    const modeButton = screen.getByRole("button", {
+      name: `mail.aiFilter.${modeKey}`,
+    });
+    fireEvent.focus(modeButton);
+
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      `mail.aiFilter.${helpKey}`,
+    );
+  });
+
   it("creates a rule from one sentence and a selected mode", async () => {
     mocks.createRule.mockResolvedValue({ id: "filtered-rule" });
     renderSection();
@@ -273,7 +305,7 @@ describe("AiFilterSection", () => {
       screen.getByRole("button", { name: "mail.aiFilter.newRule" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.aiFilter.filteredMode" }),
+      screen.getByRole("button", { name: "mail.aiFilter.spamMode" }),
     );
     fireEvent.change(
       screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
@@ -342,7 +374,7 @@ describe("AiFilterSection", () => {
     );
   });
 
-  it("keeps auto-archive when editing a tag rule", async () => {
+  it("preserves the archive action when editing a tag rule", async () => {
     mocks.rules = [
       {
         ...importantRule(),
@@ -357,7 +389,7 @@ describe("AiFilterSection", () => {
     ];
     renderSection();
 
-    expect(screen.getByText("mail.aiFilter.autoArchiveMode")).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.skipInboxMode")).not.toBeNull();
     fireEvent.pointerDown(
       screen.getByRole("button", { name: "mail.toolbar.menu" }),
       { button: 0, ctrlKey: false },

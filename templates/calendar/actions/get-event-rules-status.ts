@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  getJevContextCredentials,
   getRequestUserEmail,
   hasRecurringSweepHandler,
+  isJevEnabled,
   scheduledTriggerAvailability,
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -15,6 +17,8 @@ export default defineAction({
   run: async () => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
+    const credentials = await getJevContextCredentials(owner);
+    const jevConfigured = await isJevEnabled(credentials);
     const availability = scheduledTriggerAvailability();
     const registered = hasRecurringSweepHandler("calendar-event-rules");
     const configured = registered && availability.available;
@@ -30,6 +34,7 @@ export default defineAction({
       accountRefreshErrors?: Array<{ email: string; error: string }>;
     } | null;
     return {
+      jevConfigured,
       enabled: configured,
       reason: configured ? null : unavailableReason,
       registered,
