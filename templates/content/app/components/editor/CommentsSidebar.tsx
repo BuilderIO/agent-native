@@ -1240,7 +1240,7 @@ export function CommentsSidebar({
   const [pendingOffset, setPendingOffset] = useState<number | null>(null);
   const inlineProposalLeaders = useMemo(() => {
     const leaders = new Map<string, string>();
-    for (const [proposalId, members] of inlineProposalMembers) {
+    for (const proposalId of inlineProposalMembers.keys()) {
       if ((proposalMemberCounts.get(proposalId) ?? 0) < 2) continue;
       const first = inlineSuggestions
         .filter((suggestion) => suggestion.proposalId === proposalId)
