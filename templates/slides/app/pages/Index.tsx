@@ -70,11 +70,11 @@ import {
   type NewDeckReferenceSelection,
   type NewDeckReferenceSource,
 } from "@/components/editor/NewDeckReferenceStep";
-import type {
-  PromptAttachmentActions,
-  PromptImportSelection,
-  PromptChatAttachment,
-  PromptPopoverHandle,
+import PromptPopover, {
+  type PromptAttachmentActions,
+  type PromptImportSelection,
+  type PromptChatAttachment,
+  type PromptPopoverHandle,
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
@@ -152,9 +152,6 @@ const LazyDesignSystemSetup = lazy(() =>
   ),
 );
 
-const loadPromptPopover = () => import("@/components/editor/PromptDialog");
-const LazyPromptPopover = lazy(loadPromptPopover);
-
 async function uploadPromptFiles(
   files: File[],
   storageUnavailableMessage: string,
@@ -176,10 +173,6 @@ async function uploadPromptFiles(
     }
     throw cause;
   }
-}
-
-function preloadPromptPopover() {
-  void loadPromptPopover().catch(() => {});
 }
 
 function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
@@ -651,9 +644,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     initialPromptConsumedRef.current = true;
     setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
     setShowNewDeckPrompt(true);
-    void loadPromptPopover()
-      .then(clearInitialPromptFromUrl)
-      .catch(() => {});
+    clearInitialPromptFromUrl();
   }, [clearInitialPromptFromUrl, initialPrompt]);
 
   useEffect(() => {
@@ -733,7 +724,6 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const setNewDeckPromptOpen = useCallback(
     (open: boolean, options: { clearInitialPrompt?: boolean } = {}) => {
-      if (open) preloadPromptPopover();
       setShowNewDeckPrompt(open);
       if (!open) {
         if (options.clearInitialPrompt !== false) {
@@ -2120,62 +2110,53 @@ export default function Index({ active = true }: { active?: boolean }) {
               </div>
             }
           >
-            <Suspense
-              fallback={
-                <div
-                  className="skeleton-shimmer h-44 rounded-xl bg-muted"
-                  aria-busy="true"
-                />
-              }
-            >
-              <LazyPromptPopover
-                presentation="inline"
-                context={composerContext}
-                controllerRef={homeComposerRef}
-                disabled={!isHome || !agentEngineConfigured}
-                submissionDisabled={!agentEngineConfigured}
-                showModelSelector={agentEngineConfigured}
-                modelStatusChecksEnabled={false}
-                open={showNewDeckPrompt}
-                active={isHome}
-                onOpenChange={setNewDeckPromptOpen}
-                title={t("home.newDeckPromptTitle")}
-                placeholder={t("home.newDeckPlaceholder")}
-                onSkip={handlePromptSkip}
-                skipLabel={t("home.skipPrompt")}
-                onSubmit={handlePromptSubmit}
-                onBeforeUpload={(
-                  prompt,
-                  files,
+            <PromptPopover
+              presentation="inline"
+              context={composerContext}
+              controllerRef={homeComposerRef}
+              disabled={!isHome || !agentEngineConfigured}
+              submissionDisabled={!agentEngineConfigured}
+              showModelSelector={agentEngineConfigured}
+              modelStatusChecksEnabled={false}
+              open={showNewDeckPrompt}
+              active={isHome}
+              onOpenChange={setNewDeckPromptOpen}
+              title={t("home.newDeckPromptTitle")}
+              placeholder={t("home.newDeckPlaceholder")}
+              onSkip={handlePromptSkip}
+              skipLabel={t("home.skipPrompt")}
+              onSubmit={handlePromptSubmit}
+              onBeforeUpload={(
+                prompt,
+                files,
+                context,
+                attachments,
+                options,
+              ) => {
+                if (session) return true;
+                preservePromptForSignIn(prompt, {
                   context,
                   attachments,
-                  options,
-                ) => {
-                  if (session) return true;
-                  preservePromptForSignIn(prompt, {
-                    context,
-                    attachments,
-                    hadFiles: files.length > 0,
-                    modelSelection: options
-                      ? {
-                          model: options.model,
-                          engine: options.engine,
-                          effort: options.effort,
-                        }
-                      : undefined,
-                  });
-                  return false;
-                }}
-                loading={generating}
-                draftScope={NEW_DECK_DRAFT_SCOPE}
-                initialText={newDeckInitialPrompt?.text}
-                initialTextKey={newDeckInitialPrompt?.key}
-                initialModelSelection={newDeckRetryModelSelection}
-                onRetainedAttachmentsAbandoned={
-                  handlePendingDeckAttachmentsAbandoned
-                }
-              />
-            </Suspense>
+                  hadFiles: files.length > 0,
+                  modelSelection: options
+                    ? {
+                        model: options.model,
+                        engine: options.engine,
+                        effort: options.effort,
+                      }
+                    : undefined,
+                });
+                return false;
+              }}
+              loading={generating}
+              draftScope={NEW_DECK_DRAFT_SCOPE}
+              initialText={newDeckInitialPrompt?.text}
+              initialTextKey={newDeckInitialPrompt?.key}
+              initialModelSelection={newDeckRetryModelSelection}
+              onRetainedAttachmentsAbandoned={
+                handlePendingDeckAttachmentsAbandoned
+              }
+            />
           </LazyChunkErrorBoundary>
         </div>
       }

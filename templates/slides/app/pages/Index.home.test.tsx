@@ -402,6 +402,17 @@ afterEach(() => {
 });
 
 describe("Slides prompt-led home", () => {
+  it("renders the home chatfield immediately without a loading skeleton", () => {
+    renderHome();
+
+    expect(
+      screen.getByRole("textbox", { name: "Presentation prompt" }),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[aria-busy="true"].skeleton-shimmer'),
+    ).toBeNull();
+  });
+
   it("does not restore home header state while the mounted page is away from home", () => {
     const { rerenderHome } = renderHome();
     expect(headerActions.current).not.toBeNull();
