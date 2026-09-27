@@ -1511,6 +1511,7 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
+                        data-an-block
                         href={githubPrUrl}
                         target="_blank"
                         rel="noopener noreferrer"

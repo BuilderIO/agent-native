@@ -828,6 +828,7 @@ function ApolloSection({ email }: { email: string }) {
           <div className="px-4 py-2 flex flex-wrap gap-3">
             {safeExternalHref(person.linkedin_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.linkedin_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -838,6 +839,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.twitter_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.twitter_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -848,6 +850,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.github_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.github_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -858,6 +861,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.organization?.website_url) && (
               <a
+                data-an-block
                 href={
                   safeExternalHref(person.organization?.website_url) ??
                   undefined
