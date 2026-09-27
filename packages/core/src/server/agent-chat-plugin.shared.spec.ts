@@ -124,6 +124,8 @@ function createSharedThreadEvent(
 ) {
   const headers = new Headers();
   if (options.accept) headers.set("accept", options.accept);
+  headers.set("host", "share.example.test");
+  headers.set("x-forwarded-proto", "https");
   return {
     path,
     req: {
@@ -303,10 +305,6 @@ describe("recurring jobs runtime startup", () => {
 });
 
 describe("scheduled trigger availability", () => {
-  // The whole reason this is not `!shouldDisableRecurringJobsRuntime`: that
-  // predicate is true on hosted Netlify, where schedules DO fire via the
-  // emitted scheduled function. Reusing it would report the one working
-  // production runtime as broken.
   it("reports hosted Netlify as working despite the in-process timer being off", () => {
     expect(
       shouldDisableRecurringJobsRuntime({
@@ -372,19 +370,12 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "in-process" });
   });
 
-  // The regression: a pipeline that sets AGENT_NATIVE_DISABLE_RECURRING_JOBS for
-  // the BUILD only leaves no trace of it in the deployed env. Netlify's runtime
-  // markers still say "Netlify", so inferring the driver from them reported a
-  // working scheduler for a build that emitted no scheduled function at all —
-  // hiding the warning and showing future run dates for automations that can
-  // never fire.
   it("trusts the build marker over runtime-only Netlify markers", () => {
     expect(
       scheduledTriggerAvailability({
         NODE_ENV: "production",
         NETLIFY: "true",
         SITE_ID: "site-1",
-        // Set at build time, absent from the deployed runtime env.
         AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
       }),
     ).toEqual({ available: false, reason: "disabled-by-env" });
@@ -417,9 +408,6 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "netlify-scheduled-function" });
   });
 
-  // In-process drivers are the opposite: `shouldDisableRecurringJobsRuntime`
-  // reads the runtime env before starting the timer, so a build marker cannot
-  // speak for this branch.
   it("keeps the runtime env authoritative for the in-process driver", () => {
     expect(
       scheduledTriggerAvailability({
@@ -613,6 +601,29 @@ describe("shared thread route", () => {
     expect(event.res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(result).toContain("<!doctype html>");
     expect(result).toContain("Read-only shared agent session");
+    const head = result.slice(
+      result.indexOf("<head>"),
+      result.indexOf("</head>"),
+    );
+    expect(head).toContain(
+      '<meta name="description" content="Two messages" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:title" content="Deploy recap" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:description" content="Two messages" />',
+    );
+    expect(head).toContain(
+      '<meta name="twitter:title" content="Deploy recap" />',
+    );
+    expect(head).toContain(
+      '<meta name="twitter:card" content="summary_large_image" />',
+    );
+    expect(head).toContain(
+      '<meta property="og:image" content="https://share.example.test/_agent-native/og-image.png?',
+    );
+    expect(head).not.toContain("Done &amp; shipped");
     expect(result).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(result).toContain("Done &amp; shipped");
     expect(result).not.toContain("<script>alert");

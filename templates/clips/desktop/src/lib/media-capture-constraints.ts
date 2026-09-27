@@ -204,9 +204,6 @@ export async function getCameraStreamWithFallback(
   videoConstraints?: MediaTrackConstraints,
 ): Promise<MediaStream> {
   const id = deviceId?.trim();
-  // Extra constraints (e.g. the bubble's ideal resolution) apply to both the
-  // exact-device attempt and the default-camera retry; with no extras the
-  // fallback stays a plain `video: true` request.
   const baseVideo: MediaStreamConstraints["video"] =
     videoConstraints && Object.keys(videoConstraints).length > 0
       ? videoConstraints

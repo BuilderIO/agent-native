@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import {
   EmptySessionsState,
   formatSessionDuration,
+  shouldShowZeroMinuteRecoveryAction,
   useDebouncedUrlFilter,
 } from "./SessionsPage";
 
@@ -240,6 +241,31 @@ export function SessionsTriagePage() {
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const checkHiddenSessions = hideEmpty && !isLoading && !error && total === 0;
+  const { data: withEmptySessions } = useActionQuery<Page>(
+    "list-session-recordings",
+    {
+      paginated: true,
+      ...dateBounds,
+      app: app || undefined,
+      query: query || undefined,
+      emailDomain: domain || undefined,
+      visitorType,
+      hideInternal: hideInternal || undefined,
+      minDurationMs: minDurationMs || undefined,
+      hasErrors: hasErrors || undefined,
+      hasNetworkErrors: hasNetworkErrors || undefined,
+      hasRageClicks: hasRageClicks || undefined,
+      sort,
+      limit: 1,
+    },
+    { enabled: checkHiddenSessions, staleTime: 30_000 },
+  );
+  const showEmptySessionRecovery = shouldShowZeroMinuteRecoveryAction(
+    !hideEmpty,
+    total,
+    withEmptySessions?.total ?? 0,
+  );
 
   function toggle(key: string, enabled: boolean) {
     setFilter(key, enabled ? "true" : "");
@@ -567,7 +593,17 @@ export function SessionsTriagePage() {
                 <EmptySessionsState />
               ) : recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
-                  {t("sessions.noSessions")}
+                  <p>{t("sessions.noSessions")}</p>
+                  {showEmptySessionRecovery ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => setFilter("hideEmpty", "false")}
+                    >
+                      {t("sessions.includeZeroMinuteSessions")}
+                    </Button>
+                  ) : null}
                 </div>
               ) : (
                 <div className="divide-y">

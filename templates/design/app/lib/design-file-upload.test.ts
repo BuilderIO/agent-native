@@ -130,8 +130,6 @@ describe("uploadDesignFile", () => {
   it("keeps the browser limit aligned with the server decoder cap", () => {
     expect(MAX_UPLOAD_BYTES).toBe(SERVER_MAX_UPLOAD_BYTES);
     expect(MAX_FIG_UPLOAD_BYTES).toBe(SERVER_MAX_FIG_FILE_BYTES);
-    // A real Figma export is routinely well past the single-request wire cap;
-    // the chunked transport is what makes this the browser-side limit.
     expect(MAX_FIG_UPLOAD_BYTES).toBeGreaterThan(SERVER_MAX_UPLOAD_BYTES);
     expect(
       validateFigUploadFile({ name: "sample.FIG", size: MAX_FIG_UPLOAD_BYTES }),
@@ -191,7 +189,6 @@ describe("uploadDesignFile chunked transport", () => {
     expect(calls[0]).toContain("isFinal=0");
     expect(calls[1]).toContain("index=1");
     expect(calls[1]).toContain("isFinal=1");
-    // Every chunk must ride the same session id or the server reassembles junk.
     const uploadIds = new Set(
       calls.map((url) => new URL(url, "http://x").searchParams.get("uploadId")),
     );

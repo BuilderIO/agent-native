@@ -6,12 +6,6 @@ import {
   type H3Event,
 } from "h3";
 
-/**
- * Extract the :id from invitation-accept paths. The framework request handler
- * strips the mount prefix before calling the handler, so `event.url.pathname`
- * is the relative tail — e.g. `/some-id/accept`. Falls back to matching the
- * full path for contexts that don't strip, and to the h3 router param.
- */
 function extractInvitationId(event: H3Event): string | undefined {
   const fromRouter = getRouterParam(event, "id");
   if (fromRouter) return fromRouter;
@@ -22,7 +16,6 @@ function extractInvitationId(event: H3Event): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
-/** Extract the :email from member-delete and member-role paths. Same prefix-stripping caveat. */
 function extractMemberEmail(event: H3Event): string | undefined {
   const fromRouter = getRouterParam(event, "email");
   if (fromRouter) return fromRouter;
@@ -71,6 +64,10 @@ import {
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
+import {
+  registerBackgroundWork,
+  trackInviteAccepted,
+} from "./track-invite-accepted.js";
 import type {
   OrgRole,
   RequiredAuthProvider,
@@ -114,8 +111,6 @@ async function syncFederatedOrgBestEffort(
     icon: input.icon,
     iconRevision: input.iconRevision,
   }).catch((error) => {
-    // Federation is an opt-in cross-deployment enhancement. A hub outage must
-    // not turn a healthy local organization read or create into an outage.
     void error;
     warnAgent({
       severity: "advisory",
@@ -144,22 +139,7 @@ function scheduleFederatedOrgSync(
     pendingFederatedOrgSyncs.delete(key);
   });
   pendingFederatedOrgSyncs.set(key, sync);
-  const waitUntil = (
-    event as H3Event & {
-      waitUntil?: (promise: Promise<unknown>) => void;
-    }
-  ).waitUntil;
-  if (typeof waitUntil === "function") {
-    try {
-      waitUntil.call(event, sync);
-      return;
-    } catch (error) {
-      // Some local adapters expose a non-functional placeholder. Continue the
-      // best-effort path without turning an org read into an outage.
-      void error;
-    }
-  }
-  void sync;
+  registerBackgroundWork(event, sync);
 }
 
 function normalizeWorkspaceAppDefaultVisibility(
@@ -193,7 +173,6 @@ async function getSessionForEvent(event: H3Event) {
   return getSession(event);
 }
 
-/** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
 
@@ -295,10 +274,6 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const invitesRes = await e.execute({
-    // Case-insensitive match: invitations are stored with whatever case
-    // the inviter typed, but the session email may be normalized
-    // differently by the auth provider. LOWER(both sides) keeps these
-    // discoverable and matches getOrgContext.hasPendingInvitation.
     sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
           FROM org_invitations i
           INNER JOIN organizations o ON i.org_id = o.id
@@ -344,7 +319,6 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-/** POST /_agent-native/org/federation-removal/retry — finish self-cleanup after a failed revoke */
 export const retryPendingFederatedRemovalHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
@@ -383,10 +357,6 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
 
     let transferTo = requestedTransferTo;
     if (!transferTo) {
-      // The original removal request may have reached the authority before
-      // local cleanup failed, so its transfer target is not persisted in the
-      // pending marker. Prefer the organization's active owner as the safe,
-      // deterministic fallback for a self-retry.
       const successor = await e.execute({
         sql: `SELECT email FROM org_members
               WHERE org_id = ? AND LOWER(email) <> ?
@@ -422,10 +392,6 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
           "Could not confirm removal with the identity authority; local cleanup remains pending.",
       });
     }
-    // `false` means the organization has no linked authority (the normal
-    // local-only case), not that the local removal failed. A linked authority
-    // either confirms the idempotent revoke with `true` or throws, in which
-    // case the pending marker remains for this route to retry later.
 
     try {
       await offboardMember(e, email, {
@@ -465,7 +431,6 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
 export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -496,7 +461,6 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
   },
 );
 
-/** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
@@ -504,9 +468,6 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const access = getAppConfig().access;
 
   if (access.orgCreation === "closed") {
-    // Closed means closed: only a verified configured bootstrap admin may
-    // create the canonical organization, whether the database is empty or
-    // already has one.
     const orgs = await getDbExec().execute({
       sql: "SELECT id FROM organizations LIMIT 1",
       args: [],
@@ -571,7 +532,6 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   return { id, name: createdName, role };
 });
 
-/** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) {
@@ -774,6 +734,24 @@ async function inviteOne(
     args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
   });
 
+  try {
+    const inviteSentPromise = import("../tracking/registry.js")
+      .then(async ({ track, flushTracking }) => {
+        const app = getAppConfig().app.slug ?? "unknown";
+        track(
+          "invite_sent",
+          { app, template: app, org_id: ctx.orgId, role },
+          { userId: ctx.email },
+        );
+        await flushTracking();
+      })
+      .catch(() => {});
+    // coercion-ok: telemetry must never block or fail an invite.
+    registerBackgroundWork(event, inviteSentPromise);
+  } catch (error) {
+    console.warn("[org] Could not emit invite_sent telemetry", error);
+  }
+
   let emailSent = false;
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
@@ -802,7 +780,6 @@ async function inviteOne(
   return { id, email, role, status: "pending", emailSent, emailError };
 }
 
-/** POST /_agent-native/org/invitations — invite one or many users by email */
 export const createInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -821,9 +798,6 @@ export const createInvitationHandler = defineEventHandler(
 
     const body = await readBody(event);
 
-    // Bulk shape: { invites: [{ email, role }, ...] } — preferred for any
-    // multi-recipient flow (paste-many, CSV upload). Single shape:
-    // { email, role } — kept for backwards compatibility.
     const invitesInput: Array<{
       email: string;
       role?: string;
@@ -872,7 +846,6 @@ export const createInvitationHandler = defineEventHandler(
       };
     }
 
-    // Single-invite shape.
     const role = normalizeInviteRole(body?.role);
     const result = await inviteOne(
       { orgId: ctx.orgId, orgName: ctx.orgName, email: ctx.email },
@@ -886,7 +859,6 @@ export const createInvitationHandler = defineEventHandler(
   },
 );
 
-/** GET /_agent-native/org/invitations — list pending invitations for the org */
 export const listInvitationsHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -915,7 +887,6 @@ export const listInvitationsHandler = defineEventHandler(
   },
 );
 
-/** POST /_agent-native/org/invitations/:id/accept — accept an invitation */
 export const acceptInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
@@ -932,8 +903,6 @@ export const acceptInvitationHandler = defineEventHandler(
     const e = await exec();
 
     const invRes = await e.execute({
-      // Case-insensitive on email — see comment on the analogous
-      // pending-invitations query in getMyOrgHandler.
       sql: `SELECT id, org_id AS "orgId", role, invited_by AS "invitedBy", app_roles_json AS "appRolesJson" FROM org_invitations
             WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [invitationId, email.toLowerCase()],
@@ -973,18 +942,26 @@ export const acceptInvitationHandler = defineEventHandler(
       String(organization?.identity_id ?? "").trim();
 
     if (existingMembership.rows.length > 0) {
-      // Keep the invitation pending when a pre-assigned role cannot be
-      // applied. A later acceptance retry can repair the assignment.
       await applyInvitationAppRoles({
         appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
         orgId: invOrgId,
         email,
         updatedBy: String(inv.invitedBy ?? inv.invited_by),
       });
-      await e.execute({
-        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+      const updated = await e.execute({
+        sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
         args: [invitationId],
       });
+      if (Number(updated.rowsAffected ?? 0) === 1) {
+        trackInviteAccepted({
+          email,
+          orgId: invOrgId,
+          role: inv.role == null ? null : String(inv.role),
+          invitedBy: String(inv.invitedBy ?? inv.invited_by ?? ""),
+          federated: Boolean(linked),
+          event,
+        });
+      }
       await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
@@ -1015,8 +992,6 @@ export const acceptInvitationHandler = defineEventHandler(
           },
         );
       } catch (error) {
-        // A linked invitation cannot safely fall back while rollout state is
-        // unreadable, but should report a retryable authority failure.
         void error;
         throw createError({
           statusCode: 503,
@@ -1039,8 +1014,6 @@ export const acceptInvitationHandler = defineEventHandler(
           memberRole: inviteRole,
         });
       } catch (error) {
-        // The invitation remains pending so the authorized inviter can repair
-        // or retry the federation path without granting local access.
         void error;
         throw createError({
           statusCode: 503,
@@ -1050,8 +1023,6 @@ export const acceptInvitationHandler = defineEventHandler(
       }
     }
 
-    // Do not expose a local membership while the identity authority is still
-    // deciding whether this invitee belongs in the shared roster.
     await e.execute({
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
             VALUES (?, ?, ?, ?, ?)
@@ -1060,8 +1031,6 @@ export const acceptInvitationHandler = defineEventHandler(
     });
     invalidateMemberOrgCaches();
 
-    // Leave the invitation pending if a role assignment fails. The inserted
-    // membership is safe to reuse on a retry through the branch above.
     await applyInvitationAppRoles({
       appRolesJson: inv.appRolesJson ? String(inv.appRolesJson) : null,
       orgId: invOrgId,
@@ -1069,10 +1038,20 @@ export const acceptInvitationHandler = defineEventHandler(
       updatedBy: inviterEmail,
     });
 
-    await e.execute({
-      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
+    const updated = await e.execute({
+      sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ? AND status = 'pending'`,
       args: [invitationId],
     });
+    if (Number(updated.rowsAffected ?? 0) === 1) {
+      trackInviteAccepted({
+        email,
+        orgId: invOrgId,
+        role: inv.role == null ? null : String(inv.role),
+        invitedBy: inviterEmail,
+        federated: Boolean(linked),
+        event,
+      });
+    }
 
     await setActiveOrgId(email, invOrgId, "accepted invitation");
 
@@ -1080,7 +1059,6 @@ export const acceptInvitationHandler = defineEventHandler(
   },
 );
 
-/** DELETE /_agent-native/org/members/:email — remove a member (owner/admin only) */
 export const removeMemberHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1115,13 +1093,6 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
-    // memberEmail comes from the URL path verbatim; org_members may
-    // hold the row with any case. LOWER both sides for the lookup AND
-    // the DELETE so removal works regardless of how either side cased
-    // it. The self-removal guard ALSO compares case-insensitively —
-    // otherwise an owner whose email was stored as Alice@... could
-    // remove themselves via the lowercase URL alice@..., bypassing the
-    // guard and leaving the org ownerless.
     const memberEmailLower = memberEmail.toLowerCase();
     if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "owner") {
       throw createError({
@@ -1130,9 +1101,6 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
     const e = await exec();
-    // Read every matching row before issuing an authority revoke. A missing
-    // target must not turn into a remote delete, and legacy case-duplicate
-    // rows are safe only when every matching row is active and non-owner.
     const targetRows = await e.execute({
       sql: `SELECT role, federation_removal_pending_at FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?`,
@@ -1188,10 +1156,6 @@ export const removeMemberHandler = defineEventHandler(
         memberEmail,
       });
     } catch (error) {
-      // Keep the local and identity-authority rosters aligned. If the
-      // authority cannot revoke the copied membership, keep the restrictive
-      // marker so the member remains unauthorized until a later removal retry
-      // can finish the cleanup.
       void error;
       throw createError({
         statusCode: 503,
@@ -1207,8 +1171,6 @@ export const removeMemberHandler = defineEventHandler(
         actorEmail: ctx.email,
       });
     } catch (error) {
-      // The durable pending marker keeps this member out of auth lookups until
-      // the idempotent authority revocation and local delete are retried.
       void error;
       throw createError({
         statusCode: 503,
@@ -1222,14 +1184,6 @@ export const removeMemberHandler = defineEventHandler(
   },
 );
 
-/**
- * PUT /_agent-native/org/members/:email/role — change a member's role
- * (owner/admin only). Body: { role: "admin" | "member" }.
- *
- * Only owners can promote/demote admins. (Admins can manage members but
- * not other admins — otherwise an admin could escalate themselves to
- * owner-equivalent control by promoting a confederate.)
- */
 export const changeMemberRoleHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1254,8 +1208,6 @@ export const changeMemberRoleHandler = defineEventHandler(
 
     const e = await exec();
 
-    // Look up the target member's current role to enforce sensible rules
-    // about what changes are allowed.
     const current = await e.execute({
       sql: `SELECT role FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?
@@ -1275,9 +1227,6 @@ export const changeMemberRoleHandler = defineEventHandler(
       });
     }
 
-    // Admins are scoped to managing members. If they could promote
-    // members to admin, they could grant near-owner powers without owner
-    // approval. Restrict admin/admin role transitions to the owner.
     if (ctx.role === "admin" && (currentRole === "admin" || role === "admin")) {
       throw createError({
         statusCode: 403,
@@ -1285,9 +1234,6 @@ export const changeMemberRoleHandler = defineEventHandler(
       });
     }
 
-    // Self-demotion guard: prevent the only admin from removing their own
-    // ability to manage things, and prevent the owner-self edge case
-    // (already filtered above by the currentRole check).
     if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "admin") {
       throw createError({
         statusCode: 400,
@@ -1322,7 +1268,6 @@ export const changeMemberRoleHandler = defineEventHandler(
   },
 );
 
-/** PATCH /_agent-native/org — rename the current organization (owner/admin only) */
 export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) {
@@ -1349,14 +1294,11 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
-  // `orgName` is joined into the cached membership rows, so a rename that skips
-  // this leaves every member's org context showing the old name for the TTL.
   invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
 });
 
-/** PUT /_agent-native/org/visual-identity — set or clear the workspace icon. */
 export const setOrgVisualIdentityHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1459,16 +1401,6 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
   },
 );
 
-/**
- * DELETE /_agent-native/org — permanently delete the current organization
- * (owner only). Body: { name: string } must match the org's current name
- * (trim + case-insensitive) as a confirmation guard against misclicks.
- *
- * Deletes org_invitations, org-scoped settings, org_members, and the
- * organizations row, then repoints the caller's active-org-id to another
- * membership of theirs (or null for Personal) so they aren't left pointing
- * at a deleted org.
- */
 export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) {
@@ -1575,7 +1507,6 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
   return { success: true, orgId: ctx.orgId, nextOrgId };
 });
 
-/** PUT /_agent-native/org/switch — switch the user's active organization */
 export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSessionForEvent(event);
   const email = requireAuthEmail(session);
@@ -1616,7 +1547,6 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   };
 });
 
-/** POST /_agent-native/org/join-by-domain — join an org whose allowed_domain matches your email */
 export const joinByDomainHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
@@ -1659,8 +1589,6 @@ export const joinByDomainHandler = defineEventHandler(
           message: "Organization has an invalid identity mapping",
         });
       }
-      // A linked org's roster is owned by its identity authority. Domain
-      // matching remains local-only for unlinked organizations.
       throw createError({
         statusCode: 409,
         message:
@@ -1695,7 +1623,6 @@ export const joinByDomainHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/domain — set or clear the allowed email domain (owner/admin only) */
 export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) {
@@ -1719,10 +1646,6 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   if (raw) {
-    // Auto-join is "anyone with this domain joins automatically". That is
-    // safe for company domains (the company controls who gets an address)
-    // and catastrophic for shared mailbox providers — anyone in the world
-    // could create a matching mailbox and silently join the org.
     if (isFreeEmailProvider(raw)) {
       throw createError({
         statusCode: 400,
@@ -1731,11 +1654,6 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
       });
     }
 
-    // Restrict to the admin's own email domain. Without this, an admin
-    // could set `allowed_domain` to a domain they don't control, and
-    // anyone signing up under that domain would join the org. Even with
-    // the free-provider blocklist above, that would still let an admin
-    // hijack a competitor's domain.
     const ownDomain = ctx.email.split("@")[1]?.toLowerCase() ?? "";
     if (raw !== ownDomain) {
       throw createError({
@@ -1764,28 +1682,12 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
-  // A domain that previously matched nothing now matches this org. Without this
-  // the negative cache keeps every account at that domain out of it for the
-  // rest of the TTL, right after an owner deliberately turned domain-join on.
   invalidateDomainMatchCache();
-  // `allowedDomain` is joined into the cached membership rows too, and existing
-  // members read it to decide whether a domain auto-join is still needed.
   invalidateMemberOrgCaches();
 
   return { domain: raw };
 });
 
-/**
- * PUT /_agent-native/org/workspace-url — set or clear the org's own workspace
- * origin (owner/admin only).
- *
- * Members who reach a shared hosted app from the template catalog land in a
- * different deployment than their team's workspace, with the same org name in
- * the switcher, and read the empty app as broken rather than as somewhere
- * else. Setting this points them home from wherever they land.
- *
- * Body: { url: string | null } — a full URL or bare host; stored as an origin.
- */
 export const setWorkspaceUrlHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1821,7 +1723,6 @@ export const setWorkspaceUrlHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/auth-provider — require an approved sign-in provider (owner/admin only) */
 export const setRequiredAuthProviderHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1852,11 +1753,6 @@ export const setRequiredAuthProviderHandler = defineEventHandler(
   },
 );
 
-/**
- * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
- * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
- * to the browser when an operator explicitly asks to see or copy it.
- */
 export const revealA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1885,7 +1781,6 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
-/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
@@ -1905,15 +1800,12 @@ export const setA2ASecretHandler = defineEventHandler(
     const body = await readBody(event);
     let secret = body?.secret?.trim() || null;
 
-    // If no secret provided, auto-generate one
     if (!secret) {
       const { randomBytes } = await import("node:crypto");
       secret = randomBytes(32).toString("base64url");
     }
 
     const e = await exec();
-    // Read the previous secret BEFORE overwriting so the client can chain a
-    // sync call that signs JWTs with the secret peers still hold.
     const prevRes = await e.execute({
       sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
       args: [ctx.orgId],
@@ -2086,18 +1978,6 @@ export const syncA2ASecretHandler = defineEventHandler(
   },
 );
 
-/**
- * POST /_agent-native/org/a2a-secret/receive — accept a secret push from a
- * connected agent-native app. Auth-exempt at the route guard; we verify a
- * JWT signed by the calling app using OUR copy of the org's a2a_secret. If
- * verification succeeds the calling app is a trusted peer and we overwrite
- * our local org's secret with the supplied value.
- *
- * Body: { secret: string, orgDomain: string }
- *
- * Header: Authorization: Bearer <JWT signed with the existing shared
- * a2a_secret, with `org_domain` matching the body's orgDomain>.
- */
 export const receiveA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const { getRequestHeader } = await import("h3");
@@ -2126,8 +2006,6 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
-    // Peek at JWT (unverified) to confirm it claims the same domain we're
-    // updating. Verification still happens below with the trusted secret.
     let claimedDomain: string | undefined;
     try {
       const unverified = jose.decodeJwt(token);
@@ -2149,7 +2027,6 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
-    // Look up our local org by the domain and grab the existing secret.
     const e = await exec();
     const orgRes = await e.execute({
       sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
@@ -2175,8 +2052,6 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
-    // Verify the JWT using OUR existing secret. If the caller is a trusted
-    // peer they signed with the same secret and verification succeeds.
     try {
       await jose.jwtVerify(token, new TextEncoder().encode(existingSecret));
     } catch {
@@ -2186,7 +2061,6 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
-    // Trusted — apply the new secret.
     await e.execute({
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [newSecret, localOrgId],

@@ -154,6 +154,8 @@ export default {
     untitledAnalysis: "Análisis sin título",
   },
   settings: {
+    agentObservability: "Observabilidad del agente",
+    reviewPreviewUnavailable: "Vista previa no disponible",
     agentTitle: "Gestionar agente",
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",

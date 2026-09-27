@@ -32,13 +32,8 @@ export interface McpConnectionSuggestionProps {
   text: string;
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
-  /**
-   * Required when rendering an agent-authored connection request beside the
-   * composer. User-authored composer text must never promote integrations.
-   */
   requestedByAgent?: boolean;
   integrations?: DefaultMcpIntegration[];
-  /** Trusted catalog identifier used by structured AgentKit requests. */
   integrationId?: string;
   onConnected?: () => void | Promise<void>;
   onDismiss?: () => void | Promise<void>;
@@ -117,9 +112,6 @@ export function findMcpConnectionSuggestionIntegration({
     }
   }
 
-  // A completed response may itself be the agent's request for setup. Prefer
-  // that provider, then fall back to the user's preceding provider mention for
-  // responses such as "I can't access it yet - please connect it.".
   if (
     isMcpConnectionSuggestionText(responseText) ||
     isMcpConnectionFailureText(responseText)
@@ -172,8 +164,6 @@ export function McpConnectionSuggestion({
   onOAuthStart,
 }: McpConnectionSuggestionProps) {
   const t = useT();
-  // Lives in the agent rail: mounted during startup but not visible until the
-  // user scrolls to a suggestion, so it waits out the paint window.
   const mcpServersQuery = useMcpServers({ defer: true });
   const createMcpServer = useCreateMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);

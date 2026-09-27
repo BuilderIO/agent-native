@@ -9,15 +9,8 @@ import {
 } from "./design-editor/code-layer-state";
 import { resolveElementNudgeIntent } from "./design-editor/nudge-intent";
 
-/**
- * Running-app screens (fusion / localhost) store their ROUTE URL in
- * `design_files.content`, not markup. These cover the two DesignEditor call
- * sites that used to read that string as if it were a document: keyboard nudge
- * intent, and canvas-to-Layers-panel selection sync.
- */
 const ROUTE_URL = "https://design.example.com/builder-preview/design-1/about";
 
-/** The live DOM the proxied container rendered; ids minted by the bridge. */
 const RUNTIME_HTML = `<main><section data-agent-native-node-id="runtime-hero">Hero</section></main>`;
 
 const selectedElement = {
@@ -39,7 +32,6 @@ function nodeIdOf(
 }
 
 describe("resolveSelectedCodeLayerNode on a running-app screen", () => {
-  // The stored "source" for such a screen is the URL, so its projection is empty.
   const sourceProjection = buildCodeLayerProjection(ROUTE_URL);
   const runtimeProjection = buildCodeLayerProjection(RUNTIME_HTML);
 
@@ -51,8 +43,6 @@ describe("resolveSelectedCodeLayerNode on a running-app screen", () => {
   });
 
   it("resolves selection against the projection the Layers panel renders", () => {
-    // A non-null id is what makes the panel highlight and auto-expand the row.
-    // This was null before the fix, so the layer had to be found by hand.
     expect(
       nodeIdOf(
         resolveSelectedCodeLayerNode({
@@ -137,8 +127,6 @@ describe("nudgeBaseContentForScreen", () => {
   });
 
   it("yields empty content before any snapshot arrives, never the URL", () => {
-    // Empty makes resolveElementNudgeIntent return a plain translate rather
-    // than projecting a URL and silently mis-resolving the flow.
     expect(
       nudgeBaseContentForScreen({
         isRunningApp: true,
@@ -161,12 +149,6 @@ describe("nudgeBaseContentForScreen", () => {
   });
 });
 
-/**
- * The reorder half of the nudge fix. `resolveElementNudgeIntent` reports the
- * anchor as a PROJECTION node id, but the live pending-edit pipeline addresses
- * the running document by SELECTOR, so the two have to be bridged or the queued
- * edit anchors against nothing.
- */
 describe("liveNudgeReorderHandoff", () => {
   const ROW = `<section data-agent-native-node-id="row" style="display:flex">
     <div data-agent-native-node-id="alpha">Alpha</div>
@@ -198,8 +180,6 @@ describe("liveNudgeReorderHandoff", () => {
       placement: intent.placement,
     });
 
-    // The anchor must be addressable in the LIVE document; a projection id
-    // never reaches it.
     expect(handoff).not.toBeNull();
     expect(handoff!.anchorSelector).toContain("beta");
     expect(handoff!.anchorSourceId).toBe("beta");
@@ -229,8 +209,6 @@ describe("liveNudgeReorderHandoff", () => {
   });
 
   it("returns null for an anchor that is not in the document", () => {
-    // Caller drops the keypress rather than queueing an edit anchored to
-    // nothing, which would corrupt the pending-edit batch.
     expect(
       liveNudgeReorderHandoff({
         content: ROW,
@@ -251,8 +229,6 @@ describe("liveNudgeReorderHandoff", () => {
   });
 
   it("omits anchorSourceId when the anchor carries no bridge id", () => {
-    // Projection ids are derived from path/offset when a node has no stable
-    // data-agent-native-node-id, so the selector is the only usable address.
     const plain = `<section><div>Alpha</div><div class="beta-row">Beta</div></section>`;
     const projection = buildCodeLayerProjection(plain);
     const anchor = projection.nodes.find((node) =>

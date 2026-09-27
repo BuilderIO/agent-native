@@ -52,31 +52,15 @@ export interface OrgSwitcherUtilityLink {
 
 export interface OrgSwitcherProps {
   className?: string;
-  /** Hide entirely when the user only belongs to one org. Default: false. */
   hideWhenSingle?: boolean;
-  /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
-  /**
-   * Icon-only trigger for collapsed sidebar rails. The popover — and with it
-   * the org list, pending invitations and "Join your team" — is identical;
-   * dropping the switcher instead leaves a collapsed rail with no way to
-   * reach another workspace.
-   */
   compact?: boolean;
-  /**
-   * Path to navigate to when the user clicks "Organization settings".
-   * Defaults to the Organization tab inside Settings. Templates with an
-   * established org surface can pass their own path; pass `null` to only open
-   * the in-sidebar settings panel.
-   */
   settingsPath?: string | null;
-  /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
   profilePath?: string | null;
   /** @deprecated Manage agent is available in Settings and is not shown here. */
   agentPath?: string | null;
   /** @deprecated The switcher no longer renders an app list. */
   currentAppId?: string;
-  /** App-owned, low-frequency utilities rendered before sign out. */
   utilityLinks?: readonly OrgSwitcherUtilityLink[];
 }
 
@@ -121,27 +105,33 @@ function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
   return <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />;
 }
 
-function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
+function OrgSwitcherLoadingPlaceholder({
+  className,
+  compact,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   return (
     <button
       type="button"
       disabled
       aria-label="Loading organization"
-      className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
+      className={`${compact ? COMPACT_SWITCHER_BUTTON_CLASS : SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
-      <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
-      <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+      {compact ? (
+        <span className="size-3.5 rounded-sm bg-muted-foreground/20" />
+      ) : (
+        <>
+          <IconBriefcase className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
+          <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
+        </>
+      )}
     </button>
   );
 }
 
-/**
- * Compact org switcher button. Shows the active org (or "Personal" when the
- * user has none); opens a popover with the user's other orgs, pending
- * invitations, inline forms to create a new org / invite a teammate, and a
- * sign-out item. Renders nothing in dev / no-auth mode.
- */
 export function OrgSwitcher({
   className,
   hideWhenSingle,
@@ -184,8 +174,8 @@ export function OrgSwitcher({
   };
 
   if (!org) {
-    return reserveSpace && isLoading ? (
-      <OrgSwitcherLoadingPlaceholder className={className} />
+    return isLoading ? (
+      <OrgSwitcherLoadingPlaceholder className={className} compact={compact} />
     ) : null;
   }
 
@@ -229,9 +219,6 @@ export function OrgSwitcher({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       {compact ? (
-        // The popover trigger has to sit directly on the button: both Radix
-        // slots merge their props into the same DOM node, and a provider
-        // between them would swallow the click that opens the switcher.
         <TooltipProvider delayDuration={0}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -289,7 +276,6 @@ export function OrgSwitcher({
           collisionPadding={12}
           className={`${POPOVER_CONTENT_CLASS} w-64 max-w-[calc(100vw-1.5rem)]`}
           onOpenAutoFocus={(e) => {
-            // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
           }}
         >
@@ -526,9 +512,6 @@ export function OrgSwitcher({
               <button
                 type="button"
                 onClick={() => {
-                  // Clear any leftover input from a prior session — otherwise
-                  // the create form re-opens prefilled with the just-created
-                  // org's name and looks like a create dialog for the new org.
                   setNewName("");
                   setMode("create");
                 }}

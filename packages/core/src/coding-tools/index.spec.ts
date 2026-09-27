@@ -252,7 +252,6 @@ describe("shared coding tools", () => {
     expect(isReadOnlyShellCommand("rg button; node -e '1'")).toBe(false);
     expect(isReadOnlyShellCommand("rg button | tee out.txt")).toBe(false);
     expect(isReadOnlyShellCommand("rg $(node -e '1')")).toBe(false);
-    // sed: prints are read-only; w/W/-i can write and must be rejected.
     expect(isReadOnlyShellCommand("sed -n '1,10p' README.md")).toBe(true);
     expect(isReadOnlyShellCommand("sed -n '/window/p' README.md")).toBe(true);
     expect(isReadOnlyShellCommand("sed -n '1w notes.txt' README.md")).toBe(
@@ -433,7 +432,6 @@ describe("bash background execution", () => {
     const logMatch = result.match(/log:\s*(\S+)/);
     expect(logMatch).not.toBeNull();
     const logFile = logMatch![1];
-    // Give the process a moment to write its output.
     await new Promise((resolve) => setTimeout(resolve, 200));
     const content = await registry.read.run({
       path: path.relative(cwd, logFile),
@@ -458,9 +456,6 @@ describe("bash background execution", () => {
     expect(result).toBe("Error: blocked by policy");
   });
 
-  // `close` waits on every inherited pipe, so a surviving grandchild kept this
-  // promise pending forever — past the timeout too, whose SIGTERM went to an
-  // `sh -c` wrapper that had already exited.
   it("settles when a backgrounded grandchild keeps the output pipe open", async () => {
     const started = Date.now();
     const result = await runCodingCommand(
@@ -514,17 +509,12 @@ describe("bash background execution", () => {
     ]) {
       expect(canonicalizeShellCommand(command).unanalyzable).toBe(true);
     }
-    // Single quotes make these literal, so there is nothing hidden.
     expect(canonicalizeShellCommand("rg '$(foo)' src").unanalyzable).toBe(
       false,
     );
     expect(canonicalizeShellCommand("rg '`foo`' src").unanalyzable).toBe(false);
   });
 
-  // The exit-grace path can settle before the 1s SIGKILL escalation fires. If
-  // settling cancelled that escalation, a descendant that ignored SIGTERM would
-  // outlive the call untouched — here the parent shell dies on SIGTERM, so the
-  // call returns while the TERM-immune grandchild is still holding the pipe.
   it("still SIGKILLs a TERM-ignoring descendant after the call returns", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-sigkill-"));
     tmpRoots.push(root);
@@ -538,9 +528,6 @@ describe("bash background execution", () => {
       }
     };
 
-    // A real SIGTERM-immune process. A `trap '' TERM` shell is not enough: the
-    // group SIGTERM still reaches the `sleep` it is waiting on, so the shell
-    // exits anyway and the test passes with or without the escalation.
     const immune = [
       "process.on('SIGTERM', () => {});",
       `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
@@ -552,7 +539,6 @@ describe("bash background execution", () => {
       1_000,
     );
 
-    // The grandchild wrote its pid before trapping; it ignored our SIGTERM.
     const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
     expect(Number.isInteger(pid)).toBe(true);
 
@@ -564,7 +550,6 @@ describe("bash background execution", () => {
   }, 25_000);
 
   it("default timeout is 120000 ms", () => {
-    // Verify the exported default via tool description which mentions 120000.
     const registry = createCodingToolRegistry({});
     const bashTool = registry.bash.tool;
     const timeoutParam = (

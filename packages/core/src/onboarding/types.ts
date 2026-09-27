@@ -1,15 +1,5 @@
-/**
- * Framework-level onboarding types.
- *
- * The onboarding system exposes a registry of "setup steps" that the agent
- * sidebar renders as a checklist. Each step declares one or more `methods`
- * by which the user can complete it (paste an API key, connect Builder, ask
- * the agent to do it, etc.).
- */
-
 export type OnboardingMethodBadge = "recommended" | "beta" | "free" | "soon";
 
-/** Fields for a form-style onboarding method (key/value secret entry). */
 export interface OnboardingFormField {
   key: string;
   label: string;
@@ -22,11 +12,8 @@ export interface OnboardingMethodBase {
   label: string;
   description?: string;
   badge?: OnboardingMethodBadge;
-  /** Highlight as the primary CTA for this step. */
   primary?: boolean;
-  /** Render this method as visible but unavailable. */
   disabled?: boolean;
-  /** Button text when disabled. Defaults to "Coming soon". */
   disabledLabel?: string;
 }
 
@@ -40,11 +27,6 @@ export type OnboardingMethod =
       payload: {
         fields: OnboardingFormField[];
         writeScope?: "user" | "workspace" | "app";
-        /**
-         * Defaults to the compatibility env-vars route, which accepts
-         * framework/template-declared keys and stores them as scoped secrets.
-         * Use "scoped-secrets" for template-specific ad-hoc keys.
-         */
         saveTo?: "env-vars" | "scoped-secrets";
         secretDescription?: string;
       };
@@ -52,8 +34,6 @@ export type OnboardingMethod =
   | (OnboardingMethodBase & {
       kind: "builder-cli-auth";
       payload: {
-        // "llm" (managed gateway), "browser" (browser automation), and
-        // "image-generation" are live; "google" may land later.
         scope: "llm" | "browser" | "image-generation";
       };
     })
@@ -63,20 +43,15 @@ export type OnboardingMethod =
     });
 
 export interface OnboardingStep {
-  /** Stable ID (e.g. "llm", "gmail"). */
   id: string;
   title: string;
   description: string;
-  /** Lower = earlier. Default order slots: 10 (engine), 20 (db), 30 (auth). */
   order: number;
-  /** Required steps block onboarding dismissal when incomplete. */
   required?: boolean;
   methods: OnboardingMethod[];
-  /** Hide the step when its backing capability is not configured. */
   isAvailable?: (
     context?: OnboardingResolveContext,
   ) => boolean | Promise<boolean>;
-  /** Resolver — called on every `GET /_agent-native/onboarding/steps` request. */
   isComplete: (
     context?: OnboardingResolveContext,
   ) => boolean | Promise<boolean>;
@@ -88,7 +63,6 @@ export interface OnboardingResolveContext {
   orgId?: string | null;
 }
 
-/** Serialized shape returned by `GET /_agent-native/onboarding/steps`. */
 export interface OnboardingStepStatus {
   id: string;
   title: string;
@@ -100,21 +74,13 @@ export interface OnboardingStepStatus {
 }
 
 export interface OnboardingCapability {
-  /** Stable capability id used by the profile and analytics. */
   id: string;
-  /** Short label shown in the setup choice and BYOK list. */
   label: string;
-  /** Whether this capability blocks the app's normal setup. */
   required: boolean;
-  /** Show this optional capability as a recommended BYOK setup. */
   suggested?: boolean;
-  /** Whether Builder's managed connection covers this capability. */
   builderIncluded: boolean;
-  /** Compact description of the key or connection the BYOK path needs. */
   keySummary: string;
-  /** Hover/focus explanation for why the capability exists. */
   why: string;
-  /** Optional localized display keys for the client onboarding catalog. */
   labelKey?: string;
   keySummaryKey?: string;
   whyKey?: string;
@@ -126,7 +92,6 @@ export interface OnboardingAppProfile {
   capabilities: OnboardingCapability[];
 }
 
-/** Composed shape returned by `GET /_agent-native/onboarding/summary`. */
 export interface OnboardingSummary {
   steps: OnboardingStepStatus[];
   dismissed: boolean;

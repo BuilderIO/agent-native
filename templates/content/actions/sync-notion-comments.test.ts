@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory documentComments rows, keyed loosely like the real table.
 type Row = {
   id: string;
   ownerEmail: string;
@@ -153,7 +152,6 @@ describe("sync-notion-comments", () => {
     expect(notionActionUtilsMocks.getNotionDocumentOwner).toHaveBeenCalledWith(
       "doc-1",
     );
-    // getSyncLink must be scoped by the resolved document owner.
     expect(notionSyncMocks.getSyncLink).toHaveBeenCalledWith(
       "doc-1",
       "owner-a@example.com",
@@ -161,7 +159,6 @@ describe("sync-notion-comments", () => {
   });
 
   it("scopes pull-dedup by documentId so a second document linked to the same Notion page still receives comments (n36)", async () => {
-    // Simulate doc-x already synced against the same Notion page/comment.
     state.rows.push({
       id: "c-existing",
       ownerEmail: "owner-a@example.com",
@@ -250,8 +247,6 @@ describe("sync-notion-comments", () => {
     expect(root!.parentId).toBeNull();
     expect(root!.notionDiscussionId).toBe("nc-root");
     expect(reply).toBeDefined();
-    // The reply must attach to the root's thread, not become an unrelated
-    // top-level comment.
     expect(reply!.parentId).toBe(root!.id);
     expect(reply!.threadId).toBe(root!.threadId);
   });
@@ -284,8 +279,6 @@ describe("sync-notion-comments", () => {
   });
 
   it("pushes a reply using discussion_id so it threads under the existing Notion discussion (n-D)", async () => {
-    // Local thread: a root already synced to Notion (and carrying the
-    // resulting discussion_id), plus an unsynced local reply to it.
     state.rows.push({
       id: "local-root",
       ownerEmail: "owner-a@example.com",
@@ -414,7 +407,6 @@ describe("sync-notion-comments", () => {
     expect(first).toEqual({ pulled: 2, pushed: 0 });
     expect(state.rows).toHaveLength(2);
 
-    // Re-sync with the exact same Notion comments — nothing new should land.
     const second = await run("doc-1");
     expect(second).toEqual({ pulled: 0, pushed: 0 });
     expect(state.rows).toHaveLength(2);

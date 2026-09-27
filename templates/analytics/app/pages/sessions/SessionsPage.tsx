@@ -117,6 +117,15 @@ const SESSION_QUERY_DEBOUNCE_MS = 250;
  * transition, so without this guard the echo of our own write can land
  * after a newer keystroke and clobber it.
  */
+export function shouldShowZeroMinuteRecoveryAction(
+  includeZeroMinuteSessions: boolean,
+  filteredCount: number,
+  unfilteredCount: number,
+): boolean {
+  return (
+    !includeZeroMinuteSessions && filteredCount === 0 && unfilteredCount > 0
+  );
+}
 export function useDebouncedUrlFilter(
   urlValue: string,
   onCommit: (value: string) => void,

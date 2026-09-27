@@ -1142,6 +1142,14 @@ const history = {
 };
 
 const overrides = {
+  close: "閉じる",
+  setup: { checkingProvider: "AI 接続を確認しています…" },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+      statusUnavailable: "ファイルストレージの状態を確認できません。",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,

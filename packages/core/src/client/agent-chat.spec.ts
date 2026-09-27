@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -168,6 +167,18 @@ describe("sendToAgentChat", () => {
       data: payload,
     } as MessageEvent);
     expect(parsed?.usageLabel).toBe("crm:enrich");
+  });
+
+  it("carries an explicit existing chat target through the bridge", () => {
+    sendToAgentChat({
+      message: "Continue the original run",
+      targetTabId: "generation-tab",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(payload.data.targetTabId).toBe("generation-tab");
+    expect(parsed?.targetTabId).toBe("generation-tab");
   });
 
   it("carries a bounded action scope through the postMessage payload", () => {
@@ -488,8 +499,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // builder.submitChat has no field for the keys and Builder holds none of
-    // this app's grants; the paused run belongs to the embedded AgentSidebar.
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
 
@@ -740,9 +749,6 @@ describe("sendToAgentChat", () => {
         approvedToolCalls: ["publish-release:{}"],
       });
 
-      // Neither host transport can carry the keys: the direct follow-up API
-      // takes text only, and the wrapper's sendHostChat forwards only the
-      // message. The paused run lives in this app's own chat.
       expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
       expect(parentPostMessageSpy).not.toHaveBeenCalled();
       expect(sendToBuilderChatMock).not.toHaveBeenCalled();
@@ -872,8 +878,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // A direct embed's chat is this app's own chat, which owns the paused
-    // run; the parent is the MCP host, which has no field for the keys.
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();
@@ -927,6 +931,26 @@ describe("sendToAgentChat", () => {
     const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
     expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
     reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("confirms a local submit with a caller-provided correlation id", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "continue the existing run",
+        submit: true,
+        chatTarget: "local",
+      },
+      { submitMessageId: "continuation-submit" },
+    );
+
+    vi.advanceTimersByTime(0);
+    expect(
+      selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data?.submitMessageId,
+    ).toBe("continuation-submit");
+    reportAgentChatSubmitResult("continuation-submit", true);
 
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
   });

@@ -103,6 +103,84 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## 提示詞首頁與範本庫 {#prompt-home}
+
+`PromptHome`、`PromptHomeLibrary`、`TemplateLibraryGrid` 和 `TemplateLibraryCard` 從 `@agent-native/toolkit/app-shell` 匯出。它們共用首頁間距、置中的 700px 編輯器和響應式四欄範本庫。main 地標由應用程式外殼保留。應用程式提供真實資料、在地化標籤、預覽、操作和路由。
+
+`PromptHome` 接收 `title`、`composer`、選用的 `mobileToolbar`、`connection`、`quickActions` 和作為範本庫的 `children`。`PromptHomeLibrary` 接收受控的 `value`（`templates` 或 `recent`）、`onValueChange`、`labels`、`showRecent`、`templates`，以及選用的 `recent`、`browseAll`、`recentActions`。沒有最近項目時直接顯示範本，不建立虛假分頁。`browseAll` 是應用程式提供的真實連結。語意元件的 `Tabs.headerActions` 插槽會將目前操作放在分頁旁。
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` 接收具有 `id`、`title`、選用的已儲存 `description` 和 `disabled` 的具型別 `items`，以及 `renderPreview`。它支援 `selectedId`、`pendingId`、`disabled`、`loading`、`error`、`onRetry`、選用的 `empty`，以及載入、空狀態和重試所需的 `labels`。只能選擇 `onSelect(item, element)` 或 `renderLink(item, children)` 其中之一。圖片和標題共用一個啟用目標。`renderActions` 位於啟用目標外部，與標題和選用描述同行排列。卡片採用統一的預覽和說明區域尺寸；直接啟用會使用或複製範本，預覽僅從說明區域的選單開啟。重新整理失敗後仍保留已載入項目。`TemplateLibraryCard` 為單一 `item` 提供相同行為，接收 `preview` 及選用的 `actions`、`selected`、`pending`、`disabled`。
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+從同一進入點匯出的 `TemplatePreviewDialog` 使用語意化 `Dialog`，預設為 `size="viewport"`，也可選擇 `size="large"`。它接收受控的 `open`、`onOpenChange`、`title` 以及應用程式繪製的 `children`；標題列不包含使用操作。選用的 `thumbnails` 包含 `{ id, title, preview, disabled? }`，並要求提供 `selectedId` 和 `onSelectedIdChange`。縮圖列在窄螢幕上橫向排列，支援方向鍵、Home 和 End。
+
+`viewport` 是保留邊距的置中模態視窗：高度為 90dvh，最大寬度為 96rem，行動裝置側邊距為 1rem，較寬螢幕為 1.5rem。它保留標準對話框的邊框、圓角、陰影和遮罩。在支援懸停的裝置上，卡片懸停或取得鍵盤焦點時顯示說明區域選單；觸控裝置上始終顯示，預留空間不會改變。
+
+傳入本地化的 `labels`（`close`、`loading`、`empty`、`retry`、`thumbnails`），以及選用的 `loading`、`error`、`empty` 和 `onRetry`，以顯示互斥的就緒狀態。`initialFocusRef` 和 `restoreFocusRef` 控制焦點。說明區域選單的關閉交接完成後再開啟檢視器；讀取、取消、授權和安全的隔離繪製仍由應用程式負責。
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit 樣式包含共用版面尺寸。`@agent-native/toolkit/app-shell/prompt-home.css` 是專用樣式表匯出。現有的 `toolkit/app-shell` 退出單元包含版面配置與樣式表。資料載入、授權、匯入流程和編輯器狀態仍由應用程式負責。
+
 ## 代理並聊天 UI {#agent-chat-ui}
 
 | API                                  | 匯入路徑                                      | 何時使用                                                    |
@@ -200,6 +278,147 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 僅當您已經連線 Assistant-ui 原語時才使用 `TiptapComposer`
 你自己。這是欄位，而不是整個聊天執行時。
+
+### 暫存的輸入框上下文 {#composer-context}
+
+`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 僅阻止提交，仍允許編輯草稿、新增檔案及準備上下文。未設定供應商不會阻止準備工作。`disabled` 仍會停用整個輸入框。
+
+`PromptComposer`、`TiptapComposer` 和 `AgentKitComposer` 接受 `contextItems` 與 `contextMenuItems`。應用程式負責讀取來源及提供在地化選單標籤。
+
+每個 `AgentChatContextItem` 包含 `key`、`title` 和 `context`。選用的 `status` 為 `ready`、`pending` 或 `error`。`statusMessage` 說明失敗原因。`onRemoveContextItem`、`onInspectContextItem` 和 `onRetryContextItem` 接收項目鍵。`removable: false` 隱藏移除操作。等待中或失敗的項目會阻止提交，除非以 `blocksSubmission: false` 明確設為僅供參考。
+
+宿主可暫存已獲存取授權的上下文，並在提交時接收不可變快照：
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+內容脈絡來源透過 `ComposerContextMenuItem` 的 `picker` 註冊。`ComposerContextMenu` 管理相互連接的 shadcn/Radix 級聯子選單，而非替換目前面板：根選單先提供檔案上傳，再提供新增內容脈絡 → 宿主分類 → 來源選擇器。沒有宿主項目時，不顯示新增內容脈絡。方向鍵和 Escape 用於瀏覽選單階層。連結選擇器中的返回操作只會在同一個子選單內從結果返回連結輸入。共用選擇器負責搜尋、清單列、載入、空白與錯誤狀態、重試、分頁及連結輸入。應用程式提供已授權資料和選取回呼，而不是自行繪製選擇器 JSX。
+
+選擇器設定支援：
+
+- `searchPlaceholder` 與選用的 `emptyMessage` 使用應用程式的本地化文案。`selectedIds` 標記已選列。項目包含 `id`、`title`，以及選用的 `disabled` 和 `url`。
+- 使用本機 `items` 及選用的 `loading`、`error`、`onRetry()`，或使用遠端 `load(request)`。兩種模式不能混用。
+- `load(request)` 接收 `search`、從一開始的 `page`、選用的 `cursor` 和 `url`，以及 `AbortSignal`。傳回 `{ items, hasMore?, nextCursor? }`。失敗時必須拒絕 Promise，不能傳回空結果。
+- `onSelect(item, request)` 暫存來源，可非同步執行。傳回 `false` 會保持選擇器開啟。擲出錯誤會顯示錯誤和重試操作。選用的 `clearSelection` 提供本地化 `label` 和 `onSelect()` 回呼。
+- 選用的 `link` 提供本地化 `placeholder` 和 `submitLabel`。`validate(url)` 可傳回錯誤文字。共用表單負責連結輸入和導覽。
+- `scopeKey` 在身分或存取範圍變更時重設選擇器的全部狀態。`refreshKey` 在來源或版本權杖變更時使目前查詢失效，但不重設 URL。搜尋變更會回到第一頁。代理程式寫入造成來源資料變更時，應用程式傳入更新的權杖。
+
+應用程式可以註冊已獲授權的選項。此處 `labels` 包含本地化文案，`stageReference` 更新宿主暫存的內容脈絡：
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+對於可搜尋或透過連結存取的來源，應用程式提供經過身分驗證的載入器。`loadAuthorizedReferences` 實作上述請求與結果契約，保留存取檢查，並將中止訊號傳給用戶端輔助函式：
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` 預設為 `"submenu"`。設定 `{ type: "dialog", mode: "multiple", onAttach }` 後，一般選單項目會開啟共用對話框，並以項目標籤為標題。`link.label` 是網址輸入欄的標籤。「繼續」會先驗證不含憑證的 HTTP(S) 網址，再載入結果。空白或無效輸入不會呼叫供應商。`link.validate()` 可套用供應商專屬規則。對話框按鈕使用共用的在地化標籤，而非 `link.submitLabel`。
+
+`presentation.onAttach(items, request)` 一次接收一批已凍結的新勾選項目。此模式不允許 `onSelect`。搜尋和換頁時保留選擇。`selectedIds` 對應項目顯示為已勾選且停用，不會加入批次。ID 必須區分不同的來源檔案。傳回 `false` 會保持對話框開啟。拒絕時顯示可重試的錯誤。取消或變更 `scopeKey` 會中止待處理工作，並忽略延遲回傳的結果。重新開啟時會重設網址。非同步回呼提交變更前，主應用程式必須檢查 `request.signal`。`footerAction` 和 `clearSelection` 仍僅用於子選單。
+
+`{ type: "dialog", mode: "url" }` 直接執行附加，不載入結果清單。`onSelect(item, request)` 接收 `{ id: url, title: url, url }` 和 `request.url`：
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` 的 `readComposerWebsiteSource(url, extractCallback)` 使用主應用程式現有、防護 SSRF 的擷取器建立網站參照。`@agent-native/core/shared` 的 `composerSourceRequestSchema` 僅在 `operation: "read"` 且 `url` 是不含憑證、長度不超過 2,048 個字元的 HTTP(S) 網址時接受 `source: "website"`。輔助函式傳回 `{ id, title, url, context }`，其中 ID 是穩定的網址雜湊，context 最多為 20,000 個字元。擷取狀態、警告、轉譯來源及任何 `[truncated]` 標記都保留在上下文文字中。部分擷取結果會明確標示。擷取失敗或缺少可用的 `designMd` 會擲出具型別的失敗。授權仍由主應用程式的[動作](/docs/actions-overview)負責。
+
+選擇器項目不能同時定義 `render` 或項目層級的 `onSelect`。分類使用 `children`。根選單與每個分類都保留頂部搜尋欄。分類可提供本地化的 `searchPlaceholder`；未提供時使用共用的內容脈絡搜尋預留文字。來源清單的搜尋欄使用 `picker.searchPlaceholder`。註冊不授予來源存取權限。共用選擇器會忽略已被新請求取代的載入回應。
+
+選用的 `footerAction` 始終保留在結果下方，包括載入中、錯誤或清單為空時。它接受本地化的 `label`、選用的 `icon` 和 `disabled`，以及 `onSelect()` 或 `renderLink(children)` 其中之一。強制回應視窗等有狀態流程使用回呼：`false` 保持選單開啟，`true` 或 `void` 關閉選單，Promise 拒絕時顯示錯誤和重試操作。單純導覽應由 `renderLink` 傳回真正的 React Router `Link` 或 HTML 連結；共用選單透過 `asChild` 提供選單列，保留其 `href` 和瀏覽器原生導覽行為。應連接既有且經過授權的流程，不要新增占位操作。
+
+將 `addAttachment` 傳入 `ComposerContextMenu` 會把標準上傳操作放在首位，並保留宿主的檔案處理回呼。
+
+`PromptComposer` 和 `AgentKitComposer` 接受 `attachmentAdapter`，使用 `@assistant-ui/react` 的公開型別 `AttachmentAdapter`。透過此介面卡提供宿主的可接受檔案類型、大小驗證和附件暫存策略；省略時保留預設介面卡。上傳控制項、檔案選擇器、內容脈絡選擇器和附件標籤仍由共用編輯器管理。不要為了自訂檔案暫存行為而替換這些控制項。
+
+`PromptComposer` 和 `AgentKitComposer` 的 `inlineTextAttachments` 預設為 `true`。如果宿主已經擷取一般文字檔，請設為 `false`：編輯器將原始檔案傳給宿主，不再讀取內容並附加至提示詞。由貼上文字產生的合成附件仍會轉為提示詞文字。此選項不會改變附件接收規則或共用控制項。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+快照會區分 `undefined` 和明確的空陣列。超過 32 個項目或 64 KiB 的序列化 UTF-8 資料會被拒絕，不會截斷。傳送或排隊前會等待 `AgentKitComposer.beforeSend(submission)`，傳入凍結的上下文、參照、已上傳附件與執行選項。拒絕時保留草稿。上下文包含於訊息文字與中繼資料中。
+
+`composerRef.current.submitWithText(text)` 沿用目前檔案、模型設定與提交流程，不會先取代編輯器內容。接受後回傳 `true`，被阻止或拒絕時回傳 `false`。選取上下文不會授予存取權。應用程式必須透過已驗證的操作重新檢查來源存取權。
 
 ## 對話渲染 {#conversation}
 

@@ -1,24 +1,7 @@
-/*
- * Builder brand design tokens, ported from the "Website Redesign Design
- * System" reference doc. Every selector is namespaced under
- * .builder-brand-tokens, which <body> carries in root.tsx, so these are the
- * site-wide page background, text color, and font. The legacy --bg/--fg
- * variables in global.css are kept pointed at the same values; changing a
- * page/surface color here means changing them too, or a section background
- * meeting the page body shows a seam.
- *
- * Component styling belongs in Tailwind utilities on the components, not here.
- * What is left is token definitions plus two deliberate exceptions, both of
- * which key off a `.light` ancestor and so have no utility equivalent: the
- * theme image crossfade below, and the logo's currentColor flip.
- */
-
 .builder-brand-tokens {
-  /* Font tokens */
   --b-font-sans: "Geist Variable", system-ui, sans-serif;
   --b-font-mono: "Geist Mono Variable", monospace;
 
-  /* Color primitives (--c-*) */
   --c-violet-400: #a8c1ff;
   --c-blue-100: #bef0f5;
   --c-blue-200: #7be8f5;
@@ -46,26 +29,15 @@
   --c-neutral-950-90p: #0a0a0ae6;
   --c-white-5p: #ffffff0d;
 
-  /* Semantic tokens: bg */
   --b-bg-page: #0a0a0a;
   --b-bg-surface: #0a0a0a;
   --b-bg-raised: #0f0f0f;
   --b-bg-prominent: #1a1a1a;
-  /* One stop past --b-bg-prominent, for a chip that has to read as lifted off
-     a surface which is itself already lifted (the ⌘K badge inside the header
-     search box). The light theme sets its own value: separating from white by
-     as many ramp steps as dark mode separates from near-black overshoots, and
-     the chip reads as a dark blot rather than a lift. */
   --b-bg-elevated: var(--c-neutral-800);
   --b-bg-translucent: #0a0a0ae6;
   --b-bg-alternative: #00161b;
-  /* Surface for terminal/code chrome. In dark mode it drops below the page
-     background -- the only --b-bg-* step that does -- so a command line reads
-     as cut into the page. Light mode goes the other way and lifts to white,
-     since dropping below an already-light page just reads as dirty. */
   --b-bg-inset: #000000;
 
-  /* Semantic tokens: text */
   --b-text-primary: #faf9f5;
   --b-text-secondary: #aeadac;
   --b-text-muted: #5e5e5e;
@@ -73,63 +45,32 @@
   --b-text-link: #bef0f5;
   --b-text-eyebrow: #01c8f1;
 
-  /* Endpoints of the 1px gradient hairline used by IconBox-style surfaces.
-     Separate tokens because the two themes need different directions: dark
-     mode lights the edge up out of the fill, light mode shades it down. */
   --b-stroke-gradient-start: #3d3d3d;
   --b-stroke-gradient-end: #1a1a1a;
 
-  /* The snackbar deliberately does not follow the theme: a dark pill on the
-     dark page disappeared into it, so it stays light in both themes and
-     reads as an overlay rather than part of the page. */
   --b-snackbar-bg: #faf9f5;
   --b-snackbar-text: #0a0a0a;
   --b-snackbar-border: #cac9c6;
 
-  /* Semantic tokens: border */
   --b-border-default: #1a1a1a;
   --b-border-subtle: #141414;
   --b-border-title-row: #2e2e2e;
   --b-border-menu: #1a1a1a;
 
-  /* Semantic tokens: action */
   --b-action-primary-bg: #01c8f1;
   --b-action-primary-hover: #00dff6;
   --b-action-primary-text: #0a0a0a;
   --b-action-primary-border: #00dff6;
   --b-action-primary-effect: #01c8f166;
-  /* Page background rather than transparent so the hero's shader canvas
-     doesn't show through the button. Resolves per-theme via --b-bg-page, and
-     since that matches --b-bg-surface in both themes this is visually
-     identical anywhere else a secondary button sits. */
   --b-action-secondary-bg: var(--b-bg-page);
-  /* One step up from the page background, which is exactly what
-     --b-bg-prominent already is in both themes (#1a1a1a dark, #f0efeb light).
-     The literal dark value this used to hold had no light-mode override, so a
-     light-mode secondary button hovered to near-black under near-black text. */
   --b-action-secondary-hover: var(--b-bg-prominent);
   --b-action-secondary-text: #faf9f5;
   --b-action-secondary-border: #5e5e5e;
-  /* One step dimmer, for buttons that sit in dense chrome (the header's
-     search/GitHub/Ask AI cluster) where the default border reads too loud.
-     Opt-in only — the shared secondary border stays where it is. */
   --b-action-secondary-border-dim: #2e2e2e;
-  /* Stays white in both themes, same reasoning as the snackbar above: this is
-     a button that has to read as a surface lifted off the page rather than
-     part of it. Every other --b-bg-* / --b-text-* pair flips per theme, so
-     none of them can express "white" — --b-bg-raised is #ffffff in light but
-     #0f0f0f in dark. Deliberately has no light-block override; adding one
-     defeats the point. */
   --b-action-white-bg: #ffffff;
   --b-action-white-hover: #e0e0d7;
   --b-action-white-text: #0a0a0a;
-  /* Not decorative: in light mode the fill sits on the #faf9f5 page, and
-     white-on-off-white has almost no edge without this. */
   --b-action-white-border: #cac9c6;
-  /* The cta variant fills with --b-text-primary, so its hover has to move in
-     the opposite direction per theme: dimmer than near-white in dark, lifted
-     off near-black in light. A single palette value can't do that, which is
-     why the light block overrides this. */
   --b-action-cta-hover: #e0e0d7;
   --b-action-tab-bg: #0a0a0a;
   --b-action-tab-bg-active: #00161b;
@@ -139,10 +80,8 @@
   --b-action-tab-text-hover: #faf9f5;
   --b-action-tab-indicator: #01c8f1;
 
-  /* Utility */
   --b-btn-hover-bg: rgba(255, 255, 255, 0.08);
 
-  /* Radius */
   --b-radius: 6px;
   --b-radius-none: 0px;
   --b-radius-sm: 3px;
@@ -150,7 +89,6 @@
   --b-radius-lg: 12px;
   --b-radius-full: 9999px;
 
-  /* Gradient */
   --b-gradient-blue: linear-gradient(
     90deg,
     #18b4f4 0%,
@@ -172,7 +110,6 @@
     #2fffff 100%
   );
 
-  /* Spacing scale */
   --spacing-0: 0px;
   --spacing-1: 4px;
   --spacing-2: 8px;
@@ -192,7 +129,6 @@
   --spacing-50: 200px;
   --spacing-60: 240px;
 
-  /* Typography scale */
   --b-t-heading-1: 56px;
   --b-t-heading-2: 46px;
   --b-t-heading-3: 37px;
@@ -206,28 +142,12 @@
   --b-t-label-1: 14px;
   --b-t-label-2: 11px;
 
-  /* The hero shader draws the same field in both themes, but one opacity
-     cannot serve both: over near-white, 0.15 reads as almost nothing next to
-     what it reads as over near-black. */
   --b-hero-shader-opacity: 0.15;
   --b-hero-shader-fg: var(--b-text-secondary);
-  /* Overshoot past --b-hero-shader-fg for the brightest dots. Dark mode can
-     push this far because the fg/bg direction points at white; light mode
-     points at black, so the same value crushes the focus into a dark blot
-     behind the headline. */
   --b-hero-shader-brightness: 3;
 
-  /* Separate from the halftone's knob above. The ocean's tone is concentrated
-     in thin wave crests rather than spread over a dot grid, so the two need
-     very different blends to land at the same visual weight. */
   --b-hero-ocean-opacity: 0.32;
 
-  /* Fluid scale for the hero only, not the shared heading/paragraph/spacing
-     tokens above: the hero's headline and padding need to grow past the
-     site's normal desktop ceiling without ever hitting the shared tokens'
-     hard mobile cliff at 768px, so each one interpolates continuously
-     between a floor (today's mobile value) and a ceiling (today's desktop
-     value) instead of switching between two fixed sizes. */
   --b-hero-title-size: clamp(32px, 8vw, 56px);
   --b-hero-body-size: clamp(16px, calc(14px + 0.5vw), 18px);
   --b-hero-gap: clamp(24px, 6vw, 48px);
@@ -270,9 +190,6 @@
 
   --b-snackbar-bg: #ffffff;
 
-  /* Teal rather than the near-black text color: at light-mode contrast the
-     field reads as a tinted dot grid instead of a grey smudge under the
-     headline. */
   --b-hero-shader-fg: #00677f;
   --b-hero-shader-brightness: 1.15;
   --b-hero-shader-opacity: 0.22;
@@ -296,11 +213,6 @@
   --b-action-tab-text-hover: #0a0a0a;
 }
 
-/* Both variants keep their layout box (opacity/visibility, not display)
-   so the hidden one still has real geometry — native `loading="lazy"`
-   decides whether to fetch an image based on its bounding rect, and an
-   element with `display: none` never has one, so it would never load
-   even after the theme toggle later made it the visible variant. */
 .builder-brand-tokens .theme-img-dark {
   opacity: 1;
   visibility: visible;

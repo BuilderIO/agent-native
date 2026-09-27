@@ -15,13 +15,17 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useLocation } from "react-router";
 
-import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
 import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
-import { appPath } from "../api-path.js";
+import { appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -41,6 +45,38 @@ import {
 } from "./use-preview-mode.js";
 
 type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
+type FirstRunSetupMethodId =
+  | "builder_create_account"
+  | "builder_sign_in"
+  | "custom_keys";
+
+interface FirstRunSetupAttempt {
+  id: string;
+  methodId: FirstRunSetupMethodId;
+  outcomeTracked: boolean;
+}
+
+function trackFirstRunSetupOutcome(
+  attempt: FirstRunSetupAttempt | null,
+  outcome:
+    | "connected"
+    | "already_connected"
+    | "failed"
+    | "settings_opened"
+    | "handoff_failed",
+  errorType?: string,
+) {
+  if (!attempt || attempt.outcomeTracked) return;
+  attempt.outcomeTracked = true;
+  trackOnboardingEvent("onboarding_method_outcome", {
+    flow: "first_run",
+    step_id: "choice",
+    method_id: attempt.methodId,
+    onboarding_attempt_id: attempt.id,
+    outcome,
+    ...(errorType ? { error_type: errorType } : {}),
+  });
+}
 
 const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
   ["role", "choice", "connecting"];
@@ -93,7 +129,6 @@ const BUILDER_MORE_SERVICES = [
 ] as const;
 
 export interface FirstRunOnboardingProps {
-  /** The shared startup gate has already resolved this account as eligible. */
   initialFirstRun?: boolean;
 }
 
@@ -101,6 +136,7 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
+  const { pathname } = useLocation();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
   const {
@@ -127,10 +163,6 @@ export function FirstRunOnboarding({
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
   }, [previewMode, previewStep]);
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
   const trackFirstRunStepCompleted = useCallback(
     (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
       if (previewMode) return;
@@ -159,6 +191,33 @@ export function FirstRunOnboarding({
     screen: FirstRunScreen | null;
     extensionIndex: number;
   } | null>(null);
+  const completionInFlightRef = useRef(false);
+  const onboardingTerminalRef = useRef(false);
+  const abandonmentTrackedRef = useRef(false);
+  const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
+  const startSetupMethod = useCallback(
+    (methodId: FirstRunSetupMethodId, methodKind: "builder" | "manual") => {
+      if (previewMode || typeof window === "undefined") return null;
+      const attempt = {
+        id: window.crypto.randomUUID(),
+        methodId,
+        outcomeTracked: false,
+      };
+      setupAttemptRef.current = attempt;
+      const properties = {
+        flow: "first_run",
+        step_id: "choice",
+        method_id: methodId,
+        method_kind: methodKind,
+        onboarding_attempt_id: attempt.id,
+      };
+      trackOnboardingEvent("onboarding_method_clicked", properties);
+      trackOnboardingEvent("onboarding_method_started", properties);
+      return attempt;
+    },
+    [previewMode],
+  );
   const finishOnboarding = useCallback(
     async (
       completedScreen: FirstRunScreen | null,
@@ -167,16 +226,20 @@ export function FirstRunOnboarding({
       completionAttemptRef.current = completedScreen
         ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
         : { screen: null, extensionIndex: completedExtensionIndex };
+      completionInFlightRef.current = true;
       try {
         await completeFirstRun();
         if (completedScreen) {
           trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
         }
+        onboardingTerminalRef.current = true;
         completionAttemptRef.current = null;
         return true;
       } catch {
         // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
         return false;
+      } finally {
+        completionInFlightRef.current = false;
       }
     },
     [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
@@ -199,6 +262,33 @@ export function FirstRunOnboarding({
     profile,
     screen,
   ]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      if (
+        onboardingTerminalRef.current ||
+        abandonmentTrackedRef.current ||
+        completionInFlightRef.current
+      )
+        return;
+      abandonmentTrackedRef.current = true;
+      trackOnboardingEvent("onboarding_abandoned", {
+        ...firstRunStepProperties(screen, extensions, extensionIndex),
+        reason: "page_exit",
+      });
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
   const handleFinish = useCallback(
     (completedScreen: FirstRunScreen | null, track = true) => {
       if (extensions.length === 0) {
@@ -212,6 +302,9 @@ export function FirstRunOnboarding({
     [extensions, finishOnboarding, trackFirstRunStepCompleted],
   );
   const handleBuilderConnected = useCallback(() => {
+    trackFirstRunSetupOutcome(builderSetupAttemptRef.current, "connected");
+    builderSetupAttemptRef.current = null;
+    setupAttemptRef.current = null;
     trackFirstRunStepCompleted("choice");
     trackFirstRunStepCompleted("connecting");
     handleFinish(null);
@@ -223,17 +316,19 @@ export function FirstRunOnboarding({
     trackingFlow: "connect_llm",
     onConnected: handleBuilderConnected,
   });
+  useEffect(() => {
+    const attempt = builderSetupAttemptRef.current;
+    if (!attempt || connectFlow.connecting) return;
+    if (connectFlow.accountExists) {
+      trackFirstRunSetupOutcome(attempt, "failed", "account_exists");
+      return;
+    }
+    if (connectFlow.error) {
+      trackFirstRunSetupOutcome(attempt, "failed", "connection_error");
+    }
+  }, [connectFlow.accountExists, connectFlow.connecting, connectFlow.error]);
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
-  const dismissOnboarding = useCallback(() => {
-    if (!previewMode) {
-      trackOnboardingEvent("onboarding_dismissed", {
-        ...firstRunStepProperties(screen, extensions, extensionIndex),
-        reason: "user_action",
-      });
-    }
-    void finishOnboarding(null);
-  }, [extensionIndex, extensions, finishOnboarding, previewMode, screen]);
   const retryOnboardingCompletion = useCallback(() => {
     const attempt = completionAttemptRef.current;
     void finishOnboarding(
@@ -253,7 +348,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4 text-center">
@@ -289,7 +383,15 @@ export function FirstRunOnboarding({
       handleFinish(null);
       return;
     }
+    const attempt = startSetupMethod(
+      provisionAccount ? "builder_create_account" : "builder_sign_in",
+      "builder",
+    );
+    builderSetupAttemptRef.current = attempt;
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
+      trackFirstRunSetupOutcome(attempt, "already_connected");
+      builderSetupAttemptRef.current = null;
+      setupAttemptRef.current = null;
       trackFirstRunStepCompleted("choice");
       handleFinish(null);
       return;
@@ -308,12 +410,19 @@ export function FirstRunOnboarding({
   };
 
   const handleOpenSettings = async () => {
+    if (completionInFlightRef.current) return;
+    const attempt = startSetupMethod("custom_keys", "manual");
     const completed = await finishOnboarding("choice");
-    if (!completed) return;
+    if (!completed) {
+      trackFirstRunSetupOutcome(
+        attempt,
+        "handoff_failed",
+        "onboarding_completion_error",
+      );
+      return;
+    }
+    trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
-    // Drop the onboarding preview params — useOnboardingPreviewMode() reads
-    // them live from the URL, so carrying them over would re-trigger the
-    // preview overlay on the Settings page we're navigating to.
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
@@ -321,7 +430,10 @@ export function FirstRunOnboarding({
     window.history.pushState(
       null,
       "",
-      `${appPath(buildSettingsRoute("agent:llm"))}${query ? `?${query}` : ""}`,
+      `${appMountedPath(
+        buildSettingsRoute("keys"),
+        pathname || STANDARD_APP_ROUTES.home,
+      )}${query ? `?${query}` : ""}`,
     );
     window.dispatchEvent(new Event("popstate"));
   };
@@ -373,7 +485,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="extension"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <Extension
@@ -396,7 +507,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="choice"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-9">
@@ -583,7 +693,6 @@ export function FirstRunOnboarding({
       <OnboardingShell
         profile={profile}
         screen="role"
-        onDismiss={dismissOnboarding}
         {...completionErrorProps}
       >
         <div
@@ -699,7 +808,6 @@ export function FirstRunOnboarding({
     <OnboardingShell
       profile={profile}
       screen="connecting"
-      onDismiss={dismissOnboarding}
       {...completionErrorProps}
     >
       <div
@@ -753,6 +861,16 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
+            {connectFlow.connecting && (
+              <button
+                type="button"
+                data-testid="first-run-cancel-builder"
+                className={cn(secondaryButtonClass, "mt-4")}
+                onClick={connectFlow.cancel}
+              >
+                {t("common.cancel")}
+              </button>
+            )}
             {connectFlow.error && (
               <div className="mt-4 flex flex-col items-center gap-2">
                 <p className="text-xs text-destructive">{connectFlow.error}</p>
@@ -776,7 +894,6 @@ function OnboardingShell({
   profile,
   screen,
   footer,
-  onDismiss,
   completionError,
   onRetry,
   children,
@@ -784,12 +901,10 @@ function OnboardingShell({
   profile: OnboardingAppProfile | null;
   screen: FirstRunScreen;
   footer?: React.ReactNode;
-  onDismiss?: () => void;
   completionError?: string | null;
   onRetry?: () => void;
   children: React.ReactNode;
 }) {
-  const t = useT();
   return (
     <div
       className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
@@ -798,17 +913,6 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
-      {onDismiss ? (
-        <button
-          type="button"
-          data-testid="first-run-dismiss"
-          aria-label={t("agentChat.common.dismiss")}
-          onClick={onDismiss}
-          className="absolute end-4 top-4 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconX size={17} />
-        </button>
-      ) : null}
       <div
         className="h-0.5 shrink-0 bg-muted"
         data-testid="onboarding-progress"
@@ -933,16 +1037,8 @@ function CapabilityList({
   );
 }
 
-// Design system intelligence has no BYOK path — it's Builder-managed only, so
-// the manual list shows it crossed out with no Required/Recommended tag
-// instead of mislabeling it "Optional".
 const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
 
-/** The setup cards are a scannable comparison, not a capability inventory:
- *  they carry what the app needs (required), what we recommend (suggested),
- *  and the Builder-only rows that make the manual column honest. Per-app
- *  extras like an optional Figma token belong in Settings, where the user is
- *  actually choosing them. */
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
     capability.required ||
@@ -1003,17 +1099,9 @@ function CapabilityInfoButton({
   );
 }
 
-// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
-// Builder status is still in flight, so the `disabled:` styles never engage and
-// a pending CTA is pixel-identical to a live one — which is why this class of
-// dead button survives screenshot review.
 const primaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
-/** Inline failure signal for a failed completeFirstRun() call — keeps the
- *  user on their current screen with a way forward, instead of swapping to
- *  an unrelated full-screen error or leaving Skip/Continue looking like it
- *  did nothing. */
 function FirstRunCompletionError({
   message,
   onRetry,

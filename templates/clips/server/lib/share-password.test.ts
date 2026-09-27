@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-// Deterministic key for the at-rest encryption round-trip. Set before importing
-// the helper (which pulls in core's secrets/crypto).
 process.env.SECRETS_ENCRYPTION_KEY ||= "clips-share-password-test-key";
 
 const { encryptSharePassword, verifySharePassword } =
@@ -39,7 +37,6 @@ describe("share-password storage", () => {
   });
 
   it("verifies legacy plaintext rows transparently (pre-encryption data)", () => {
-    // Rows written before encryption stored the raw password.
     expect(verifySharePassword("legacy-pw", "legacy-pw")).toBe(true);
     expect(verifySharePassword("nope", "legacy-pw")).toBe(false);
   });

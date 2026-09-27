@@ -124,7 +124,6 @@ function fileInputAccepts(): (string | null)[] {
   return fileInputs().map((input) => input.getAttribute("accept"));
 }
 
-// Radix tabs switch on mousedown, not click, and unmount inactive content.
 function selectTab(label: string): void {
   const tab = Array.from(
     document.body.querySelectorAll<HTMLElement>('[role="tab"]'),
@@ -143,8 +142,6 @@ describe("readAgentPack", () => {
   });
 
   it("treats a failed query as unreadable, not as an empty pack", () => {
-    // A rejected list-agent-pack query used to render as an empty pack, which
-    // let Add write a new file into a guessed agents/<slug> root.
     expect(readAgentPack(undefined, true)).toEqual({ ok: false, loaded: true });
   });
 
@@ -156,8 +153,6 @@ describe("readAgentPack", () => {
   });
 
   it("distinguishes an unreadable response from an empty pack", () => {
-    // A response missing `files` used to throw during render and take the
-    // whole page down with the router error boundary.
     expect(readAgentPack({ profile, root: "agents/bot" } as never)).toEqual({
       ok: false,
       loaded: true,
@@ -271,9 +266,6 @@ describe("SimpleAgentsPanel", () => {
     ) as HTMLInputElement | null;
     expect(urlInput).not.toBeNull();
 
-    // Regression for the markdown-link-artifact paste reported in feedback:
-    // no inline error caught this before submit, so it reached the backend
-    // and surfaced as a raw 500 toast.
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,

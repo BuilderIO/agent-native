@@ -179,19 +179,12 @@ beforeEach(() => {
 });
 
 describe("public-key last-used stamp", () => {
-  // Production outage 2026-08-07: this UPDATE ran inside the ingest
-  // transaction, so every concurrent request for one public key took an
-  // exclusive row lock on that key and held it through the rollup upsert.
-  // 36 writers stacked on three hot rows waiting 38-57s, the connection pool
-  // starved, and Analytics stopped loading for everyone.
   const source = readFileSync(
     new URL("./first-party-analytics.ts", import.meta.url),
     "utf8",
   );
 
   it("never writes the stamp inside a transaction", () => {
-    // Everything between `db.transaction(` and its closing `});` must be free
-    // of the stamp write, whatever else the transaction grows to do.
     const start = source.indexOf("db.transaction(");
     expect(start).toBeGreaterThan(0);
     const body = source.slice(start, source.indexOf("\n  }", start));
@@ -200,9 +193,6 @@ describe("public-key last-used stamp", () => {
   });
 
   it("throttles the stamp in SQL, not in the caller", () => {
-    // A JS-side check would still let every racing request issue its own
-    // unconditional write. The predicate must be in the statement so Postgres
-    // matches — and therefore locks — zero rows for a freshly stamped key.
     const fn = source.slice(source.indexOf("touchPublicKeyLastUsedAt("));
     const update = fn.slice(fn.indexOf(".update(schema.analyticsPublicKeys)"));
     const where = update.slice(0, update.indexOf("} catch"));
@@ -212,10 +202,6 @@ describe("public-key last-used stamp", () => {
   });
 
   it("routes every stamp write through the throttled helper", () => {
-    // Two call sites drifted apart once already; a third unconditional write
-    // anywhere re-creates the convoy on its own.
-    // Exactly one place may set the stamp: the throttled helper. Other writes
-    // to this table (revocation) are rare admin actions and not the convoy.
     let stampWrites = 0;
     for (const file of ["first-party-analytics.ts", "session-replay.ts"]) {
       const text = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");

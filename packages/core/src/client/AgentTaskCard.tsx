@@ -21,10 +21,6 @@ export interface AgentTaskCardProps {
   onOpen?: (threadId: string) => void;
 }
 
-/**
- * Inline tool-call presentation for a spawned sub-agent. Listens for
- * agent-task-event CustomEvents to update its streamed output in real-time.
- */
 export function AgentTaskCard({
   taskId,
   threadId,
@@ -63,8 +59,6 @@ export function AgentTaskCard({
     return () => window.removeEventListener("agent-task-event", handleEvent);
   }, [taskId]);
 
-  // Poll for task status when running — the main chat's SSE stream may close
-  // before the sub-agent completes, so SSE events alone aren't reliable.
   useEffect(() => {
     if (status !== "running") return;
     let stopped = false;
@@ -80,7 +74,6 @@ export function AgentTaskCard({
           );
           if (!res.ok) continue;
           const data = await res.json();
-          // The HTTP handler returns the value directly (not wrapped)
           const task = data?.value ?? data;
           if (!task || !task.status) continue;
           if (task.status === "completed") {
@@ -95,7 +88,6 @@ export function AgentTaskCard({
             setCurrentStep("");
             break;
           } else {
-            // Still running — update preview from persisted state
             if (task.preview) setPreview(task.preview);
             if (task.currentStep) setCurrentStep(task.currentStep);
           }
@@ -110,7 +102,6 @@ export function AgentTaskCard({
     };
   }, [status, taskId, threadId]);
 
-  // Auto-scroll preview to bottom
   useEffect(() => {
     if (previewRef.current && status === "running") {
       previewRef.current.scrollTop = previewRef.current.scrollHeight;
@@ -128,7 +119,6 @@ export function AgentTaskCard({
   const handleStop = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      // Optimistic UI: mark stopped immediately
       setStatus("errored");
       setCurrentStep("");
       try {

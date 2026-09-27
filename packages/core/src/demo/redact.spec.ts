@@ -7,7 +7,6 @@ import {
 } from "./redact.js";
 
 beforeEach(() => {
-  // Caches are process-global by design; isolate tests from each other.
   __resetDemoRedactCacheForTests();
 });
 
@@ -56,7 +55,6 @@ describe("determinism", () => {
   });
 
   it("is process-independent for a fixed salt (regression on stable hash)", () => {
-    // Stability check: the same literal should not vary run to run.
     const first = redactDemoString("jane.doe@acme.com", { salt: "fixed" });
     const second = redactDemoString("jane.doe@acme.com", { salt: "fixed" });
     expect(first).toBe(second);
@@ -181,7 +179,7 @@ describe("names and free text", () => {
       { salt: "s" },
     ) as Array<{ name: string; count?: number }>;
     expect(labels[0].name).toBe("Important");
-    expect(labels[0].count).not.toBe(4200); // numbers still redacted
+    expect(labels[0].count).not.toBe(4200);
     expect(labels[1].name).toBe("Automated notifications");
     expect(labels[2].name).toBe("Note to Self");
     expect(labels[3].name).toBe("Other");
@@ -317,8 +315,6 @@ describe("ID-safety (critical)", () => {
     expect(out.slug).toBe("john-smith");
     expect(out.url).toBe("https://x.com/a Big Name");
     expect(out.expiresAt).toBe(1747405920);
-    // Recurse into nested objects under a protected key, but the protected key
-    // itself does not transform its own leaf.
     expect(out.nested.id).toBe("Bob Jones");
     expect(out.nested.label).toBe("Bob Jones");
   });
@@ -337,11 +333,9 @@ describe("ID-safety (critical)", () => {
       ],
     };
     const out = redactDemoData(dashboard, { salt: "s" }) as typeof dashboard;
-    // SQL/query/expression pass through byte-identical so the query runs.
     expect(out.panels[0].sql).toBe(dashboard.panels[0].sql);
     expect(out.panels[0].query).toBe(dashboard.panels[0].query);
     expect(out.panels[0].expression).toBe(dashboard.panels[0].expression);
-    // Structural label/title fields stay stable even when they look name-like.
     expect(out.name).toBe(dashboard.name);
     expect(out.panels[0].title).toBe("Clicks by Henry Moore");
   });
@@ -352,7 +346,6 @@ describe("ID-safety (critical)", () => {
       meta: { id: "x", owner: "Mary Major" },
     };
     const out = redactDemoData(input, { salt: "s" }) as typeof input;
-    // Array under protected key is still recursed/preserved.
     expect(Array.isArray(out.ids)).toBe(true);
     expect(out.ids.length).toBe(2);
     expect(out.meta.id).toBe("x");
@@ -372,9 +365,6 @@ describe("ID-safety (critical)", () => {
   });
 
   it("is stable across edits: produced emails round-trip unchanged", () => {
-    // Simulate the real scenario: data is redacted for display → the user
-    // edits the (now fake) draft → it autosaves → it's refetched and
-    // redacted again. Emails must NOT drift on the round-trip.
     const real = {
       from: "Jane Cooper",
       to: "jane.cooper@acme.com",
@@ -385,7 +375,6 @@ describe("ID-safety (critical)", () => {
     expect(second.from).toBe(first.from);
     expect(second.to).toBe(first.to);
     expect(second.body).toBe(first.body);
-    // An unrelated edit around the already-fake content keeps them identical.
     const edited = { ...first, body: `${first.body} Cheers!` };
     const third = redactDemoData(edited, { salt: "demo" }) as typeof real;
     expect(third.from).toBe(first.from);
@@ -413,7 +402,7 @@ describe("structure preservation", () => {
     expect(out.maybe).toBeUndefined();
     expect(out.list[0].person).toBe("John Smith");
     expect(typeof out.list[0].count).toBe("number");
-    expect(out.list[1].count).toBe(7); // < 1000 untouched
+    expect(out.list[1].count).toBe(7);
   });
 
   it("leaves booleans, null, Date untouched", () => {
@@ -440,7 +429,6 @@ describe("structure preservation", () => {
   });
 
   it("passthrough for non-string/number primitives in string redactor", () => {
-    // redactDemoString only touches strings.
     expect(redactDemoString("")).toBe("");
   });
 });

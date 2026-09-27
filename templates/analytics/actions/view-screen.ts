@@ -105,9 +105,6 @@ export default defineAction({
       ? dashboardIdFromPathname(pathname)
       : null;
     const navigationDashboardId = normalizedDashboardId(rawNav?.dashboardId);
-    // The URL is authoritative during route transitions in both directions.
-    // A stale Ask navigation object must not hide the dashboard selection or
-    // trigger Ask-only behavior after the URL has moved to a dashboard.
     const isAskView = hasAuthoritativePathname
       ? isAskPathname(pathname)
       : rawNav?.view === "ask";
@@ -142,9 +139,6 @@ export default defineAction({
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
 
-    // Surface the active URL filter params (f_*) so the agent doesn't have
-    // to reason about the URL string or go hunting in settings for them.
-    // To change a filter, use the `set-search-params` tool with these keys.
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};
       for (const [k, v] of Object.entries(url.searchParams)) {
@@ -413,7 +407,6 @@ export default defineAction({
               }));
             }
           } else if (nav?.statusPageId) {
-            // Status pages are a config sub-view under the uptime panel.
             screen.uptimeSubview = "status-pages";
             if (nav.statusPageId === "new") {
               screen.statusPageMode = "create";

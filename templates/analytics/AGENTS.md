@@ -16,8 +16,8 @@ Read the relevant skill before deeper work:
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
   mutation and sharing.
-- `adhoc-analysis` and `analysis-workspace` for one-off answers and large
-  multi-source work.
+- `adhoc-analysis` for one-off answers; `analysis-workspace` for large work and
+  CSV/XLSX exports.
 - `provider-api` and `data-programs` for the escape hatch and durable,
   refreshable data sources.
 - `creative-context` for governed contexts and immutable dashboard revisions.
@@ -25,17 +25,19 @@ Read the relevant skill before deeper work:
 
 ## How To Answer A Data Question
 
-1. **Search existing work first.** Use `search-analytics-query-catalog` for
-   metrics and `search-dashboard-references` for dashboard adaptation. Read a
-   match with `get-sql-dashboard` or `get-explorer-dashboard` by `kind`; it is
-   context, not source data. Adapt its SQL to the requested window and filters,
-   run once, and stop. Prefer current `certified` results over starred ones;
-   edits stale certification.
-2. **One bounded call.** List/filter/count/cohort questions take one SQL query
-   or server-side `run-code` script, never per-item fan-out.
-3. **Escalate on a miss.** Make one discovery pass with `list-data-dictionary`,
-   `search-bigquery-schema`, or `data-source-status`, then query. Skip unasked
-   breakdowns.
+1. **Use the closest query example.** For a metric question, adapt a relevant
+   preloaded reference; if none fits, call `search-analytics-query-catalog`.
+   For dashboard replication or adaptation, call `search-dashboard-references`
+   first and inspect each result with `get-sql-dashboard` or
+   `get-explorer-dashboard` by its `kind`. A match is context, not live data.
+   Adapt the closest saved SQL to the requested filters/window, run it once,
+   and stop. Prefer a current `certified` dashboard; a favorite is a weaker
+   relevance signal. Certification becomes stale after a dashboard edit.
+2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
+   or one server-side `run-code` script; never page or fan out per item.
+3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
+   pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
+   then query; don't cross-check or add unasked breakdowns.
 4. **Answer in chat.** Return a short table, chart, or export, not just a path;
    for >50 rows, state the total and top rows.
 6. **Chunk only reading.** For 30+ qualitative items a query cannot answer,
@@ -59,9 +61,8 @@ certified ones); label figures "Unverified" when no live query ran.
   absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
   or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
   provider and hosted-endpoint boundaries.
-- Create dashboards, panels, or saved artifacts only when explicitly asked;
-  suggest and wait otherwise. Scope them to the question, avoid decorative
-  metrics, and never modify existing dashboards without a directive.
+- Create dashboards or saved artifacts only when asked; keep them focused and
+  never modify existing dashboards without direction.
 - For named account/deal deep dives, call `account-deep-dive` first.
 - For named account health, read `account-health` before querying.
 - When the user challenges coverage or asks why records are missing, rerun from
@@ -78,16 +79,11 @@ certified ones); label figures "Unverified" when no live query ran.
   multi-step work, unavailable actions, or unsupported writes.
 - Reports/alerts use SQL actions; cap at five recipients.
 
-## Actions
+## Sessions
 
-| Action | Use |
-| --- | --- |
-| `search-analytics-query-catalog` | Search saved metric examples first. |
-| `search-dashboard-references` | Find dashboards to replicate. |
-| `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
-| `certify-dashboard` | Admin-only approval of its current version. |
-| `list-session-recordings` | Filter scoped replays by date, app, duration, error signals, visitor type, or email domain. `paginated: true` returns sorted pages, total, and app counts; the default returns the legacy array. |
-| DB | `list-db-admin-connections`, `list-connected-database-tables`, `db-admin-federated-read`: registry, schema, bounded joins. |
+- `list-session-recordings` filters scoped replays by date, app, duration,
+  signals, visitor type, and email domain. Use `paginated: true` for sorted
+  pages with a real total and app counts; the default returns an array.
 
 ## Application State
 

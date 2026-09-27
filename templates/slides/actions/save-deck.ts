@@ -1,12 +1,3 @@
-/**
- * save-deck — create-or-replace a deck's whole JSON payload.
- *
- * The browser editor saves through `patch-deck`; this full-payload write is
- * reserved for the paths that already hold an authoritative snapshot (undo/redo
- * and bulk slide replacement). Hidden from the agent, which edits through
- * `patch-deck`, `update-slide`, and `add-slide` so concurrent writers on
- * different slides don't clobber each other.
- */
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -46,6 +37,7 @@ import {
   nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function shouldSnapshotDeckWrite(
@@ -98,17 +90,10 @@ export default defineAction({
       deck.updatedAt = now;
       const requestedTitle = deckTitle(deck);
 
-      // Resolve access first — this loads the row AND tells us the caller's
-      // effective role in one pass, so we never run an unscoped existence
-      // SELECT that would leak "this id exists" to non-owners.
       const access = await resolveAccess("deck", deckId);
       stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
-        // Either the deck does not exist OR the caller cannot see it. In both
-        // cases we treat this as a create for the caller. If the row actually
-        // exists but is owned by someone else, the INSERT below fails on the
-        // primary key — mapped to a 404 so we never reveal that the id is taken.
         const ownerEmail = getRequestUserEmail();
         if (!ownerEmail) {
           throw deckHttpError(403, "Sign in to create a deck");
@@ -119,6 +104,7 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(deckDesignSystemId(deck));
+        assertNoDeckRenderArtifacts(null, deck);
         try {
           await db.insert(schema.decks).values({
             id: deckId,
@@ -131,8 +117,6 @@ export default defineAction({
             updatedAt: now,
           });
         } catch {
-          // Some adapters wrap duplicate-key failures in a generic query error
-          // that includes bound params, so never surface the raw error here.
           throw deckHttpError(404, "Deck not found");
         }
       } else if (
@@ -154,6 +138,7 @@ export default defineAction({
           ? deckDesignSystemId(deck)
           : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
+        assertNoDeckRenderArtifacts(access.resource.data, deck);
         if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
           return { ...deck, updatedAt: access.resource.updatedAt };
         }
@@ -187,8 +172,6 @@ export default defineAction({
           assertDeckWriteApplied(updateResult, deckId, "deck save");
         });
       } else {
-        // Viewer-only access — same 404 as no-access so we don't leak that the
-        // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
 

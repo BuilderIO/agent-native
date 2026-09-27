@@ -19,16 +19,6 @@ function shouldReuseStoredTabId(): boolean {
   return navigation?.type === "reload" || navigation?.type === "back_forward";
 }
 
-/**
- * Stable id for the current browser tab.
- *
- * Backed by sessionStorage, so it survives reloads in the same tab. A fresh
- * document always claims a new id, even when the browser copied sessionStorage
- * while duplicating a tab. Use it to scope agent context to the tab: pass it
- * to the navigation-state writer (`useAgentRouteState`/`useNavigationState`)
- * and to `AgentSidebar`/`AgentPanel` so a chat reads the screen state of the
- * tab it was sent from, not whichever tab wrote the global key last.
- */
 export function getBrowserTabId(): string {
   if (cached) return cached;
   if (typeof window === "undefined") {
@@ -50,8 +40,6 @@ export function getBrowserTabId(): string {
     cached = id;
     return id;
   } catch {
-    // SSR or storage unavailable — a per-call id is fine; the browser
-    // re-evaluates this module on hydration and picks up the stored id.
     cached = generate();
     return cached;
   }

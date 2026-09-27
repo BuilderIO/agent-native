@@ -1,30 +1,3 @@
-/**
- * I/O-seam tests for the visual-recap CLI.
- *
- * Strategy: injected fake fetch (using the `fetchFn` DI seam on every function
- * under test) so there are no real HTTP servers, no undici connection-pool
- * handles, and no worker-termination hangs. The `makeResp` helper returns a
- * plain duck-typed Response with `body: null` / `bodyUsed: true` so undici
- * never gets involved at all.
- *
- * Real git repos (via execFileSync) are still used for the collect-diff tests
- * because those exercise git I/O that cannot be faked through a DI seam.
- *
- * DI seams on recap.ts (all preserve existing default behaviour):
- *   - findExistingComment / upsertComment → fetchFn?
- *   - uploadRecapImage → fetchFn?, waitFn?
- *   - waitForPublicRecapImage → fetchFn?
- *   - runShot → importPlaywright?
- *
- * NO vi.mock stubs: recap.spec.ts already imports recap.js without any mocks
- * and runs in ~265ms because vitest's Vite transform cache handles the large
- * dependency files (skills.ts, context-xray-local.ts etc.) efficiently. Adding
- * vi.mock stubs forces vitest into a mock-aware module isolation path that
- * bypasses the transform cache and causes multi-minute compilation. Removing
- * the stubs keeps the fast path and the tests still isolate correctly because
- * all DI seams are exercised via injected fetchFn / waitFn.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -41,10 +14,6 @@ import {
   waitForPublicRecapImage,
 } from "./recap.js";
 
-/* -------------------------------------------------------------------------- */
-/* Temp dir fixture                                                             */
-/* -------------------------------------------------------------------------- */
-
 let tmpDir: string;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "recap-io-spec-"));
@@ -53,19 +22,6 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/* -------------------------------------------------------------------------- */
-/* Fake fetch helpers — no undici / no real HTTP handles                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Build a duck-typed Response-compatible object that holds NO ReadableStream.
- *
- * Node.js 24 native-fetch Response objects (backed by undici) keep an open
- * ReadableStream handle even after .json()/.text() drains the body. In a
- * vitest forks worker those lingering handles prevent clean worker exit and
- * produce the "Timeout terminating forks worker" error. Using a plain object
- * with body:null and bodyUsed:true bypasses that entirely.
- */
 function makeResp(body: string, status: number, contentType: string): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -89,11 +45,6 @@ function makeResp(body: string, status: number, contentType: string): Response {
   } as unknown as Response;
 }
 
-/**
- * Like makeResp but returns a raw binary buffer in arrayBuffer(). Used for
- * image/png responses so waitForPublicRecapImage sees real non-zero byte
- * lengths without going through a real HTTP stack.
- */
 function makeBinaryResp(bytes: Uint8Array, contentType: string): Response {
   const buf = bytes.buffer as ArrayBuffer;
   return {
@@ -125,7 +76,6 @@ function textResp(text: string, status = 200): Response {
   return makeResp(text, status, "text/plain");
 }
 
-/** Build a fake `fetch` that dispatches based on URL pattern + method. */
 function makeFakeFetch(
   specs: Array<{
     urlPattern: RegExp | string;
@@ -157,10 +107,6 @@ function makeFakeFetch(
   return { fetchFn, calls };
 }
 
-/* ========================================================================== */
-/* 1. uploadRecapImage                                                         */
-/* ========================================================================== */
-
 describe("uploadRecapImage — success on first try (fake fetch)", () => {
   it("POSTs the PNG bytes and returns the imageUrl after public-readiness check passes", async () => {
     const fakePng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 1]);
@@ -186,7 +132,6 @@ describe("uploadRecapImage — success on first try (fake fetch)", () => {
       token: "tok-test",
       pngPath,
       fetchFn,
-      // waitFn always succeeds — tests the upload path only
       waitFn: async () => true,
     });
 
@@ -319,7 +264,7 @@ describe("uploadRecapImage — missing imageUrl in response returns null", () =>
       {
         urlPattern: "/_agent-native/recap-image",
         method: "POST",
-        response: () => jsonResp({ ok: true /* no imageUrl field */ }),
+        response: () => jsonResp({ ok: true }),
       },
     ]);
 
@@ -345,13 +290,6 @@ describe("uploadRecapImage — missing imageUrl in response returns null", () =>
     }
   });
 });
-
-/* ========================================================================== */
-/* 2. waitForPublicRecapImage — fake fetch round-trip                          */
-/*                                                                             */
-/* Uses injected fetchFn so there are no real HTTP servers, no undici handles, */
-/* and no keep-alive connections keeping the worker alive.                     */
-/* ========================================================================== */
 
 const PNG_MAGIC = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 1]);
 
@@ -453,10 +391,6 @@ describe("waitForPublicRecapImage — fake fetch", () => {
   });
 
   it("body is a real Uint8Array round-trip (guards the h3-v2 bug class)", async () => {
-    // The historical h3-v2 bug: a test mocked Buffer where the runtime returns
-    // Uint8Array, hiding corruption. Here we use makeBinaryResp so the
-    // ArrayBuffer comes from a Uint8Array (not a string encode path), exercising
-    // the same byteLength check as the production path.
     const magic = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     const { fetchFn } = makeFakeFetch([
       {
@@ -474,10 +408,6 @@ describe("waitForPublicRecapImage — fake fetch", () => {
     expect(result).toBe(true);
   });
 });
-
-/* ========================================================================== */
-/* 3. runShot — playwright not available failure path                          */
-/* ========================================================================== */
 
 describe("runShot — playwright not available", () => {
   it("emits {ok:false, reason:'playwright not available…'} and returns without throwing", async () => {
@@ -643,17 +573,10 @@ describe("runShot — playwright not available", () => {
   });
 });
 
-/* ========================================================================== */
-/* 4. findExistingComment / upsertComment — fake fetch capturing requests      */
-/* ========================================================================== */
-
 const MARKER = "<!-- pr-visual-recap -->";
 
 describe("findExistingComment — pagination", () => {
   it("returns null when page 1 is empty (< 100 items)", async () => {
-    // NOTE: use /[&]page=1$/ (not /page=1/) — the URL also contains
-    // "per_page=100" which contains the substring "page=1", causing every
-    // page request to match the first spec and loop infinitely.
     const { fetchFn, calls } = makeFakeFetch([
       {
         urlPattern: /[&]page=1$/,
@@ -763,7 +686,6 @@ describe("upsertComment — PATCH vs POST decision", () => {
   it("POSTs a new comment when no existing marker comment is found", async () => {
     const { fetchFn, calls } = makeFakeFetch([
       {
-        // Use /[&]page=\d+$/ — not /page=1/ — to avoid matching "per_page=100"
         urlPattern: /[&]page=\d+$/,
         method: "GET",
         response: () => jsonResp([]),
@@ -796,7 +718,6 @@ describe("upsertComment — PATCH vs POST decision", () => {
     const postCall = calls.find((c) => c.method === "POST");
     expect(postCall).toBeDefined();
     expect(postCall!.url).toContain("/issues/42/comments");
-    // Body must include the MARKER even when the caller's body didn't
     const posted = JSON.parse(
       typeof postCall!.body === "string" ? postCall!.body : "{}",
     );
@@ -847,7 +768,6 @@ describe("upsertComment — PATCH vs POST decision", () => {
       typeof patchCall!.body === "string" ? patchCall!.body : "{}",
     );
     expect(patched.body).toContain("updated recap body");
-    // Must NOT POST a new comment
     expect(calls.find((c) => c.method === "POST")).toBeUndefined();
   });
 
@@ -928,11 +848,6 @@ describe("upsertComment — PATCH vs POST decision", () => {
   });
 });
 
-/* ========================================================================== */
-/* 5. runCollectDiff — git failure path                                        */
-/* ========================================================================== */
-
-/** Initialize a real git repo with one commit and return the commit SHA. */
 function initGitRepo(
   dir: string,
   fileName = "app.ts",
@@ -996,7 +911,6 @@ describe("runCollectDiff — git failure path (broken SHA)", () => {
       expect(exitCode).toBe(1);
       const stderr = stderrLines.join("");
       expect(stderr).toContain("git diff failed");
-      // Actionable message must mention shallow clone or fetch-depth
       expect(stderr).toMatch(/shallow|fetch-depth/i);
     } finally {
       process.chdir(origCwd);
@@ -1006,15 +920,12 @@ describe("runCollectDiff — git failure path (broken SHA)", () => {
   });
 
   it("does NOT classify an empty diff as tiny when git fails — it must be a hard failure", async () => {
-    // This guards the original regression: an empty diff from a broken SHA was
-    // silently classified as `tiny: true` and the CI recap was skipped with no
-    // diagnostic. After the fix, it must exit non-zero instead.
     const gitDir = path.join(tmpDir, "git-fail");
     initGitRepo(gitDir);
 
     const origStderr = process.stderr.write.bind(process.stderr);
     // @ts-expect-error patching for test
-    process.stderr.write = () => true; // suppress noise
+    process.stderr.write = () => true;
 
     let exitCode: number | undefined;
     const origExit = process.exit.bind(process);
@@ -1025,7 +936,7 @@ describe("runCollectDiff — git failure path (broken SHA)", () => {
 
     const origStdout = process.stdout.write.bind(process.stdout);
     // @ts-expect-error patching for test
-    process.stdout.write = () => true; // suppress JSON line
+    process.stdout.write = () => true;
 
     const origCwd = process.cwd();
     try {
@@ -1044,7 +955,6 @@ describe("runCollectDiff — git failure path (broken SHA)", () => {
         ]),
       ).rejects.toThrow();
 
-      // Exit code must be 1 (failure), NOT 0 (which would mean "tiny" succeeded)
       expect(exitCode).toBe(1);
     } finally {
       process.chdir(origCwd);
@@ -1060,7 +970,6 @@ describe("runCollectDiff — success path (real two-commit git repo)", () => {
     const gitDir = path.join(tmpDir, "git-success");
     const base = initGitRepo(gitDir, "app.ts", "const a = 1;\n");
 
-    // Second commit (head)
     fs.writeFileSync(
       path.join(gitDir, "app.ts"),
       "const a = 1;\nconst b = 2;\n",
@@ -1099,18 +1008,14 @@ describe("runCollectDiff — success path (real two-commit git repo)", () => {
         outStat,
       ]);
 
-      // Diff file must contain the real change
       const diff = fs.readFileSync(outDiff, "utf8");
       expect(diff).toContain("+const b = 2;");
 
-      // stat file must exist
       expect(fs.existsSync(outStat)).toBe(true);
 
-      // stdout must carry valid JSON classification
       const json = JSON.parse(stdoutLines.join("").trim());
       expect(json.changed).toBe(1);
       expect(json.huge).toBe(false);
-      // 1 file, 1 added line => tiny
       expect(json.tiny).toBe(true);
     } finally {
       process.chdir(origCwd);

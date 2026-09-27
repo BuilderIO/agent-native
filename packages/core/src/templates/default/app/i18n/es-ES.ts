@@ -700,6 +700,7 @@ const messages = {
     reviewFeedback: "Comentarios",
     reviewOutput: "Revisar respuesta",
     reviewPreview: "Vista previa de la respuesta",
+    reviewPreviewUnavailable: "Vista previa no disponible",
     closePreview: "Ocultar vista previa",
     addFeedback: "Añadir comentarios",
     draftInstruction: "Borrador de instrucción",
@@ -722,6 +723,7 @@ const messages = {
     saveUpdate: "Guardar borrador",
     draftSaved: "Borrador guardado",
     noReviews: "Aún no hay respuestas del agente para revisar",
+    summarizeWithAgent: "Resumir con el agente",
   },
   error: {
     genericTitle: "Algo salió mal",

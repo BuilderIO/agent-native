@@ -229,8 +229,6 @@ describe("mergeListedAutomationDraft", () => {
   });
 
   it("adopts the saved row once the synced key is cleared", () => {
-    // Save clears the key because the server normalized the row. Without this
-    // the draft stays "unsaved" forever and stops accepting server updates.
     const normalized: AutomationEditorSnapshot = {
       ...listed,
       authorMode: "include",

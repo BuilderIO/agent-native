@@ -26,6 +26,7 @@ const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
 const mockGetUserProfiles = vi.hoisted(() => vi.fn());
+const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -90,6 +91,13 @@ vi.mock("../server/email.js", () => ({
   sendEmail: vi.fn(),
 }));
 
+const mockTrack = vi.hoisted(() => vi.fn());
+const mockFlushTracking = vi.hoisted(() => vi.fn(async () => []));
+vi.mock("../tracking/registry.js", () => ({
+  track: (...args: any[]) => mockTrack(...args),
+  flushTracking: () => mockFlushTracking(),
+}));
+
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (event: any) => Promise.resolve(event._body),
 }));
@@ -101,6 +109,12 @@ vi.mock("../settings/user-settings.js", () => ({
 vi.mock("../user-profile/store.js", () => ({
   getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
 }));
+vi.mock("./track-invite-accepted.js", () => ({
+  trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
+  registerBackgroundWork: (event: any, promise: Promise<unknown>) => {
+    if (typeof event?.waitUntil === "function") event.waitUntil(promise);
+  },
+}));
 
 import { putUserSetting } from "../settings/user-settings.js";
 import { createOrganization } from "./context.js";
@@ -111,6 +125,7 @@ import {
   removeMemberHandler,
   retryPendingFederatedRemovalHandler,
   acceptInvitationHandler,
+  createInvitationHandler,
   joinByDomainHandler,
   updateOrgHandler,
   setOrgVisualIdentityHandler,
@@ -488,6 +503,59 @@ describe("org handlers", () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
+  it("registers invite_sent telemetry with the event's waitUntil", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const waitUntil = vi.fn();
+    const event = {
+      ...makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+      waitUntil,
+    };
+
+    await expect(createInvitationHandler(event)).resolves.toMatchObject({
+      email: "new@example.test",
+    });
+
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+  });
+
+  it("keeps invite_sent background work pending until providers flush", async () => {
+    let releaseFlush!: () => void;
+    mockFlushTracking.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseFlush = () => resolve([]))),
+    );
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const waitUntil = vi.fn();
+    await createInvitationHandler({
+      ...makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+      waitUntil,
+    });
+    let settled = false;
+    const registered = (waitUntil.mock.calls[0][0] as Promise<void>).then(
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.waitFor(() => expect(mockFlushTracking).toHaveBeenCalled());
+    expect(mockTrack).toHaveBeenCalledWith(
+      "invite_sent",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(settled).toBe(false);
+
+    releaseFlush();
+    await registered;
+    expect(settled).toBe(true);
+  });
+
   it("waits for federated invitation approval before inserting local membership", async () => {
     mockExecute.mockImplementation(async (input: { sql: string }) => {
       const sql = input.sql;
@@ -532,12 +600,24 @@ describe("org handlers", () => {
       return true;
     });
 
-    await expect(
-      acceptInvitationHandler(
-        makeEvent("/_agent-native/org/invitations/invite-1/accept"),
-      ),
-    ).resolves.toMatchObject({ orgId: "org-1", role: "member" });
+    const event = {
+      ...makeEvent("/_agent-native/org/invitations/invite-1/accept"),
+      waitUntil: vi.fn(),
+    };
+
+    await expect(acceptInvitationHandler(event)).resolves.toMatchObject({
+      orgId: "org-1",
+      role: "member",
+    });
     expect(mockAddFederatedOrganizationMember).toHaveBeenCalled();
+    expect(mockTrackInviteAccepted).toHaveBeenCalledWith({
+      email: "member@example.test",
+      orgId: "org-1",
+      role: "member",
+      invitedBy: "owner@example.test",
+      federated: true,
+      event,
+    });
     expect(
       mockExecute.mock.calls.some(([input]) =>
         input.sql.includes("INSERT INTO org_members"),
@@ -844,13 +924,13 @@ describe("org handlers", () => {
   describe("deleteOrgHandler", () => {
     it("deletes invitations, settings, members, and the org, then repoints active-org-id", async () => {
       mockExecute
-        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 }) // SELECT name
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 }) // DELETE org_invitations
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 }) // DELETE app_secrets
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 }) // DELETE settings
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 }) // DELETE org_members
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 }) // DELETE organizations
-        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 }); // SELECT next org
+        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "  example  " }),
@@ -902,7 +982,7 @@ describe("org handlers", () => {
         .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 }); // no other membership
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "Example" }),
@@ -995,10 +1075,6 @@ describe("org handlers", () => {
     });
   });
 
-  // `cachedMemberships` holds a JOIN of org_members and organizations for 15s
-  // across requests. Anything that edits a column inside that projection —
-  // `role`, `name`, `allowed_domain` — must evict it, or the process keeps
-  // authorizing and rendering from the pre-write snapshot until the TTL lapses.
   describe("membership cache invalidation", () => {
     function seedCachedMemberships() {
       const load = vi.fn(async () => [{ orgId: "org-1", role: "admin" }]);

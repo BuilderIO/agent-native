@@ -26,8 +26,6 @@ describe("deriveAppIdentity", () => {
   });
 
   it("emits nothing for a package the table does not know", () => {
-    // The shape a serverless bundle produces when the resolved package name is
-    // a bundler artifact rather than the app's own.
     const app = deriveAppIdentity({ ...base, packageName: "@acme/thing" });
     expect(app.name).toBeUndefined();
     expect(app.slug).toBeUndefined();
@@ -44,7 +42,6 @@ describe("deriveAppIdentity", () => {
       name: "Acme",
     });
     expect(app.name).toBe("Acme");
-    // ...while still filling the fields that were left unset.
     expect(app.slug).toBe("mail");
   });
 
@@ -126,7 +123,6 @@ describe("deriveAppIdentity", () => {
         appsJson,
       } as Parameters<typeof resolveAppHomePath>[1]),
     ).toBe("/home");
-    // Explicit app config still wins over the manifest.
     expect(
       resolveAppHomePath(
         { ...base, workspaceId: "adoption", homePath: "/inbox" },
@@ -172,7 +168,6 @@ describe("deriveAppIdentity", () => {
         { id: "adoption", path: "/adoption", homePath: "/home" },
         { id: "adoption", path: "/adoption", homePath: "/" },
       ],
-      // A first entry without a home path still wins, with the default home.
       [
         { id: "adoption", path: "/adoption" },
         { id: "adoption", path: "/adoption", homePath: "/" },

@@ -9,11 +9,6 @@ import {
   _resetWorkspaceCoreCache,
 } from "./workspace-core.js";
 
-/**
- * Build a throwaway monorepo fixture in a temp dir matching the layout the
- * workspace-core helper walks up to discover. Returns the appRoot (where an
- * app inside the monorepo would run from) and a cleanup function.
- */
 function makeWorkspaceFixture(opts: {
   corePackageName: string;
   withWorkspaceCoreField: boolean;
@@ -28,7 +23,6 @@ function makeWorkspaceFixture(opts: {
   fs.mkdirSync(corePackageDir, { recursive: true });
   fs.mkdirSync(appDir, { recursive: true });
 
-  // Root package.json with the workspaceCore field (optional).
   fs.writeFileSync(
     path.join(tmpRoot, "package.json"),
     JSON.stringify(
@@ -45,13 +39,11 @@ function makeWorkspaceFixture(opts: {
   );
   fs.writeFileSync(path.join(tmpRoot, "pnpm-workspace.yaml"), "packages:\n");
 
-  // Shared package package.json with the matching name.
   fs.writeFileSync(
     path.join(corePackageDir, "package.json"),
     JSON.stringify({ name: opts.corePackageName, version: "0.0.0" }, null, 2),
   );
 
-  // Optional server/index.ts with plugin exports.
   if (opts.withServerIndex) {
     fs.mkdirSync(path.join(corePackageDir, "src", "server"), {
       recursive: true,
@@ -90,7 +82,6 @@ export const orgPlugin = async () => {};
     );
   }
 
-  // App that the caller runs from.
   fs.writeFileSync(
     path.join(appDir, "package.json"),
     JSON.stringify({ name: "example-app" }, null, 2),
@@ -109,7 +100,6 @@ describe("getWorkspaceCoreExports", () => {
   afterEach(() => _resetWorkspaceCoreCache());
 
   it("returns null when cwd is not inside a workspace", async () => {
-    // Use a temp dir that definitely has no ancestor workspace config.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-workspace-"));
     try {
       const result = await getWorkspaceCoreExports(tmp);
@@ -129,7 +119,6 @@ describe("getWorkspaceCoreExports", () => {
       withAgentsMd: false,
     });
     try {
-      // Rewrite the field to point at a package that doesn't exist in packages/
       fs.writeFileSync(
         path.join(fix.tmpRoot, "package.json"),
         JSON.stringify(
@@ -188,7 +177,6 @@ describe("getWorkspaceCoreExports", () => {
     try {
       const result = await getWorkspaceCoreExports(fix.appDir);
       expect(result).not.toBeNull();
-      // server/index.ts exports authPlugin and orgPlugin but not agentChatPlugin
       expect(result!.plugins).toEqual({
         auth: "authPlugin",
         org: "orgPlugin",
@@ -248,7 +236,6 @@ describe("getWorkspaceCoreExports", () => {
     });
     try {
       const first = await getWorkspaceCoreExports(fix.appDir);
-      // Delete the fixture then re-query with the same cwd: should hit cache.
       const tempBackup = path.join(os.tmpdir(), "ws-cache-backup");
       fs.renameSync(fix.tmpRoot, tempBackup);
       try {

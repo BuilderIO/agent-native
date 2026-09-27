@@ -47,7 +47,6 @@ const listSessionRecordingsPage = vi.fn(async () => ({
   appCounts: [] as { app: string; count: number }[],
 }));
 
-// Stub unrelated server libs so the action loads in isolation.
 vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
 }));
@@ -184,7 +183,6 @@ describe("view-screen monitoring status-pages branch", () => {
       monitorCount: 2,
       publicUrl: "/status/acme",
     });
-    // The uptime monitors list must not leak into the status-pages sub-view.
     expect(listMonitors).not.toHaveBeenCalled();
   });
 
@@ -266,7 +264,6 @@ describe("view-screen monitoring status-pages branch", () => {
     });
     const out = await runScreen();
     expect(listStatusPages).not.toHaveBeenCalled();
-    // The surfaces catalog is still reported so the agent knows the sub-views.
     expect(out.page).toBe("monitoring");
   });
 });

@@ -382,9 +382,6 @@ describe("session replay ingest parsing", () => {
             },
           },
         },
-        // Legacy-style event whose message matches the old substring
-        // heuristic; it must NOT add to errorCount once tagged diagnostics
-        // exist (no double counting).
         { type: 5, timestamp: 7, data: { message: "Uncaught error thing" } },
       ],
     });
@@ -427,7 +424,6 @@ describe("session replay ingest parsing", () => {
         click(1_000, 7),
         click(1_002, 7),
         click(1_400, 7),
-        // Different target and a long gap: neither extends the burst.
         click(9_000, 8),
         click(30_000, 8),
       ],
@@ -738,8 +734,6 @@ describe("session replay ingest parsing", () => {
       orgId: "org_123",
     });
 
-    // Returns the raw JSON string, ready to be served as application/json and
-    // parsed with response.json() — no pre-gzipped body / Content-Encoding.
     expect(result.json).toBe(eventsJson);
     expect(JSON.parse(result.json)).toEqual([
       { type: 4, data: { href: "/inbox" } },
@@ -776,7 +770,6 @@ describe("session replay ingest parsing", () => {
       ],
     ]);
     getDbMock.mockReturnValue(db);
-    // Stored at rest gzipped; the read path must gunzip before serving.
     readPrivateBlobMock.mockResolvedValue({
       data: gzipSync(Buffer.from(eventsJson, "utf8")),
     });
@@ -1364,8 +1357,6 @@ describe("session replay ingest parsing", () => {
     ).rejects.toMatchObject({
       statusCode: 429,
       message: "Replay ingest byte quota exceeded for this public key",
-      // The recorder stops for the session on a day-long window and only
-      // pauses on a short one, so the two 429s must stay distinguishable.
       retryAfterSeconds: 24 * 60 * 60,
     });
   });
@@ -1395,9 +1386,6 @@ describe("session replay ingest parsing", () => {
   });
 
   it("rejects a new recording at 90% of the daily byte budget", async () => {
-    // Admission ceiling for a new recording is 85% of the 1,000-byte cap
-    // (850), so 900 already-used bytes plus any request exceeds it even
-    // though the hard cap (1,000) has headroom left.
     const db = createBudgetDbMock([[{ bytes: 900 }]]);
     getDbMock.mockReturnValue(db);
 
@@ -1537,8 +1525,6 @@ describe("session replay ingest parsing", () => {
         statusCode: 503,
       });
 
-      // The reserved usage row is deleted first (rollback of the pre-upload
-      // reservation), then the empty-recording placeholder.
       expect(deletes).toHaveLength(2);
       expect(deletes[0]?.table).toBe(schema.sessionReplayIngests);
       const cleanupCondition = conditionText(deletes[1]?.where);
@@ -1588,7 +1574,6 @@ describe("session replay ingest parsing", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 429, retryAfterSeconds: 60 });
 
-    // key, daily bytes, per-minute count, and no session_recordings lookup
     expect(db.select).toHaveBeenCalledTimes(3);
     expect(inserts).toHaveLength(0);
   });
@@ -1842,10 +1827,6 @@ describe("session replay ingest parsing", () => {
   });
 
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
-    // The ingest endpoint is anonymous + cross-origin (no session). Without the
-    // runWithRequestContext wrap, resolveBuilderPrivateKey()/S3 scoped-secret
-    // lookups would see no user/org and every upload would 503 -> empty
-    // recordings. Assert the upload runs in the key owner's scope.
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     let seenEmail: string | undefined;
@@ -1853,7 +1834,7 @@ describe("session replay ingest parsing", () => {
     putPrivateBlobMock.mockImplementation(async () => {
       seenEmail = getRequestUserEmail();
       seenOrgId = getRequestOrgId();
-      return null; // force the 503 path after capturing the resolution scope
+      return null;
     });
     const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
     getDbMock.mockReturnValue(db);

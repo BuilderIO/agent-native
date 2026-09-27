@@ -4,15 +4,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Render-level coverage for the Mermaid block's hover-expand → lightbox
- * affordance (the same contract `diagram.spec.tsx` covers for the HTML/SVG
- * DiagramBlock). The real diagram renders by dynamically importing
- * `@excalidraw/mermaid-to-excalidraw` + `@excalidraw/excalidraw`, so we mock
- * those to resolve to a known SVG, letting us assert the expand control opens a
- * lightbox that re-renders the same SVG, and closes on Escape / backdrop click.
- */
-
 const ENLARGEABLE_SVG =
   '<svg data-testid="mermaid-svg"><text>Lifecycle</text></svg>';
 
@@ -25,7 +16,6 @@ vi.mock("@excalidraw/excalidraw", () => ({
   exportToSvg: async () => ({ outerHTML: ENLARGEABLE_SVG }),
 }));
 
-// Imported after the mocks are registered.
 const { MermaidRead } = await import("./MermaidBlock.js");
 
 describe("MermaidBlock expand affordance", () => {
@@ -65,7 +55,6 @@ describe("MermaidBlock expand affordance", () => {
         />,
       );
     });
-    // Let the post-mount async SVG render settle.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -94,7 +83,6 @@ describe("MermaidBlock expand affordance", () => {
     expect(
       overlay?.querySelector('button[aria-label="Close preview"]'),
     ).toBeTruthy();
-    // The same rendered SVG is shown enlarged inside the overlay.
     expect(overlay?.querySelector('[data-testid="mermaid-svg"]')).toBeTruthy();
     expect(overlay?.textContent).toContain("Lifecycle");
 

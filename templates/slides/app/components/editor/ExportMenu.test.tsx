@@ -1,10 +1,12 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef, type Ref } from "react";
 const requestString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -43,9 +45,6 @@ vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
-// Export routing is what this suite measures, and it counts export requests
-// exactly. The availability probe has its own suite in
-// ExportMenu.google-availability.test.tsx.
 vi.mock("@/lib/google-slides-export-availability-client", () => ({
   useGoogleSlidesExportAvailability: () => ({ available: true }),
   fetchGoogleSlidesExportAvailability: async () => ({ available: true }),
@@ -90,20 +89,21 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 
-import { canExportPptxFromServer, ExportMenu } from "./ExportMenu";
+import {
+  canExportPptxFromServer,
+  ExportMenu,
+  type ExportMenuHandle,
+} from "./ExportMenu";
 
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-/** The exact wrapper server/handlers/import/html-converter.ts writes per PPTX slide. */
 const importedSlide = (body: string) =>
   `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192125" data-slide-height-emu="6858000" style="position: relative; background: #013445;">${body}</div>`;
 
-/** An object carried over from the source file: geometry came from the XML. */
 const importedShape =
   '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="108" style="position: absolute; left: 40px; top: 60px; width: 320px; height: 180px;"></div>';
 
-/** An object the editor positioned by measuring the browser's own layout. */
 const editorTextBox =
   '<div class="fmd-text-box" data-slide-object-id="0c6f2a1e-9d3b-4d64-8f2a-2b7f0f6d1a55" style="position:absolute;left:120px;top:80px;width:320px">Added in the editor</div>';
 
@@ -138,10 +138,15 @@ function captureDownloadNames() {
 
 let queryClient: QueryClient;
 
-function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
+function renderMenu(
+  overrides: Partial<Parameters<typeof ExportMenu>[0]> = {},
+  ref?: Ref<ExportMenuHandle>,
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
+        ref={ref}
+        hasSlides
         deckId="deck-1"
         deckTitle="Quarterly Review"
         onDuplicate={vi.fn()}
@@ -166,7 +171,6 @@ beforeEach(() => {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Editor-authored by default: only imported decks leave the browser path.
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
   globalThis.fetch = vi.fn(async () => new Response()) as typeof fetch;
@@ -205,9 +209,41 @@ describe("<ExportMenu>", () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 
+  it("disables export actions and ignores direct exports when the deck is empty", async () => {
+    const ref = createRef<ExportMenuHandle>();
+    const onExportPdf = vi.fn();
+    const onExportPptx = vi.fn();
+    const onExportGoogleSlides = vi.fn();
+    renderMenu(
+      {
+        hasSlides: false,
+        onExportPdf,
+        onExportPptx,
+        onExportGoogleSlides,
+      },
+      ref,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: /^export$/i })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await act(async () => {
+      await ref.current?.exportHtml();
+      await ref.current?.exportPdf();
+      await ref.current?.exportPptx();
+      await ref.current?.exportGoogleSlides();
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onExportPdf).not.toHaveBeenCalled();
+    expect(onExportPptx).not.toHaveBeenCalled();
+    expect(onExportGoogleSlides).not.toHaveBeenCalled();
+  });
+
   it("exports an imported deck through the vector-capable server path", async () => {
-    // dom-to-pptx has no custGeom and rasterizes every shape, so a deck whose
-    // geometry came from the source XML must not go out through the browser.
     getDeckMock.mockReturnValue(
       importedDeck([importedSlide(importedShape), importedSlide("")]),
     );
@@ -227,7 +263,6 @@ describe("<ExportMenu>", () => {
         body: JSON.stringify({ deckId: "deck-1" }),
       }),
     );
-    // Unflushed edits would be missing from the file the server builds.
     expect(flushDeckSaveMock).toHaveBeenCalledWith("deck-1");
     expect(onExportPptx).not.toHaveBeenCalled();
   });
@@ -286,8 +321,6 @@ describe("<ExportMenu>", () => {
         ...imported,
         slides: [
           ...imported.slides,
-          // An agent-written slide has no source geometry to preserve, and the
-          // server would render it without the browser's measurements.
           { content: '<div class="fmd-slide"><h1>Added</h1></div>' },
         ],
       }),
@@ -318,6 +351,7 @@ describe("<ExportMenu>", () => {
           <DropdownMenuContent>
             <ExportMenu
               inline
+              hasSlides
               deckId="deck-1"
               deckTitle="Quarterly Review"
               onDuplicate={vi.fn()}
@@ -500,10 +534,6 @@ describe("<ExportMenu>", () => {
   });
 
   it("downloads HTML via the streamed POST endpoint, not the broken filename GET", async () => {
-    // Regression test for the bug Josh hit: the old flow POSTed to the
-    // action endpoint, got back a filename, then redirected to
-    // /api/exports/:filename — that GET returns 404 on serverless because
-    // the file was written to a different Lambda's /tmp.
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         new Blob(["<html><body>deck</body></html>"], { type: "text/html" }),

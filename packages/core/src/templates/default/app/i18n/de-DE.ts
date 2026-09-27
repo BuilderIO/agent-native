@@ -692,6 +692,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Antwort prüfen",
     reviewPreview: "Antwortvorschau",
+    reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     closePreview: "Vorschau ausblenden",
     addFeedback: "Feedback hinzufügen",
     draftInstruction: "Anweisung entwerfen",
@@ -713,6 +714,7 @@ const messages = {
     saveUpdate: "Entwurf speichern",
     draftSaved: "Entwurf gespeichert",
     noReviews: "Noch keine Agentenantworten zur Prüfung",
+    summarizeWithAgent: "Mit dem Agenten zusammenfassen",
   },
   error: {
     genericTitle: "Etwas ist schiefgelaufen",

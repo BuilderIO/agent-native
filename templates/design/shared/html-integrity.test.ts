@@ -218,8 +218,6 @@ describe("Design HTML integrity", () => {
   });
 
   it("accepts x-cloak when the hiding rule could only live in a linked stylesheet", () => {
-    // A stylesheet this parser cannot read is unknown, not missing — reporting
-    // it as missing is the coercion this module exists to prevent.
     const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><link rel="stylesheet" href="theme.css"></head><body><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
     expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
       valid: true,
@@ -234,8 +232,6 @@ describe("Design HTML integrity", () => {
   });
 
   it("lets an unrelated edit save a screen that already lacked the rule", () => {
-    // The person dragging on the canvas did not author this markup and cannot
-    // add a CSS rule; refusing their edit would strand the screen.
     const broken = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><h1>Ops</h1><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
     expect(() =>
       assertDesignHtmlEditIntegrity({
@@ -244,7 +240,6 @@ describe("Design HTML integrity", () => {
         fileType: "html",
       }),
     ).not.toThrow();
-    // Still refused where it is authored rather than inherited.
     expect(() => assertDesignHtmlWellFormed({ content: broken })).toThrow(
       /x-cloak/,
     );
@@ -262,9 +257,6 @@ describe("Design HTML integrity", () => {
   });
 
   it("reports an x-show overlay with nothing hiding it, without blocking the save", () => {
-    // The incident shape minus the x-cloak attribute: same full-screen cover,
-    // but advisory — with Alpine healthy this is one frame, and a broken
-    // runtime is already a blocking issue.
     const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><div x-show="alertsOpen" class="fixed inset-0 z-50 bg-white">Alerts</div></body></html>`;
     const result = inspectDesignHtmlDocumentIntegrity(document);
 
@@ -322,9 +314,6 @@ describe("Design HTML integrity", () => {
       'data-agent-native-breakpoints">',
     );
 
-    // The structural pass reaches this before the raw-text count does, and
-    // reports the stray `</style>` with its line instead of the unlocated
-    // "raw text is unbalanced somewhere" verdict. Same rejection, narrower cause.
     const result = inspectDesignHtmlDocumentIntegrity(corrupted);
     expect(result.valid).toBe(false);
     expect(result.issue).toBe("close-tag-orphaned");
@@ -462,15 +451,6 @@ describe("Design HTML integrity", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Structural pass
-//
-// Every case below persisted silently before this pass existed: the counting
-// checks are blind to nesting, so an unclosed element or a stray closing tag
-// left all root-tag counts intact. The browser's HTML parser recovers from all
-// of them without an error, which is why nothing downstream ever reported them.
-// ---------------------------------------------------------------------------
-
 const SCREEN = `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8">
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
@@ -489,8 +469,6 @@ describe("Design HTML structural integrity", () => {
     );
     const result = inspectDesignHtmlDocumentIntegrity(corrupted);
     expect(result.valid).toBe(false);
-    // The counting pass would have reported `document-root` here — accurate as a
-    // symptom, useless as a fix, because <html> is present and correct.
     expect(result.issue).toBe("attribute-unterminated");
     expect(result.detail?.[0]).toMatchObject({
       tag: "script",
@@ -542,9 +520,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("distinguishes a cut-off tag from an unterminated quote", () => {
-    // Every quote here is closed; the TAG is what got cut off. Deciding this by
-    // "is there a quote anywhere after this point" told the author to close a
-    // quote that was already closed.
     const result = inspectDesignHtmlDocumentIntegrity(
       '<!doctype html><html><head></head><body><div class="a" data-y',
     );
@@ -557,8 +532,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("reads a spaced closing tag as the character data it is", () => {
-    // `< /div>` is text per the spec, not a close tag, so the <div> is never
-    // closed and the parser closes it at </body>.
     const result = inspectDesignHtmlDocumentIntegrity(
       "<!doctype html><html><head></head><body><div>x< /div></body></html>",
     );
@@ -611,10 +584,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("treats a literal closing tag in a script string as the break it is", () => {
-    // Not a false positive: per the HTML spec, `</script>` inside a JS string
-    // DOES end the element — which is why `"<\\/script>"` escaping exists. The
-    // browser ends the script early, leaves `";` as text, and orphans the real
-    // closer. Rejecting is the gate working, not over-reach.
     expect(
       inspectDesignHtmlDocumentIntegrity(
         SCREEN.replace(
@@ -661,9 +630,6 @@ describe("Design HTML structural integrity", () => {
     ],
     ["a longer tag name", '<script>const s = "</scriptfoo>";</script>'],
   ])("does not treat %s as the raw-text closer", (_label, body) => {
-    // A raw-text end tag closes the element only when the name is followed by
-    // whitespace, `/`, or `>`. Matching a word boundary instead orphaned the
-    // real closer, rejecting a document the browser parses fine.
     expect(
       inspectDesignHtmlDocumentIntegrity(
         SCREEN.replace(
@@ -693,8 +659,6 @@ describe("Design HTML structural integrity", () => {
     ["tr with an inline descendant", "<table><tr><td><b>a<tr><td>b</table>"],
     ["dt/dd with an inline descendant", "<dl><dt><em>k<dd>v</dl>"],
   ])("closes intervening elements on an implied close: %s", (_label, body) => {
-    // The browser closes the descendant along with the list item, so popping
-    // only the stack top reported the still-open <span> as unclosed.
     expect(
       inspectDesignHtmlDocumentIntegrity(
         SCREEN.replace(
@@ -716,8 +680,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("stays linear across many raw-text blocks", () => {
-    // Slicing the remaining document per raw-text opener was quadratic
-    // allocation on the synchronous save path.
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<style>.a{color:red}</style><script>var a=1</script>".repeat(count)}</body></html>`;
     const time = (html: string) => {
@@ -735,8 +697,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("stays linear on large valid documents", () => {
-    // Locating per close tag made this quadratic: a 117KB valid screen cost
-    // ~700ms synchronously on every save.
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<div>x</div>".repeat(count)}</body></html>`;
     const time = (html: string) => {
@@ -750,7 +710,6 @@ describe("Design HTML structural integrity", () => {
     time(build(1000));
     const small = time(build(2000));
     const large = time(build(8000));
-    // 4x the input must not cost anything like 16x the time.
     expect(large).toBeLessThan(Math.max(small, 1) * 10);
   });
 
@@ -763,9 +722,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it("rejects an Alpine expression whose last string literal is never closed", () => {
-    // The HTML attribute is well-formed, so every structural rule passes and the
-    // screen renders — Alpine then throws "Invalid or unexpected token" and drops
-    // every binding on the component.
     const broken = SCREEN.replace(
       "<body",
       `<body x-data="{ items: [] }"><span :class="item.color==='cobalt'?'bg-[var(--color-cobalt)]':'bg-[var(--color-accent)]"></span><span`,
@@ -812,8 +768,6 @@ describe("Design HTML structural integrity", () => {
     ["division", `<div x-text="total / count / 2"></div>`],
     ["encoded apostrophe", `<div x-text="&#39;done&#39;"></div>`],
     ["comparison operators", `<div x-show="a < b && c > d"></div>`],
-    // Not JavaScript, and reading them as such is how a check like this starts
-    // rejecting working markup.
     ["x-for", `<template x-for="(item, i) in items"><li></li></template>`],
     [
       "x-transition class list",
@@ -827,7 +781,6 @@ describe("Design HTML structural integrity", () => {
   });
 
   it.each([
-    // Balanced delimiters throughout, so only a real parser rejects these.
     ["trailing garbage", `<div x-text="a) open("></div>`],
     ["doubled operator", `<div x-show="a ==== b"></div>`],
     ["empty object value", `<div x-data="{ open: }"></div>`],
@@ -844,7 +797,6 @@ describe("Design HTML structural integrity", () => {
       `<div x-text="okay + + +"></div>`,
     );
     expect(result.valid).toBe(false);
-    // The value starts at column 14; the defect is later in the expression.
     expect(result.detail?.[0]?.column).toBeGreaterThan(14);
   });
 
@@ -898,15 +850,12 @@ describe("Design HTML structural integrity", () => {
       `<script type="text/javascript; charset=utf-8">const a = 1;</script>`,
     ],
   ])("treats %s the way the browser does", (_label, tag) => {
-    // Anything outside the executable JavaScript MIME types is inert data.
     expect(() =>
       assertDesignHtmlWellFormed({ content: `<div>${tag}</div>` }),
     ).not.toThrow();
   });
 
   it("rejects a top-level return in a classic script", () => {
-    // A <script> body is a Program, so the browser refuses it with "Illegal
-    // return statement" and the element never runs.
     expect(() =>
       assertDesignHtmlWellFormed({
         content: `<div><script>return; initUi()</script></div>`,
@@ -930,24 +879,18 @@ describe("Design HTML structural integrity", () => {
     ["nested inline elements", "<div><span>x"],
     ["block inside block", "<section><article>x"],
   ])("rejects %s left unclosed at EOF in a fragment", (_label, fragment) => {
-    // The parser invents <body> for a fragment; treating that as an implied
-    // close excuses every unclosed element and voids the whole check.
     expect(() => assertDesignHtmlWellFormed({ content: fragment })).toThrow(
       DESIGN_HTML_INTEGRITY_ERROR_CODE,
     );
   });
 
   it("rejects two documents concatenated by a bad write", () => {
-    // The HTML parser merges the second <html> into the first and reports
-    // nothing, so the doubled roots exist only in the source.
     const result = inspectDesignHtmlDocumentIntegrity(`${SCREEN}${SCREEN}`);
     expect(result.valid).toBe(false);
     expect(result.issue).toBe("document-root");
   });
 
   it("does not read root tags inside a template's content as extra roots", () => {
-    // A `<template>`'s children hang off `content`, not `childNodes`; missing
-    // them made every close tag inside an x-for template look orphaned.
     const withTemplate = SCREEN.replace(
       '<h1 class="text-3xl">Hi</h1>',
       `<template x-for="row in rows"><div class="p-2"><button class="btn"><span>x</span></button></div></template>`,
@@ -978,7 +921,6 @@ describe("Design HTML structural integrity", () => {
 
 describe("assertDesignHtmlWellFormed", () => {
   it("accepts a sketch with an implied document skeleton", () => {
-    // Variants may omit <html>/<body>; document-shape rules are not its job.
     expect(() =>
       assertDesignHtmlWellFormed({
         content:
@@ -993,8 +935,6 @@ describe("assertDesignHtmlWellFormed", () => {
     ["title", "<title>Hi"],
     ["textarea", "<div><textarea>Hi"],
   ])("rejects an unclosed raw-text <%s> in a fragment", (_label, content) => {
-    // Fragments never reach the document-only raw-text balance check, so this
-    // has to be caught during the structural scan or it passes entirely.
     expect(() => assertDesignHtmlWellFormed({ content })).toThrow(
       DESIGN_HTML_INTEGRITY_ERROR_CODE,
     );
@@ -1033,7 +973,6 @@ describe("assertDesignHtmlCreateIntegrity", () => {
     expect(message).toContain(DESIGN_HTML_INTEGRITY_ERROR_CODE);
     expect(message).toContain("index.html");
     expect(message).toContain("never closed");
-    // The excerpt is what makes the error actionable without a re-read.
     expect(message).toContain("class=");
   });
 
@@ -1061,8 +1000,6 @@ describe("assertDesignHtmlCreateIntegrity", () => {
 
   it("does not grant creation the legacy-repair leniency edits get", () => {
     const corrupted = SCREEN.replace("</div></body>", "</body>");
-    // An edit from malformed to malformed is tolerated so legacy screens stay
-    // repairable; a brand-new file has no such history to protect.
     expect(() =>
       assertDesignHtmlEditIntegrity({
         previousContent: corrupted,

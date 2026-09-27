@@ -1,8 +1,5 @@
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-// Last-resort reload bookkeeping. Persisted in sessionStorage so the cooldown
-// survives the reload it triggers (the in-memory closure is destroyed), with a
-// window-scoped fallback for environments where sessionStorage throws.
 const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 
@@ -126,10 +123,6 @@ function hasViteDevRecovery(win: Window): boolean | undefined {
     return true;
   }
 
-  // The inline script is normally the earliest signal, but React Router can
-  // mount through a dev entry before transformIndexHtml has run. The module
-  // environment is the same ownership boundary and prevents the route
-  // recovery layer from replaying an in-flight handoff in that window.
   try {
     const hostname = win.location.hostname;
     const isLocalDevOrigin =
@@ -139,10 +132,6 @@ function hasViteDevRecovery(win: Window): boolean | undefined {
       hostname === "::1";
     if (!isLocalDevOrigin) return false;
 
-    // The recovery module can be loaded from a prebuilt package artifact, so
-    // Vite may not preserve import.meta.env.DEV even though the consuming app
-    // is running through Vite. Local origins are the host boundary for that
-    // dev-only script; never let the shared route hook replay a handoff there.
     return true;
   } catch (error) {
     void error;
@@ -184,23 +173,11 @@ function markStaleChunkReload(win: Window, now: number): void {
   } catch {}
 }
 
-/**
- * Last resort when a stale lazy chunk fails to load for the *current* route —
- * an old tab whose hashed chunk filenames no longer exist after a deploy — and
- * there is no fresh cross-route navigation to recover to. A single guarded
- * reload pulls a fresh index.html plus chunk manifest. A sessionStorage cooldown
- * prevents a reload loop when the chunk is genuinely unreachable (e.g. offline),
- * letting the error surface to Sentry as before in that case.
- *
- * Returns true when a reload was triggered.
- */
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  // Desktop webviews intentionally stay open across deploys; a forced reload
-  // reads as a random tab refresh, matching recoverToIntendedNavigation().
   if (isAgentNativeDesktop(win)) return false;
   const lastReloadAt = readStaleChunkReloadAt(win);
   if (
@@ -214,11 +191,6 @@ export function reloadForStaleChunk(
   return true;
 }
 
-/**
- * Recover when a caught error (e.g. a `React.lazy` rejection surfaced to an
- * error boundary) is a stale dynamic-import failure. No-op and returns false
- * for any other error so callers can fall through to their normal handling.
- */
 export function recoverFromStaleChunkError(
   error: unknown,
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
@@ -244,9 +216,6 @@ function recoverToIntendedNavigation(
   if (!recoveryTarget) return false;
   state.recovering = true;
   state.recoveryHref = recoveryTarget;
-  // Keep the desktop shell mounted, but replace only the route that failed to
-  // load. A current-page reload remains suppressed below when there is no
-  // intended cross-route destination to recover.
   if (isAgentNativeDesktop(win)) {
     hardNavigate(win, recoveryTarget);
     return true;
@@ -264,9 +233,6 @@ function recoverFromDynamicImportFailure(
   message: string,
 ): boolean {
   if (!isDynamicImportFailureMessage(message)) return false;
-  // The Vite dev recovery script owns optimizer races in development. Let its
-  // bounded overlay/reload policy handle those failures instead of starting a
-  // second reload loop from the route recovery layer.
   if (
     hasViteDevRecovery(win) === true &&
     isViteOptimizerFailureMessage(message)
@@ -299,24 +265,13 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
   const boundReload = originalReload.bind(win.location);
   const patchedReload = function patchedReload() {
     if (Date.now() - state.routeModuleFailureAt <= 1_000) {
-      // The console hook may already have started the recovery navigation.
-      // React Router calls reload immediately after logging, so navigating a
-      // second time here can turn one stale route into a reload loop.
       if (state.recovering) return;
-      // A route-module error is distinct from a Vite optimizer failure. The
-      // Vite dev handler and this hook share the same document, so replaying
-      // a remembered handoff target here can bounce between the old route and
-      // the durable target while React Router is still unwinding the error.
-      // Let the guarded current-page reload repair the module graph in dev;
-      // keep cross-route recovery for production and desktop shells.
       if (hasViteDevRecovery(win) !== true) {
         if (recoverToIntendedNavigation(win, state)) {
           return;
         }
       }
       if (isAgentNativeDesktop(win)) return;
-      // A current-route failure has no alternate target. Refresh once using
-      // the session-scoped cooldown, then leave persistent failures visible.
       reloadForStaleChunk(win);
       return;
     }
@@ -387,19 +342,11 @@ export function installRouteChunkRecovery(
     }
   });
 
-  // React Router catches stale route-module import failures and reloads the
-  // current URL. Its console message is the only signal exposed before reload.
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
-      // React Router logs before calling location.reload(). In Vite dev the
-      // recovery layer owns the bounded refresh; recovering here as well can
-      // turn a same-route failure into a document replacement loop.
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        // React Router calls location.reload() immediately after this log.
-        // In Vite dev, leave the route at its durable URL and let the patched
-        // reload perform one bounded refresh instead of replaying stale intent.
         if (hasViteDevRecovery(win) !== true) {
           recoverToIntendedNavigation(win, state);
         }

@@ -49,6 +49,17 @@ describe("AgentPanel compatibility exports", () => {
     expect(legacyFocusAgentChat).toBe(focusAgentChat);
     expect(legacyPreloadAgentChatSurface).toBe(preloadAgentChatSurface);
   });
+
+  it("uses a stable-ref link in the full-view menu item", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+
+    expect(source).toContain(
+      "<DropdownMenuItem asChild> <RouterSidebarLink to={fullViewAction.href}",
+    );
+  });
 });
 
 describe("resolveAgentPanelChatSurface", () => {
@@ -731,9 +742,6 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
-    // Regression: without the "timeout" timing, the animation-frame handoff
-    // races with the dropdown's own close/focus-restore cycle and the share
-    // popover never opens (same failure mode fixed for "All chats" in #4644).
     expect(overflowMenu).toContain(
       'setShareFromMenuOpen(true),\n                        "timeout"',
     );

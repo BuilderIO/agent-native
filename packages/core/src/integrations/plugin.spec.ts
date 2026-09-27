@@ -239,8 +239,6 @@ vi.mock("./webhook-handler.js", async () => {
   };
 });
 
-// Default mirrors the real non-Slack service path so existing webhook tests
-// keep their behavior; individual tests override with mockRejectedValueOnce.
 const resolveDefaultExecutionContextMock = vi.hoisted(() =>
   vi.fn(async (incoming: { platform: string }) => ({
     ownerEmail: `integration@${incoming.platform}`,
@@ -479,8 +477,6 @@ describe("integrations plugin routes", () => {
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
 
-    // No Slack handler is registered, so both paths fall past the named
-    // routes to the catch-all, which resolves an adapter and finds none.
     await expect(
       dispatch(nitroApp, "/_agent-native/integrations/slack/oauth/callback"),
     ).resolves.toMatchObject({
@@ -1038,8 +1034,6 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    // Sweeps every dispatch mode: portable tasks are the ones most likely to
-    // be stranded, since their self-dispatch dies with the container.
     expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
       webhookBaseUrl: "https://app.test",
       limit: 20,
@@ -2394,11 +2388,6 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toBe("Base prompt.");
     expect(options.ownerEmail).toBe("owner+qa@example.com");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
-    // No app `actions` were configured on this plugin instance, so the
-    // "keep on the first request" list is empty — everything merged into
-    // `options.actions` (integration memory, call-agent) is deferred behind
-    // the tool-search entry `handleWebhook` attaches. See
-    // `initialToolNames` on `WebhookHandlerOptions`.
     expect(options.initialToolNames).toEqual([]);
   });
 
@@ -2440,9 +2429,6 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).toHaveBeenCalledTimes(1);
     const [, options] = handleWebhookMock.mock.calls[0];
     expect(options.initialToolNames).toEqual(["template-action"]);
-    // The framework additions are still present in the executable registry
-    // (so a tool-search-discovered call can still run) — just excluded from
-    // the "reveal up front" list checked above.
     expect(Object.keys(options.actions)).toEqual(
       expect.arrayContaining(["call-agent", "template-action"]),
     );

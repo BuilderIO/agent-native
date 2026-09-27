@@ -114,7 +114,6 @@ describe("slackAdapter", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Immediately after the failure, the short negative cache absorbs retries.
     await adapter.hydrateIncomingIdentity?.({
       platform: "slack",
       externalThreadId: "A777:T777:D777:1.2",
@@ -127,8 +126,6 @@ describe("slackAdapter", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Well before the 10-minute positive TTL, the lookup is re-attempted, so
-    // a transient users.info blip cannot fail-close this sender's identity.
     vi.setSystemTime(Date.now() + 31_000);
     await adapter.hydrateIncomingIdentity?.({
       platform: "slack",

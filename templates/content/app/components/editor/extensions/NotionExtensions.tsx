@@ -513,7 +513,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
-      // Delete this empty toggle and replace with paragraph
       const paragraph = editor.state.schema.nodes.paragraph;
       if (!paragraph) return;
       const tr = editor.state.tr.replaceWith(
@@ -911,13 +910,6 @@ export const NotionToggle = Node.create({
   addStorage() {
     return {
       markdown: {
-        // NOTE: must be a regular function (not arrow) so that
-        // tiptap-markdown's `serialize.bind({editor, options})` actually
-        // sets `this`. Arrow functions ignore .bind() — that left
-        // `this.editor` undefined inside `serializeInnerMarkdown`,
-        // which silently fell back to `node.textContent` and stripped
-        // every paragraph break, blockquote marker, and inline mark
-        // from the toggle's contents on save.
         serialize: function (_state: any, node: any) {
           const attrs: Record<string, string> = {};
           if (node.attrs.color) attrs.color = String(node.attrs.color);
@@ -1047,7 +1039,6 @@ export const NotionCallout = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(
@@ -1089,7 +1080,6 @@ export const NotionColumns = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("columns", {}, inner));
@@ -1121,7 +1111,6 @@ export const NotionColumn = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("column", {}, inner));
@@ -1152,12 +1141,6 @@ export const NotionBlockAtom = Node.create({
       tagName: { default: "unknown" },
       attrsJson: { default: "{}" },
       label: { default: "" },
-      // Verbatim source for unrecognized raw containers (e.g. <meeting-notes>)
-      // preserved by parseRawContainer. Must survive editor load/save so the
-      // real content isn't replaced by the tagName summary on the next save.
-      // Kept out of the rendered DOM (see renderHTML) since the NodeView
-      // renders from label/tagName; parseHTML restores it from data-raw for
-      // the rare case content is round-tripped through HTML (e.g. paste).
       __raw: { default: "" },
     };
   },

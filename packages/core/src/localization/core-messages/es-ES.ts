@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "Dirección URL",
+  "composer.contextInvalidUrl": "Introduce una URL HTTP o HTTPS válida.",
+  "composer.contextAttach": "Adjuntar",
+  "composer.menu.search": "Buscar…",
+  "composer.contextPrevious": "Anterior",
+  "composer.contextNext": "Siguiente",
+  "composer.contextLoadFailed": "No se pudo cargar el contexto.",
+  "composer.contextLinkRequired": "Introduce un enlace.",
+  "composer.submitFailed": "No se pudo enviar. Inténtalo de nuevo.",
+  "composer.addContext": "Añadir contexto",
+  "composer.contextActionFailed": "No se pudo añadir el contexto.",
+  "composer.contextBack": "Atrás",
+  "composer.searchContext": "Buscar contexto…",
+  "composer.noContextResults": "No hay contexto coincidente.",
+  "composer.contextPending": "Contexto pendiente",
+  "composer.contextError": "Error de contexto",
+  "composer.retryContext": "Reintentar contexto {{name}}",
+  "composer.contextLimitExceeded":
+    "El contexto es demasiado grande. Quita un elemento o adjunta una selección más pequeña.",
   "activity.reasoning": "Razonamiento",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
@@ -33,6 +52,15 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar archivos, agentes o recursos",
   "commands.new": "Igual que /clear",
   "commands.plan": "Cambiar a la planificación de solo lectura",
+  "observability.viewDetails": "Ver detalles",
+  "observability.hideDetails": "Ocultar detalles",
+  "observability.input": "Entrada",
+  "observability.output": "Salida",
+  "observability.error": "Error",
+  "observability.metadata": "Metadatos",
+  "observability.notCaptured": "No capturado",
+  "observability.openFullConversation": "Abrir conversación completa",
+  "observability.learnAboutTab": "Más información sobre esta pestaña",
   "onboarding.back": "Atrás",
   "onboarding.chooseRole": "Elige tu rol",
   "onboarding.customizeRole": "Personalicemos esto para ti.",
@@ -88,10 +116,12 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
-  "onboarding.fileStorage.title": "Elige el almacenamiento de archivos",
+  "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
   "onboarding.fileStorage.description":
-    "Elige el almacenamiento administrado de Builder o tus propias claves para un bucket compatible con S3.",
-  "onboarding.fileStorage.custom": "Usar claves de almacenamiento propias",
+    "Conecta Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
+  "onboarding.fileStorage.reconnectBuilder": "Volver a conectar Builder.io",
+  "onboarding.fileStorage.custom":
+    "Añadir tus propias claves de almacenamiento",
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
   "onboarding.capability.voiceInput.label": "Entrada de voz",
@@ -303,11 +333,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "Regenerar respuesta",
   "message.restoreFailed": "Error al restaurar ({{status}}).",
   "message.restoreQuestion": "¿Restaurar hasta aquí?",
+  "message.revertQuestion":
+    "¿Volver a este punto? Se perderán los cambios posteriores.",
   "message.restoreRequestFailed": "Error en la solicitud de restauración.",
   "message.threadNotFound":
     "Este hilo de chat ya no está disponible. Inicia un chat nuevo o inténtalo de nuevo si esto no era esperado.",
   "message.restoring": "Restaurando...",
   "message.revertHere": "Revertir hasta aquí",
+  "message.revertToBeginning": "Volver al inicio",
   "message.sentAt": "Enviado a las {{time}}",
   "plan.act": "Actuar",
   "plan.implement": "Implementar",
@@ -329,7 +362,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
   "recovery.credentialRejected":
-    "La credencial actual de Builder.io o del proveedor de modelos fue rechazada. Vuelve a conectar Builder.io y reintenta este mensaje.",
+    "El proveedor del modelo rechazó las credenciales guardadas. Actualiza tu conexión con Builder.io o la clave del proveedor y vuelve a intentarlo.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents no está conectado. Conecta Builder.io en Configuración para ejecutar esta operación alojada de cambios de código. Las claves de proveedores de modelos siguen funcionando en el chat y otras funciones de IA, pero no autorizan al Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnosticar y reintentar",
   "recovery.forkDescription":
     "Bifurca esta conversación en un hilo de chat independiente.",
@@ -387,6 +422,11 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "Conecta la IA para empezar a chatear...",
   "setup.connectToChat": "Conectar la IA al chat",
   "setup.connectToStart": "Conecta la IA para empezar a chatear",
+  "setup.checkingProvider": "Comprobando la conexión de IA…",
+  "setup.providerStatusUnavailable": "No se pudo comprobar la conexión de IA.",
+  "agentNativeClips.meetingAsk.placeholder": "Pregunta lo que quieras",
+  "agentNativeClips.meetingAsk.ariaLabel":
+    "Pregunta lo que quieras sobre esta reunión",
   "setup.connected": "Conectado",
   "setup.connectedOrganization": "Conectado — {{organization}}",
   "setup.connectedTo": "Conectado a {{organization}}",
@@ -498,6 +538,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "Describe la habilidad que quieres crear...",
   "composer.documentTooLarge":
     '"{{name}}" ocupa {{size}} MB. {{label}} tienen un límite de {{maxSize}} MB para no superar el tamaño máximo del mensaje. Reduce el archivo o divídelo en partes más pequeñas.',
+  "composer.requestTooLarge":
+    "Este mensaje y sus archivos adjuntos son demasiado grandes para enviarse. Quita un archivo adjunto o acorta el mensaje.",
   "composer.file": "archivo",
   "composer.imageModel": "Modelo de imagen",
   "composer.imagePreview": "Vista previa de la imagen",
@@ -869,6 +911,11 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Correo electrónico nuevo",
   "settings.emailNewPlaceholder": "Introduce un correo nuevo",
   "usage.builderCredits": "Créditos de Builder",
+  "usage.inviteFriends": "Invita a tus amigos",
+  "usage.inviteCredits":
+    "Gana {{amount}} créditos de Builder cuando un amigo se suscriba.",
+  "usage.copyInviteLink": "Copiar enlace de invitación",
+  "usage.inviteLinkCopied": "Enlace de invitación copiado",
   "usage.creditBalance": "Saldo del espacio de trabajo",
   "usage.monthlyPlan": "Plan mensual",
   "usage.dailyFreeLimit": "Límite diario gratuito",

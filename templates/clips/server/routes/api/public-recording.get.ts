@@ -1,18 +1,3 @@
-/**
- * GET /api/public-recording?id=<recordingId>[&password=<pw>]
- *
- * Public read endpoint for share/:id and embed/:id pages — lets unauthenticated
- * viewers fetch a recording's player data without going through the
- * authenticated `/_agent-native/actions/get-recording-player-data` route.
- *
- * Only returns data when:
- *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
- *   - either no password is set, the viewer is owner, or the provided password matches
- *
- * For `org` or `private` visibility, signed-in org members and explicit shares
- * may load the same player payload as the authenticated route.
- */
-
 import {
   getSession,
   signScopedAgentAccessToken,
@@ -133,10 +118,6 @@ function setProtectedMediaAccessCookie(
 // against a single server instance. Mirrors the limiter in view-event.post.ts.
 const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
 const PASSWORD_ATTEMPT_MAX = 10;
-// Cap on the number of tracked IP+recording buckets. This is a process-local,
-// best-effort limiter (not distributed), so we only need to keep it from
-// growing unbounded over the life of an instance — not enforce the cap
-// precisely. When we cross it, sweep once and drop every expired bucket.
 const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
 const passwordAttemptBuckets = new Map<
   string,
@@ -236,10 +217,6 @@ export default defineEventHandler(async (event) => {
       }).ok
     : false;
 
-  // Share links are public-shell routes, so this endpoint cannot rely on the
-  // authenticated player action to authorize private recordings. Resolve the
-  // same registered access policy here so explicit user/org grants work before
-  // the client redirects to the direct player route.
   const viewerAccess = session?.email
     ? await resolveAccess("recording", rec.id, {
         userEmail: session.email,
@@ -257,8 +234,6 @@ export default defineEventHandler(async (event) => {
       );
       viewerIsOrgMember = Boolean(role);
     } catch {
-      // Never fail the request for anonymous/unauthenticated viewers or if
-      // org lookup is unavailable — just fall through to the existing gate.
       viewerIsOrgMember = false;
     }
   }
@@ -274,16 +249,11 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  // Any signed-in viewer with access to the recording may comment or react —
-  // this covers an explicit share at any role (not just "commenter"), org
-  // membership, and a public link, which grants a viewer role that
-  // `resolveAccess` may not surface without an explicit share row.
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
   );
 
-  // Expiry check
   const recordingExpired = isRecordingExpiredForViewer({
     expiresAt: rec.expiresAt,
     viewerIsOwner,
@@ -293,8 +263,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Recording has expired", expired: true };
   }
 
-  // Same hold as the media route, so the page explains instead of loading a
-  // player that cannot fetch anything.
   if (isHeldForRedaction(rec.editsJson, viewerAccess?.role ?? null)) {
     setResponseStatus(event, 409);
     return {
@@ -303,7 +271,6 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  // Password check
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
@@ -449,8 +416,6 @@ export default defineEventHandler(async (event) => {
       }).contextUrl
     : null;
 
-  // Don't leak the URL (which now carries a short-lived token) into the
-  // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
   const [verificationPending, seekableRepairPending] = await Promise.all([
@@ -474,11 +439,6 @@ export default defineEventHandler(async (event) => {
 
   const viewerRole =
     viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
-  // Mirrors the gate in `get-recording-player-data` exactly: the share page
-  // auto-redirects on this flag, so a false positive bounces the viewer
-  // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page - the org-member fallback above is a display role,
-  // not access the player action would grant.
   const canOpenDashboard =
     Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
@@ -519,7 +479,6 @@ export default defineEventHandler(async (event) => {
       seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
-      // Don't leak the password to clients; just indicate whether one was set.
       hasPassword: !!rec.password,
       expiresAt: rec.expiresAt,
       enableComments: Boolean(rec.enableComments),
@@ -533,7 +492,6 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
-    // Aggregate counts only — never viewer identities on this public payload.
     viewCount,
     agentViewCount,
     transcript: transcript

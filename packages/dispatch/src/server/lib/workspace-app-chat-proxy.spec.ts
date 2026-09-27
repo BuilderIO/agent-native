@@ -61,7 +61,6 @@ function mountedProxyEvent(
   };
 }
 
-/** Upstream stub: the embed-start redirect plus whatever the chat route returns. */
 function stubFetch(
   chatResponse: (
     url: string,
@@ -192,8 +191,6 @@ describe("workspace app chat proxy", () => {
 
     const reader = response.body!.getReader();
     const first = await reader.read();
-    // The first chunk arrives while the upstream stream is still open — a
-    // buffering proxy could not have produced it yet.
     expect(new TextDecoder().decode(first.value)).toBe("first");
 
     emitSecondChunk!();
@@ -327,7 +324,6 @@ describe("workspace app chat proxy", () => {
     await send();
     expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(1);
 
-    // The 401 above invalidated the cached credential.
     await send();
     expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(2);
   });

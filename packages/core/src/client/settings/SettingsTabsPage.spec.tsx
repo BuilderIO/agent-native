@@ -672,8 +672,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // "aliases" has no group (defaults to "app", same as General) but sits
-    // between two "integrations" tabs, breaking simple adjacency.
     expect(
       container.querySelectorAll('[data-settings-tab-group="app"]'),
     ).toHaveLength(1);
@@ -694,7 +692,7 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
-  it("keeps linked settings navigation last with an external-link marker", () => {
+  it("keeps linked settings navigation last without an external-link marker", () => {
     act(() => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -739,10 +737,36 @@ describe("SettingsTabsPage", () => {
       'a[href="/settings/workspace"]',
     );
     expect(workspaceLink).not.toBeNull();
-    expect(workspaceLink?.querySelector("svg")).not.toBeNull();
+    expect(workspaceLink?.querySelector("svg")).toBeNull();
     expect(
       workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
+  });
+
+  it("does not mark the in-settings observability tab as an external link", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "observability",
+                label: "Agent Observability",
+                href: "/settings/observability/overview",
+                content: <div>Observability content</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const observabilityLink = container.querySelector(
+      'a[href="/settings/observability/overview"]',
+    );
+    expect(observabilityLink).not.toBeNull();
+    expect(observabilityLink?.querySelector("svg")).toBeNull();
   });
 
   it("syncs the active tab after router-only settings navigation", () => {
@@ -846,7 +870,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // The controlled value wins over the (empty) hash.
     expect(container.textContent).toContain("Team members");
     expect(container.textContent).not.toContain("General content");
 
@@ -857,8 +880,6 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    // Parent owns the state: it is notified, but the component neither switches
-    // on its own nor writes the hash.
     expect(onValueChange).toHaveBeenCalledWith("whats-new");
     expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Team members");

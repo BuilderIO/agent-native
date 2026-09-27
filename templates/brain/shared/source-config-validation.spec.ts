@@ -13,9 +13,6 @@ import {
   validateSourceConfig,
 } from "./source-config-validation.js";
 
-// The reported paste artifact: a markdown link collapsed into the plain-text
-// "Allowed channels" field. It previously created a source that could never
-// sync.
 const GARBLED_PASTE = "http://slack.com/channel](http://slack.com/channel)";
 
 describe("slack channel refs", () => {
@@ -54,8 +51,6 @@ describe("slack channel refs", () => {
   });
 
   it("rejects direct-message IDs, which the connector drops as unusable", () => {
-    // resolveSlackChannel() resolves a D-ref to an IM and isUsableSlackChannel()
-    // then filters it out, so a D-only source syncs against zero channels.
     expect(isValidSlackChannelRef("D0123456789")).toBe(false);
     expect(isSlackDirectMessageRef("D0123456789")).toBe(true);
     expect(isSlackDirectMessageRef("#d0123456789")).toBe(true);
@@ -128,9 +123,6 @@ describe("github repo refs", () => {
   });
 
   it("normalizes the bare-host form instead of reading the host as the owner", () => {
-    // Without stripping the host, "github.com/BuilderIO/agent-native" splits into
-    // owner "github.com" and repo "BuilderIO" - a different repository, accepted
-    // silently.
     expect(normalizeGitHubRepoRef("github.com/BuilderIO/agent-native")).toBe(
       "BuilderIO/agent-native",
     );
@@ -145,9 +137,6 @@ describe("github repo refs", () => {
   });
 
   it("keeps the connector's tolerance for deep-linked repository paths", () => {
-    // Pasting a tree/blob URL is common and the sync connector has always
-    // narrowed it to owner/repo. Tightening that here would silently drop
-    // repositories that currently sync.
     expect(
       normalizeGitHubRepoRef(
         "https://github.com/BuilderIO/agent-native/tree/main",
@@ -229,16 +218,11 @@ describe("validateSourceConfig", () => {
 });
 
 describe("action and drawer parity", () => {
-  // Three review findings share one cause: the storage-side readers drop blanks
-  // and non-strings before the validator runs, so an action caller could persist
-  // exactly what the drawer refuses. Every case below must agree.
   const cases: Array<[string, unknown[], string]> = [
     ["blank string entry", [""], ""],
     ["whitespace-only entry", ["   "], "   "],
     ["hash-only entry", ["#"], "#"],
     ["bracket artifact", ["]"], "]"],
-    // Typing 123 in the textarea is a legal Slack channel name; the JSON number
-    // 123 is not a channel reference at all, so only the action path rejects it.
     ["number entry", [123], ""],
     ["null entry", [null], ""],
     ["object entry", [{ id: "C0123456789" }], ""],
@@ -280,8 +264,6 @@ describe("action and drawer parity", () => {
   });
 
   it("still treats a delimited string like the textarea", () => {
-    // "a,,b" is a typo a person makes while typing a list; it is not a distinct
-    // empty entry the way [""] is.
     expect(
       validateSourceConfig("slack", { channelIds: "product,,launches" }),
     ).toEqual([]);

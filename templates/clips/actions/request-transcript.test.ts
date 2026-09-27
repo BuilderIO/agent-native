@@ -43,6 +43,7 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
 const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
+const mockTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -73,6 +74,10 @@ vi.mock("@agent-native/core/transcription/builder", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -296,8 +301,6 @@ describe("resolveCleanupSegmentsJson", () => {
   });
 
   it("does not stretch a sparse transcript across the whole recording", () => {
-    // A 31-word transcript of a 2-minute clip used to be re-timed into cues
-    // ~4.3s apart, which looked like minute-long gaps of dropped speech.
     const sparse = JSON.stringify([
       { startMs: 0, endMs: 900, text: "I'm in the Builder desktop app," },
       { startMs: 900, endMs: 1_800, text: "and I zipped a PNG file and" },
@@ -531,6 +534,47 @@ describe("requestTranscript regeneration", () => {
       status: "ready",
       cleanupQueued: false,
     });
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("tracks terminal cloud transcription failure without user content", async () => {
+    mockTranscribeWithBuilder.mockRejectedValue(new Error("private detail"));
+    mockSelectRows.queue = [
+      [{ status: "failed", retryCount: 0 }],
+      [],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Private title",
+        },
+      ],
+      [],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_failed" });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_failed",
+      status: "failed",
+    });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_transcription_failed",
+      {
+        failure_code: "CLOUD_FAILED",
+        stage: "transcription",
+        retryable: false,
+        output_id: "rec_failed",
+        output_type: "clip",
+      },
+      { userId: "owner@example.com" },
+    );
+    expect(JSON.stringify(mockTrack.mock.calls)).not.toContain(
+      "private detail",
+    );
+    expect(JSON.stringify(mockTrack.mock.calls)).not.toContain("Private title");
   });
 
   it("replaces a ready transcript when regeneration is explicitly requested", async () => {
@@ -699,6 +743,7 @@ describe("requestTranscript regeneration", () => {
       preserved: true,
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("falls back to Builder when native transcription is unavailable", async () => {
@@ -768,6 +813,14 @@ describe("requestTranscript regeneration", () => {
     );
     expect(mockTranscribeWithBuilder).toHaveBeenCalledWith(
       expect.objectContaining({ diarize: true }),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_empty",
+        output_id: "rec_empty",
+      }),
+      expect.anything(),
     );
   });
 

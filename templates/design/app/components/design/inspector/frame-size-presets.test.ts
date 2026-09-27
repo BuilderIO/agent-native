@@ -56,11 +56,6 @@ describe("frame size presets", () => {
     }
   });
 
-  // Paper presets share this canvas's 96dpi-CSS-px unit convention (every
-  // other category — phone/tablet/desktop/social — is already in px), not
-  // Figma's 72dpi point values. A point-valued "Letter"/"A4" preset would
-  // author a canvas ~25% smaller than the real physical page once run
-  // through createSinglePageRasterPdf's px->pt conversion.
   it("sizes Letter and A4 paper presets in 96dpi px, not 72dpi pt", () => {
     const paper = FRAME_SIZE_PRESET_CATEGORIES.find((c) => c.key === "paper");
     const letter = paper?.presets.find((p) => p.name === "Letter");

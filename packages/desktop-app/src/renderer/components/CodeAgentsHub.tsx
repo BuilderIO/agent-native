@@ -277,12 +277,6 @@ export function isChatFirstSurfaceTabActive(input: {
   return input.surfaceActive && input.tabId === input.activeTabId;
 }
 
-/**
- * The nav surface the desktop rail reports as active. Scheduled tasks and the
- * chats view are surfaces without an `appId`, so they must still name a tab -
- * otherwise the rail cannot tell them from "nothing resolved" and leaves every
- * app icon reading as active.
- */
 export function resolveDesktopChatFirstPrimaryTab(input: {
   scheduledTasksOpen: boolean;
   appSelected: boolean;
@@ -648,8 +642,6 @@ export function updateAppAuthStateByTab(
   tabId: string,
   state: AppWebviewAuthState,
 ): Record<string, AppWebviewAuthState> {
-  // Navigation probes publish unknown while the guest session settles. Keep
-  // the last confirmed state so host-owned surfaces do not remount per route.
   if (state === "unknown" && current[tabId] !== undefined) return current;
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
@@ -3170,8 +3162,6 @@ export default function CodeAgentsHub({
                 }}
                 theme={theme}
                 urlParams={urlParams}
-                // Shell key folded in: a lane change remounts every hosted
-                // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}
               />
             </div>

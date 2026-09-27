@@ -1,5 +1,6 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
+import { DeviceEventEmitter } from "react-native";
 
 import { getMobileAnalyticsHeaders } from "@/lib/analytics";
 import { getSessionToken } from "@/lib/session-token-store";
@@ -24,6 +25,8 @@ export const DEFAULT_CHAT_BASE_URL =
   chatApp?.url || "https://chat.agent-native.com";
 
 const CHAT_PATH = "/_agent-native/agent-chat";
+export const AGENT_ENGINE_CONFIGURED_CHANGED_EVENT =
+  "agent-engine:configured-changed";
 
 export class AgentChatError extends Error {
   readonly status: number;
@@ -65,13 +68,14 @@ async function readErrorMessage(response: {
 
 async function jsonRequest<T>(
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; signal?: AbortSignal } = {},
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<T> {
   const headers = await authHeaders();
   const response = await fetch(`${baseUrl}${path}`, {
     method: init.method ?? "GET",
     headers,
+    ...(init.signal ? { signal: init.signal } : {}),
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
   });
   if (!response.ok) {
@@ -87,11 +91,6 @@ export interface ChatTurnHandle {
   abort: () => void;
 }
 
-/**
- * POST the user message and stream wire events back. Uses expo/fetch, whose
- * response body is a real ReadableStream on iOS and Android (RN's built-in
- * fetch buffers the whole body).
- */
 export async function sendChatTurn(
   message: string,
   options: ChatSendOptions & {
@@ -133,8 +132,6 @@ export async function sendChatTurn(
   if (!response.ok) {
     throw new AgentChatError(await readErrorMessage(response), response.status);
   }
-  // Some proxies/middleware return failures as 200 JSON instead of an event
-  // stream — surface them instead of parsing an empty stream as success.
   const contentType = response.headers.get("Content-Type") ?? "";
   if (
     contentType.includes("application/json") &&
@@ -159,7 +156,6 @@ export async function sendChatTurn(
   return { turnId, runId, events, abort: () => controller.abort() };
 }
 
-/** Server-side cancel — stops the agent run, not just the connection. */
 export async function abortRun(
   runId: string,
   baseUrl = DEFAULT_CHAT_BASE_URL,
@@ -204,7 +200,6 @@ export interface ChatCapableApp {
   url: string;
 }
 
-/** Workspace apps that expose an agent chat surface at a known prod URL. */
 export function chatCapableApps(): ChatCapableApp[] {
   return TEMPLATE_APPS.filter((app) => Boolean(app.url)).map((app) => ({
     id: app.id,
@@ -232,13 +227,6 @@ export interface AllThreadsResult {
   failedAppIds: string[];
 }
 
-/**
- * Cross-app thread history. Each workspace app is its own deployment with its
- * own thread store, so aggregation means fanning out to every app's `/threads`
- * endpoint and tagging each thread with its origin. A per-app failure is
- * reported separately from an empty result so the UI never presents a partial
- * workspace history as complete.
- */
 export async function listAllThreadsWithStatus(): Promise<AllThreadsResult> {
   const apps = chatCapableApps();
   const perApp = await Promise.all(
@@ -260,16 +248,10 @@ export async function listAllThreadsWithStatus(): Promise<AllThreadsResult> {
   };
 }
 
-/** Backwards-compatible thread-only view for callers that do not need status. */
 export async function listAllThreads(): Promise<ChatThreadSummary[]> {
   return (await listAllThreadsWithStatus()).threads;
 }
 
-/**
- * Threads for a single workspace app, newest-first. Unlike listAllThreads this
- * surfaces the error (an unknown app id, or a failed/unauthorized fetch) so the
- * filtered view can offer a retry rather than showing a misleading empty state.
- */
 export async function listThreadsForApp(
   appId: string,
 ): Promise<ChatThreadSummary[]> {
@@ -282,22 +264,9 @@ export async function listThreadsForApp(
 export interface FetchMentionsOptions {
   signal?: AbortSignal;
   baseUrl?: string;
-  /**
-   * Called with the accumulated, de-duplicated list every time a batch lands.
-   * Lets the UI show fast sources (resources) before slow ones (codebase scans,
-   * custom providers) finish.
-   */
   onItems?: (items: MentionItem[]) => void;
 }
 
-/**
- * `@`-mention candidates (files, workspace pages, skills, agents, …) from an
- * app's unified mentions endpoint. The endpoint streams NDJSON `{ items }`
- * batches as each source completes; this consumes the body incrementally (via
- * expo/fetch's real stream) so already-ready suggestions surface immediately
- * instead of waiting for the slowest provider. Items are de-duplicated by id.
- * Returns an empty list on any failure — mention search must never throw.
- */
 export async function fetchMentions(
   query: string,
   options: FetchMentionsOptions = {},
@@ -353,11 +322,6 @@ function toThreadSummary(raw: unknown): ChatThreadSummary | null {
   };
 }
 
-/**
- * Thread history is stored as the web client's serialized message repository:
- * `{ messages: [{ message: { id, role, content: [...] }, parentId }] }`.
- * Parse defensively — only text/reasoning/tool-call parts render natively.
- */
 export async function fetchThreadMessages(
   threadId: string,
   baseUrl = DEFAULT_CHAT_BASE_URL,
@@ -450,11 +414,6 @@ export function newThreadId(): string {
   return `thread-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/**
- * Invoke any registered framework action over the HTTP action surface.
- * Pass another workspace app's base URL to control that app natively —
- * the same `POST /_agent-native/actions/:name` contract every app exposes.
- */
 export async function callAppAction<T>(
   name: string,
   args: Record<string, unknown> = {},
@@ -467,7 +426,6 @@ export async function callAppAction<T>(
   );
 }
 
-/** GET variant for actions whose declared HTTP surface is query-based. */
 export async function callAppActionGet<T>(
   name: string,
   args: Record<string, string | number | boolean> = {},
@@ -515,11 +473,6 @@ function groupByProviderPrefix(
   return groups;
 }
 
-/**
- * The web composer's model menu, ported: engines come from the
- * `manage-agent-engine` action; groups are provider-labelled. Engines with
- * unconfigured required keys are dropped (mirrors buildChatModelGroups).
- */
 export async function fetchModelCatalog(
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<ChatModelCatalog> {
@@ -544,26 +497,17 @@ export async function fetchModelCatalog(
   const configuredKeys = new Set(
     envKeys.filter((k) => k.configured && k.key).map((k) => k.key as string),
   );
-  // Env vars satisfiable by an engine whose package is installed — used to hide
-  // key inputs (e.g. Gemini) that could never yield a working model here.
   const installableEnvVars = new Set<string>();
   const groups: ChatModelGroup[] = [];
   for (const engine of enginesData.engines ?? []) {
     const name = engine.name ?? "";
     if (!name) continue;
-    // An engine whose optional npm package is not installed in this app can be
-    // selected but never runs — "set" fails with "requires optional packages".
-    // Hide it, matching the web picker's `packageInstalled !== false` filter.
     if (engine.packageInstalled === false) continue;
-    // A hidden engine is never offered in the picker, so its key can't yield a
-    // selectable model — don't let it mark a provider key configurable either.
     if (HIDDEN_ENGINES.has(name)) continue;
     for (const key of engine.requiredEnvVars ?? []) installableEnvVars.add(key);
     const models = engine.supportedModels ?? [];
     if (models.length === 0) continue;
     const required = engine.requiredEnvVars ?? [];
-    // Every required key must be present — a multi-key engine (e.g. Builder's
-    // public+private pair) with only one key set cannot run, so don't offer it.
     const configured =
       required.length === 0 || required.every((key) => configuredKeys.has(key));
     if (!configured) continue;
@@ -582,6 +526,48 @@ export async function fetchModelCatalog(
     currentModel: enginesData.current?.model,
     configurableProviders,
   };
+}
+
+export async function getAgentEngineStatus(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<"configured" | "missing"> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = jsonRequest<{ configured?: unknown }>(
+    "/_agent-native/agent-engine/status",
+    { signal: controller.signal },
+    baseUrl,
+  );
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new AgentChatError("Agent engine status request timed out"));
+    }, 10_000);
+  });
+  let result: { configured?: unknown };
+  try {
+    result = await Promise.race([request, timedOut]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+  if (typeof result.configured !== "boolean") {
+    throw new AgentChatError("Agent engine status response was incomplete");
+  }
+  return result.configured ? "configured" : "missing";
+}
+
+export async function getFileUploadStatus(
+  baseUrl = DEFAULT_CHAT_BASE_URL,
+): Promise<"configured" | "missing"> {
+  const result = await jsonRequest<{ configured?: unknown }>(
+    "/_agent-native/file-upload/status",
+    {},
+    baseUrl,
+  );
+  if (typeof result.configured !== "boolean") {
+    throw new AgentChatError("File storage status response was incomplete");
+  }
+  return result.configured ? "configured" : "missing";
 }
 
 export async function getActiveRun(
@@ -606,7 +592,6 @@ export async function getActiveRun(
   };
 }
 
-/** Reconnect to a live run's event stream (SSE) from a seq cursor. */
 export async function resumeRunEvents(
   runId: string,
   after = 0,
@@ -664,7 +649,6 @@ export async function createThreadShareLink(
   return typeof data.url === "string" ? data.url : null;
 }
 
-/** One-shot agent navigation command, or null when none is pending. */
 export async function fetchNavigateCommand(
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<NavigateCommand | null> {
@@ -682,7 +666,6 @@ export async function fetchNavigateCommand(
   }
 }
 
-/** Acknowledge (consume) the pending navigation command. Best effort. */
 export async function deleteNavigateCommand(
   baseUrl = DEFAULT_CHAT_BASE_URL,
 ): Promise<void> {
@@ -697,7 +680,6 @@ export async function deleteNavigateCommand(
   }
 }
 
-/** Providers whose API keys can be configured from the app. */
 export const PROVIDER_KEY_OPTIONS = [
   {
     provider: "anthropic",
@@ -721,11 +703,6 @@ export const PROVIDER_KEY_OPTIONS = [
 
 export type ProviderKeyOption = (typeof PROVIDER_KEY_OPTIONS)[number];
 
-/**
- * Persist a provider API key in the server's scoped secrets vault via the
- * framework's `agent-engine/api-key` route — the same named surface the web
- * settings panel uses. The key never touches device storage.
- */
 export async function saveProviderApiKey(
   provider: string,
   apiKey: string,
@@ -749,4 +726,5 @@ export async function saveProviderApiKey(
   if (!response.ok) {
     throw new AgentChatError(await readErrorMessage(response), response.status);
   }
+  DeviceEventEmitter.emit(AGENT_ENGINE_CONFIGURED_CHANGED_EVENT);
 }

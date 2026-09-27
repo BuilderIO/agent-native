@@ -103,14 +103,8 @@ import {
 const ICON_WIDTH = 36;
 const NAME_WIDTH = 333;
 const DEFAULT_WIDTH = 180;
-/** Rows from the bottom of the loaded set at which the next page is requested. */
 const PREFETCH_ROWS = 8;
 
-/**
- * The frozen first columns. `clip-path` lets the blur spill to the right and
- * nowhere else — unclipped it bleeds over the header and the row below, which
- * reads as a smudge rather than a lifted edge.
- */
 const STICKY_FLAT: React.CSSProperties = {
   clipPath: "inset(0 -38px 0 0)",
   boxShadow: "none",
@@ -142,13 +136,9 @@ export interface CrmGridProps {
   onRetry?: () => void;
   emptyTitle: string;
   emptyDescription?: string;
-  /** Header for the fixed record-name column. */
   nameLabel: string;
-  /** The object's own glyph, shown in the icon column until the row is hovered. */
   objectIcon?: React.ComponentType<{ className?: string }>;
-  /** Avatar shape for this object type: round is a person, squircle is not. */
   avatarShape?: CrmAvatarShape;
-  /** Href for one row's record page; the name column links to it when given. */
   rowHref?: (row: CrmGridRow) => string;
   onCommitCell: (commit: CrmGridCommit) => Promise<void>;
   onAddAttribute?: () => void;
@@ -176,8 +166,6 @@ export function CrmGrid(props: CrmGridProps) {
   } | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Drives the frozen-column shadow. It exists only once there is something
-  // hidden underneath the frozen columns.
   const [scrolled, setScrolled] = useState(false);
 
   const ordered = useMemo(
@@ -197,10 +185,6 @@ export function CrmGrid(props: CrmGridProps) {
     [ordered, props.attributes],
   );
   const bounds = { rows: props.rows.length, cols: visible.length };
-
-  // -------------------------------------------------------------------------
-  // Writes
-  // -------------------------------------------------------------------------
 
   const commit = useCallback(
     async (ref: CellRef, raw: CrmCellValue, isRawText: boolean) => {
@@ -233,10 +217,6 @@ export function CrmGrid(props: CrmGridProps) {
     },
     [props.rows, props.onCommitCell, t, visible],
   );
-
-  // -------------------------------------------------------------------------
-  // Clipboard
-  // -------------------------------------------------------------------------
 
   function selectionTsv(): string {
     if (!selection) return "";
@@ -294,15 +274,10 @@ export function CrmGrid(props: CrmGridProps) {
     if (skipped) toast.error(t("grid.pasteSkipped", { count: skipped }));
   }
 
-  // -------------------------------------------------------------------------
-  // Keyboard
-  // -------------------------------------------------------------------------
-
   function onKeyDown(event: React.KeyboardEvent) {
     if (!selection) return;
     const intent = resolveGridKey(event, { editing: Boolean(editing) });
     if (!intent) return;
-    // Copy and paste stay native so the browser's own clipboard events fire.
     if (intent.type === "copy" || intent.type === "paste") return;
     event.preventDefault();
     const focus = selection.focus;
@@ -374,18 +349,12 @@ export function CrmGrid(props: CrmGridProps) {
     const ref = editing.ref;
     setEditing(null);
     const ok = await commit(ref, raw, isRawText);
-    // A rejected value keeps the caret where the user can fix it; only a
-    // committed one advances.
     if (ok && direction && selection) {
       setSelection(
         applyMove(selection, moveCell(ref, direction, bounds), false),
       );
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Columns
-  // -------------------------------------------------------------------------
 
   function toggleSort(attribute: CrmGridAttribute) {
     const current = props.sort[0];
@@ -443,10 +412,6 @@ export function CrmGrid(props: CrmGridProps) {
       props.onColumnsChange(columns);
     },
   });
-
-  // -------------------------------------------------------------------------
-  // Rows
-  // -------------------------------------------------------------------------
 
   const virtualizer = useVirtualizer({
     count: props.rows.length,
@@ -727,8 +692,6 @@ export function CrmGrid(props: CrmGridProps) {
                       selected: rowSelected,
                       className: cn(
                         "sticky left-0 z-20 flex shrink-0 items-stretch bg-background",
-                        // Selection already owns the overlay at a stronger
-                        // alpha; letting hover win would lighten it.
                         !rowSelected &&
                           "group-hover/row:before:opacity-[var(--crm-overlay-hover)]",
                       ),
@@ -793,9 +756,6 @@ export function CrmGrid(props: CrmGridProps) {
                       editing?.ref.row === ref.row &&
                       editing.ref.col === ref.col;
                     const spec = cellSpecFor(attribute);
-                    // A range is outlined once, not per cell: each cell draws
-                    // only the segments that sit on the range's boundary, and a
-                    // corner rounds only where two of them meet.
                     const edges = range
                       ? {
                           top: ref.row === range.top,
@@ -835,9 +795,6 @@ export function CrmGrid(props: CrmGridProps) {
                             "relative flex shrink-0 items-start border-l border-hairline px-3 pt-2 text-sm",
                             !isCellEditable(attribute) &&
                               "text-content-tertiary",
-                            // The ring overhangs the shared divider by 1px, so
-                            // the cell has to paint above its neighbours or the
-                            // next cell's border repaints over it.
                             inRange && "z-[1]",
                             isEditing && "z-[2] bg-background p-0",
                           ),
@@ -888,9 +845,6 @@ export function CrmGrid(props: CrmGridProps) {
                             >
                               <CellDisplay
                                 attribute={attribute}
-                                // A displayName that only duplicates this row's
-                                // name is hidden here, not dropped from the row:
-                                // an absent name must still show its own value.
                                 value={
                                   isSuppressedDisplayNameCell(
                                     attribute.apiSlug,

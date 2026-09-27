@@ -54,8 +54,6 @@ function chatThreadPath(threadId: string | null) {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
 }
 
-// Module scope on purpose: AgentKitRoot memoizes the client on its options, so
-// a new callback each render would rebuild the client and drop the stream.
 const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
 export default function ChatRouteContent({
@@ -225,6 +223,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     description,
     skipLabel,
     submitLabel,
+    isSubmissionBlocked,
+    providerStatus,
+    retryProviderStatus,
     handleSubmit,
     handleSkip,
   } = useGuidedQuestionFlow({
@@ -248,6 +249,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
             {...(description ? { description } : {})}
             {...(skipLabel ? { skipLabel } : {})}
             {...(submitLabel ? { submitLabel } : {})}
+            isSubmissionBlocked={isSubmissionBlocked}
+            providerStatus={providerStatus}
+            onRetryProviderStatus={retryProviderStatus}
             className="h-auto items-stretch justify-stretch bg-transparent"
           />
         </div>

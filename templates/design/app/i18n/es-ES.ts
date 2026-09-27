@@ -185,6 +185,18 @@ export default {
     teamCreateOrgDescription:
       "Configura un equipo para compartir diseños con tus compañeros.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   chat: {
     emptyState: "Describe el diseño que quieres crear",
     suggestionLandingPage: "Diseña una landing page para mi startup",
@@ -584,6 +596,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Colaboración en directo",
+      description:
+        "Permite que quienes no tienen acceso al localhost del propietario vean y editen una copia en directo de este diseño.",
+      enabled: "Activada",
+      disabled: "Desactivada",
+      saving: "Guardando…",
+      enableError: "No se pudo actualizar la colaboración en directo.",
+    },
     vectorEndpoints: {
       startPoint: "Punto inicial",
       endPoint: "Punto final",
@@ -963,6 +984,10 @@ export default {
     signUpToSaveDescription:
       "Crea una cuenta gratis para guardar diseños, diseños de pantalla y generar nuevas direcciones.",
     signUpToShare: "Registrarse para compartir",
+    signUpToShareLiveCanvas: "Regístrate para compartir un lienzo en vivo",
+    liveCanvasLink: "Enlace al lienzo en vivo",
+    liveCanvasWaitingForOwner:
+      "Esperando la instantánea del lienzo en vivo de su propietario.",
     shareEditorLink: "Enlace del editor de diseño",
     shareEditorLinkDescription:
       "Cualquier persona con acceso puede abrir este diseño en el editor.",
@@ -1237,12 +1262,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Aplicar ediciones visuales de estilo pendientes",
       applyButton: "Aplicar estilos",
+      applySharedEdits: "Aplicar ediciones",
       previewLabel: "Vista previa visual pendiente",
       applyDesignUpdates: "Aplicar actualizaciones de diseño",
       applying: "Aplicando…",
       verifying: "Verificando el código y el runtime…",
       retryWithAgent: "Reintentar verificación del código",
       copyPrompt: "Copiar prompt a tu agente",
+      copyFullPrompt: "Copiar el prompt completo",
       abortPreview: "Cancelar vista previa e interactuar",
       agentMessage:
         "Aplica las ediciones visuales de estilo pendientes al código fuente.",
@@ -1255,6 +1282,8 @@ export default {
       sourceCheckFailedToast:
         "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
       copiedToast: "Prompt de estilo copiado",
+      copiedToastDescription:
+        "Pégalo en tu agente de programación y pídele que aplique los cambios visuales.",
       abortedToast: "Vista previa pendiente descartada",
       interactBlocked:
         "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
@@ -1319,6 +1348,8 @@ export default {
       annotationSendError:
         "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
       codingHandoffError: "No se pudo crear la entrega para código",
+      visualEditPendingConflict:
+        "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
       htmlCreateError: "No se pudo crear la descarga HTML",
@@ -1644,7 +1675,66 @@ export default {
       "Se descartaron {{count}} borradores de comentarios sin enviar al salir de esta vista.",
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
+  homeContext: {
+    websiteReference: "Adjuntar sitio web",
+    websiteUrlLabel: "URL del sitio web",
+    websiteUrl: "Pega la URL de un sitio web",
+    figmaUrlLabel: "Enlace de Figma",
+    invalidFigmaUrl:
+      "Introduce una URL válida de un marco o archivo de figma.com.",
+    tooMany: "Elige hasta 20 referencias.",
+    invalidWebsiteUrl: "Introduce una URL HTTP o HTTPS válida.",
+    createSystem: "Crear un sistema de diseño",
+    noSystems:
+      "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
+    searchSystems: "Buscar sistemas de diseño…",
+    searchFrames: "Buscar marcos de Figma…",
+    searchDesigns: "Buscar diseños…",
+    searchPresentations: "Buscar presentaciones…",
+    searchDesign: "Buscar diseño…",
+    useDesignSystem: "Usar un sistema de diseño",
+    notReady:
+      "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
+    search: "Buscar contexto…",
+    figmaUrl: "Pega un enlace de Figma",
+    browse: "Explorar marcos",
+    loadFailed: "No se pudo cargar esta referencia.",
+    retry: "Reintentar",
+    empty: "No hay referencias coincidentes.",
+    none: "Ninguno",
+    design: "Diseño",
+    slides: "Diapositivas",
+    referenceDesign: "Usar un diseño como referencia",
+    figmaReference: "Adjuntar Figma",
+    referenceDeck: "Usar una presentación como referencia",
+    quickSaas: "Crear una página de SaaS",
+    quickDashboard: "Crear un panel",
+    quickDeck: "Crear una presentación",
+    deckPrompt:
+      "Crea una presentación cuidada con una portada, una narrativa clara, datos visuales y una diapositiva final concisa.",
+  },
   home: {
+    suggestedPrompts: "Indicaciones sugeridas",
+    import: "Importar",
+    importOptions: "Opciones de importación",
+    figmaLink: "Enlace de Figma",
+    importFromFigma: "Importar desde Figma",
+    figmaFile: "Archivo de Figma (.fig)",
+    openImport: "Abrir importación",
+    importSelectedFile: "Importar archivo seleccionado",
+    starterSaasPrompt:
+      "Una página de inicio moderna para un SaaS con tema oscuro, sección principal, tres tarjetas de funciones y una llamada a la acción final.",
+    starterDashboardPrompt:
+      "Un panel de análisis sencillo con navegación lateral, cuatro tarjetas de indicadores clave, un gráfico y una tabla de actividad reciente.",
+    starterMobilePrompt:
+      "Un prototipo de aplicación móvil dentro de un marco de teléfono, con una barra de pestañas inferior y tres tarjetas de lista en la pantalla de inicio.",
+    starterPricingPrompt:
+      "Una página de precios con tres planes, un selector mensual/anual, listas de funciones y el plan recomendado destacado.",
+    designPromptTitle: "Vamos a crear tu primer diseño",
+    recent: "Recientes",
+    browseAllTemplates: "Ver todo",
+    connectBuilderIo: "Conectar Builder.io",
+    connectingBuilder: "Conectando Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",
@@ -1710,6 +1800,8 @@ export default {
     layoutLabel: "Layout de pantalla listo para guardar",
   },
   templatesPage: {
+    previewEmpty: "Esta plantilla no contiene pantallas para previsualizar.",
+    loading: "Cargando plantillas",
     title: "Plantillas",
     description:
       "Empieza con las dimensiones y valores correctos y ajusta con indicaciones el contenido desbloqueado.",
@@ -1738,7 +1830,7 @@ export default {
     deleteTitle: "¿Eliminar plantilla?",
     deleteDescription:
       "Esto elimina permanentemente {{title}}. Los diseños ya creados no se verán afectados.",
-    templateActions: "Acciones de plantilla",
+    templateActions: "Acciones para {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anuncio",

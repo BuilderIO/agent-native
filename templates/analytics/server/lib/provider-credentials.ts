@@ -9,7 +9,10 @@ import {
   resolveWorkspaceConnectionForApp,
 } from "@agent-native/core/workspace-connections";
 
-import { resolveCredential, type CredentialContext } from "./credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "./credentials";
 
 export const ANALYTICS_APP_ID = "analytics";
 
@@ -43,6 +46,7 @@ export interface AnalyticsProviderCredential {
   connectionId?: string;
   connectionLabel?: string;
   scope?: SecretRef["scope"];
+  scopeId?: string;
 }
 
 export interface ResolveProviderCredentialOptions {
@@ -78,7 +82,7 @@ function uniqueKeys(keys: string | readonly string[]): string[] {
 
 function normalizeCoreCredentialResult(
   result: WorkspaceConnectionCredentialResolution,
-  fallback: { provider: string; key: string },
+  fallback: { provider: string; key: string; ctx: CredentialContext },
 ): AnalyticsProviderCredential | null {
   if (!result.available || !result.value) return null;
   const scope =
@@ -95,6 +99,11 @@ function normalizeCoreCredentialResult(
     connectionId: result.provenance?.connectionId,
     connectionLabel: result.provenance?.connectionLabel,
     scope,
+    ...(scope === "user"
+      ? { scopeId: fallback.ctx.userEmail }
+      : scope === "org" || scope === "workspace"
+        ? { scopeId: fallback.ctx.orgId ?? undefined }
+        : {}),
   };
 }
 
@@ -157,6 +166,7 @@ async function resolveViaCoreHelper({
     const credential = normalizeCoreCredentialResult(result, {
       provider,
       key,
+      ctx,
     });
     if (credential) return credential;
   }
@@ -227,13 +237,15 @@ export async function resolveLocalAnalyticsProviderCredential(
 ): Promise<AnalyticsProviderCredential | null> {
   const keys = uniqueKeys(options.keys);
   for (const key of keys) {
-    const value = await resolveCredential(key, options.ctx);
-    if (value) {
+    const credential = await resolveCredentialDetailed(key, options.ctx);
+    if (credential) {
       return {
-        value,
+        value: credential.value,
         key,
         provider: options.provider,
         source: "analytics_local",
+        scope: credential.scope,
+        scopeId: credential.scopeId,
       };
     }
   }

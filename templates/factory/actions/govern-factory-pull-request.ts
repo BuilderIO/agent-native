@@ -45,6 +45,7 @@ import {
   hasActiveCredibleSafetyFinding,
   currentPullRequestApprovals,
   FACTORY_APPROVAL_BODY_MARKER,
+  hasAcceptableGovernanceCheckEvidence,
   hasCurrentBlockingPullRequestReview,
   isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
@@ -58,6 +59,22 @@ function hasUsableChangedFiles(
     changedFiles.every(
       (file) => typeof file === "string" && file.trim().length > 0,
     )
+  );
+}
+
+export function hasSafeFinalApprovalGateEvidence(
+  evidence: Parameters<typeof hasCompletePassingChecks>[0],
+  membership: { afterClaim: boolean; beforeApproval: boolean },
+): boolean {
+  const internalBuilderMember =
+    membership.afterClaim && membership.beforeApproval;
+  return (
+    internalBuilderMember &&
+    hasAcceptableGovernanceCheckEvidence({
+      checksPassed: hasCompletePassingChecks(evidence),
+      checksCoverage: evidence.checksCoverage ?? "unknown",
+      internalBuilderMember,
+    })
   );
 }
 
@@ -121,7 +138,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (shomix, GitHub user ID 100691266, BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
@@ -168,6 +185,7 @@ export default defineAction({
         "PR governance is restricted to the configured Factory repository.",
       );
     }
+    let postClaimInternalMemberIsMember = false;
     if (itemId) {
       const item = (
         await getDb()
@@ -720,6 +738,9 @@ export default defineAction({
         ReturnType<typeof github.getPullRequestEvidence>
       >;
       let postClaimChangedFiles: readonly string[];
+      let postClaimInternalMember: Awaited<
+        ReturnType<typeof github.checkOrganizationMemberById>
+      >;
       let postClaimPullRequest = pullRequest;
       try {
         postClaimPullRequest = await github.getPullRequestSummary(
@@ -731,20 +752,26 @@ export default defineAction({
             `PR evidence changed after approval claim: expected ${pullRequest.headSha}, received ${postClaimPullRequest.headSha}.`,
           );
         }
-        [postClaimSnapshot, postClaimChangedFiles] = await Promise.all([
-          github.getPullRequestEvidence(
-            repository,
-            pullRequestNumber,
-            postClaimPullRequest.headSha,
-          ),
-          github.listPullRequestChangedFiles(repository, pullRequestNumber),
-        ]);
+        [postClaimSnapshot, postClaimChangedFiles, postClaimInternalMember] =
+          await Promise.all([
+            github.getPullRequestEvidence(
+              repository,
+              pullRequestNumber,
+              postClaimPullRequest.headSha,
+            ),
+            github.listPullRequestChangedFiles(repository, pullRequestNumber),
+            github.checkOrganizationMemberById(
+              "BuilderIO",
+              pullRequest.userId,
+              pullRequest.userLogin,
+            ),
+          ]);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "unknown evidence error";
         await reconcileClaim(
           pullRequest.headSha,
-          `Post-claim PR evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+          `Post-claim PR evidence or author membership could not be verified: ${message}. Reconciliation is required before approval.`,
         );
         throw error;
       }
@@ -789,11 +816,7 @@ export default defineAction({
       });
       const postClaimReviewFeedbackHandled =
         postClaimBlockingReviewStatesClean && postClaimReviewFeedback.isClean;
-      const postClaimInternalMember = await github.checkOrganizationMemberById(
-        "BuilderIO",
-        pullRequest.userId,
-        pullRequest.userLogin,
-      );
+      postClaimInternalMemberIsMember = postClaimInternalMember.isMember;
       const postClaimGovernance = decidePullRequestGovernance({
         author: pullRequest.userLogin,
         authorId: pullRequest.userId,
@@ -974,13 +997,36 @@ export default defineAction({
           );
           throw error;
         }
+        let finalAuthorMembership;
+        try {
+          finalAuthorMembership = await github.checkOrganizationMemberById(
+            "BuilderIO",
+            pullRequest.userId,
+            pullRequest.userLogin,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown membership verification error";
+          const reason =
+            "Author membership could not be revalidated immediately before approval; no approval was posted.";
+          await reconcileClaim(
+            pullRequest.headSha,
+            `${reason} ${message} Reconciliation is required before retrying.`,
+          );
+          return { ok: true, action: "needs_manual", reason };
+        }
         if (
           finalApprovals.length > 0 ||
           hasCurrentBlockingPullRequestReview(
             finalReviewSnapshot.reviews,
             pullRequest.headSha,
           ) ||
-          !hasCompletePassingChecks(finalReviewSnapshot) ||
+          !hasSafeFinalApprovalGateEvidence(finalReviewSnapshot, {
+            afterClaim: postClaimInternalMemberIsMember,
+            beforeApproval: finalAuthorMembership.isMember,
+          }) ||
           finalReviewSnapshot.commentsTruncated ||
           finalReviewSnapshot.reviewsTruncated ||
           hasActiveCredibleSafetyFinding(

@@ -9,14 +9,6 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
- * and return a DashboardRecord-shaped result carrying the mutated config.
- * Individual tests override this with `mockImplementationOnce` to simulate a
- * lost race and prove the action recomputes from fresh state on retry.
- */
 function defaultUpsertDashboardWithRetry(
   id: string,
   ctx: unknown,
@@ -207,8 +199,6 @@ describe("reorder-dashboard-panels", () => {
         // to the concurrent writer's fenced write (never applied).
         mutateCallCount += 1;
         await mutate(beforeConcurrentWrite);
-        // Attempt 2 (retry): re-fetches and recomputes against the fresh
-        // config that already contains the concurrent writer's change.
         mutateCallCount += 1;
         const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
@@ -223,8 +213,6 @@ describe("reorder-dashboard-panels", () => {
     });
 
     expect(mutateCallCount).toBe(2);
-    // Both writers' moves landed: "c" from this call on top of "b" from the
-    // concurrent writer, instead of "c" clobbering "b"'s reorder.
     expect(result.panelOrder).toEqual(["c", "b", "a"]);
     const saved = mocks.upsertDashboard.mock.calls[0][2] as {
       panels: Array<{ id: string }>;
