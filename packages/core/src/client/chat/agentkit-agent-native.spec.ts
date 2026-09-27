@@ -128,6 +128,159 @@ describe("createAgentNativeAgentKitTransport", () => {
     await Promise.all([first.dispose(), second.dispose()]);
   });
 
+  it("restores action widgets from durable assistant tool results", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-1",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-1",
+                    toolName: "apply-ai-filter",
+                    args: { mode: "filter" },
+                    result: JSON.stringify({ changed: 5 }),
+                    chatUIResult: { changed: 5 },
+                    chatUI: {
+                      renderer: "mail.ai-filter-confirmation",
+                      title: "AI filter result",
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-1",
+    });
+
+    expect(snapshot).toMatchObject({
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "apply-ai-filter",
+          input: { mode: "filter" },
+          output: { changed: 5 },
+          status: "completed",
+          messageId: "assistant-1",
+        },
+      ],
+      widgets: [
+        {
+          messageId: "assistant-1",
+          widget: {
+            id: "tool-1:chat-ui",
+            kind: "mail.ai-filter-confirmation",
+            title: "AI filter result",
+            data: {
+              toolCallId: "tool-1",
+              toolName: "apply-ai-filter",
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("restores widgets already stored in the AgentKit snapshot", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-agentkit-widget",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-agentkit",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "Done." }],
+                },
+              ],
+              widgets: [
+                {
+                  messageId: "assistant-agentkit",
+                  widget: {
+                    id: "widget-agentkit",
+                    kind: "mail.ai-filter-confirmation",
+                    data: { changed: 5 },
+                  },
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-agentkit-widget",
+    });
+
+    expect(snapshot?.widgets).toEqual([
+      {
+        messageId: "assistant-agentkit",
+        widget: {
+          id: "widget-agentkit",
+          kind: "mail.ai-filter-confirmation",
+          data: { changed: 5 },
+        },
+      },
+    ]);
+  });
+
+  it("restores failed action calls without success widgets", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-failed-widget",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-failed",
+                    toolName: "manage-draft",
+                    args: { action: "create" },
+                    result: "Error creating draft",
+                    isError: true,
+                    chatUI: { renderer: "mail.draft-created" },
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-failed-widget",
+    });
+
+    expect(snapshot?.toolCalls).toMatchObject([
+      { id: "tool-failed", status: "failed", messageId: "assistant-1" },
+    ]);
+    expect(snapshot?.widgets).toEqual([]);
+  });
+
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
     let queuedMessages = [

@@ -4,7 +4,9 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentToolCall,
   AgentThreadSnapshot,
+  AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import { parseAgentThreadSnapshot } from "@agent-native/agentkit/protocol";
@@ -317,6 +319,64 @@ function storedMessageId(value: unknown): string | undefined {
   return typeof message?.id === "string" ? message.id : undefined;
 }
 
+function storedActionWidgets(value: unknown): {
+  toolCalls: AgentToolCall[];
+  widgets: AgentWidgetSnapshot[];
+} {
+  if (!Array.isArray(value)) return { toolCalls: [], widgets: [] };
+  const toolCalls: AgentToolCall[] = [];
+  const widgets: AgentWidgetSnapshot[] = [];
+
+  for (const [index, entry] of value.entries()) {
+    const outer = asRecord(entry);
+    const message = asRecord(outer?.message ?? outer);
+    if (!message || !Array.isArray(message.content)) continue;
+    const messageId =
+      typeof message.id === "string"
+        ? message.id
+        : `repository-message-${index}`;
+
+    for (const value of message.content) {
+      const part = asRecord(value);
+      const chatUI = asRecord(part?.chatUI);
+      if (
+        part?.type !== "tool-call" ||
+        typeof part.toolCallId !== "string" ||
+        typeof part.toolName !== "string" ||
+        typeof chatUI?.renderer !== "string" ||
+        chatUI.renderer.length === 0 ||
+        part.result === undefined
+      ) {
+        continue;
+      }
+
+      const input = asRecord(part.args);
+      const toolCall: AgentToolCall = {
+        id: part.toolCallId,
+        name: part.toolName,
+        ...(input ? { input } : {}),
+        output: "chatUIResult" in part ? part.chatUIResult : part.result,
+        status: part.isError === true ? "failed" : "completed",
+        messageId,
+      };
+      toolCalls.push(toolCall);
+      if (part.isError === true) continue;
+      const widget: AgentWidgetSnapshot["widget"] = {
+        id: `${part.toolCallId}:chat-ui`,
+        kind: chatUI.renderer,
+        data: { toolCallId: part.toolCallId, toolName: part.toolName },
+        ...(typeof chatUI.title === "string" ? { title: chatUI.title } : {}),
+        ...(typeof chatUI.description === "string"
+          ? { metadata: { description: chatUI.description } }
+          : {}),
+      };
+      widgets.push({ messageId, widget });
+    }
+  }
+
+  return { toolCalls, widgets };
+}
+
 async function responseError(response: Response): Promise<Error> {
   let body: string;
   try {
@@ -473,11 +533,31 @@ export function createAgentNativeAgentKitTransport(
           activeRunIds: agentKit.activeRunIds,
           toolCalls: agentKit.toolCalls,
           activities: agentKit.activities,
+          widgets: agentKit.widgets,
         })
       : undefined;
     const messages =
       protocolSnapshot?.messages ??
       storedMessages(repository.messages, now, options.adapter?.textFormat);
+    const actionWidgets = storedActionWidgets(repository.messages);
+    const toolCalls = new Map<string, AgentToolCall>(
+      (protocolSnapshot?.toolCalls ?? []).map(
+        (toolCall): [string, AgentToolCall] => [toolCall.id, toolCall],
+      ),
+    );
+    for (const toolCall of actionWidgets.toolCalls) {
+      if (!toolCalls.has(toolCall.id)) toolCalls.set(toolCall.id, toolCall);
+    }
+    const widgets = new Map<string, AgentWidgetSnapshot>(
+      (protocolSnapshot?.widgets ?? []).map(
+        (widget): [string, AgentWidgetSnapshot] => [widget.widget.id, widget],
+      ),
+    );
+    for (const widget of actionWidgets.widgets) {
+      if (!widgets.has(widget.widget.id)) {
+        widgets.set(widget.widget.id, widget);
+      }
+    }
     return {
       id: threadId,
       title: typeof stored.title === "string" ? stored.title : undefined,
@@ -491,12 +571,11 @@ export function createAgentNativeAgentKitTransport(
       ...(protocolSnapshot?.activeRunIds
         ? { activeRunIds: protocolSnapshot.activeRunIds }
         : {}),
-      ...(protocolSnapshot?.toolCalls
-        ? { toolCalls: protocolSnapshot.toolCalls }
-        : {}),
       ...(protocolSnapshot?.activities
         ? { activities: protocolSnapshot.activities }
         : {}),
+      toolCalls: [...toolCalls.values()],
+      widgets: [...widgets.values()],
     };
   }
 

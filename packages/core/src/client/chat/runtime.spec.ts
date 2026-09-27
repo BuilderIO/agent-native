@@ -401,6 +401,46 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("keeps raw structured action results separate from display text", async () => {
+    const result = {
+      draft: { subject: "Launch notes" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const resultText = JSON.stringify(result, null, 2);
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_start", id: "tool-1", tool: "manage-draft", input: {} },
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "manage-draft",
+          result: resultText,
+          chatUI: { renderer: "mail.draft-created" },
+          chatUIResult: result,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession()).startTurn({
+          prompt: "Create a draft",
+        })
+      ).events,
+    );
+    const toolDone = events.find((event) => event.type === "tool-done");
+
+    expect(toolDone).toMatchObject({
+      result,
+      resultText,
+      chatUI: { renderer: "mail.draft-created" },
+    });
+  });
+
   it("exposes truthful rich capabilities for the Agent-Native stream", () => {
     const runtime = createAgentNativeChatRuntime();
 

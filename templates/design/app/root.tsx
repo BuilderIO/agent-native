@@ -265,6 +265,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         sessionBypass={sessionBypass}
         webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog }}

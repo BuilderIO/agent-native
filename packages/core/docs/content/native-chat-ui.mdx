@@ -246,6 +246,55 @@ export default defineAction({
 Use this for first-party app UI. Keep cross-host iframe UI in `mcpApp`, and keep
 arbitrary query execution behind typed read actions rather than raw SQL in chat.
 
+### Choose when action UI appears {#conditional-native-ui}
+
+An action can have several operations, while only some results need a card.
+Add `when(args, result)` to `chatUI` to select those calls. The server calls it
+after a successful action. When it returns `false`, the action result stays in
+the ordinary collapsible tool history. The predicate is not stored or sent to
+the browser.
+
+Mail uses this on `manage-draft` so create results get a draft card, while
+updates and deletes remain ordinary tool calls:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+For actions with multiple write operations, check both the arguments and the
+successful result. Mail's Gmail filter action only selects the rule card for a
+created or replaced filter with its summary fields:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 Size renderers in absolute units, not percentages. The transcript grows to fit
 its messages, so a renderer's container has no definite height to resolve a
 percentage against — `height: 40%` on a chart bar collapses to zero rather than

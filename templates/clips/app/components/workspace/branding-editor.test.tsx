@@ -23,14 +23,23 @@ vi.mock("@agent-native/core/client/setup-connections", () => ({
   FileStorageSetupPopover: ({
     open,
     onConnected,
+    onOpenChange,
   }: {
     open: boolean;
     onConnected?: () => void;
+    onOpenChange: (open: boolean, reason?: string) => void;
   }) =>
     open ? (
       <div role="dialog">
         <button type="button" onClick={onConnected}>
           Connected
+        </button>
+        <button
+          type="button"
+          data-testid="file-storage-dismiss"
+          onClick={() => onOpenChange(false, "dismiss")}
+        >
+          Dismiss
         </button>
       </div>
     ) : null,
@@ -209,5 +218,57 @@ describe("BrandingEditor save button dirty state", () => {
         headers: { "Content-Type": "image/png" },
       }),
     );
+  });
+
+  it("does not upload a queued logo after storage setup is dismissed", async () => {
+    const file = new File(["logo"], "brand.png", { type: "image/png" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("logo").buffer,
+    });
+    const upload = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ reference: "logo-ref" }),
+    }));
+    vi.stubGlobal("fetch", upload);
+    mocks.storageConfigured = false;
+    act(() => {
+      root.render(
+        <BrandingEditor
+          organizationId="org_1"
+          initialName="Acme"
+          initialBrandColor="#18181B"
+          initialBrandLogoUrl={null}
+          initialDefaultVisibility="public"
+        />,
+      );
+    });
+
+    const dropZone = container.querySelector<HTMLElement>(".border-dashed")!;
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [file] } });
+    await act(async () => dropZone.dispatchEvent(drop));
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="file-storage-dismiss"]',
+        )
+        ?.click(),
+    );
+
+    mocks.storageConfigured = true;
+    await act(async () => {
+      root.render(
+        <BrandingEditor
+          organizationId="org_1"
+          initialName="Acme"
+          initialBrandColor="#18181B"
+          initialBrandLogoUrl={null}
+          initialDefaultVisibility="public"
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(upload).not.toHaveBeenCalled();
   });
 });

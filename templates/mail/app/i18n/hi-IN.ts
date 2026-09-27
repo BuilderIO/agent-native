@@ -164,6 +164,7 @@ const messages = {
       deleteDraft: "ड्राफ़्ट हटाएँ",
       deleteDrafts: "ड्राफ़्ट हटाएँ",
       reopenDraft: "फिर से खोलें",
+      openInMail: "Mail में खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",

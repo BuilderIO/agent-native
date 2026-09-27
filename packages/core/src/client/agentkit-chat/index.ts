@@ -4,6 +4,8 @@ export {
   GuidedQuestionProviderGate,
   useGuidedQuestionFlow,
 } from "./questions.js";
+export { AgentKitActionWidget } from "./action-widget.js";
+export { CoreAgentKitRoot } from "./root.js";
 export { useChatThreads, type ChatThreadSummary } from "../use-chat-threads.js";
 export {
   isAgentChatHomeHandoffActive,
@@ -43,3 +45,7 @@ export {
   type AgentKitHistoryScope,
   type AgentKitHistoryVersion,
 } from "./history.js";
+export {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "../chat/tool-render-registry.js";

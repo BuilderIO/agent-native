@@ -21,16 +21,14 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("loads the inline home composer with chunk recovery", () => {
+  it("renders the inline home composer immediately with chunk recovery", () => {
     expect(source).toContain(
-      'const loadPromptPopover = () => import("@/components/editor/PromptDialog")',
+      "import PromptPopover, {\n  type PromptAttachmentActions,",
     );
-    expect(source).toContain(
-      "const LazyPromptPopover = lazy(loadPromptPopover)",
-    );
+    expect(source).not.toContain("LazyPromptPopover");
     expect(source).toContain('presentation="inline"');
     expect(source).toContain("data-slides-home-composer");
-    expect(source).toContain(".then(clearInitialPromptFromUrl)");
+    expect(source).toContain("clearInitialPromptFromUrl();");
     expect(source).toContain("window.location.reload()");
     expect(source).toContain("<LazyChunkErrorBoundary");
   });

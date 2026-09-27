@@ -348,6 +348,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
         sessionBypass={isShareableContentPath(location.pathname)}
