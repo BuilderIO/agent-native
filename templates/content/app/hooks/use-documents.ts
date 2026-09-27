@@ -80,6 +80,7 @@ export type PageOwnedDocumentCachePatch = Pick<
   | "updatedAt"
   | "revision"
   | "bodyRevision"
+  | "collabContentRevision"
   | "contentHash"
 >;
 
@@ -264,6 +265,8 @@ export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
   authoredCandidateContent?: string;
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
+  collabStateVector?: string;
+  collabIntegratedRevision?: string;
 };
 
 export type DocumentUpdateResult =
@@ -293,6 +296,12 @@ export function isDocumentUpdateConflict(
   result: Document | DocumentUpdateResult,
 ): result is DocumentUpdateConflictResponse {
   return (result as DocumentUpdateConflictResponse)?.conflict === true;
+}
+
+export function isDocumentUpdateCollabSyncRequired(
+  result: Document | DocumentUpdateResult,
+): result is DocumentUpdateConflictResponse & { collabSyncRequired: true } {
+  return isDocumentUpdateConflict(result) && result.collabSyncRequired === true;
 }
 
 export function isDocumentUpdateSuperseded(
@@ -328,6 +337,9 @@ export function mergeDocumentIntoDocumentCache(
     updatedAt: document.updatedAt,
     revision: document.revision,
     bodyRevision: document.bodyRevision,
+    ...(document.collabContentRevision !== undefined
+      ? { collabContentRevision: document.collabContentRevision }
+      : {}),
     contentHash: document.contentHash,
   };
   return old && typeof old === "object"
@@ -548,6 +560,9 @@ export function documentUpdateSuccessPatch(
     updatedAt: data.updatedAt,
     revision: data.revision,
     bodyRevision: data.bodyRevision,
+    ...(data.revision !== undefined
+      ? { collabContentRevision: data.collabContentRevision ?? null }
+      : {}),
     contentHash: data.contentHash,
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),

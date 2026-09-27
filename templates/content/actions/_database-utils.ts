@@ -243,7 +243,12 @@ type DatabaseMembershipRow = {
 
 type DocumentListRow = Omit<
   typeof schema.documents.$inferSelect,
-  "content" | "collabBodyRevision" | "createdBy" | "updatedBy"
+  | "content"
+  | "collabBodyRevision"
+  | "collabStateVector"
+  | "collabStateVectorRevision"
+  | "createdBy"
+  | "updatedBy"
 >;
 
 export const contentDatabaseListDocumentSelection = {

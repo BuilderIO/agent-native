@@ -766,7 +766,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("const contentBase = reconcileBase");
+    expect(source).toContain("const contentBase = textMergeBase();");
     expect(source).toContain("return result.contentPersisted;");
   });
 

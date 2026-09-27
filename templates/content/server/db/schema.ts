@@ -19,6 +19,8 @@ export const documents = table("documents", {
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
+  collabStateVector: text("collab_state_vector"),
+  collabStateVectorRevision: integer("collab_state_vector_revision"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),

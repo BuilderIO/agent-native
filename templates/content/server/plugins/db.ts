@@ -1248,6 +1248,12 @@ export const runContentMigrations = runMigrations(
         ALTER TABLE document_body_intents ALTER COLUMN before_checkpoint_id DROP NOT NULL;
         ALTER TABLE document_body_intents ALTER COLUMN candidate_checkpoint_id DROP NOT NULL`,
     },
+    {
+      version: 110,
+      name: "content-document-collab-state-vector",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_state_vector TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS collab_state_vector_revision INTEGER`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -89,6 +89,8 @@ export interface UseCollabReconcileOptions {
     serverRevision: string;
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
+  /** Called synchronously when a new content revision becomes integrated. */
+  onIntegratedRevision?: (revision: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
   onInitialSeedError?: (error: unknown) => void;
   overlapPolicy?: "conflict" | "prefer-live";
@@ -120,6 +122,19 @@ export interface UseCollabReconcileResult {
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
   reportRemoteUpdate: (transaction: Transaction) => void;
   registerEmitted: (markdown: string) => boolean;
+  /**
+   * Latest content revision this editor has proven is inside its live
+   * document: the editor matched it, fully merged it, or synced the
+   * collaborative state that produced it. Never set from a revision whose
+   * content was only assumed, or partially merged with live edits kept.
+   */
+  integratedRevision: () => string | null;
+  /** The integrated revision with the content it was proven against. */
+  integratedBase: () => {
+    revision: string;
+    value: string;
+    updatedAt: string | null;
+  } | null;
 }
 
 function defaultShouldSeed({
@@ -156,6 +171,10 @@ function defaultIsEditorFocused(editor: Editor): boolean {
   return editor.isFocused;
 }
 
+function identityValue(value: string): string {
+  return value;
+}
+
 export function useCollabReconcile({
   editor,
   ydoc = null,
@@ -170,6 +189,7 @@ export function useCollabReconcile({
   requestCollabSync,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
+  onIntegratedRevision,
   requestInitialSeed,
   onInitialSeedError,
   overlapPolicy = "conflict",
@@ -178,7 +198,7 @@ export function useCollabReconcile({
   getMarkdown = getEditorMarkdown,
   setContent = defaultSetContent,
   parseValue,
-  normalizeValue = (v) => v,
+  normalizeValue = identityValue,
   shouldSeed = defaultShouldSeed,
   initialAppliedUpdatedAt,
 }: UseCollabReconcileOptions): UseCollabReconcileResult {
@@ -202,6 +222,27 @@ export function useCollabReconcile({
     value: string;
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
+  const syncedBeforeMergeRef = useRef<string | null>(null);
+  const integratedBaseRef = useRef<{
+    revision: string;
+    value: string;
+    updatedAt: string | null;
+  } | null>(null);
+  const onIntegratedRevisionRef = useRef(onIntegratedRevision);
+  onIntegratedRevisionRef.current = onIntegratedRevision;
+  const markIntegrated = (
+    revision: string,
+    integratedValue: string,
+    updatedAt: string | null | undefined,
+  ) => {
+    if (integratedBaseRef.current?.revision === revision) return;
+    integratedBaseRef.current = {
+      revision,
+      value: integratedValue,
+      updatedAt: updatedAt ?? null,
+    };
+    onIntegratedRevisionRef.current?.(revision);
+  };
   const reportedConflictRevisionRef = useRef<string | null>(null);
   const acknowledgedLocalSnapshotRef = useRef<{
     value: string;
@@ -269,6 +310,11 @@ export function useCollabReconcile({
         value: pendingCollabSnapshot.value,
         revision: pendingCollabSnapshot.revision,
       };
+      markIntegrated(
+        pendingCollabSnapshot.revision,
+        pendingCollabSnapshot.value,
+        pendingCollabSnapshot.updatedAt,
+      );
       reportedConflictRevisionRef.current = null;
       if (pendingCollabSnapshot.updatedAt)
         lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
@@ -285,6 +331,8 @@ export function useCollabReconcile({
   const [isLeadClient, setIsLeadClient] = useState(true);
   const seedLead = requestInitialSeed ? true : isLeadClient;
   const peerCountRef = useRef(0);
+  const wasLeadRef = useRef(true);
+  const leadSinceRef = useRef<number | null>(null);
   const emptySnapshotDecisionPendingRef = useRef(false);
   useEffect(() => {
     if (!collab || !awareness || !ydoc) {
@@ -293,7 +341,10 @@ export function useCollabReconcile({
       return;
     }
     const update = () => {
-      setIsLeadClient(isReconcileLeadClient(awareness, ydoc.clientID));
+      const lead = isReconcileLeadClient(awareness, ydoc.clientID);
+      if (lead && !wasLeadRef.current) leadSinceRef.current = Date.now();
+      wasLeadRef.current = lead;
+      setIsLeadClient(lead);
       let peers = 0;
       awareness.getStates().forEach((state, clientId) => {
         if (clientId === ydoc.clientID) return;
@@ -414,6 +465,8 @@ export function useCollabReconcile({
               pushEmittedRing(recentEmittedRef.current, serialized);
               lastAppliedValueRef.current = value;
               lastAppliedSerializedRef.current = serialized;
+              if (contentRevision && serialized === normalizeValue(value))
+                markIntegrated(contentRevision, value, contentUpdatedAt);
               if (contentUpdatedAt)
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
               seededRef.current = true;
@@ -455,6 +508,8 @@ export function useCollabReconcile({
       pushEmittedRing(recentEmittedRef.current, serialized);
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
+      if (contentRevision && serialized === normalizeValue(value))
+        markIntegrated(contentRevision, value, contentUpdatedAt);
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
       seededRef.current = true;
     }, 0);
@@ -479,6 +534,7 @@ export function useCollabReconcile({
     contentRevision,
     getMarkdown,
     setContent,
+    normalizeValue,
     shouldSeed,
     collabBackedSnapshot,
     initialSeedRetry,
@@ -725,6 +781,8 @@ export function useCollabReconcile({
         if (currentMarkdown === normalizedValue) {
           lastAppliedValueRef.current = value;
           lastAppliedSerializedRef.current = currentMarkdown;
+          if (contentRevision)
+            markIntegrated(contentRevision, value, contentUpdatedAt);
         }
         if (contentRevision) {
           authoritativeBaseRef.current = { value, revision: contentRevision };
@@ -756,7 +814,17 @@ export function useCollabReconcile({
         return;
       }
 
-      if (typingRecently) {
+      // A base-aware merge only replaces blocks the live editor has not
+      // changed, so it can land mid-typing. Holding it back while someone
+      // keeps typing leaves agent edits out of the live document, and every
+      // save meanwhile has to be text-merged against them.
+      const mergesAroundTyping =
+        !!contentRevision &&
+        !!onBaseAwareReconcile &&
+        !!authoritativeBaseRef.current &&
+        authoritativeBaseRef.current.revision !== contentRevision &&
+        !editor.view.composing;
+      if (typingRecently && !mergesAroundTyping) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
         } else {
@@ -787,6 +855,32 @@ export function useCollabReconcile({
         }
       }
 
+      // The lead changes hands when the user switches tabs. The previous lead
+      // may already have merged this revision, with its Yjs update still in
+      // flight; merging it again would duplicate the text in the CRDT. Give
+      // it time to land, then pull the shared state before merging.
+      const handoffRemaining =
+        leadSinceRef.current === null
+          ? 0
+          : leadSinceRef.current + PEER_SETTLE_MS - Date.now();
+      if (collab && externalNewer && handoffRemaining > 0) {
+        retry = setTimeout(() => apply(deferred), handoffRemaining);
+        return;
+      }
+      if (
+        collab &&
+        requestCollabSync &&
+        contentRevision &&
+        syncedBeforeMergeRef.current !== contentRevision
+      ) {
+        syncedBeforeMergeRef.current = contentRevision;
+        const resume = () => {
+          if (!cancelled) apply(deferred);
+        };
+        void requestCollabSync().then(resume, resume);
+        return;
+      }
+
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         peerWait.deadline = null;
@@ -804,6 +898,7 @@ export function useCollabReconcile({
           lastAppliedSerializedRef.current = beforeMarkdown;
           if (contentRevision) {
             authoritativeBaseRef.current = { value, revision: contentRevision };
+            markIntegrated(contentRevision, value, contentUpdatedAt);
             reportedConflictRevisionRef.current = null;
           }
           if (contentUpdatedAt) {
@@ -863,6 +958,8 @@ export function useCollabReconcile({
           const merged = getMarkdown(editor);
           isSettingContentRef.current = false;
           authoritativeBaseRef.current = { value, revision: contentRevision };
+          if (!reconciled.keptLiveOverlap)
+            markIntegrated(contentRevision, value, contentUpdatedAt);
           reportedConflictRevisionRef.current = null;
           lastEmittedRef.current = merged;
           pushEmittedRing(recentEmittedRef.current, merged);
@@ -902,6 +999,8 @@ export function useCollabReconcile({
         lastAppliedSerializedRef.current = serialized;
         if (contentRevision) {
           authoritativeBaseRef.current = { value, revision: contentRevision };
+          if (serialized === normalized)
+            markIntegrated(contentRevision, value, contentUpdatedAt);
           reportedConflictRevisionRef.current = null;
         }
         if (contentUpdatedAt) {
@@ -941,6 +1040,7 @@ export function useCollabReconcile({
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
+    requestCollabSync,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
@@ -1000,5 +1100,7 @@ export function useCollabReconcile({
     shouldIgnoreUpdate,
     reportRemoteUpdate,
     registerEmitted,
+    integratedRevision: () => integratedBaseRef.current?.revision ?? null,
+    integratedBase: () => integratedBaseRef.current,
   };
 }

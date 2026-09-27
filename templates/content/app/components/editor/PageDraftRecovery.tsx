@@ -54,14 +54,25 @@ export function PageDraftRecovery({
     : null;
   const queryClient = useQueryClient();
   const creationPending = isDocumentCreationPending(document);
+  const accountId = session?.email?.trim().toLowerCase() ?? null;
+  const [releasedAccountId, setReleasedAccountId] = useState<string | null>(
+    null,
+  );
+  // Recovery gates the first mount only. A draft that appears while the editor
+  // is live belongs to that editor or to another live tab, and a session
+  // refetch can briefly drop the session or settle a newly bootstrapped org.
+  // Swapping the live editor out for any of these drops keystrokes typed
+  // during the swap; only a different signed-in person re-gates it.
+  const released =
+    releasedAccountId !== null &&
+    (accountId === null || releasedAccountId === accountId);
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending,
+    enabled: !creationPending && !released,
     createdAt: document.createdAt,
   });
   const update = useUpdateDocument();
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
-  const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);
   const [verifiedScopeKey, setVerifiedScopeKey] = useState<string | null>(null);
   const [verificationRevision, setVerificationRevision] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -79,8 +90,8 @@ export function PageDraftRecovery({
   const draft = drafts.data?.draft;
 
   useEffect(() => {
+    if (released) return;
     setVerifiedScopeKey(null);
-    setReleasedScopeKey(null);
     if (!scopeKey || creationPending) return;
     let cancelled = false;
     void callAction(
@@ -98,7 +109,7 @@ export function PageDraftRecovery({
     return () => {
       cancelled = true;
     };
-  }, [creationPending, document.id, scopeKey, verificationRevision]);
+  }, [creationPending, document.id, released, scopeKey, verificationRevision]);
 
   useEffect(() => {
     setJournalState("checking");
@@ -106,7 +117,7 @@ export function PageDraftRecovery({
   }, [document.id, session?.email, session?.orgId]);
 
   useEffect(() => {
-    if (journalState === "promoting") return;
+    if (released || journalState === "promoting") return;
     if (
       !drafts.data ||
       verifiedScopeKey !== scopeKey ||
@@ -379,6 +390,7 @@ export function PageDraftRecovery({
     drafts.data,
     journalRevision,
     journalState,
+    released,
     scopeKey,
     session?.email,
     session?.orgId,
@@ -387,12 +399,13 @@ export function PageDraftRecovery({
 
   useEffect(() => {
     if (
+      accountId &&
       drafts.data?.draft === null &&
       verifiedScopeKey === scopeKey &&
       (journalState === "ready" || journalState === "retained")
     )
-      setReleasedScopeKey(scopeKey);
-  }, [drafts.data, journalState, scopeKey, verifiedScopeKey]);
+      setReleasedAccountId(accountId);
+  }, [accountId, drafts.data, journalState, scopeKey, verifiedScopeKey]);
 
   async function settleDraft(restore: boolean) {
     if (!draft || busy) return;
@@ -543,6 +556,7 @@ export function PageDraftRecovery({
   );
   useEffect(() => {
     if (
+      released ||
       !draft ||
       hasEditIdentity ||
       busy ||
@@ -563,11 +577,13 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
+    released,
     scopeKey,
     verifiedScopeKey,
   ]);
   useEffect(() => {
     if (
+      released ||
       !draft ||
       !hasEditIdentity ||
       busy ||
@@ -611,13 +627,14 @@ export function PageDraftRecovery({
     failure,
     hasEditIdentity,
     journalState,
+    released,
     scopeKey,
     session?.email,
     session?.orgId,
     verifiedScopeKey,
   ]);
 
-  if (releasedScopeKey === scopeKey && verifiedScopeKey === scopeKey && !draft)
+  if (released)
     return journalState === "retained" ? (
       <>
         <div role="status">{t("editor.previewDraftSavedToHistory")}</div>

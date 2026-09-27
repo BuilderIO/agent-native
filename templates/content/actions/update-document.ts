@@ -45,6 +45,10 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import {
+  decideCollabBodySave,
+  decodeCollabStateVector,
+} from "../shared/collab-state-vector.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -91,6 +95,8 @@ export interface DocumentUpdateConflictResponse {
   conflict: true;
   id: string;
   document: DocumentUpdateResponse;
+  /** The saving live editor is missing a peer's edits; sync, then save again. */
+  collabSyncRequired?: true;
 }
 
 export interface DocumentUpdateSupersededResponse {
@@ -108,6 +114,7 @@ type BrowserDocumentUpdateResponse = DocumentUpdateResponse & {
     status: "applied" | "displaced-preserved";
     displacedCheckpointId?: string;
   };
+  collabBodySave?: "applied" | "covered";
 };
 
 export interface DocumentUpdatePreservationResponse {
@@ -136,6 +143,7 @@ function documentUpdateResponse(
   softDeletedDatabaseIds: string[] = [],
   browserSaveAttempt?: BrowserSaveAttemptConfirmation,
 ): BrowserDocumentUpdateResponse {
+  const revision = documentRevisionToken(doc.bodyRevision, doc.content);
   return {
     id: doc.id,
     urlPath: `/page/${doc.id}`,
@@ -154,8 +162,10 @@ function documentUpdateResponse(
     canManage: canManageRole(accessRole),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
-    revision: documentRevisionToken(doc.bodyRevision, doc.content),
+    revision,
     bodyRevision: doc.bodyRevision,
+    collabContentRevision:
+      doc.collabBodyRevision === doc.bodyRevision ? revision : null,
     contentHash: documentContentHash(doc.content),
     contentFidelity: inspectNfmFidelity(doc.content),
     source: serializeDocumentSource(doc),
@@ -519,6 +529,20 @@ export default defineAction({
       ),
     editorSnapshotTitle: z.string().max(10_000).optional(),
     editorSnapshotContent: z.string().max(500_000).optional(),
+    collabStateVector: z
+      .string()
+      .min(1)
+      .max(200_000)
+      .optional()
+      .describe(
+        "Base64 Yjs state vector of the live editor document the content was serialized from",
+      ),
+    collabIntegratedRevision: z
+      .string()
+      .optional()
+      .describe(
+        "Body revision the live editor verified is already inside its Yjs document",
+      ),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -579,6 +603,25 @@ export default defineAction({
   > => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const incomingCollabStateVector =
+      args.collabStateVector === undefined
+        ? null
+        : decodeCollabStateVector(args.collabStateVector);
+    if (
+      (args.collabStateVector !== undefined &&
+        (!incomingCollabStateVector ||
+          args.content === undefined ||
+          ctx?.caller !== "frontend" ||
+          args.browserSaveAttemptId === undefined ||
+          args.editorSessionId === undefined)) ||
+      (args.collabIntegratedRevision !== undefined &&
+        args.collabStateVector === undefined)
+    ) {
+      throw new ActionContractError(
+        "A live-editor body save requires a readable state vector, content, editor identity, and a browser save attempt.",
+        { errorCode: "INVALID_COLLAB_BODY_SAVE", statusCode: 400 },
+      );
+    }
     if (
       (args.editorSessionId === undefined) !==
       (args.editorEditGeneration === undefined)
@@ -864,6 +907,8 @@ export default defineAction({
     let preservationRequired:
       | { reason: "structure" | "provenance"; checkpointId: string }
       | undefined;
+    let collabBodySave: BrowserDocumentUpdateResponse["collabBodySave"];
+    let collabSyncRequired = false;
     let creativeContext:
       | Awaited<ReturnType<typeof documentMutationCreativeContext>>
       | undefined;
@@ -949,6 +994,9 @@ export default defineAction({
             description: schema.documents.description,
             icon: schema.documents.icon,
             updatedAt: schema.documents.updatedAt,
+            collabStateVector: schema.documents.collabStateVector,
+            collabStateVectorRevision:
+              schema.documents.collabStateVectorRevision,
           })
           .from(schema.documents)
           .where(eq(schema.documents.id, id))
@@ -960,6 +1008,34 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
+        const collabDecision =
+          incomingCollabStateVector && content !== undefined
+            ? decideCollabBodySave({
+                incomingStateVector: incomingCollabStateVector,
+                incomingIntegratedRevision: args.collabIntegratedRevision,
+                current: {
+                  bodyRevision: historyBefore.bodyRevision,
+                  revisionToken: documentRevisionToken(
+                    historyBefore.bodyRevision,
+                    historyBefore.content,
+                  ),
+                  stateVector: historyBefore.collabStateVector,
+                  stateVectorRevision: historyBefore.collabStateVectorRevision,
+                },
+              })
+            : null;
+        if (collabDecision === "sync-required") {
+          collabSyncRequired = true;
+          return;
+        }
+        if (collabDecision === "covered") {
+          collabBodySave = "covered";
+          content = historyBefore.content;
+        } else if (collabDecision === "write") {
+          collabBodySave = "applied";
+        }
+        const liveEditorContent =
+          collabDecision === "unproven" ? content : undefined;
         const confirmBrowserSave = async (
           snapshot: { title: string; content: string },
           now: string,
@@ -970,6 +1046,7 @@ export default defineAction({
             args.editorSnapshotContent !== undefined &&
             snapshot.title === args.editorSnapshotTitle &&
             (snapshot.content === args.editorSnapshotContent ||
+              collabBodySave !== undefined ||
               bodyIntentOutcome?.status === "applied" ||
               bodyIntentOutcome?.status === "displaced-preserved")
           ) {
@@ -1056,7 +1133,8 @@ export default defineAction({
             });
           }
         };
-        if (authoredBase && authoredCandidateContent !== undefined) {
+        const mergeAuthoredBase = collabBodySave ? null : authoredBase;
+        if (mergeAuthoredBase && authoredCandidateContent !== undefined) {
           const prior = await findDocumentBodyIntent({
             db: tx as ReturnType<typeof getDb>,
             ownerEmail,
@@ -1066,7 +1144,7 @@ export default defineAction({
           });
           if (prior) {
             if (
-              prior.authoredBaseRevision !== authoredBase.revision ||
+              prior.authoredBaseRevision !== mergeAuthoredBase.revision ||
               prior.candidateHash !==
                 documentContentHash(authoredCandidateContent) ||
               prior.metadataHash !== authoredMetadataHash
@@ -1088,6 +1166,7 @@ export default defineAction({
         }
         if (
           ctx?.caller === "frontend" &&
+          !collabBodySave &&
           !authoredBase &&
           content !== undefined &&
           content !== historyBefore.content
@@ -1101,12 +1180,12 @@ export default defineAction({
               { status: "resolved" }
             >
           | undefined;
-        if (authoredBase && authoredCandidateContent !== undefined) {
+        if (mergeAuthoredBase && authoredCandidateContent !== undefined) {
           const priorIntents = await readDocumentBodyIntents({
             db: tx as ReturnType<typeof getDb>,
             ownerEmail,
             documentId: id,
-            afterRevision: authoredBase.revision,
+            afterRevision: mergeAuthoredBase.revision,
             throughRevision: historyBefore.bodyRevision,
           });
           const resolved = mergeDocumentBodyIntents({
@@ -1118,7 +1197,7 @@ export default defineAction({
               writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
               operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
               generation: args.editorEditGeneration,
-              authoredBaseRevision: authoredBase.revision,
+              authoredBaseRevision: mergeAuthoredBase.revision,
             },
             priorIntents,
           });
@@ -1159,6 +1238,7 @@ export default defineAction({
           lockedContentChanged &&
           args.baseRevision &&
           !intentMerge &&
+          !collabBodySave &&
           args.baseRevision !==
             documentRevisionToken(
               historyBefore.bodyRevision,
@@ -1176,6 +1256,23 @@ export default defineAction({
           contentCasConflict = true;
           return;
         }
+        if (collabBodySave === "applied" && !lockedContentChanged) {
+          // The live document already equals this body: record that in place
+          // so later tab saves are ordered by state vector again.
+          await tx
+            .update(schema.documents)
+            .set({
+              collabBodyRevision: historyBefore.bodyRevision,
+              collabStateVector: args.collabStateVector,
+              collabStateVectorRevision: historyBefore.bodyRevision,
+            })
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.bodyRevision, historyBefore.bodyRevision),
+              ),
+            );
+        }
         const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
         const updates: Record<string, unknown> = { updatedAt };
         if (lockedTitleChanged) updates.title = args.title;
@@ -1184,6 +1281,16 @@ export default defineAction({
         if (lockedContentChanged) {
           updates.content = content;
           updates.bodyRevision = historyBefore.bodyRevision + 1;
+          // A text merge that kept exactly the live editor's body is also a
+          // serialization of that editor's document state.
+          if (
+            collabBodySave === "applied" ||
+            (liveEditorContent !== undefined && content === liveEditorContent)
+          ) {
+            updates.collabBodyRevision = historyBefore.bodyRevision + 1;
+            updates.collabStateVector = args.collabStateVector;
+            updates.collabStateVectorRevision = historyBefore.bodyRevision + 1;
+          }
         }
         if (lockedIconChanged)
           updates.icon =
@@ -1201,8 +1308,9 @@ export default defineAction({
           : [];
         const applied = await commitCanonicalDocumentBodyMutation({
           write: async () => {
+            const lockedRevisionCas = !!intentMerge || !!collabBodySave;
             if (
-              intentMerge ||
+              lockedRevisionCas ||
               (useBodyRevisionCas && lockedContentChanged) ||
               useDocumentCas
             ) {
@@ -1212,11 +1320,11 @@ export default defineAction({
                 .where(
                   and(
                     eq(schema.documents.id, id),
-                    ...(intentMerge || parsedBaseRevision
+                    ...(lockedRevisionCas || parsedBaseRevision
                       ? [
                           eq(
                             schema.documents.bodyRevision,
-                            intentMerge
+                            lockedRevisionCas
                               ? historyBefore.bodyRevision
                               : parsedBaseRevision!.revision,
                           ),
@@ -1338,6 +1446,43 @@ export default defineAction({
           bodyIntentOutcome = intentMerge.displaced
             ? { status: "displaced-preserved", displacedCheckpointId }
             : { status: "applied" };
+        }
+        if (
+          collabBodySave === "applied" &&
+          lockedContentChanged &&
+          content !== undefined
+        ) {
+          const intent = {
+            writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+            operationId: `collab:${args.browserSaveAttemptId}`,
+            generation: args.editorEditGeneration,
+            authoredBaseRevision: historyBefore.bodyRevision,
+          };
+          // Later text merges (agent edits) require every intervening body
+          // revision to carry an intent, or they refuse with "provenance".
+          const fastForward = mergeDocumentBodyIntents({
+            authoredBaseContent: historyBefore.content,
+            authoredCandidateContent: content,
+            currentContent: historyBefore.content,
+            currentRevision: historyBefore.bodyRevision,
+            incoming: intent,
+            priorIntents: [],
+          });
+          await recordDocumentBodyIntent({
+            db: tx as ReturnType<typeof getDb>,
+            ownerEmail,
+            orgId: requestOrgId,
+            documentId: id,
+            intent,
+            candidateHash: documentContentHash(content),
+            committedRevision: historyBefore.bodyRevision + 1,
+            changedBlockIndexes:
+              fastForward.status === "resolved"
+                ? fastForward.changedBlockIndexes
+                : [],
+            canonicalChanged: true,
+            now: updatedAt,
+          });
         }
         if (lockedContentChanged && content !== undefined) {
           softDeletedDatabaseIds =
@@ -1461,13 +1606,18 @@ export default defineAction({
         );
       }
 
-      if (contentCasConflict) {
+      if (contentCasConflict || collabSyncRequired) {
         const [current] = await db
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, id));
         return scopeDocumentAudit(
-          documentConflictResponse(current, access.role, currentFavorite),
+          {
+            ...documentConflictResponse(current, access.role, currentFavorite),
+            ...(collabSyncRequired
+              ? { collabSyncRequired: true as const }
+              : {}),
+          },
           ownerEmail,
         );
       }
@@ -1544,6 +1694,7 @@ export default defineAction({
           browserSaveConfirmation,
         ),
         ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
+        ...(collabBodySave ? { collabBodySave } : {}),
         ...(creativeContext
           ? {
               contextMode: creativeContext.contextMode,

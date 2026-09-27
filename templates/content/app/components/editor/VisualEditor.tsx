@@ -22,6 +22,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { encodeCollabStateVector } from "@shared/collab-state-vector";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -1439,9 +1440,11 @@ interface VisualEditorProps {
     serverRevision: string;
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
-  onChange: (markdown: string) => void;
+  onIntegratedRevision?: (revision: string) => void;
+  onChange: (markdown: string, collab?: CollabSaveState) => void;
   onSaveContent?: (
     markdown: string,
+    collab?: CollabSaveState,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
   ydoc?: YDoc | null;
@@ -1567,8 +1570,23 @@ export function resolveVisualEditorSelection(
   return TextSelection.create(doc, anchor, head);
 }
 
+/** Live-document state a body serialization was taken from. */
+export interface CollabSaveState {
+  collabStateVector: string;
+  collabIntegratedRevision?: string;
+}
+
 export interface VisualEditorPersistenceController {
   flushLatest: () => Promise<boolean>;
+  /** Must be called in the same task that serialized the markdown it pairs with. */
+  captureCollabState: () => CollabSaveState | null;
+  captureCollabSave: () => (CollabSaveState & { content: string }) | null;
+  /** Latest saved body proven to be inside the live document. */
+  integratedBase: () => {
+    revision: string;
+    content: string;
+    updatedAt: string | null;
+  } | null;
 }
 
 export function shouldFlushVisualEditorDraft({
@@ -2843,6 +2861,7 @@ export function VisualEditor({
   requestCollabSync,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
+  onIntegratedRevision,
   onChange,
   onSaveContent,
   onEscape,
@@ -3104,6 +3123,16 @@ export function VisualEditor({
   );
 
   const guardsRef = useRef<UseCollabReconcileResult | null>(null);
+  const captureCollabState = useCallback((): CollabSaveState | null => {
+    if (!ydoc) return null;
+    const integratedRevision = guardsRef.current?.integratedRevision();
+    return {
+      collabStateVector: encodeCollabStateVector(ydoc),
+      ...(integratedRevision
+        ? { collabIntegratedRevision: integratedRevision }
+        : {}),
+    };
+  }, [ydoc]);
   const draftEmissionGenerationRef = useRef(0);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
@@ -3130,6 +3159,10 @@ export function VisualEditor({
             ? ("failed" as const)
             : ("unchanged" as const);
         const normalized = options?.markdown ?? serialized;
+        const collab =
+          normalized === serialized
+            ? (captureCollabState() ?? undefined)
+            : undefined;
         if (localFileMode && normalized === content)
           return "unchanged" as const;
         if (
@@ -3141,14 +3174,14 @@ export function VisualEditor({
           return "unchanged" as const;
         }
         if (options?.immediate && onSaveContentRef.current) {
-          return onSaveContentRef.current(normalized);
+          return onSaveContentRef.current(normalized, collab);
         }
         if (options?.immediate) return "failed" as const;
         if (!guards.registerEmitted(normalized)) return "unchanged" as const;
         const generation = draftEmissionGenerationRef.current;
         setTimeout(() => {
           if (generation === draftEmissionGenerationRef.current)
-            onChangeRef.current(normalized);
+            onChangeRef.current(normalized, collab);
         }, 0);
         return "scheduled" as const;
       } catch (err: any) {
@@ -3159,7 +3192,7 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, t],
+    [captureCollabState, content, localFileMode, t],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -3464,9 +3497,33 @@ export function VisualEditor({
         );
         return isEditorDraftSaveAccepted(result);
       },
+      captureCollabState,
+      captureCollabSave: () => {
+        if (editor.isDestroyed) return null;
+        const content = serializeEditorDraftForPersistence(editor);
+        const collab = captureCollabState();
+        return content === null || !collab ? null : { content, ...collab };
+      },
+      integratedBase: () => {
+        const base = ydoc ? guardsRef.current?.integratedBase() : null;
+        return base
+          ? {
+              revision: base.revision,
+              content: base.value,
+              updatedAt: base.updatedAt,
+            }
+          : null;
+      },
     });
     return () => onPersistenceControllerChange?.(null);
-  }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
+  }, [
+    captureCollabState,
+    editable,
+    editor,
+    onPersistenceControllerChange,
+    persistEditorContent,
+    ydoc,
+  ]);
 
   useEffect(() => {
     if (!editor) {
@@ -3857,6 +3914,7 @@ export function VisualEditor({
     requestCollabSync,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
+    onIntegratedRevision,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
     onInitialSeedError,

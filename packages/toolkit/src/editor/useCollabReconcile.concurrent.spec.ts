@@ -58,6 +58,7 @@ interface Captured {
   emitted: string[];
   setContentCalls: number;
   registerEmitted?: (markdown: string) => boolean;
+  integratedRevision?: () => string | null;
   reconciled?: Array<{
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -126,6 +127,7 @@ function makeHarness() {
     });
     guardsRef.current = guards;
     captured.registerEmitted = guards.registerEmitted;
+    captured.integratedRevision = guards.integratedRevision;
 
     return React.createElement("div", null);
   }
@@ -444,11 +446,16 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         }),
       });
       let finishSync!: (result: { status: "synced" }) => void;
+      let heldSyncs = 0;
+      // Only the collab-backed snapshot's sync is held open; the pre-merge
+      // sync for a later SQL revision completes immediately.
       const requestSync = vi.fn<() => Promise<{ status: "synced" | "failed" }>>(
         () =>
-          new Promise((resolve) => {
-            finishSync = resolve;
-          }),
+          heldSyncs++ === 0
+            ? new Promise((resolve) => {
+                finishSync = resolve;
+              })
+            : Promise.resolve({ status: "synced" }),
       );
       if (syncFailure) requestSync.mockResolvedValueOnce({ status: "failed" });
       try {
@@ -1109,10 +1116,35 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       editorOwnedFocus: true,
     });
     await act(async () => vi.advanceTimersByTimeAsync(0));
-    expect(getEditorMarkdown(captured.editor!)).toBe("Saved local base");
+    // A base-aware merge lands without waiting for typing to settle.
+    expect(getEditorMarkdown(captured.editor!)).toBe("Earlier local value");
     await act(async () => vi.advanceTimersByTimeAsync(2200));
 
     expect(getEditorMarkdown(captured.editor!)).toBe("Earlier local value");
+  });
+
+  it("merges an independent server block while the user is typing", async () => {
+    vi.useFakeTimers();
+    const { captured, Harness } = makeHarness();
+    render(root, Harness, {
+      value: "Alpha\n\nBravo",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      contentRevision: "revision-1",
+      editorOwnedFocus: true,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    act(() => captured.editor!.commands.setContent("Alpha typing\n\nBravo"));
+    render(root, Harness, {
+      value: "Alpha\n\nBravo agent",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+      editorOwnedFocus: true,
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(getEditorMarkdown(captured.editor!)).toBe(
+      "Alpha typing\n\nBravo agent",
+    );
+    expect(captured.integratedRevision?.()).toBe("revision-2");
   });
 
   it("merges a genuine remote change against the acknowledged local-save base", async () => {
@@ -2416,5 +2448,115 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# updated externally");
+  });
+});
+
+describe("useCollabReconcile — lead handoff", () => {
+  it("lets the previous lead's merge land instead of merging an external revision twice", async () => {
+    vi.useFakeTimers();
+    const docs = [new Y.Doc(), new Y.Doc()];
+    docs[0]!.clientID = 1;
+    docs[1]!.clientID = 2;
+    // The first editor's Yjs updates reach the second only when delivered,
+    // like an update still in flight when the user switches tabs.
+    const inFlight: Uint8Array[] = [];
+    docs[0]!.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "peer") inFlight.push(update);
+    });
+    docs[1]!.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "peer") Y.applyUpdate(docs[0]!, update, "peer");
+    });
+    const deliver = () => {
+      for (const update of inFlight.splice(0))
+        Y.applyUpdate(docs[1]!, update, "peer");
+    };
+    const awareness = docs.map((doc) => new Awareness(doc));
+    const firstEditorLeads = (leads: boolean) => {
+      for (const state of awareness) {
+        state.getStates().set(1, {
+          user: { name: "First" },
+          visible: leads,
+          canFlushDocument: leads,
+        });
+        state.getStates().set(2, {
+          user: { name: "Second" },
+          visible: true,
+          canFlushDocument: true,
+        });
+        state.emit("change", [
+          { added: [], updated: [1, 2], removed: [] },
+          "local",
+        ]);
+      }
+    };
+    const editors: Array<Editor | null> = [null, null];
+    function Probe({ index, ...props }: HarnessProps & { index: number }) {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: docs[index],
+        }),
+      });
+      editors[index] = editor;
+      useCollabReconcile({
+        editor,
+        ydoc: docs[index],
+        awareness: awareness[index],
+        collabSynced: true,
+        value: props.value,
+        contentUpdatedAt: props.contentUpdatedAt,
+        contentRevision: props.contentRevision,
+        onBaseAwareReconcile: () => undefined,
+        overlapPolicy: "prefer-live",
+        getMarkdown: (editorToRead) => getEditorMarkdown(editorToRead),
+        initialAppliedUpdatedAt: null,
+        editable: true,
+      });
+      return React.createElement("div");
+    }
+    function Harness(props: HarnessProps) {
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Probe, { ...props, index: 0 }),
+        React.createElement(Probe, { ...props, index: 1 }),
+      );
+    }
+    const markdown = () => editors.map((editor) => getEditorMarkdown(editor!));
+    try {
+      act(() => firstEditorLeads(true));
+      render(root, Harness, {
+        value: "Alpha\n\nBravo",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        contentRevision: "revision-1",
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(deliver);
+      expect(markdown()).toEqual(["Alpha\n\nBravo", "Alpha\n\nBravo"]);
+
+      render(root, Harness, {
+        value: "Alpha\n\nBravo agent",
+        contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+        contentRevision: "revision-2",
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(markdown()).toEqual(["Alpha\n\nBravo agent", "Alpha\n\nBravo"]);
+
+      act(() => firstEditorLeads(false));
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      act(deliver);
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      act(deliver);
+
+      expect(markdown()).toEqual([
+        "Alpha\n\nBravo agent",
+        "Alpha\n\nBravo agent",
+      ]);
+    } finally {
+      act(() => root.unmount());
+      root = createRoot(container);
+      awareness.forEach((state) => state.destroy());
+      docs.forEach((doc) => doc.destroy());
+    }
   });
 });

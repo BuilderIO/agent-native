@@ -93,6 +93,7 @@ import {
 } from "@/hooks/use-content-spaces";
 import {
   mergeDocumentIntoDocumentCache,
+  isDocumentUpdateCollabSyncRequired,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
   isDocumentUpdateSuperseded,
@@ -226,6 +227,7 @@ import {
 } from "./useDocumentReconcileRecovery";
 import { VisualEditor } from "./VisualEditor";
 import type {
+  CollabSaveState,
   NotionPageLink,
   VisualEditorSuggestion,
   VisualEditorHistoryController,
@@ -236,6 +238,7 @@ import type {
 } from "./VisualEditor";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+const COLLAB_SYNC_SAVE_ATTEMPTS = 4;
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
@@ -1173,6 +1176,7 @@ type PendingDocumentSave = {
   titleBase: string;
   contentObservationEpoch: number;
   saveAttemptId: string;
+  collabState?: CollabSaveState;
   expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
 };
@@ -1192,6 +1196,8 @@ type DocumentSaveOptions = {
   saveAttemptId?: string;
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
+  collabSave?: { content: string; state: CollabSaveState };
+  omitCollabState?: boolean;
 };
 
 type AuthoredContentIntent = {
@@ -2055,6 +2061,30 @@ function PageEditorSessionBody({
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
+  // A text merge must start from a body the live document provably contains;
+  // the last body this tab merely saw may hold agent edits not yet merged in,
+  // and a merge from it would read their absence as a deletion.
+  const textMergeBase = useCallback((): ContentSaveWatermark => {
+    const integrated = editorPersistenceControllerRef.current?.integratedBase();
+    return integrated
+      ? {
+          content: integrated.content,
+          updatedAt: integrated.updatedAt,
+          revision: integrated.revision,
+        }
+      : { ...lastSavedContentRef.current };
+  }, []);
+  const collabSaveStatesRef = useRef(new Map<string, CollabSaveState>());
+  const rememberCollabSave = useCallback(
+    (content: string, state: CollabSaveState | null | undefined) => {
+      if (!state) return;
+      const states = collabSaveStatesRef.current;
+      states.delete(content);
+      states.set(content, state);
+      if (states.size > 32) states.delete(states.keys().next().value!);
+    },
+    [],
+  );
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
@@ -2683,6 +2713,15 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
+        const collab =
+          updates.content !== undefined &&
+          !options.omitCollabState &&
+          options.saveAttemptId !== undefined &&
+          options.editorSessionId !== undefined
+            ? options.collabSave?.content === updates.content
+              ? options.collabSave.state
+              : collabSaveStatesRef.current.get(updates.content)
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
           loadedUpdatedAt:
@@ -2718,6 +2757,7 @@ function PageEditorSessionBody({
             : {}),
           editorSnapshotTitle: options.editorSnapshotTitle,
           editorSnapshotContent: options.editorSnapshotContent,
+          ...(collab ? collab : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
           ...(baseRevision !== undefined ? { baseRevision } : {}),
           ...(updates.title !== undefined
@@ -2757,6 +2797,8 @@ function PageEditorSessionBody({
         (result) => {
           if (isDocumentUpdateSuperseded(result)) {
             return;
+          } else if (isDocumentUpdateCollabSyncRequired(result)) {
+            // The saving caller resyncs the live document and saves again.
           } else if (
             isDocumentUpdateConflict(result) ||
             isDocumentUpdatePreservationRequired(result)
@@ -2768,8 +2810,11 @@ function PageEditorSessionBody({
               persistenceErrorsRef.current.set(field, error);
             }
           } else {
+            // A body the server merged with someone else's edits is not this
+            // editor's own snapshot; the live document must reconcile it.
             if (
               updates.content !== undefined &&
+              result.content === updates.content &&
               result.revision &&
               result.updatedAt
             ) {
@@ -3074,33 +3119,65 @@ function PageEditorSessionBody({
               winner.title === updates.title,
             confirmsWrite: (winner) =>
               updates.title === undefined || winner.title === updates.title,
-            persist: (nextContent, contentBase) => {
-              const saveAttemptId =
-                rebaseAttempt++ === 0 && options.saveAttemptId
-                  ? options.saveAttemptId
-                  : crypto.randomUUID();
-              if (
-                contentEditVersionRef.current === contentEditVersion &&
-                contentObservationEpochRef.current ===
-                  contentObservationEpoch &&
-                editorEditGenerationRef.current === editorEditGeneration
-              ) {
-                journalCurrentDraft(title, nextContent, editorEditGeneration, {
-                  saveAttemptId,
-                  contentBase,
-                  titleBase:
-                    options.titleBase ?? lastSavedTitleRef.current.title,
-                });
+            persist: async (nextContent, contentBase) => {
+              let attemptContent = nextContent;
+              for (let syncAttempt = 0; ; syncAttempt++) {
+                const saveAttemptId =
+                  rebaseAttempt++ === 0 && options.saveAttemptId
+                    ? options.saveAttemptId
+                    : crypto.randomUUID();
+                if (
+                  contentEditVersionRef.current === contentEditVersion &&
+                  contentObservationEpochRef.current ===
+                    contentObservationEpoch &&
+                  editorEditGenerationRef.current === editorEditGeneration
+                ) {
+                  journalCurrentDraft(
+                    title,
+                    attemptContent,
+                    editorEditGeneration,
+                    {
+                      saveAttemptId,
+                      contentBase,
+                      titleBase:
+                        options.titleBase ?? lastSavedTitleRef.current.title,
+                    },
+                  );
+                }
+                const saved = await persistDocumentUpdates(
+                  { ...updates, content: attemptContent },
+                  {
+                    ...options,
+                    contentBase,
+                    saveAttemptId,
+                    editorSnapshotContent: attemptContent,
+                    omitCollabState:
+                      options.omitCollabState ||
+                      syncAttempt >= COLLAB_SYNC_SAVE_ATTEMPTS,
+                  },
+                );
+                if (!isDocumentUpdateCollabSyncRequired(saved)) return saved;
+                // A peer tab saved edits that have not reached this tab yet.
+                await new Promise((resolve) =>
+                  setTimeout(resolve, 150 * (syncAttempt + 1)),
+                );
+                const synced = await requestCollabSync();
+                const capture =
+                  synced.status === "synced"
+                    ? editorPersistenceControllerRef.current?.captureCollabSave()
+                    : null;
+                if (capture) {
+                  const { content: capturedContent, ...state } = capture;
+                  rememberCollabSave(capturedContent, state);
+                  attemptContent = capturedContent;
+                  options = {
+                    ...options,
+                    collabSave: { content: capturedContent, state },
+                  };
+                } else {
+                  syncAttempt = COLLAB_SYNC_SAVE_ATTEMPTS - 1;
+                }
               }
-              return persistDocumentUpdates(
-                { ...updates, content: nextContent },
-                {
-                  ...options,
-                  contentBase,
-                  saveAttemptId,
-                  editorSnapshotContent: nextContent,
-                },
-              );
             },
           });
         } finally {
@@ -3228,6 +3305,8 @@ function PageEditorSessionBody({
       persistDocumentUpdates,
       pushDocumentToNotion,
       queryClient,
+      rememberCollabSave,
+      requestCollabSync,
       t,
     ],
   );
@@ -3359,9 +3438,7 @@ function PageEditorSessionBody({
         options.editGeneration ?? editorEditGenerationRef.current;
       const contentObservationEpoch =
         options.contentObservationEpoch ?? contentObservationEpochRef.current;
-      const contentBase = {
-        ...(options.contentBase ?? lastSavedContentRef.current),
-      };
+      const contentBase = { ...(options.contentBase ?? textMergeBase()) };
       const saveAttemptId = options.saveAttemptId ?? crypto.randomUUID();
       const contentAuthoredAfterRevision =
         options.contentAuthoredAfterRevision ??
@@ -3432,6 +3509,7 @@ function PageEditorSessionBody({
       documentId,
       retainRecoveryDraft,
       saveDocumentImmediately,
+      textMergeBase,
     ],
   );
   const retryPendingSaveRef = useRef<
@@ -3509,6 +3587,14 @@ function PageEditorSessionBody({
           titleBase: pending.titleBase,
           contentObservationEpoch: pending.contentObservationEpoch,
           saveAttemptId: pending.saveAttemptId,
+          ...(pending.collabState
+            ? {
+                collabSave: {
+                  content: pending.content,
+                  state: pending.collabState,
+                },
+              }
+            : {}),
         }),
       )
         .then((result) => {
@@ -3659,10 +3745,11 @@ function PageEditorSessionBody({
           editorEditGenerationRef.current
             ? authoredContentIntentRef.current
             : undefined,
-        contentBase: { ...lastSavedContentRef.current },
+        contentBase: textMergeBase(),
         titleBase: lastSavedTitleRef.current.title,
         contentObservationEpoch: contentObservationEpochRef.current,
         saveAttemptId: crypto.randomUUID(),
+        collabState: collabSaveStatesRef.current.get(content),
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -3685,6 +3772,7 @@ function PageEditorSessionBody({
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
       queueDocumentSave,
+      textMergeBase,
     ],
   );
 
@@ -3738,7 +3826,7 @@ function PageEditorSessionBody({
       if (titleChanged && !titleIsStale) {
         updates.title = pending.title;
       }
-      if (contentChanged && !contentIsStale) {
+      if (contentChanged && (!contentIsStale || pending.collabState)) {
         updates.content = pending.content;
       }
       const disposition = lifecycleKeepaliveDisposition({
@@ -3791,6 +3879,9 @@ function PageEditorSessionBody({
               : {}),
             editorSnapshotTitle: pending.title,
             editorSnapshotContent: pending.content,
+            ...(updates.content !== undefined && pending.collabState
+              ? pending.collabState
+              : {}),
             ...updates,
             ...(loadedContentWasEmpty !== undefined
               ? { loadedContentWasEmpty }
@@ -4700,10 +4791,11 @@ function PageEditorSessionBody({
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const contentBase = textMergeBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: contentBase.revision,
+        baseContent: contentBase.content,
         candidateContent: recovery.localDraft,
       };
       if (saveTimeoutRef.current) {
@@ -4715,13 +4807,6 @@ function PageEditorSessionBody({
       localContentRef.current = recovery.localDraft;
       setLocalTitle(recovery.localTitle);
       setLocalContent(recovery.localDraft);
-      const contentBase = reconcileBase
-        ? {
-            content: reconcileBase.content,
-            updatedAt: reconcileBase.updatedAt,
-            revision: reconcileBase.revision,
-          }
-        : { ...lastSavedContentRef.current };
       const saveAttemptId = crypto.randomUUID();
       journalCurrentDraft(
         recovery.localTitle,
@@ -4744,7 +4829,7 @@ function PageEditorSessionBody({
       );
       return result.contentPersisted;
     },
-    [editorCanEdit, journalCurrentDraft, queueDocumentSave],
+    [editorCanEdit, journalCurrentDraft, queueDocumentSave, textMergeBase],
   );
   reconcileSaveRef.current = handleContentSaveNow;
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
@@ -4760,15 +4845,17 @@ function PageEditorSessionBody({
   reportReconcileRef.current = reportReconcile;
 
   const handleContentChange = useCallback(
-    (newContent: string) => {
+    (newContent: string, collab?: CollabSaveState) => {
       if (!editorCanEdit) return;
+      rememberCollabSave(newContent, collab);
       if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const mergeBase = textMergeBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: mergeBase.revision,
+        baseContent: mergeBase.content,
         candidateContent: newContent,
       };
       localContentRef.current = newContent;
@@ -4791,7 +4878,9 @@ function PageEditorSessionBody({
       debouncedSave,
       editorCanEdit,
       journalCurrentDraft,
+      rememberCollabSave,
       retainActiveRecoveryDraft,
+      textMergeBase,
       updateReconcileDraft,
     ],
   );
@@ -4799,6 +4888,10 @@ function PageEditorSessionBody({
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
       if (content === localContentRef.current) return;
+      rememberCollabSave(
+        content,
+        editorPersistenceControllerRef.current?.captureCollabState(),
+      );
       contentObservationEpochRef.current += 1;
       localContentRef.current = content;
       setLocalContent(content);
@@ -4815,12 +4908,48 @@ function PageEditorSessionBody({
         // must not submit its generation again with a different attempt ID.
       }
     },
-    [isSuggesting, journalCurrentDraft],
+    [isSuggesting, journalCurrentDraft, rememberCollabSave],
+  );
+
+  const handleIntegratedRevision = useCallback(
+    (revision: string) => {
+      const current = currentDocumentRef.current;
+      if (
+        !canEditRef.current ||
+        current.revision !== revision ||
+        current.collabContentRevision === revision
+      )
+        return;
+      const capture =
+        editorPersistenceControllerRef.current?.captureCollabSave();
+      // With local edits on top, the pending save carries this proof instead.
+      if (
+        !capture ||
+        capture.collabIntegratedRevision !== revision ||
+        capture.content !== canonicalizeNfm(current.content)
+      )
+        return;
+      const { content, ...state } = capture;
+      rememberCollabSave(content, state);
+      void queueDocumentSave(localTitleRef.current, content, {
+        contentBase: {
+          content: current.content,
+          updatedAt: current.updatedAt ?? null,
+          revision,
+        },
+        collabSave: { content, state },
+      }).catch(handleBackgroundSaveError);
+    },
+    [handleBackgroundSaveError, queueDocumentSave, rememberCollabSave],
   );
 
   const handleImmediateContentChange = useCallback(
-    async (newContent: string): Promise<EditorDraftSaveResult> => {
+    async (
+      newContent: string,
+      collab?: CollabSaveState,
+    ): Promise<EditorDraftSaveResult> => {
       if (!editorCanEdit) return "failed";
+      rememberCollabSave(newContent, collab);
       if (reconcileRecoveryStateRef.current) {
         handleContentChange(newContent);
         return "retained";
@@ -4832,7 +4961,12 @@ function PageEditorSessionBody({
         ? "persisted"
         : "failed";
     },
-    [editorCanEdit, handleContentChange, handleContentSaveNow],
+    [
+      editorCanEdit,
+      handleContentChange,
+      handleContentSaveNow,
+      rememberCollabSave,
+    ],
   );
 
   const handleBaseAwareReconcile = useCallback(
@@ -4842,6 +4976,9 @@ function PageEditorSessionBody({
       serverContent: string;
       serverRevision: string;
     }) => {
+      const collab =
+        editorPersistenceControllerRef.current?.captureCollabState();
+      rememberCollabSave(result.content, collab);
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -4849,6 +4986,22 @@ function PageEditorSessionBody({
       }
       localContentRef.current = result.content;
       setLocalContent(result.content);
+      if (result.status === "merged" && collab) {
+        // The merged live document is simply this editor's newest state. A
+        // dedicated resolution loop gives up while the user keeps typing and
+        // reports that as a conflict, so save it like any other edit.
+        contentEditVersionRef.current += 1;
+        editorEditGenerationRef.current += 1;
+        const mergeBase = textMergeBase();
+        authoredContentIntentRef.current = {
+          editGeneration: editorEditGenerationRef.current,
+          baseRevision: mergeBase.revision,
+          baseContent: mergeBase.content,
+          candidateContent: result.content,
+        };
+        debouncedSave(localTitleRef.current, result.content);
+        return;
+      }
       if (result.status === "merged") {
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcileAutomatically(
@@ -4878,7 +5031,14 @@ function PageEditorSessionBody({
         localDraft: result.content,
       });
     },
-    [reportReconcile, resolveReconcileAutomatically, retainActiveRecoveryDraft],
+    [
+      debouncedSave,
+      rememberCollabSave,
+      reportReconcile,
+      resolveReconcileAutomatically,
+      retainActiveRecoveryDraft,
+      textMergeBase,
+    ],
   );
 
   const handleResolveReconcile = useCallback(
@@ -6490,6 +6650,7 @@ function PageEditorSessionBody({
                             }
                             onBaseAwareReconcile={handleBaseAwareReconcile}
                             onRemoteSnapshotChange={handleRemoteSnapshotChange}
+                            onIntegratedRevision={handleIntegratedRevision}
                             collabContentRevision={
                               isLocalFileDocument || isSuggesting
                                 ? null

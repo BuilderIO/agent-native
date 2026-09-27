@@ -21,7 +21,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-09-23"
+last_reviewed: "2026-09-26"
 ---
 
 # Document editor
@@ -40,8 +40,9 @@ Ravi turns a paragraph into a callout, anchors a Comment, accepts an agent edit,
 - Agent proposals use the ordinary action, review, and history path; they are not a private inline editor.
 - Collaborators see reconciliation and failures honestly rather than silently losing edits.
 - Refresh and tab lifecycle saves carry durable editor lineage so stale recovery writes cannot reopen settled work; overlapping local intent wins only within Content's explicit reconciliation policy, with displaced versions retained in History.
-- One Page editing session keeps the confirmed SQL snapshot, the currently observed live body, and pending authored intent distinct. Each save attempt carries its matching title/body base and candidate; exact retries keep the same payload-bound identity, while a rebased candidate gets a new attempt identity. Peer Yjs changes update the recoverable view without becoming a new local edit or a save acknowledgement.
-- A stale canonical revision is an input to automatic reconciliation. Exhausted contention or failed transport keeps the latest draft recoverable with honest save feedback; only incompatible structure may require explicit recovery. Delayed acknowledgements and lifecycle saves cannot settle newer authored or observed content.
+- Live editors of one Page share a Yjs document, so each body save is a serialization of that one document. Saves are ordered by the Yjs state vector they were serialized from: a save that has observed the stored body replaces it, a save the stored body already contains is acknowledged without writing, and a save missing a peer's edits syncs and saves again. Live tabs never text-merge against each other, and a stale text base is not a conflict.
+- A body written outside the live document (agent, API, restore, sync) is merged into the live document once by the leading editor, even while someone types, and that editor then proves the merge so state-vector ordering resumes. Until then a live save text-merges from the last body its document provably contains, never from a body it only observed; exhausted contention or failed transport keeps the latest draft recoverable with honest save feedback.
+- Draft recovery gates only the first mount of a Page. A draft that appears while an editor is live, or a session refetch, never swaps the live editor out.
 
 ## Boundaries and non-goals
 
@@ -60,7 +61,7 @@ Given media, comments, and an agent mutation, when export runs, then visible con
 
 ## Current evidence
 
-`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` provide revisioned saves, idempotent external edits, and generation-fenced recovery. The September 23 authenticated beta pass on deployed `c0d9e4b97f73` failed after three alternating two-tab edits: the saved body missed later edits from one tab and the other tab opened the version-choice dialog. The current save-session repair has passed an early local three-cycle reproduction, ten alternating cycles with canonical read-back, and an independent browser/MCP edit with replay receipt. This is local, in-progress evidence; the final cumulative R01–R08 real-interface pass and repaired hosted beta acceptance are still pending.
+`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` provide revisioned saves, idempotent external edits, and generation-fenced recovery. Beta passes on September 23 (`c0d9e4b97f73`) and September 26 (`214d5f388660`) failed on the third alternating two-tab edit. Local two-tab traces showed why: every tab's save was text-merged against peers whose edits it already held through Yjs, a refused merge stored a recovery draft, and that draft swapped the live editor out of every tab, dropping keystrokes typed during the swap. With state-vector ordering, a local Playwright two-tab run with emulated tab visibility passed repeatedly for alternating, fast-switching, concurrent, and new-paragraph edits, and for MCP `edit-document` calls interleaved with both tabs typing, with canonical and both live editors holding every marker exactly once. `actions/update-document.collab.db.test.ts` covers the server ordering decisions. Hosted beta acceptance is still pending.
 
 ## Proof plan
 

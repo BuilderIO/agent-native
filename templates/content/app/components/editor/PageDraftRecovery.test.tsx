@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
     editorSessionId: string | null;
     editGeneration: number | null;
   },
+  session: null as null | { email: string; orgId: string | null },
   update: vi.fn(),
   remove: vi.fn(),
   resolve: vi.fn(),
@@ -21,9 +22,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn().mockResolvedValue({ draft: null }),
-  useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
-  }),
+  useSession: () => ({ session: state.session }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -108,6 +107,7 @@ describe("Page draft recovery", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.clearAllMocks();
     state.draft = null;
+    state.session = { email: "writer@example.test", orgId: "org" };
     state.refetch.mockResolvedValue(undefined);
     state.update.mockResolvedValue({
       ...page,
@@ -130,23 +130,35 @@ describe("Page draft recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
-  it("does not keep an already released editor over a newly observed private draft", async () => {
+  it("keeps a released editor live when another tab's draft appears later", async () => {
     await act(async () => render());
-    expect(container.querySelector("textarea")).not.toBeNull();
+    const liveEditor = container.querySelector("textarea");
+    expect(liveEditor).not.toBeNull();
     state.draft = {
       title: "Draft",
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v1",
       loadedContentWasEmpty: 0,
-      editorSessionId: "tab:page",
+      editorSessionId: "tab:other",
       editGeneration: 4,
     };
     await act(async () => render());
-    expect(container.querySelector("textarea")).toBeNull();
-    expect(state.resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ choice: "use_saved" }),
-    );
+    expect(container.querySelector("textarea")).toBe(liveEditor);
+    expect(state.resolve).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps a released editor live while the session refetches or settles its org", async () => {
+    await act(async () => render());
+    const liveEditor = container.querySelector("textarea");
+    expect(liveEditor).not.toBeNull();
+    state.session = null;
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBe(liveEditor);
+    state.session = { email: "writer@example.test", orgId: "bootstrapped" };
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBe(liveEditor);
   });
 
   it("restores an identified draft against its matching canonical base", async () => {

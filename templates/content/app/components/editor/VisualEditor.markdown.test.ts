@@ -3409,7 +3409,10 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await vi.waitFor(() => {
-        expect(onChange).toHaveBeenLastCalledWith(draftBWithTrailingEmpty);
+        expect(onChange).toHaveBeenLastCalledWith(
+          draftBWithTrailingEmpty,
+          expect.objectContaining({ collabStateVector: expect.any(String) }),
+        );
       });
       act(() => {
         root.render(

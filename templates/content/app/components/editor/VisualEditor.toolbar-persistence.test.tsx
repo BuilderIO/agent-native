@@ -36,6 +36,10 @@ import {
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { createVisualEditorExtensions, VisualEditor } from "./VisualEditor";
 
+const liveDocumentState = expect.objectContaining({
+  collabStateVector: expect.any(String),
+});
+
 describe("collaborative toolbar persistence", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -231,7 +235,7 @@ describe("collaborative toolbar persistence", () => {
         ),
       ).toBe(true);
       expect(onSaveContent).not.toHaveBeenCalled();
-      expect(onChange).toHaveBeenCalledWith(expected);
+      expect(onChange).toHaveBeenCalledWith(expected, liveDocumentState);
       expect(onChange).toHaveBeenCalledOnce();
       expect(savedContent()).toBe(expected);
       expect(
@@ -265,7 +269,7 @@ describe("collaborative toolbar persistence", () => {
         expect(
           editor.isActive(mark === "strikethrough" ? "strike" : mark),
         ).toBe(mark !== "italic");
-      expect(onChange).toHaveBeenCalledWith(expected);
+      expect(onChange).toHaveBeenCalledWith(expected, liveDocumentState);
       expect(onChange).toHaveBeenCalledOnce();
       expect(savedContent()).toBe(expected);
       expect(
@@ -290,7 +294,10 @@ describe("collaborative toolbar persistence", () => {
       );
     });
     await settle();
-    expect(onChange).toHaveBeenCalledWith(docToNfm(editor.getJSON()));
+    expect(onChange).toHaveBeenCalledWith(
+      docToNfm(editor.getJSON()),
+      liveDocumentState,
+    );
   });
 
   it.each(["color", "bgColor"] as const)(
@@ -324,7 +331,10 @@ describe("collaborative toolbar persistence", () => {
         attribute === "color" ? "red" : "red_bg",
       );
       const expected = docToNfm(editor.getJSON());
-      expect(onChange).toHaveBeenCalledExactlyOnceWith(expected);
+      expect(onChange).toHaveBeenCalledExactlyOnceWith(
+        expected,
+        liveDocumentState,
+      );
       expect(savedContent()).toBe(expected);
       expect(updates.some((update) => !update.focused && update.explicit)).toBe(
         true,
@@ -402,7 +412,10 @@ describe("collaborative toolbar persistence", () => {
         else chain.toggleBold().focus().run();
       });
       await settle();
-      expect(onChange).toHaveBeenCalledWith(docToNfm(editor.getJSON()));
+      expect(onChange).toHaveBeenCalledWith(
+        docToNfm(editor.getJSON()),
+        liveDocumentState,
+      );
       expect(updates.some((update) => !update.focused && update.explicit)).toBe(
         true,
       );

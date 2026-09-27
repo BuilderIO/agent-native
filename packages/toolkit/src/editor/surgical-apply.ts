@@ -22,14 +22,19 @@ export interface TopLevelHunk {
 }
 
 export type BaseAwareReconcileResult =
-  | { status: "noop" }
-  | { status: "applied"; mergedDoc: ProseMirrorNode }
+  | { status: "noop"; keptLiveOverlap?: true }
+  | { status: "applied"; mergedDoc: ProseMirrorNode; keptLiveOverlap?: true }
   | { status: "conflict"; localDraft: ProseMirrorNode }
   | { status: "failed"; reason: "schema" | "ambiguous" | "transaction" };
 
 export type BaseAwareReconcilePlan =
   | Exclude<BaseAwareReconcileResult, { status: "applied" }>
-  | { status: "applied"; mergedDoc: ProseMirrorNode; steps: readonly Step[] };
+  | {
+      status: "applied";
+      mergedDoc: ProseMirrorNode;
+      steps: readonly Step[];
+      keptLiveOverlap?: true;
+    };
 
 export interface BaseAwareReconcileOptions {
   overlapPolicy?: "conflict" | "prefer-live";
@@ -244,9 +249,17 @@ export function planDocReconcile(
   ) {
     return { status: "conflict", localDraft: liveDoc };
   }
+  let keptLiveOverlap = false;
   if (options.overlapPolicy === "prefer-live") {
-    serverHunks = serverHunks.filter((server) => !overlapsLocal(server));
-    if (serverHunks.length === 0) return { status: "noop" };
+    const nonOverlapping = serverHunks.filter(
+      (server) => !overlapsLocal(server),
+    );
+    keptLiveOverlap = nonOverlapping.length !== serverHunks.length;
+    serverHunks = nonOverlapping;
+    if (serverHunks.length === 0)
+      return keptLiveOverlap
+        ? { status: "noop", keptLiveOverlap: true }
+        : { status: "noop" };
   }
 
   try {
@@ -263,7 +276,12 @@ export function planDocReconcile(
         ),
       );
     }
-    return { status: "applied", mergedDoc: tr.doc, steps: tr.steps };
+    return {
+      status: "applied",
+      mergedDoc: tr.doc,
+      steps: tr.steps,
+      ...(keptLiveOverlap ? { keptLiveOverlap: true as const } : {}),
+    };
   } catch {
     return { status: "failed", reason: "transaction" };
   }
@@ -283,7 +301,11 @@ export function reconcileDocAgainstBase(
     tr.setMeta("addToHistory", false);
     tr.setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
     editor.view.dispatch(tr);
-    return { status: "applied", mergedDoc: editor.state.doc };
+    return {
+      status: "applied",
+      mergedDoc: editor.state.doc,
+      ...(plan.keptLiveOverlap ? { keptLiveOverlap: true as const } : {}),
+    };
   } catch {
     return { status: "failed", reason: "transaction" };
   }

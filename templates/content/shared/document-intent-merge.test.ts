@@ -284,4 +284,42 @@ describe("document body intent merge", () => {
       }),
     ).toEqual({ status: "preservation-required", reason: "structure" });
   });
+
+  it("takes an editor's newer block when only that editor touched it since its base", () => {
+    const writerId = "browser:a:tab";
+    const ownSave = (generation: number, committedRevision: number) => ({
+      writerId,
+      operationId: `tab:${generation}`,
+      generation,
+      authoredBaseRevision: committedRevision - 1,
+      committedRevision,
+      affectedBlockIndexes: [0],
+      canonicalChanged: true,
+    });
+    const merge = (priorWriter: string) =>
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "One\nTwo",
+        authoredCandidateContent: "One a b c\nTwo",
+        currentContent: "One a b\nTwo",
+        currentRevision: 3,
+        incoming: {
+          writerId,
+          operationId: "tab:3",
+          generation: 3,
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          ownSave(1, 2),
+          { ...ownSave(2, 3), writerId: priorWriter },
+        ],
+      });
+    expect(merge(writerId)).toMatchObject({
+      status: "resolved",
+      content: "One a b c\nTwo",
+    });
+    expect(merge("mcp:agent")).toEqual({
+      status: "preservation-required",
+      reason: "provenance",
+    });
+  });
 });

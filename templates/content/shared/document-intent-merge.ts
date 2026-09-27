@@ -246,6 +246,21 @@ export function mergeDocumentBodyIntents(args: {
     const touching = committed.filter((intent) =>
       intent.affectedBlockIndexes.includes(index),
     );
+    if (
+      touching.length > 1 &&
+      touching.every(
+        (intent) =>
+          intent.writerId === args.incoming.writerId &&
+          intent.generation !== undefined &&
+          args.incoming.generation !== undefined &&
+          intent.generation <= args.incoming.generation,
+      )
+    ) {
+      // Only this editor touched the block since its base, and the incoming
+      // body is that editor's newer state of it.
+      merged[index] = candidate[index];
+      continue;
+    }
     if (touching.length !== 1) {
       return { status: "preservation-required", reason: "provenance" };
     }
