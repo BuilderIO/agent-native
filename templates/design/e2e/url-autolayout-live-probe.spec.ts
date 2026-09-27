@@ -272,6 +272,7 @@ test.describe("URL-backed live auto-layout probe", () => {
 
     const frame = page.locator("iframe[data-design-preview-iframe]").first();
     const input = frame.contentFrame().locator("#startup-search");
+    await expect(input).toBeVisible({ timeout: 30_000 });
     const bounds = await input.boundingBox();
     if (!bounds) throw new Error("Interact input has no bounding box");
     await page.mouse.click(
@@ -294,6 +295,76 @@ test.describe("URL-backed live auto-layout probe", () => {
         ),
       )
       .toBe(true);
+  });
+
+  test("preserves a live input reached with Tab in Edit mode", async ({
+    page,
+  }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const liveFrames = page.locator("iframe[data-design-preview-iframe]");
+    const firstInput = liveFrames
+      .first()
+      .contentFrame()
+      .locator("#startup-search");
+    await expect(firstInput).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const liveFrame = document.querySelector(
+            "iframe[data-design-preview-iframe]",
+          );
+          return (
+            active instanceof HTMLElement &&
+            active.tabIndex === -1 &&
+            Boolean(liveFrame && active.contains(liveFrame))
+          );
+        }),
+      )
+      .toBe(true);
+
+    let tabbedFrameIndex = -1;
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      tabbedFrameIndex = await liveFrames.evaluateAll((frames) =>
+        frames.indexOf(document.activeElement as HTMLIFrameElement),
+      );
+      if (tabbedFrameIndex >= 0) break;
+    }
+    expect(
+      tabbedFrameIndex,
+      "Tab should move focus into the live preview",
+    ).toBeGreaterThanOrEqual(0);
+    await page.waitForTimeout(200);
+    const previewRetainedTabFocus = await liveFrames.evaluateAll((frames) =>
+      frames.includes(document.activeElement as HTMLIFrameElement),
+    );
+    expect(
+      previewRetainedTabFocus,
+      "the live preview should retain focus after Tab enters it",
+    ).toBe(true);
+    const input = liveFrames
+      .nth(tabbedFrameIndex)
+      .contentFrame()
+      .locator("#startup-search");
+    await expect(input).toBeFocused();
+    await page.waitForTimeout(200);
+    await expect(input).toBeFocused();
+    await page.keyboard.type("tab-focused");
+    await expect(input).toHaveValue("tab-focused");
+    await expect(input).toBeFocused();
   });
 
   test("opens signed-out capability and inspects URL-backed frames", async ({

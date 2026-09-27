@@ -1782,6 +1782,8 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tabFocusNavigationPendingRef = useRef(false);
+  const tabFocusedLiveFrameRef = useRef(false);
   const focusScrollSurfaceRef = useRef<
     | ((fromIframeLoad?: boolean, iframeReportedFocusSafe?: boolean) => void)
     | null
@@ -4292,6 +4294,7 @@ export function DesignCanvas({
         !readOnly &&
         editMode &&
         !interactMode &&
+        !tabFocusedLiveFrameRef.current &&
         ((e.data.type === "agent-native:editor-chrome-ready" &&
           e.data.focusSafe === true) ||
           (e.data.type === "agent-native:canvas-focus-state" &&
@@ -7725,6 +7728,11 @@ export function DesignCanvas({
         interactMode
       )
         return;
+      if (
+        tabFocusedLiveFrameRef.current &&
+        document.activeElement === iframeRef.current
+      )
+        return;
       // A picker drag ending over the canvas must not take focus from the open
       // picker: losing it ends the inspector gesture and drops a styled text range.
       if (
@@ -7774,6 +7782,45 @@ export function DesignCanvas({
     },
     [editMode, interactMode],
   );
+  useEffect(() => {
+    if (sourceType !== "localhost" || readOnly || !editMode || interactMode)
+      return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isTrusted && event.key === "Tab") {
+        tabFocusNavigationPendingRef.current = true;
+        requestAnimationFrame(finishTabNavigation);
+      }
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Tab") finishTabNavigation();
+    };
+    const finishTabNavigation = () => {
+      if (!tabFocusNavigationPendingRef.current) return;
+      if (document.activeElement === iframeRef.current) {
+        tabFocusedLiveFrameRef.current = true;
+      }
+      tabFocusNavigationPendingRef.current = false;
+    };
+    const handleFocusIn = () => {
+      if (document.activeElement === iframeRef.current) {
+        if (tabFocusNavigationPendingRef.current) {
+          tabFocusedLiveFrameRef.current = true;
+        }
+      } else {
+        tabFocusedLiveFrameRef.current = false;
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keyup", handleKeyUp, true);
+    document.addEventListener("focusin", handleFocusIn, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keyup", handleKeyUp, true);
+      document.removeEventListener("focusin", handleFocusIn, true);
+      tabFocusNavigationPendingRef.current = false;
+      tabFocusedLiveFrameRef.current = false;
+    };
+  }, [editMode, interactMode, readOnly, sourceType]);
   focusScrollSurfaceRef.current = focusScrollSurface;
   const handleCanvasPointerEnter = useCallback(
     () => focusScrollSurface(),
