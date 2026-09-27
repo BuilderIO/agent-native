@@ -728,6 +728,9 @@ const messages = {
     suggestionSummarize: "Resume mis correos no leidos",
     suggestionReplies: "Que necesita mi respuesta hoy?",
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
+    ruleSuggestionFilter: "Filtra mensajes como este",
+    ruleSuggestionImportant: "Prioriza los correos de mi jefe",
+    ruleSuggestionArchive: "Archiva automáticamente las notificaciones de bots",
   },
   settings: {
     openAgentSettings: "Gestionar agente",

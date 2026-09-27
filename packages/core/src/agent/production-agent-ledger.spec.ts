@@ -376,6 +376,7 @@ describe("tool-call result ledger", () => {
               toolInput: '{"content":"slow"}',
               content:
                 "Error running save-data: Tool call timed out after 12 seconds",
+              isError: true,
             },
           ],
         },

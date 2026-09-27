@@ -707,6 +707,9 @@ const messages = {
     suggestionSummarize: "لخص رسائلي غير المقروءة",
     suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
+    ruleSuggestionFilter: "تصفية الرسائل المشابهة لهذه",
+    ruleSuggestionImportant: "إعطاء الأولوية لرسائل مديري",
+    ruleSuggestionArchive: "أرشفة إشعارات الروبوتات تلقائيًا",
   },
   settings: {
     openAgentSettings: "إدارة الوكيل",

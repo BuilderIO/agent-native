@@ -729,6 +729,9 @@ const messages = {
     suggestionReplies: "O que precisa da minha resposta hoje?",
     suggestionWidget:
       "Crie um widget personalizado para minha caixa de entrada",
+    ruleSuggestionFilter: "Filtrar mensagens como esta",
+    ruleSuggestionImportant: "Priorizar e-mails do meu chefe",
+    ruleSuggestionArchive: "Arquivar notificações de bots automaticamente",
   },
   settings: {
     openAgentSettings: "Gerenciar agente",

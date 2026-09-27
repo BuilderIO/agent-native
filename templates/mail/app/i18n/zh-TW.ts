@@ -684,6 +684,9 @@ const messages = {
     suggestionSummarize: "總結我的未讀郵件",
     suggestionReplies: "今天哪些郵件需要我回覆？",
     suggestionWidget: "為我的收件箱建立自訂小元件",
+    ruleSuggestionFilter: "篩選掉這類郵件",
+    ruleSuggestionImportant: "優先處理來自我主管的郵件",
+    ruleSuggestionArchive: "自動封存機器人通知郵件",
   },
   settings: {
     openAgentSettings: "管理代理",

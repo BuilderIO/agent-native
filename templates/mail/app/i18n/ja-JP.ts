@@ -715,6 +715,9 @@ const messages = {
     suggestionSummarize: "未読メールを要約して",
     suggestionReplies: "今日返信が必要なものは？",
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
+    ruleSuggestionFilter: "このようなメールを除外する",
+    ruleSuggestionImportant: "上司からのメールを優先する",
+    ruleSuggestionArchive: "ボット通知を自動でアーカイブする",
   },
   settings: {
     openAgentSettings: "エージェントを管理",

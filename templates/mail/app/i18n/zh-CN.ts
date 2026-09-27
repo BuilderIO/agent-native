@@ -687,6 +687,9 @@ const messages = {
     suggestionSummarize: "总结我的未读邮件",
     suggestionReplies: "今天哪些邮件需要我回复？",
     suggestionWidget: "为我的收件箱创建自定义小组件",
+    ruleSuggestionFilter: "过滤掉这类邮件",
+    ruleSuggestionImportant: "优先处理来自我老板的邮件",
+    ruleSuggestionArchive: "自动归档机器人通知邮件",
   },
   settings: {
     openAgentSettings: "管理代理",

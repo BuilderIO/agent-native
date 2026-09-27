@@ -20,6 +20,16 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("dynamicSuggestions={false}");
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
+    expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
+  });
+
   it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
@@ -128,12 +138,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "label={labelAliases[tag.id]?.trim() || tag.name}",
     );
-    expect(source).toContain('t("mail.sort.aiSetupImportantExample")');
-    expect(source).toContain('t("mail.sort.aiSetupArchiveExample")');
-    expect(source).toContain('t("mail.sort.aiSetupFilteredExample")');
-    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionFilter")');
-    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionPriority")');
-    expect(source).not.toContain('t("mail.aiFilter.chatSuggestionArchive")');
+    expect(source).toContain('t("agent.ruleSuggestionFilter")');
+    expect(source).toContain('t("agent.ruleSuggestionImportant")');
+    expect(source).toContain('t("agent.ruleSuggestionArchive")');
     expect(source).toContain("hasFilteredRule || hasFilteredLabel");
     expect(source).toContain("allTabVisible={showAllTab}");
     expect(source).toContain('className={cn("relative shrink-0", tabsLoading');
@@ -407,6 +414,11 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "return pinnedLabels .filter((id) => systemViews.some((v) => v.id === id))",
     );
+    expect(source).toContain("label: t(sysView.labelKey)");
+    expect(source).toContain(
+      "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
+    );
+    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {

@@ -708,6 +708,9 @@ const messages = {
     suggestionSummarize: "읽지 않은 이메일 요약하기",
     suggestionReplies: "오늘 답장해야 할 것은 무엇인가요?",
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
+    ruleSuggestionFilter: "이런 메시지 필터링하기",
+    ruleSuggestionImportant: "상사의 이메일 우선 처리하기",
+    ruleSuggestionArchive: "봇 알림 자동 보관하기",
   },
   settings: {
     openAgentSettings: "에이전트 관리",

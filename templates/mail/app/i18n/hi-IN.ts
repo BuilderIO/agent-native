@@ -706,6 +706,9 @@ const messages = {
     suggestionSummarize: "मेरे unread emails का सारांश दें",
     suggestionReplies: "आज किन चीजों पर मेरा reply चाहिए?",
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
+    ruleSuggestionFilter: "इस तरह के संदेश फ़िल्टर करें",
+    ruleSuggestionImportant: "मेरे बॉस के ईमेल को प्राथमिकता दें",
+    ruleSuggestionArchive: "बॉट सूचनाएँ अपने-आप संग्रहित करें",
   },
   settings: {
     openAgentSettings: "एजेंट प्रबंधित करें",

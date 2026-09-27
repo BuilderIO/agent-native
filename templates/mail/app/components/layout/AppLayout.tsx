@@ -344,10 +344,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       agentPageHref="/settings/agent"
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
+      dynamicSuggestions={false}
       suggestions={[
-        t("mail.sort.aiSetupImportantExample"),
-        t("mail.sort.aiSetupArchiveExample"),
-        t("mail.sort.aiSetupFilteredExample"),
+        t("agent.ruleSuggestionFilter"),
+        t("agent.ruleSuggestionImportant"),
+        t("agent.ruleSuggestionArchive"),
       ]}
     >
       {content}

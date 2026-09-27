@@ -733,6 +733,9 @@ const messages = {
     suggestionSummarize: "Resumer mes e-mails non lus",
     suggestionReplies: "A quoi dois-je repondre aujourd'hui?",
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
+    ruleSuggestionFilter: "Filtrer les messages comme celui-ci",
+    ruleSuggestionImportant: "Prioriser les e-mails de mon responsable",
+    ruleSuggestionArchive: "Archiver automatiquement les notifications de bots",
   },
   settings: {
     openAgentSettings: "Gérer l’agent",

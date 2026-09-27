@@ -3123,9 +3123,8 @@ function seedWriteToolInterruptionsFromHistory(
       if (!call) continue;
       if (
         typeof part.content === "string" &&
-        part.isError === true &&
         (part.content.includes(INTERRUPTED_TOOL_RESULT_MARKER) ||
-          isToolCallTimeoutResult(part.content))
+          (part.isError === true && isToolCallTimeoutResult(part.content)))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);

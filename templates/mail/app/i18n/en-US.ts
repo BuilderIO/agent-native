@@ -711,6 +711,9 @@ const messages = {
     suggestionSummarize: "Summarize my unread emails",
     suggestionReplies: "What needs my reply today?",
     suggestionWidget: "Build me a custom widget for my inbox",
+    ruleSuggestionFilter: "Filter out messages like this",
+    ruleSuggestionImportant: "Prioritize emails from my boss",
+    ruleSuggestionArchive: "Auto-archive bot notifications",
   },
   settings: {
     openAgentSettings: "Manage agent",
