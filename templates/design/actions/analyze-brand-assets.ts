@@ -7,9 +7,8 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-// Re-exported for back-compat with existing imports/tests.
 export { normalizeBrandWebsiteUrl };
 
 export default defineAction({
@@ -40,7 +39,6 @@ export default defineAction({
   run: async ({ designSystemId, companyName, brandNotes, websiteUrl }) => {
     let existingDesignSystem: unknown;
 
-    // Include existing design system data if provided
     if (designSystemId) {
       const access = await resolveAccess("design-system", designSystemId);
       if (access) {
@@ -54,7 +52,6 @@ export default defineAction({
       }
     }
 
-    // Fetch and analyze website if URL provided
     const websiteAnalysis = websiteUrl
       ? await extractRenderedDesignSystemFromUrl(websiteUrl)
       : undefined;

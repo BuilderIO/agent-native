@@ -253,7 +253,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Integration content");
   });
 
-  it("only adds labs when definitions exist and indexes each lab", async () => {
+  it("always includes the core lab and indexes app labs", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -307,7 +307,7 @@ describe("SettingsTabsPage", () => {
         </MemoryRouter>,
       );
     });
-    expect(container.querySelector("#settings-tab-labs")).toBeNull();
+    expect(container.querySelector("#settings-tab-labs")).not.toBeNull();
   });
 
   it("places labs after app-specific tabs such as notifications", () => {
@@ -567,7 +567,13 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Agent", "What's new", "Team"]);
+    expect(tabLabels).toEqual([
+      "General",
+      "Agent",
+      "Labs",
+      "What's new",
+      "Team",
+    ]);
   });
 
   it("visually separates app, agent, and workspace tabs", () => {
@@ -666,8 +672,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // "aliases" has no group (defaults to "app", same as General) but sits
-    // between two "integrations" tabs, breaking simple adjacency.
     expect(
       container.querySelectorAll('[data-settings-tab-group="app"]'),
     ).toHaveLength(1);
@@ -679,10 +683,16 @@ describe("SettingsTabsPage", () => {
       container.querySelectorAll('[role="tab"]'),
       (tab) => tab.textContent,
     );
-    expect(tabLabels).toEqual(["General", "Aliases", "Gmail Filters", "Slack"]);
+    expect(tabLabels).toEqual([
+      "General",
+      "Aliases",
+      "Labs",
+      "Gmail Filters",
+      "Slack",
+    ]);
   });
 
-  it("keeps linked settings navigation last with an external-link marker", () => {
+  it("keeps linked settings navigation last without an external-link marker", () => {
     act(() => {
       root.render(
         <MemoryRouter initialEntries={["/settings"]}>
@@ -714,16 +724,49 @@ describe("SettingsTabsPage", () => {
       Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
         tab.textContent?.trim(),
       ),
-    ).toEqual(["General", "What's new", "Integrations", "Team", "Workspace"]);
+    ).toEqual([
+      "General",
+      "Labs",
+      "What's new",
+      "Integrations",
+      "Team",
+      "Workspace",
+    ]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/workspace"]',
     );
     expect(workspaceLink).not.toBeNull();
-    expect(workspaceLink?.querySelector("svg")).not.toBeNull();
+    expect(workspaceLink?.querySelector("svg")).toBeNull();
     expect(
       workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
+  });
+
+  it("does not mark the in-settings observability tab as an external link", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "observability",
+                label: "Agent Observability",
+                href: "/settings/observability/overview",
+                content: <div>Observability content</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const observabilityLink = container.querySelector(
+      'a[href="/settings/observability/overview"]',
+    );
+    expect(observabilityLink).not.toBeNull();
+    expect(observabilityLink?.querySelector("svg")).toBeNull();
   });
 
   it("syncs the active tab after router-only settings navigation", () => {
@@ -827,7 +870,6 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    // The controlled value wins over the (empty) hash.
     expect(container.textContent).toContain("Team members");
     expect(container.textContent).not.toContain("General content");
 
@@ -838,8 +880,6 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    // Parent owns the state: it is notified, but the component neither switches
-    // on its own nor writes the hash.
     expect(onValueChange).toHaveBeenCalledWith("whats-new");
     expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Team members");

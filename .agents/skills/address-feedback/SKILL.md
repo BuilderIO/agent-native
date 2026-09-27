@@ -18,11 +18,10 @@ handle concrete design/UX feedback about existing surfaces. In a Slack sweep,
 new capability requests still need the invoking identity's `:upvote:`; praise,
 status updates, merge/review requests, bot forwards, duplicates, and noise stay
 out of scope. Do not exclude Design feedback just because it is visual or
-subjective. If another agent or owner is already handling a report, leave it
-with that owner. If a previous run
-mistakenly reacted to an out-of-scope item, release the claim with
-`:no_entry_sign:` when
-reactions are available and do not add a compensating reply.
+subjective. Before leaving a report with another owner, confirm current thread
+status or linked work; an eye alone is not active ownership. If a previous run
+claimed an out-of-scope item, keep `👀` and record **Skipped** once in the
+thread. Never remove reactions; newer thread evidence determines its status.
 
 ## Choose the fix altitude
 
@@ -79,9 +78,10 @@ the right abstraction, not the most general one.
    and was reported again two weeks later.
 
    Search before fixing, going back at least three months: the source channel
-   in the reporter's words and in your own, Sentry, and merged PR titles. Search
-   the feature name, the error text, and the surface separately — repeat reports
-   rarely share vocabulary.
+   in the reporter's words and in your own, Sentry, first-party Agent-Native
+   Analytics error issues, and merged PR titles. Search the feature name, the
+   error text, and the surface separately - repeat reports rarely share
+   vocabulary.
 
    - **No prior report** — proceed normally.
    - **Prior report, no fix landed** — say how long it has been open. The person
@@ -126,7 +126,7 @@ state, never the opening or the prose of the reporter-facing reply.
    symptom, expected behavior, evidence, and owning surface: UI, action/tool,
    data model, provider/runtime, or product policy.
 
-   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Verify and fix when you agree.
+   - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Separate the observed failure from the proposed remedy. Fix verified breakage at its owning seam even when the suggested UX change is out of scope; skip only that remedy. If the failure is unverified, keep it evidence-limited or ask for the detail that would unblock reproduction.
    - **UX suggestion**: Design, discoverability, workflow, or feature feedback. For concrete critique of an existing surface, choose and implement the smallest coherent treatment when it is in scope. A request for a new capability still needs the invoking identity's `:upvote:` in a Slack sweep.
    - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
@@ -139,13 +139,20 @@ state, never the opening or the prose of the reporter-facing reply.
    - Treat possible cross-user or cross-organization exposure as a security/correctness bug and verify it before proposing polish.
    - Keep undefined product policy separate from implementation bugs. If supported source types or scope semantics are not defined, flag the contract question instead of inventing behavior.
 
-5. Check Sentry when the feedback smells like an error.
+5. Check Sentry and first-party Agent-Native Analytics when the feedback smells
+   like an error.
 
    - Use the Sentry skill/plugin if available, or the repo's Sentry scripts if documented.
+   - Use authenticated Agent-Native Analytics `list-error-issues` for captured
+     client/server issue groups, then `get-error-issue` for stack and occurrence
+     details. Use the linked session replay when it is available.
    - Search by route, stack symbol, error text, and symptom keywords.
    - Default org is `builder-io` unless the user specifies another.
-   - Cite issue IDs or links when you find a match.
-   - If nothing matches, say that plainly.
+   - Query both when available. If Sentry is unavailable or rate-limited,
+     Analytics is the fallback for errors it captured.
+   - Cite the matching issue ID or link and say which source it came from.
+   - If a source cannot be read, record it as unavailable; do not say nothing
+     matched for that source.
 
 ## Fix-altitude gate
 
@@ -167,7 +174,11 @@ evidence:
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
    - Keep each fix narrow and mapped to a feedback item.
    - Follow existing project conventions and nearby patterns.
-   - Do not switch branches, stash, reset, force-push, or open a PR unless the user asks.
+   - In a task-owned worktree, create or switch to a safe task branch when
+     needed without asking; preserve local changes and never move a branch
+     used by another worktree. In a shared checkout, ask before creating or
+     switching branches unless the user authorized that exact operation.
+     Stash, reset, force-push, and PR creation still require explicit scope.
    - Add or update focused tests when the bug risk warrants it.
 
 7. Treat UX feedback with product judgment.
@@ -277,13 +288,15 @@ one short sentence.
 - Do not bundle unrelated cleanups.
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
-- Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not invent Sentry or Agent-Native Analytics matches, affected users, or
+  reproduction steps.
 - Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 
 - `github:gh-address-comments` for GitHub PR review threads.
 - `github:gh-fix-ci` for failing GitHub checks.
-- `sentry:sentry` for production error investigation.
+- `sentry:sentry` for external Sentry investigation; use Analytics error issue
+  actions for first-party captured errors.
 - `frontend-design` for approved UI implementation work.
 - `qa` for broader browser verification.

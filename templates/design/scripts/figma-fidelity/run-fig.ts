@@ -7,28 +7,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-/**
- * `.fig` upload fidelity run: a real Figma `.fig` file -> our HTML -> pixels.
- *
- * The `.fig` path is a SECOND, independent converter (`fig-file-to-html.ts`)
- * from the REST one (`figma-node-to-html.ts`). Two walkers over the same design
- * drift apart, and that drift stays invisible until something measures both
- * against one reference. This harness measures two numbers per frame:
- *
- *   vsFigma — the `.fig` render against Figma's own PNG of that frame, reusing
- *             the reference the import harness already cached. The real
- *             fidelity number.
- *   vsRest  — the `.fig` render against the REST importer's render of the same
- *             frame. Pure cross-path drift; it needs no Figma request at all,
- *             so it stays measurable while the REST quota is exhausted.
- *
- * Frames line up across the two paths for free: a `.fig` GUID is
- * `sessionID:localID`, which is exactly the shape of a REST node id.
- *
- * Usage:
- *   pnpm figma-fidelity:fig            # whole corpus
- *   pnpm figma-fidelity:fig <filter>   # matching ids
- */
 import { chromium } from "@playwright/test";
 
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
@@ -51,30 +29,13 @@ const IMPORT_MANIFEST =
 
 interface FigCase {
   id: string;
-  /** Path to the `.fig`, absolute or relative to the repo root. */
   file: string;
-  /** Optional allow-list of `sessionID:localID` frame keys; default is all. */
   frames?: string[];
-  /**
-   * The Figma file this `.fig` was saved from. Node ids are unique per FILE,
-   * so without it a frame can match an unrelated design's reference.
-   */
   fileKey?: string;
-  /**
-   * Substring of the refusal this case is pinning. A product limit that fires
-   * correctly is a PASS, not a failure: reporting it as one leaves the harness
-   * permanently red, and a real regression then hides in the noise. The case
-   * still fails if it is refused for a different reason, or not refused at all.
-   */
   expectRefusal?: string;
   notes?: string;
 }
 
-/**
- * The canvas the REST harness captured this frame's Figma reference on, so the
- * `.fig` render lands on the same one. `render.json` records the frame box,
- * Figma's ink, and where the box sits inside their union.
- */
 function referenceRender(importCase: string | undefined): {
   canvas: { width: number; height: number };
   contentOffset: { left: number; top: number };
@@ -105,13 +66,11 @@ interface FrameOutcome {
   frameName: string;
   width: number;
   height: number;
-  /** Against Figma's own render, when the import harness cached one. */
   vsFigma?: {
     diffPercent: number;
     meanDelta: number;
     dimensionMismatch: boolean;
   };
-  /** Against the REST importer's render of the same frame. */
   vsRest?: {
     diffPercent: number;
     meanDelta: number;
@@ -126,30 +85,12 @@ interface CaseOutcome {
   fileBytes?: number;
   frameCount?: number;
   pageCount?: number;
-  /** Nodes the `.fig` walker could not render exactly; reported, never hidden. */
   approximatedNodes?: number;
-  /** Frames rendered but with no reference on either side to compare against. */
   unreferencedFrames?: number;
   frames?: FrameOutcome[];
   error?: string;
 }
 
-/**
- * Map `sessionID:localID` -> import case id, so a `.fig` frame can find the
- * Figma reference and the REST render the import harness already produced for
- * that same node.
- */
-/**
- * Frame GUID -> the import case holding Figma's reference for it, keyed by
- * FILE as well as node.
- *
- * A Figma node id is unique inside its file and nowhere else, so a bare
- * node-id index silently matched across files: the fixture file's
- * `6:20 ledger-f3b-svg-insert` scored 99.55% against `community-interior-
- * ecommerce`, an unrelated design that happens to own a `6:20` too. A case
- * without a `fileKey` still matches on node id alone — that is the old
- * behaviour, and it is why every case in the corpus now declares one.
- */
 function buildReferenceIndex(): Map<string, string> {
   const index = new Map<string, string>();
   if (!existsSync(IMPORT_MANIFEST)) return index;
@@ -167,7 +108,6 @@ function buildReferenceIndex(): Map<string, string> {
   return index;
 }
 
-/** The reference for a frame, refusing a cross-file id collision. */
 function referenceFor(
   references: Map<string, string>,
   testCase: FigCase,
@@ -198,16 +138,10 @@ async function runCase(
   const fileBytes = statSync(testCase.file).size;
   const buffer = readFileSync(testCase.file);
   const decoded = decodeFig(buffer);
-  // A partially decoded document renders as a plausible-looking design that is
-  // quietly missing nodes. That is exactly the "truncated run is not a
-  // completed one" failure, so it stops the case rather than scoring it.
   if (decoded.decodeError) {
     throw new Error(`.fig decode error: ${decoded.decodeError}`);
   }
 
-  // Images resolve through `imageMap`, and a value that already looks like a
-  // URL passes through untouched. The harness renders with `setContent`, where
-  // a relative path would resolve against about:blank, so inline them.
   const imageMap = new Map<string, string>();
   for (const image of decoded.images) {
     const mime = IMAGE_MIME[image.ext] ?? "application/octet-stream";
@@ -222,9 +156,6 @@ async function runCase(
     throw new Error(".fig decoded to a document with no nodeChanges.");
   }
 
-  // Resolve the frame geometry from the node tree; `renderHtmlTemplates`
-  // reports width/height per frame but not the GUID, and the GUID is what
-  // matches a frame to its REST counterpart.
   const childrenOf = new Map<string, FigNode[]>();
   const roots: FigNode[] = [];
   for (const node of doc.nodeChanges) {
@@ -271,13 +202,6 @@ async function runCase(
 
   const result = renderHtmlTemplates(decoded.document, {
     imageMap,
-    // The product's frame/total byte budgets bound HTML that carries short
-    // durable image URLs. This harness inlines the same images as base64 so a
-    // `setContent` page can resolve them, which inflates a frame by orders of
-    // magnitude for reasons that have nothing to do with design complexity.
-    // Measuring the product budget against inlined bytes would fail files the
-    // product imports fine; the budgets have their own coverage in
-    // `fig-file-import.test.ts`.
     maxFrameOutputBytes: Number.MAX_SAFE_INTEGER,
     maxTotalOutputBytes: Number.MAX_SAFE_INTEGER,
     ...(selection ? { selection } : {}),
@@ -289,9 +213,6 @@ async function runCase(
   const frames: FrameOutcome[] = [];
   let unreferenced = 0;
   for (const frame of result.frames) {
-    // `renderHtmlTemplates` returns frames by name, not GUID. Names are unique
-    // within this corpus by construction; a duplicate is reported rather than
-    // guessed at, because comparing the wrong frame scores as a huge false diff.
     const candidates = frameKeyByName.get(frame.frameName) ?? [];
     if (candidates.length !== 1) {
       throw new Error(
@@ -308,12 +229,6 @@ async function runCase(
     mkdirSync(frameDir, { recursive: true });
     writeFileSync(join(frameDir, "fig.html"), frame.html);
 
-    // Render on the SAME canvas the reference was captured on. The import
-    // harness unions the frame box with Figma's ink, because content that
-    // overflows the frame is still in Figma's PNG — the Untitled UI dashboard
-    // spills 106px past its own 960px frame. Rendering the frame box alone
-    // compared a 1440x960 image against a 1440x1066 one, which is not a
-    // fidelity number at all; it is two differently-shaped pictures.
     const importCase = referenceFor(references, testCase, frameKey);
     const reference = referenceRender(importCase);
     const rendered = await renderHtmlToPng(browser, frame.html, {
@@ -412,8 +327,6 @@ try {
     try {
       const outcome = await runCase(browser, testCase, references);
       if (testCase.expectRefusal) {
-        // The case exists to prove the limit refuses this file. Rendering it
-        // means the limit stopped working.
         throw new Error(
           `expected this file to be refused with "${testCase.expectRefusal}", but it rendered ${outcome.frameCount} frame(s)`,
         );

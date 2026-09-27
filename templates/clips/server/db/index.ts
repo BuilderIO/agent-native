@@ -8,6 +8,9 @@ import {
   CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
   CLIPS_MEETING_AGENT_RESOURCE_KIND,
 } from "../../shared/meeting-agent-access.js";
+import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
+import { recordingSharePath } from "../../shared/recording-link.js";
+import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   absoluteUrl,
   recordingShareEmailExtras,
@@ -20,11 +23,6 @@ type ClipsDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
 export const getDb = createGetDb(schema) as () => ClipsDatabase;
 export { schema, getDbExec };
 
-/**
- * Resolve the sharing org's brand logo as an absolute URL for share emails.
- * Returns undefined so `renderEmail` falls back to the Agent-Native logo when
- * the org has no logo set.
- */
 async function orgBrandLogoUrl(
   organizationId: string | undefined,
 ): Promise<string | undefined> {
@@ -34,10 +32,13 @@ async function orgBrandLogoUrl(
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
-  return absoluteUrl(row?.brandLogoUrl);
+  const stored = row?.brandLogoUrl?.trim();
+  if (!stored) return undefined;
+  return usesOrganizationLogoRoute(stored)
+    ? organizationLogoAbsoluteUrl(organizationId)
+    : absoluteUrl(stored);
 }
 
-/** Show the sharing org's name beside the logo instead of the app name. */
 async function orgBrandName(
   organizationId: string | undefined,
 ): Promise<string | undefined> {
@@ -56,11 +57,9 @@ registerShareableResource({
   sharesTable: schema.recordingShares,
   displayName: "Recording",
   titleColumn: "title",
-  getResourcePath: (recording) => `/r/${recording.id}`,
+  getResourcePath: (recording) => recordingSharePath(recording.id),
   getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
   getBrandName: (recording) => orgBrandName(recording.organizationId),
-  // Replies reach the person who shared the clip; the sending address stays
-  // the verified one so SPF/DKIM still pass.
   getSender: (_recording, ctx) => ({
     fromName: `${ctx.sender.name} via Clips`,
     replyTo: ctx.sender.email,
@@ -106,7 +105,6 @@ registerShareableResource({
   resourceTable: schema.dictations,
   sharesTable: schema.dictationShares,
   displayName: "Dictation",
-  // Dictations don't have a meaningful title field — fall back to id.
   titleColumn: "id",
   getDb,
 });

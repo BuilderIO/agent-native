@@ -82,6 +82,13 @@ async function deleteBuilderAssetByUrl(url: string): Promise<boolean> {
   );
 }
 
+export async function deleteStoredMediaUrl(url: string): Promise<boolean> {
+  if (!url || url.startsWith("data:")) return false;
+  return (
+    (await deleteS3ObjectByUrl(url)) || (await deleteBuilderAssetByUrl(url))
+  );
+}
+
 export async function deleteRecordingMediaObjects(
   recording: RecordingMediaUrls,
   options: RecordingMediaCleanupOptions = {},

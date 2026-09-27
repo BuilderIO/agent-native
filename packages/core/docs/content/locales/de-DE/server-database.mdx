@@ -99,6 +99,8 @@ DATABASE_URL=pglite:./data/pglite
 
 Das Framework konfiguriert Drizzle anhand von `DATABASE_URL` für PostgreSQL.
 
+Das Framework begrenzt Verbindungen pro Pool. Standardwerte sind 20 für langlebige Node.js-Prozesse, 2 für serverlose Vordergrundfunktionen, 4 für serverlose Hintergrundfunktionen und 1 für geplante Worker mit geringem Verbindungsbedarf. `AGENT_NATIVE_DB_POOL_MAX` überschreibt das Limit pro Pool für Neon- und Standard-PostgreSQL-Clients. Schätzen Sie die Gesamtzahl über aktive Funktionsinstanzen oder Node.js-Prozesse, Apps und Datenbank-URLs. Jeder Prozess hat eigene Pools. Bleiben Sie unter dem Verbindungslimit der Datenbank oder des Poolers und lassen Sie Kapazität für Migrationen, Verwaltung und andere Clients frei. Verwenden Sie nach Möglichkeit den Pool-Endpunkt des Anbieters. Bei selbst gehostetem PostgreSQL mit vielen App-Prozessen kommt Transaktions-Pooling mit PgBouncer infrage.
+
 ### Von Builder.io verwaltete Datenbank {#builder-managed}
 
 _Geplant (noch nicht verfügbar):_ Wenn Ihre App mit Builder.io verbunden ist, kann sie eine verwaltete PostgreSQL-Datenbank nutzen, die automatisch bereitgestellt wird – ganz ohne PostgreSQL-Verbindungszeichenfolge.

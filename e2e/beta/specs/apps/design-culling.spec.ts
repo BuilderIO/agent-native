@@ -188,6 +188,15 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     const initialTransform = await world.evaluate(
       (element) => (element as HTMLElement).style.transform,
     );
+    const readWorldScale = () =>
+      world.evaluate((element) => {
+        const match = /scale\((-?[\d.]+)\)/.exec(
+          (element as HTMLElement).style.transform,
+        );
+        if (!match) throw new Error("missing world camera scale");
+        return Number(match[1]);
+      });
+    const initialScale = await readWorldScale();
     const surfaceBox = await surface.boundingBox();
     if (!surfaceBox) throw new Error("missing overview canvas surface");
     await Promise.all(
@@ -197,10 +206,35 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
         .map((frame) => frame.waitForLoadState("load")),
     );
     await resetChurn(page);
-    await page.mouse.move(
-      surfaceBox.x + surfaceBox.width / 2,
-      surfaceBox.y + surfaceBox.height / 2,
+    const wheelTarget = await page.evaluate(({ x, y, width, height }) => {
+      for (let offsetY = height - 24; offsetY >= 24; offsetY -= 24) {
+        for (let offsetX = width - 24; offsetX >= 24; offsetX -= 24) {
+          const point = { x: x + offsetX, y: y + offsetY };
+          const target = document.elementFromPoint(point.x, point.y);
+          if (
+            !target?.closest("[data-multi-screen-canvas-surface]") ||
+            target.closest("iframe[data-design-preview-iframe], object, embed")
+          ) {
+            continue;
+          }
+          return {
+            point,
+            tagName: target.tagName,
+            className: target instanceof HTMLElement ? target.className : null,
+            inCanvasSurface: true,
+            inPreviewIframe: false,
+          };
+        }
+      }
+      return null;
+    }, surfaceBox);
+    if (!wheelTarget) throw new Error("missing empty canvas wheel target");
+    console.info(
+      `[beta-design-culling] gesture-start ${JSON.stringify({ initialZoomLabel, initialTransform, wheelTarget })}`,
     );
+    expect(wheelTarget.inCanvasSurface).toBe(true);
+    expect(wheelTarget.inPreviewIframe).toBe(false);
+    await page.mouse.move(wheelTarget.point.x, wheelTarget.point.y);
     for (let index = 0; index < 16; index += 1) await page.mouse.wheel(72, 48);
     await page.keyboard.down("Control");
     for (let index = 0; index < 4; index += 1) await page.mouse.wheel(0, -60);
@@ -213,9 +247,23 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
         { timeout: 10_000 },
       )
       .not.toBe(initialTransform);
+    const cameraTransformAtLabel = await world.evaluate(
+      (element) => (element as HTMLElement).style.transform,
+    );
+    const cameraScaleAtLabel = await readWorldScale();
+    console.info(
+      `[beta-design-culling] camera-before-label ${JSON.stringify({ cameraScaleAtLabel, cameraTransformAtLabel, initialScale })}`,
+    );
     await expect
       .poll(() => zoomControl.innerText(), { timeout: 10_000 })
       .not.toBe(initialZoomLabel);
+    const finalTransform = await world.evaluate(
+      (element) => (element as HTMLElement).style.transform,
+    );
+    const finalZoomLabel = await zoomControl.innerText();
+    console.info(
+      `[beta-design-culling] gesture-end ${JSON.stringify({ finalZoomLabel, finalTransform })}`,
+    );
 
     const afterIframes = await page
       .locator("iframe[data-design-preview-iframe]")

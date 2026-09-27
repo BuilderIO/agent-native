@@ -77,7 +77,6 @@ import { cn } from "@/lib/utils";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
-import { getMeetingsSidebarHref } from "./sidebar-nav-hrefs";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
@@ -195,11 +194,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
-  // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
-  // meetings, dictate, and settings stay unscoped — those are list-y views
-  // where deck-style "this recording" framing doesn't apply.
   const recordingScope = useMemo(() => {
-    const match = location.pathname.match(/^\/r\/([^/]+)/);
+    const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
     if (!recordingId) return null;
     return { type: "recording" as const, id: recordingId };
@@ -233,8 +229,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item — count-only, no row payload or
-  // title polling across the app shell.
   const { data: libraryCount } = useRecordingsCount({ view: "library" });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
@@ -279,7 +273,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   >(() => ({
     library:
       location.pathname.startsWith("/library") ||
-      location.pathname.startsWith("/r/"),
+      location.pathname.startsWith("/r/") ||
+      location.pathname.startsWith("/share/"),
     spaces: location.pathname.startsWith("/spaces"),
   }));
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
@@ -334,8 +329,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipContent>
     </Tooltip>
   ) : null;
-  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
-  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -347,7 +340,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       library:
         groups.library ||
         location.pathname.startsWith("/library") ||
-        location.pathname.startsWith("/r/"),
+        location.pathname.startsWith("/r/") ||
+        location.pathname.startsWith("/share/"),
       spaces: groups.spaces || location.pathname.startsWith("/spaces"),
     }));
   }, [location.pathname]);
@@ -424,7 +418,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: t("navigation.library"),
       icon: IconInbox,
       match: (p) =>
-        p === "/home" || p.startsWith("/library") || p.startsWith("/r/"),
+        p === "/home" ||
+        p.startsWith("/library") ||
+        p.startsWith("/r/") ||
+        p.startsWith("/share/"),
       count: libraryCount,
     },
     {
@@ -440,12 +437,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconUsersGroup,
       match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
-    {
-      to: getMeetingsSidebarHref(meetingsLabEnabled, CLIPS_MEETINGS.key),
-      label: t("navigation.meetings"),
-      icon: IconCalendar,
-      match: (p) => p.startsWith("/meetings"),
-    },
+    ...(meetingsLabEnabled
+      ? [
+          {
+            to: "/meetings",
+            label: t("navigation.meetings"),
+            icon: IconCalendar,
+            match: (p: string) => p.startsWith("/meetings"),
+          },
+        ]
+      : []),
     ...(wisprFlowLabEnabled
       ? [
           {

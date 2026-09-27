@@ -1,20 +1,3 @@
-/**
- * The live-insert LIFECYCLE: insert -> undo -> redo -> delete -> apply.
- *
- * Each of the three bugs this pins passes a point assertion and only shows up
- * in sequence:
- *   - Apply's source-path preflight demanded a SUBJECT path for every
- *     non-removal edit. An inserted node is new, so it has no subject source
- *     anchor by definition and Apply always died on "anchors still loading".
- *   - Redo re-issued `runtime-structure-move` for an insert whose undo had
- *     already removed the node, so the bridge silently found no subject.
- *   - Deleting a newly inserted node left its pending insertion queued, so a
- *     later Apply could resurrect exactly what the user just deleted.
- *
- * The live DOM half runs the real generated bridge in a real browser (the
- * insert/ack/delete round-trips are DOM identity, not string manipulation);
- * the queue and history half calls the real host functions the editor calls.
- */
 import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
@@ -80,6 +63,13 @@ const REORDER_FIXTURE = `<!doctype html><html><body>
   </main>
 </body></html>`;
 
+const REPEATED_RUNTIME_INSERT_FIXTURE = `<!doctype html><html><body>
+  <main data-agent-native-node-id="card">
+    <p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>
+    <p data-agent-native-node-id="v2" data-agent-native-runtime-instance-id="instance-v2">V2</p>
+  </main>
+</body></html>`;
+
 interface StructureChangeMessage {
   type: string;
   requestId: string;
@@ -103,6 +93,25 @@ async function collectBridgeMessages(page: Page): Promise<void> {
       (window as Window & { __messages?: unknown[] }).__messages?.push(
         event.data,
       );
+      if (
+        event.source === window &&
+        (event.data as { type?: string } | null)?.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request"
+      ) {
+        const request = event.data as {
+          requestId?: number;
+          documentId?: string;
+        };
+        window.postMessage(
+          {
+            type: "grant-runtime-layer-snapshot-reservation",
+            requestId: request.requestId,
+            documentId: request.documentId,
+            reservationToken: `test-reservation-${request.requestId}`,
+          },
+          "*",
+        );
+      }
     });
   });
 }
@@ -409,6 +418,169 @@ describe("live insert lifecycle", () => {
   );
 
   it(
+    "remints colliding live insert ids without changing source provenance",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(`<!doctype html><html><body>
+          <main data-agent-native-node-id="card">
+            <div id="email" data-agent-native-node-id="shared" data-source-file="src/Card.tsx" data-source-line="12">Existing</div>
+            <div id="email-options">Existing options</div>
+          </main>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              requestId: 101,
+              html: '<form id="email" data-agent-native-node-id="shared" data-agent-native-runtime-instance-id="shared" data-source-file="src/Card.tsx" data-source-line="12"><label for="email" aria-labelledby="email" aria-label="Email field">Moved</label><input form="email" list="email-options" /><datalist id="email-options"><option value="Moved" /></datalist><span id="email">Duplicate</span></form>',
+              anchorSelector: '[data-agent-native-node-id="card"]',
+              anchorSourceId: "card",
+              placement: "inside",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        });
+
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('[data-source-file="src/Card.tsx"]')
+              .length === 2,
+        );
+        const ids = await page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+          );
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+        expect(ids).toContain("shared");
+        expect(await page.locator("#email").count()).toBe(1);
+        const inserted = page
+          .locator('[data-source-file="src/Card.tsx"]')
+          .nth(1);
+        expect(await inserted.locator("label").textContent()).toBe("Moved");
+        const insertedId = await inserted.getAttribute("id");
+        expect(insertedId).not.toBe("email");
+        expect(await inserted.locator("label").getAttribute("for")).toBe(
+          insertedId,
+        );
+        expect(
+          await inserted.locator("label").getAttribute("aria-labelledby"),
+        ).toBe(insertedId);
+        expect(await inserted.locator("label").getAttribute("aria-label")).toBe(
+          "Email field",
+        );
+        expect(await inserted.locator("input").getAttribute("form")).toBe(
+          insertedId,
+        );
+        const optionsId = await inserted.locator("datalist").getAttribute("id");
+        expect(optionsId).not.toBe("email-options");
+        expect(await inserted.locator("input").getAttribute("list")).toBe(
+          optionsId,
+        );
+        const insertedIds = await inserted
+          .locator("[id]")
+          .evaluateAll((nodes) => nodes.map((node) => node.id));
+        expect(new Set(insertedIds).size).toBe(insertedIds.length);
+        expect(
+          await inserted.getAttribute("data-agent-native-runtime-instance-id"),
+        ).toBe(ids[1]);
+        const messages = await page.evaluate(
+          () =>
+            (window as Window & { __messages?: Record<string, unknown>[] })
+              .__messages ?? [],
+        );
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "runtime-structure-insert-applied",
+              requestId: "101",
+              sourceId: expect.not.stringMatching(/^shared$/),
+            }),
+          ]),
+        );
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "visual-structure-ack", requestId: "101", applied: false },
+            "*",
+          );
+        });
+        expect(
+          await page.locator('[data-source-file="src/Card.tsx"]').count(),
+        ).toBe(1);
+        expect(await page.locator("#email").count()).toBe(1);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "reorders an existing runtime instance before reminting a colliding id",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(REPEATED_RUNTIME_INSERT_FIXTURE);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        await page.evaluate((screenId) => {
+          window.postMessage(
+            {
+              type: "runtime-structure-insert",
+              screenId,
+              sourceScreenId: screenId,
+              requestId: 102,
+              html: '<p data-agent-native-node-id="v1" data-agent-native-runtime-instance-id="instance-v1">V1</p>',
+              anchorSelector: '[data-agent-native-node-id="v2"]',
+              anchorSourceId: "v2",
+              placement: "after",
+              remintCollidingNodeIds: true,
+            },
+            "*",
+          );
+        }, SCREEN_ID);
+
+        await page.waitForFunction(
+          () =>
+            JSON.stringify(
+              Array.from(
+                document.querySelectorAll("main > [data-agent-native-node-id]"),
+              ).map((node) => node.textContent),
+            ) === '["V2","V1"]',
+        );
+        expect(
+          await page.locator('[data-agent-native-node-id="v1"]').count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator(
+              '[data-agent-native-node-id="v2"] + [data-agent-native-node-id="v1"]',
+            )
+            .count(),
+        ).toBe(1);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "accepts replacement snapshots at the size cap and rolls back one character above it",
     { timeout: 60_000 },
     async () => {
@@ -555,8 +727,6 @@ describe("live insert lifecycle", () => {
     async () => {
       const browser = await chromium.launch({ headless: true });
       const pageErrors: string[] = [];
-      // The editor's pending-live-edit history. Only the push/pop arithmetic
-      // lives here; every decision below is the real exported function.
       const undoStack: PendingLiveStructureUndoEntry[] = [];
       const redoStack: PendingLiveStructureUndoEntry[] = [];
       const queue = (): PendingLiveNonStyleEdit[] =>
@@ -596,7 +766,6 @@ describe("live insert lifecycle", () => {
         await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
         await collectBridgeMessages(page);
 
-        // ── 1. INSERT — board primitive dropped onto the live screen ───────
         await page.evaluate(
           ([html, anchorSelector]) => {
             window.postMessage(
@@ -635,8 +804,6 @@ describe("live insert lifecycle", () => {
         );
         expect([undoStack.length, redoStack.length]).toEqual([1, 0]);
 
-        // The inserted node exists in NO source file, so it has no subject
-        // anchor — and Apply must still accept it on the anchor path alone.
         expect(insertEdit.sourceAnchor).toBeUndefined();
         expect(insertEdit.anchorSourceAnchor?.relPath).toBe(
           "app/routes/home.tsx",
@@ -645,7 +812,6 @@ describe("live insert lifecycle", () => {
           "app/routes/home.tsx",
         ]);
 
-        // ── 2. UNDO — the optimistic node comes back out ───────────────────
         const undoneInsert = undoStack.pop()!;
         redoStack.push(undoneInsert);
         await page.evaluate((requestId: string) => {
@@ -661,16 +827,12 @@ describe("live insert lifecycle", () => {
         expect(queue()).toHaveLength(0);
         expect([undoStack.length, redoStack.length]).toEqual([0, 1]);
 
-        // ── 3. REDO — must re-issue the INSERT, not a move ─────────────────
         const redoCommand = pendingStructureRedoCommand(undoneInsert.edit);
         expect(redoCommand).toEqual({
           kind: "insert",
           html: insertEdit.insertedHtml,
         });
         if (redoCommand.kind !== "insert") throw new Error("unreachable");
-        // What the move command redo used to send: the subject is gone, so the
-        // bridge answers nothing and the redo reports success over an empty
-        // document. Proves the command choice, not just its label, matters.
         await page.evaluate(
           ([subjectSelector, anchorSelector]) => {
             window.postMessage(
@@ -713,7 +875,6 @@ describe("live insert lifecycle", () => {
         expect(queue()).toHaveLength(1);
         expect([undoStack.length, redoStack.length]).toEqual([1, 0]);
 
-        // ── 4. DELETE — the pending insertion must not survive it ──────────
         await page.evaluate((selector: string) => {
           window.postMessage(
             {
@@ -742,12 +903,9 @@ describe("live insert lifecycle", () => {
           updatedAt: Date.now() + 1,
         };
         record(removalEdit);
-        // Insert + delete nets to zero in source: nothing to hand off, and
-        // nothing that can put the node back.
         expect(queue()).toHaveLength(0);
         expect([undoStack.length, redoStack.length]).toEqual([2, 0]);
 
-        // ── 5. APPLY — the handoff carries no resurrection ────────────────
         const structureEdits = queue().filter(
           (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
         );
@@ -760,7 +918,6 @@ describe("live insert lifecycle", () => {
           }),
         ).not.toContain("primitive-1");
 
-        // ── 6. UNDO the delete — history survived the supersede ───────────
         const undoneRemoval = undoStack.pop()!;
         redoStack.push(undoneRemoval);
         await page.evaluate(() => {

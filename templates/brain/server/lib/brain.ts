@@ -21,6 +21,7 @@ import {
   resolveAccess,
   type ResolvedAccess,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   and,
   desc,
@@ -58,9 +59,10 @@ import {
   enqueueCaptureInvalidation,
   enqueueBrainOperation,
 } from "./ingest-queue.js";
-import type {
-  BrainAudienceAssignment,
-  BrainSensitivityDecision,
+import {
+  BRAIN_SENSITIVITY_POLICY_VERSION,
+  type BrainAudienceAssignment,
+  type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
@@ -792,11 +794,12 @@ export async function createCapture(values: {
         disposition: "quarantined",
         categories: [],
         confidenceBand: "uncertain",
-        policyVersion: "1",
+        policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
         safeSegments: [],
         safeContent: "",
         classifier: "deterministic",
       },
+      classifierFailureReason: sanitized.classifierFailureReason,
       retentionHours: settings.quarantineRetentionHours ?? 72,
     });
     throw new BrainCaptureBlockedError(receipt);
@@ -1247,6 +1250,7 @@ export async function recordBlockedCapture(input: {
   source: typeof schema.brainSources.$inferSelect;
   values: Parameters<typeof createCapture>[0];
   decision: BrainSensitivityDecision;
+  classifierFailureReason?: string;
   retentionHours: number;
 }): Promise<BrainSensitivityReceipt> {
   const db = getDb();
@@ -1306,6 +1310,10 @@ export async function recordBlockedCapture(input: {
       locatorHmac,
       disposition,
       categoriesJson: stableJson(input.decision.categories),
+      decisionScoresJson: input.decision.categoryScores
+        ? stableJson(input.decision.categoryScores)
+        : null,
+      classifierFailureReason: input.classifierFailureReason ?? null,
       confidenceBand: input.decision.confidenceBand,
       policyVersion: input.decision.policyVersion,
       upstreamProvider: input.source.provider,
@@ -1323,6 +1331,10 @@ export async function recordBlockedCapture(input: {
         captureId: input.existing?.id ?? null,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
+        decisionScoresJson: input.decision.categoryScores
+          ? stableJson(input.decision.categoryScores)
+          : null,
+        classifierFailureReason: input.classifierFailureReason ?? null,
         confidenceBand: input.decision.confidenceBand,
         quarantineBlobHandle,
         expiresAt,
@@ -2165,6 +2177,24 @@ export async function writeKnowledgeRecord(
       .update(schema.brainKnowledge)
       .set({ supersededById: id, status: "archived", updatedAt: nowIso() })
       .where(eq(schema.brainKnowledge.id, input.supersedesId));
+  }
+  if (!existing) {
+    try {
+      track(
+        "knowledge_created",
+        {
+          app_name: "brain",
+          template_name: "brain",
+          output_id: id,
+          output_type: "knowledge",
+          kind: input.kind ?? "fact",
+          publish_tier: tier,
+        },
+        { userId: userEmail },
+      );
+    } catch {
+      console.warn("[brain] Could not emit knowledge creation telemetry");
+    }
   }
   return {
     mode: "knowledge" as const,

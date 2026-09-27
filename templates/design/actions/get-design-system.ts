@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   hydrateBuilderDesignSystemReference,
+  isBuilderDesignSystemReadyByCount,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 const MAX_AGENT_CONTEXT_CHARS = 14_000;
 const MAX_JSON_CONTEXT_CHARS = 2_500;
@@ -41,7 +42,7 @@ interface BuilderGenerationContext {
     tokenValues?: Record<string, string>;
   }>;
   tokenValues: Record<string, string>;
-  docCount: number;
+  docCount: number | null;
   warning?: string;
 }
 
@@ -63,11 +64,6 @@ function formatJson(value: unknown, maxChars = MAX_JSON_CONTEXT_CHARS): string {
   return truncate(JSON.stringify(value, null, 2), maxChars);
 }
 
-/**
- * The source system's own token names. A kit that renders as seven color roles
- * reads as "a few colors" no matter how much was imported — these names are the
- * difference between the user's design system and a palette that resembles it.
- */
 function formatNamedTokens(
   tokens: unknown,
   limit = MAX_NAMED_TOKENS,
@@ -193,13 +189,10 @@ function buildDesignSystemAgentContext({
     }
   }
 
-  // Builder hydration can succeed as a request and still carry nothing usable
-  // (a failed/incomplete index returns zero docs and zero token values). The
-  // stored local kit is then the only real content there is, so emit it rather
-  // than presenting placeholder proxy values as if they were the user's brand.
   const builderUsable = Boolean(
     builder &&
-    (builder.docCount > 0 || Object.keys(builder.tokenValues).length > 0),
+    typeof builder.docCount === "number" &&
+    isBuilderDesignSystemReadyByCount(builder.docCount),
   );
   if (builder && !builderUsable) {
     lines.push(
@@ -256,12 +249,6 @@ function buildDesignSystemAgentContext({
   return truncate(lines.filter(Boolean).join("\n"), MAX_AGENT_CONTEXT_CHARS);
 }
 
-/**
- * Bounded, network-free summary for the reads that fire on every chat turn
- * (view-screen, get-design, get-design-snapshot). No Builder docs fetch and
- * no data/assets blobs — just enough to keep going until the caller needs
- * the full context.
- */
 function buildCompactDesignSystemAgentContext({
   id,
   title,
@@ -363,7 +350,7 @@ export default defineAction({
             ...builderReference,
             docs: [],
             tokenValues: {},
-            docCount: 0,
+            docCount: null,
             warning:
               error instanceof Error
                 ? error.message

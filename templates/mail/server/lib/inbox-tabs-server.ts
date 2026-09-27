@@ -1,19 +1,7 @@
-/**
- * Server-side inbox tab partitioning — the pure predicate `list-inbox-threads`
- * (and view-screen's inbox summary) build tabs, counts, and rows from, so a
- * tab's badge can never disagree with the rows it shows.
- *
- * Spec (Superhuman semantics):
- * - Tab order: Important, then one tab per pinned label (excluding
- *   "important"/"note-to-self" and any {@link COLLAPSIBLE_VIEW_IDS} system
- *   view id), then one tab per saved filter, then Other. `combineInbox`
- *   collapses all of that to a single "inbox" tab.
- * - A thread shows in EVERY custom (label/filter) tab whose query it
- *   matches — tabs are not mutually exclusive.
- * - A thread matching no custom tab falls to Important, unless it's
- *   automated (see `inbox-classify.ts`), in which case it falls to Other.
- */
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import {
+  ALL_TAB_ID,
   ALL_INBOX_TAB_ID,
   IMPORTANT_TAB_ID,
   OTHER_TAB_ID,
@@ -22,10 +10,10 @@ import {
   type InboxThreadItem,
 } from "@shared/inbox-threads.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
+import type { EmailMessage } from "@shared/types.js";
 
-// Mirrors app/lib/inbox-tabs.ts's COLLAPSIBLE_VIEW_IDS — system views render
-// as their own collapsible sections, never as inbox triage tabs, so a stale
-// pinned value for one of these must not become a tab here either.
+import { classifyAutomated } from "./inbox-classify.js";
+
 const COLLAPSIBLE_VIEW_IDS = new Set([
   "unread",
   "starred",
@@ -35,12 +23,60 @@ const COLLAPSIBLE_VIEW_IDS = new Set([
   "trash",
 ]);
 
+const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
+  promotions: "CATEGORY_PROMOTIONS",
+  social: "CATEGORY_SOCIAL",
+  updates: "CATEGORY_UPDATES",
+  forums: "CATEGORY_FORUMS",
+};
+
 export type ResolvedInboxTab = {
   id: string;
   kind: InboxTabKind;
   name: string;
   query?: string;
 };
+
+export function buildLocalInboxItems(
+  emails: EmailMessage[],
+): InboxThreadItem[] {
+  const byThread = new Map<string, EmailMessage[]>();
+  for (const email of emails) {
+    if (email.isArchived || email.isTrashed || email.isDraft) continue;
+    const key = email.threadId || email.id;
+    const list = byThread.get(key);
+    if (list) list.push(email);
+    else byThread.set(key, [email]);
+  }
+
+  const items = [...byThread.values()]
+    .filter((messages) => messages.some((message) => !message.isSent))
+    .map((messages): InboxThreadItem => {
+      const latest = messages.reduce((a, b) =>
+        new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
+      );
+      const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
+      const isAutomated = classifyAutomated({
+        headers: [],
+        labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
+        fromEmail: latest.from?.email ?? "",
+      });
+      return {
+        ...latest,
+        labelIds,
+        messageCount: messages.length,
+        unreadCount: messages.filter((m) => !m.isRead).length,
+        messageIds: messages.map((m) => m.id),
+        isAutomated,
+      };
+    });
+
+  return items.sort(
+    (a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime() ||
+      b.id.localeCompare(a.id),
+  );
+}
 
 export function resolveInboxTabs(
   config: InboxTabConfig,
@@ -50,15 +86,18 @@ export function resolveInboxTabs(
     return [{ id: ALL_INBOX_TAB_ID, kind: "inbox", name: "Inbox" }];
   }
 
-  // "Important" and "Other" are fixed English source strings — the client
-  // localizes built-in tab ids by `kind`, not by this `name`.
   const tabs: ResolvedInboxTab[] = [
+    ...(config.showAllTab === false
+      ? []
+      : [{ id: ALL_TAB_ID, kind: "all" as const, name: "All" }]),
     { id: IMPORTANT_TAB_ID, kind: "important", name: "Important" },
   ];
+  const tabIds = new Set([ALL_TAB_ID, IMPORTANT_TAB_ID, OTHER_TAB_ID]);
 
   for (const labelId of config.pinnedLabels) {
     if (labelId === IMPORTANT_TAB_ID || labelId === "note-to-self") continue;
     if (COLLAPSIBLE_VIEW_IDS.has(labelId)) continue;
+    if (tabIds.has(labelId)) continue;
     tabs.push({
       id: labelId,
       kind: "label",
@@ -66,38 +105,49 @@ export function resolveInboxTabs(
         config.labelAliases[labelId] ?? labelNameById.get(labelId) ?? labelId,
       query: `label:"${labelId}"`,
     });
+    tabIds.add(labelId);
   }
 
   for (const filter of config.savedFilters) {
+    if (tabIds.has(filter.id)) continue;
     tabs.push({
       id: filter.id,
       kind: "filter",
       name: filter.name,
       query: filter.query,
     });
+    tabIds.add(filter.id);
   }
 
   tabs.push({ id: OTHER_TAB_ID, kind: "other", name: "Other" });
   return tabs;
 }
 
-/** Every tab id an item belongs to, in tab order. Never empty. */
 export function inboxTabsForItem(
   item: InboxThreadItem,
   tabs: ResolvedInboxTab[],
 ): string[] {
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
+  const allTab = tabs.find((tab) => tab.kind === "all");
+  const isAiImportant = mailLabelsInclude(item.labelIds, AI_IMPORTANT_LABEL);
+
   const matched = tabs
     .filter((tab) => tab.kind === "label" || tab.kind === "filter")
     .filter((tab) => emailMessageMatchesSearch(item, tab.query!))
     .map((tab) => tab.id);
-  if (matched.length > 0) return matched;
+  if (isAiImportant) matched.unshift(IMPORTANT_TAB_ID);
+  if (matched.length > 0) {
+    if (allTab) matched.unshift(allTab.id);
+    return matched;
+  }
 
-  return [item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID];
+  return [
+    ...(allTab ? [allTab.id] : []),
+    item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID,
+  ];
 }
 
-/** Partitions `items` into every tab's member list (tab id -> items), in tab order. */
 export function partitionInboxItems(
   items: InboxThreadItem[],
   tabs: ResolvedInboxTab[],
@@ -111,7 +161,6 @@ export function partitionInboxItems(
   return byTab;
 }
 
-/** Resolves the requested tab id to a configured tab, falling back to the first tab. */
 export function resolveActiveTabId(
   requested: string | undefined,
   tabs: ResolvedInboxTab[],

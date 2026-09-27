@@ -256,6 +256,48 @@ para zero em vez de gerar erro, o que parece um renderer que falhou ao desenhar.
 gráficos e outros visuais dependentes de altura uma base em pixels (ou `rem`); larguras
 em porcentagem funcionam, pois a coluna da transcrição tem largura definida.
 
+### Escolha quando a interface da ação aparece {#conditional-native-ui}
+
+Uma ação pode ter várias operações, mas só alguns resultados precisam de um cartão. Adicione `when(args, result)` a `chatUI` para selecionar essas chamadas. O servidor chama esse predicado após uma ação bem-sucedida. Se ele retornar `false`, o resultado continua no histórico comum de ferramentas recolhível. O predicado não é salvo nem enviado ao navegador.
+
+No Mail, `manage-draft` usa isso para mostrar um cartão nos resultados de criação, enquanto atualizações e exclusões continuam como chamadas comuns:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+Para ações com várias operações de gravação, verifique os argumentos e o resultado bem-sucedido. A ação de filtros do Gmail no Mail seleciona o cartão da regra somente para filtros criados ou substituídos com os campos de resumo:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## Tempos de execução do agente BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` é o contrato traga seu próprio agente para o shell de bate-papo e

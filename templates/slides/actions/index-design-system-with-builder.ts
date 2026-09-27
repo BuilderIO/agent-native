@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   FeatureNotConfiguredError,
   startBuilderDesignSystemIndex,
@@ -11,6 +12,7 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -107,6 +109,10 @@ export default defineAction({
     codeFiles,
     designMd,
   }) => {
+    await assertDesignSystemWorkflowsEnabled();
+    if (githubRepoUrl || githubSources?.length || codeFiles?.length) {
+      await assertBuilderDesignSystemCodeIndexingAllowed();
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,

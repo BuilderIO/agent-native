@@ -4,17 +4,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { resolveLanding, useLastLocationTitleHint } = vi.hoisted(() => ({
-  resolveLanding: {
-    mutateAsync: vi.fn(),
-    isError: false,
-    isPending: false,
-    reset: vi.fn(),
-  },
-  useLastLocationTitleHint: vi.fn(
-    () => null as null | { documentId: string; title: string },
-  ),
-}));
+const { resolveLanding, searchParams, useLastLocationTitleHint } = vi.hoisted(
+  () => ({
+    resolveLanding: {
+      mutateAsync: vi.fn(),
+      isError: false,
+      isPending: false,
+      reset: vi.fn(),
+    },
+    searchParams: new URLSearchParams(),
+    useLastLocationTitleHint: vi.fn(
+      () => null as null | { documentId: string; title: string },
+    ),
+  }),
+);
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => resolveLanding,
@@ -37,6 +40,7 @@ const navigate = vi.fn();
 vi.mock("react-router", () => ({
   useLocation: () => ({ pathname: "/home", search: "", hash: "" }),
   useNavigate: () => navigate,
+  useSearchParams: () => [searchParams],
 }));
 
 import {
@@ -59,6 +63,7 @@ describe("home landing route optimistic title", () => {
   beforeEach(() => {
     resolveLanding.mutateAsync.mockReset();
     resolveLanding.isError = false;
+    searchParams.delete("spaceId");
     useLastLocationTitleHint.mockReturnValue(null);
     navigate.mockReset();
     stashLandingTitleHint(null);
@@ -135,5 +140,80 @@ describe("home landing route optimistic title", () => {
     );
     expect(peekLandingTitleHint("welcome-1")).toBeNull();
     expect(peekLandingTitleHint("doc-1")).toBeNull();
+  });
+
+  it("resolves an explicit workspace and opens its exact saved target", async () => {
+    searchParams.set("spaceId", "space-2");
+    resolveLanding.mutateAsync.mockResolvedValue({
+      target: {
+        documentId: "doc-2",
+        databaseId: "database-2",
+        viewId: "board",
+      },
+      resolution: "restored",
+    });
+
+    renderHome(root);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(resolveLanding.mutateAsync).toHaveBeenCalledWith({
+      spaceId: "space-2",
+    });
+    expect(navigate).toHaveBeenCalledWith(
+      "/page/doc-2?databaseId=database-2&viewId=board",
+      { replace: true },
+    );
+  });
+
+  it("ignores a stale landing resolution after switching workspaces", async () => {
+    const pending = new Map<
+      string,
+      (value: {
+        target: { documentId: string; databaseId: string; viewId: string };
+        resolution: "restored";
+      }) => void
+    >();
+    resolveLanding.mutateAsync.mockImplementation(
+      ({ spaceId }: { spaceId: string }) =>
+        new Promise((resolve) => pending.set(spaceId, resolve)),
+    );
+
+    searchParams.set("spaceId", "space-a");
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    searchParams.set("spaceId", "space-b");
+    renderHome(root);
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      pending.get("space-b")?.({
+        target: {
+          documentId: "doc-b",
+          databaseId: "database-b",
+          viewId: "board",
+        },
+        resolution: "restored",
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      pending.get("space-a")?.({
+        target: {
+          documentId: "doc-a",
+          databaseId: "database-a",
+          viewId: "table",
+        },
+        resolution: "restored",
+      });
+      await Promise.resolve();
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(
+      "/page/doc-b?databaseId=database-b&viewId=board",
+      { replace: true },
+    );
   });
 });

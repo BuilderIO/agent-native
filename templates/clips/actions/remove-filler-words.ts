@@ -1,15 +1,3 @@
-/**
- * Delegate: remove filler words (um, uh, like, you know, etc.) from the
- * recording.
- *
- * The agent analyzes the transcript segments, identifies filler-word
- * timestamps, and calls the Editor-team-owned `trim-recording` action with
- * the ranges to exclude. The edits are non-destructive (stored in editsJson).
- *
- * Usage:
- *   pnpm action remove-filler-words --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -74,6 +62,11 @@ export default defineAction({
     console.log(
       `Delegation queued: remove-filler-words for ${args.recordingId}`,
     );
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      kind: "remove-filler-words",
+      requestedAt,
+      recordingId: args.recordingId,
+    };
   },
 });

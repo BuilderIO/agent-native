@@ -12,12 +12,14 @@ export type ContentSpaceSummary = {
   filesDocumentId: string;
   orgId: string | null;
   role: "owner" | "editor" | "viewer";
+  canCreateDatabase?: boolean;
   catalogItemId: string;
   catalogDocumentId: string;
   catalogPosition: number;
 };
 
 export type ListContentSpacesResponse = {
+  sourceMode: "database" | "local-files";
   catalogDatabaseId: string;
   catalogDocumentId: string;
   favoritesDatabaseId: string | null;
@@ -61,6 +63,7 @@ export function useContentSpaces() {
 export function useEnsureContentSpaces() {
   const queryClient = useQueryClient();
   return useActionMutation("ensure-content-spaces", {
+    skipActionQueryInvalidation: true,
     onSuccess: async () => {
       await queryClient.refetchQueries({
         queryKey: ["action", "list-content-spaces"],

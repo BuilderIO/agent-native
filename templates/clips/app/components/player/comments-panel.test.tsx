@@ -355,20 +355,23 @@ describe("CommentsPanel reply composer", () => {
     );
     expect(composerShell?.className).toContain("focus-within:border-ring");
     expect(composer?.className).toContain("min-h-[54px]");
-    expect(composer?.className).toContain("max-h-[54px]");
-    expect(composer?.className).toContain("overflow-y-auto");
+    expect(composer?.className).toContain("max-h-[40vh]");
     const composerDock = composerShell?.closest(".shrink-0");
     expect(composerDock?.className).toContain("relative");
     expect(composerDock?.className).toContain("z-10");
     expect(composerDock?.className).toContain("bg-transparent");
     expect(composerDock?.className).toContain("-mt-16");
     expect(composerDock?.className).toContain("pt-16");
+    expect(composerDock?.className).toContain("pointer-events-none");
     const fade = composerDock?.querySelector('[aria-hidden="true"]');
     expect(fade?.className).toContain("absolute");
     expect(fade?.className).toContain("top-0");
     expect(fade?.className).toContain("z-0");
     expect(fade?.className).toContain("bg-gradient-to-b");
     expect(fade?.className).toContain("lg:to-background");
+    expect(composerDock?.lastElementChild?.className).toContain(
+      "pointer-events-auto",
+    );
     expect(composerDock?.lastElementChild?.className).toContain(
       "relative z-10",
     );
@@ -398,13 +401,6 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("keeps inline comments scrollable with the composer available, at every width", () => {
-    // Both recording routes render CommentsPanel with presentation="inline"
-    // inside the shared RecordingSidePanel rail, which is a fixed
-    // h-[min(420px,55dvh)] overflow-hidden box below the lg breakpoint too
-    // (not just at lg). Gating the scroll container behind lg: left that
-    // box with no way to scroll on mobile - content past 420px was just
-    // clipped. The scroll classes must apply unconditionally, matching the
-    // sibling transcript tab and the (dead) "default" preset.
     renderPanel("viewer@example.com", [rootComment], "inline");
 
     const panel = container.firstElementChild as HTMLElement | null;
@@ -506,14 +502,15 @@ describe("CommentsPanel reply composer", () => {
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
-  it("caps a growing comment composer before it overwhelms the thread", () => {
+  it("grows comment composers to 40vh and scrolls only past that limit", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
     expect(composer).not.toBeNull();
+    const maxHeight = Math.round(window.innerHeight * 0.4);
     Object.defineProperty(composer, "scrollHeight", {
       configurable: true,
-      value: 144,
+      value: maxHeight + 64,
     });
 
     act(() => {
@@ -521,8 +518,59 @@ describe("CommentsPanel reply composer", () => {
       setTextareaValue(composer, "A comment long enough to wrap");
     });
 
-    expect(composer?.style.height).toBe("128px");
+    expect(composer?.style.height).toBe(`${maxHeight}px`);
     expect(composer?.style.overflowY).toBe("auto");
+
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: 72,
+    });
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "Short comment");
+    });
+
+    expect(composer?.style.height).toBe("72px");
+    expect(composer?.style.overflowY).toBe("hidden");
+  });
+
+  it("recalculates the comment textarea cap after a viewport resize", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    const heightDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "innerHeight",
+    );
+    const originalHeight = window.innerHeight;
+
+    try {
+      Object.defineProperty(composer, "scrollHeight", {
+        configurable: true,
+        value: Math.round(originalHeight * 0.4) + 64,
+      });
+      act(() => {
+        if (composer) setTextareaValue(composer, "A long comment");
+      });
+      expect(composer?.style.height).toBe(
+        `${Math.round(originalHeight * 0.4)}px`,
+      );
+
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 400,
+      });
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(composer?.style.height).toBe("160px");
+      expect(composer?.style.overflowY).toBe("auto");
+    } finally {
+      if (heightDescriptor) {
+        Object.defineProperty(window, "innerHeight", heightDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "innerHeight");
+      }
+    }
   });
 
   it("regrows comment textareas when their width changes wrapping", () => {
@@ -530,15 +578,42 @@ describe("CommentsPanel reply composer", () => {
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
     expect(composer).not.toBeNull();
+    const naturalHeight = Math.floor(window.innerHeight * 0.2);
     Object.defineProperty(composer, "scrollHeight", {
       configurable: true,
-      value: 192,
+      value: naturalHeight,
     });
 
     act(() => notifyResize?.());
 
-    expect(composer?.style.height).toBe("128px");
-    expect(composer?.style.overflowY).toBe("auto");
+    expect(composer?.style.height).toBe(`${naturalHeight}px`);
+    expect(composer?.style.overflowY).toBe("hidden");
+  });
+
+  it("lets the comment feed widget expand with its composer", () => {
+    renderPanel("viewer@example.com", [rootComment], "inline");
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+    const naturalHeight = Math.floor(window.innerHeight * 0.2);
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: naturalHeight,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "A longer comment in the feed");
+    });
+
+    expect(composer?.style.height).toBe(`${naturalHeight}px`);
+    expect(composer?.closest(".comment-widget-shadow")?.className).toContain(
+      "min-h-[96px]",
+    );
+    expect(
+      composer?.closest(".comment-widget-shadow")?.className.split(" "),
+    ).not.toContain("h-[96px]");
   });
 
   it("renders inline Markdown while flattening headings", () => {
@@ -1151,7 +1226,7 @@ describe("CommentsPanel reply composer", () => {
     expect(actionMocks.addComment).not.toHaveBeenCalled();
   });
 
-  it("keeps the timestamped composer bounded with a compact send action", () => {
+  it("grows the timestamped composer to 40vh with a compact send action", () => {
     act(() => {
       root.render(
         <TimestampedCommentBar
@@ -1168,9 +1243,24 @@ describe("CommentsPanel reply composer", () => {
     const send = container.querySelector<HTMLButtonElement>(
       'button[aria-label="commentsPanel.commentAt 0:34"]',
     );
+    const maxHeight = Math.round(window.innerHeight * 0.4);
+    Object.defineProperty(composer, "scrollHeight", {
+      configurable: true,
+      value: maxHeight + 64,
+    });
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(
+        composer,
+        "A timestamped comment that spans several lines",
+      );
+    });
 
     expect(composer?.getAttribute("rows")).toBe("1");
-    expect(composer?.className).toContain("max-h-32");
+    expect(composer?.className).toContain("max-h-[40vh]");
+    expect(composer?.style.height).toBe(`${maxHeight}px`);
+    expect(composer?.style.overflowY).toBe("auto");
     expect(composer?.closest(".max-w-lg")).not.toBeNull();
     expect(send?.className).toContain("size-7");
     expect(send?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();

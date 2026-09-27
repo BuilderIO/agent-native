@@ -3,6 +3,7 @@ import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
+import { resolveCredential } from "@agent-native/core/credentials";
 import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
@@ -11,8 +12,14 @@ import {
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
+  getRequestContext,
+  getJevContextCredentials,
+  isJevEnabled,
   readDeployCredentialEnv,
+  requestJevThroughBuilder,
   runWithRequestContext,
+  type JevContextCredentials,
+  type JevResponse,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
@@ -24,6 +31,12 @@ import {
   type AiFilterPreviewRule,
   type AiFilterState,
 } from "@shared/ai-filter.js";
+import {
+  AI_PRIORITY_DEFAULT_INSTRUCTION,
+  aiPriorityEmailKey,
+  type AiPriorityEmail,
+} from "@shared/ai-priority.js";
+import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import type { AutomationAction } from "@shared/types.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -39,6 +52,7 @@ import {
   resolveAutomationModelSettings,
   resolveTextAutomationModelSettings,
   TYPESAFE_AUTOMATION_ENGINE,
+  TYPESAFE_AUTOMATION_MODEL,
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
@@ -52,8 +66,9 @@ import {
 import { getOAuth2Credentials } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
+const MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL = 32;
 const MAX_PROCESSED_IDS = 500;
-const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface StoredTokens {
   access_token: string;
@@ -84,11 +99,14 @@ interface RuleRecord {
   updatedAt: number;
 }
 
-// ─── Per-user Anthropic key ──────────────────────────────────────────────────
-
 async function resolveAnthropicKey(
   ownerEmail: string,
 ): Promise<string | undefined> {
+  const credential = await resolveCredential("ANTHROPIC_API_KEY", {
+    userEmail: ownerEmail,
+  });
+  if (credential?.trim()) return credential.trim();
+
   const userKey = (await getUserSetting(ownerEmail, "anthropic-api-key")) as
     | string
     | { key?: string }
@@ -97,10 +115,8 @@ async function resolveAnthropicKey(
   if (userKey && typeof userKey === "object" && userKey.key?.trim()) {
     return userKey.key.trim();
   }
-  return process.env.ANTHROPIC_API_KEY || undefined;
+  return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
 }
-
-// ─── Token helpers ───────────────────────────────────────────────────────────
 
 async function getAccessToken(accountEmail: string): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
@@ -140,8 +156,6 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
   return tokens.access_token;
 }
 
-// ─── Watermark management ────────────────────────────────────────────────────
-
 async function getWatermark(ownerEmail: string): Promise<Watermark> {
   const data = await getUserSetting(ownerEmail, "automation-watermark");
   if (data && typeof data === "object") return data as unknown as Watermark;
@@ -159,7 +173,6 @@ async function getProcessedIds(ownerEmail: string): Promise<Set<string>> {
   const data = await getUserSetting(ownerEmail, "automation-processed-ids");
   if (data && typeof data === "object") {
     const stored = data as unknown as ProcessedIds;
-    // Prune if too old
     if (Date.now() - stored.updatedAt > PROCESSED_IDS_MAX_AGE_MS) {
       return new Set();
     }
@@ -172,15 +185,12 @@ async function saveProcessedIds(
   ownerEmail: string,
   ids: Set<string>,
 ): Promise<void> {
-  // Keep only the last MAX_PROCESSED_IDS
   const arr = [...ids].slice(-MAX_PROCESSED_IDS);
   await putUserSetting(ownerEmail, "automation-processed-ids", {
     ids: arr,
     updatedAt: Date.now(),
   } as any);
 }
-
-// ─── Load rules ──────────────────────────────────────────────────────────────
 
 async function loadActiveRules(
   ownerEmail: string,
@@ -199,11 +209,10 @@ async function loadActiveRules(
   return rules as RuleRecord[];
 }
 
-// ─── Fetch new messages ──────────────────────────────────────────────────────
-
 export interface EmailSummary {
   id: string;
   threadId: string;
+  accountEmail?: string;
   from: string;
   to: string;
   subject: string;
@@ -214,13 +223,13 @@ export interface EmailSummary {
 
 async function fetchNewInboxMessages(
   accessToken: string,
+  accountEmail: string,
   watermark: Watermark,
   processedIds: Set<string>,
 ): Promise<{ messages: EmailSummary[]; newHistoryId?: string }> {
   let messageIds: string[] = [];
   let newHistoryId: string | undefined;
 
-  // Try history-based delta detection first
   if (watermark.lastHistoryId) {
     try {
       const history = await gmailListHistory(accessToken, {
@@ -236,7 +245,6 @@ async function fetchNewInboxMessages(
         for (const entry of history.history) {
           for (const added of entry.messagesAdded || []) {
             if (added.message?.id) {
-              // Only include messages that have INBOX label
               const labels = added.message.labelIds || [];
               if (labels.includes("INBOX")) {
                 messageIds.push(added.message.id);
@@ -246,7 +254,6 @@ async function fetchNewInboxMessages(
         }
       }
     } catch (err: any) {
-      // historyId too old or invalid — fall back to listing
       console.warn(
         "[automation-engine] History list failed, falling back to message list:",
         err.message,
@@ -256,17 +263,15 @@ async function fetchNewInboxMessages(
     }
   }
 
-  // Fallback: list recent inbox messages
   if (!watermark.lastHistoryId) {
     try {
       const res = await gmailListMessages(accessToken, {
         q: "in:inbox newer_than:3d",
         maxResults: MAX_EMAILS_PER_RUN,
       });
-      newHistoryId = undefined; // We'll get it from the profile
+      newHistoryId = undefined;
       messageIds = (res.messages || []).map((m: any) => m.id);
 
-      // Get current historyId from profile for next run
       try {
         const profile = await gmailGetProfile(accessToken);
         newHistoryId = profile.historyId;
@@ -280,28 +285,20 @@ async function fetchNewInboxMessages(
     }
   }
 
-  // Filter out already-processed messages
   messageIds = messageIds.filter((id) => !processedIds.has(id));
 
-  // Limit batch size
   messageIds = messageIds.slice(0, MAX_EMAILS_PER_RUN);
 
   if (messageIds.length === 0) {
     return { messages: [], newHistoryId };
   }
 
-  // Fetch metadata for all messages in one batched call instead of one
-  // request per message.
   const batchResults = await gmailBatchGetMessages(
     accessToken,
     messageIds,
     "metadata",
   );
 
-  // Gmail's batch endpoint can return fewer sub-responses than sub-requests
-  // when it rate-limits mid-batch. Refill any gaps with individual gets so a
-  // transient partial batch doesn't drop messages a full per-message loop
-  // would have caught.
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
   if (missing.length > 0) {
     const refills = await Promise.all(
@@ -328,9 +325,6 @@ async function fetchNewInboxMessages(
   for (const r of batchResults) {
     if (!r.data) continue;
     const msg = r.data;
-    // The list/history query is Inbox-scoped, but labels can change while the
-    // metadata batch is in flight. Do not spend on a message that is no
-    // longer in Inbox by the time evaluation starts.
     if (!msg.labelIds?.includes("INBOX")) continue;
     const headers = msg.payload?.headers || [];
     const getHeader = (name: string) =>
@@ -340,6 +334,7 @@ async function fetchNewInboxMessages(
     messages.push({
       id: msg.id,
       threadId: msg.threadId || msg.id,
+      accountEmail,
       from: getHeader("From"),
       to: getHeader("To"),
       subject: getHeader("Subject"),
@@ -351,8 +346,6 @@ async function fetchNewInboxMessages(
 
   return { messages, newHistoryId };
 }
-
-// ─── AI rule evaluation ──────────────────────────────────────────────────────
 
 export interface RuleMatch {
   ruleId: string;
@@ -376,14 +369,45 @@ function isMissingProviderError(message: string): boolean {
 async function canUseAutomationModel(
   ownerEmail: string,
   settings: AutomationModelSettings,
-): Promise<boolean> {
+): Promise<{
+  available: boolean;
+  jevCredentials?: JevContextCredentials;
+  legacyTypesafeApiKey?: string;
+}> {
   if (settings.engine === TYPESAFE_AUTOMATION_ENGINE) {
-    return Boolean(readDeployCredentialEnv("TYPESAFE_API_KEY"));
+    return runWithRequestContext(
+      { ...getRequestContext(), userEmail: ownerEmail },
+      async () => {
+        const jevCredentials = await getJevContextCredentials(ownerEmail);
+        const legacyTypesafeApiKey =
+          readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim() || undefined;
+        let available: boolean;
+        try {
+          available = await isJevEnabled(jevCredentials);
+        } catch (error) {
+          if (!legacyTypesafeApiKey) throw error;
+          console.warn(
+            "[automation-engine] Jev entitlement check failed; using the legacy Typesafe deployment key.",
+            error,
+          );
+          available = false;
+        }
+        return {
+          available: available || Boolean(legacyTypesafeApiKey),
+          jevCredentials,
+          ...(!available && legacyTypesafeApiKey
+            ? { legacyTypesafeApiKey }
+            : {}),
+        };
+      },
+    );
   }
 
   const cacheKey = `${ownerEmail}:${settings.engine ?? ""}:${settings.model ?? ""}`;
   const cached = modelAvailabilityCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.ok;
+  if (cached && cached.expiresAt > Date.now()) {
+    return { available: cached.ok };
+  }
 
   try {
     registerBuiltinEngines();
@@ -408,7 +432,7 @@ async function canUseAutomationModel(
       ok: true,
       expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
     });
-    return true;
+    return { available: true };
   } catch (err: any) {
     const message = err?.message || "Automation model unavailable";
     if (!isMissingProviderError(message)) throw err;
@@ -417,7 +441,7 @@ async function canUseAutomationModel(
       error: message,
       expiresAt: Date.now() + MODEL_AVAILABILITY_CACHE_TTL_MS,
     });
-    return false;
+    return { available: false };
   }
 }
 
@@ -425,6 +449,7 @@ async function callModel(
   prompt: string,
   ownerEmail: string,
   settings: AutomationModelSettings,
+  signal?: AbortSignal,
 ): Promise<string> {
   registerBuiltinEngines();
 
@@ -438,7 +463,7 @@ async function callModel(
       apiKey: anthropicKey,
     });
     const model = settings.model || engine.defaultModel;
-    const controller = new AbortController();
+    const abortSignal = signal ?? new AbortController().signal;
     let text = "";
     let assistantText = "";
     let usage:
@@ -460,7 +485,7 @@ async function callModel(
         },
       ],
       tools: [],
-      abortSignal: controller.signal,
+      abortSignal,
       maxOutputTokens: 2048,
     })) {
       if (event.type === "text-delta") {
@@ -482,9 +507,6 @@ async function callModel(
       }
     }
 
-    // Attribute this call under the "automation" label so users can see
-    // how much of their spend comes from email rule evaluation vs the
-    // main chat in the Usage settings panel.
     if (usage) {
       try {
         const { recordUsage } = await import("@agent-native/core/usage");
@@ -507,7 +529,7 @@ async function callModel(
   });
 }
 
-async function getAutomationModelSettings(
+export async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
@@ -523,10 +545,9 @@ async function evaluateRulesWithJev(
   emails: EmailSummary[],
   rules: RuleRecord[],
   ownerEmail: string,
+  credentials: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
 ): Promise<Map<string, RuleMatch[]>> {
-  const apiKey = readDeployCredentialEnv("TYPESAFE_API_KEY");
-  if (!apiKey) throw new Error("TypeSafe Jev is not configured.");
-
   const questionEntries = emails.flatMap((email, emailIndex) =>
     rules.map((rule, ruleIndex) => {
       const id = `q_${emailIndex}_${ruleIndex}`;
@@ -534,7 +555,7 @@ async function evaluateRulesWithJev(
         id,
         {
           type: "noul",
-          instructions: `Does email ${email.id} clearly match this rule: "${rule.condition}"?`,
+          instructions: `Does email ${aiPriorityEmailKey(email.accountEmail, email.id)} clearly match this rule: "${rule.condition}"?`,
           criteria: {
             true: "The email clearly matches the user's rule.",
             false: "The email does not match the user's rule.",
@@ -547,7 +568,13 @@ async function evaluateRulesWithJev(
     questionEntries.map(([id], index) => {
       const email = emails[Math.floor(index / rules.length)];
       const rule = rules[index % rules.length];
-      return [id, { emailId: email.id, ruleId: rule.id }] as const;
+      return [
+        id,
+        {
+          emailKey: aiPriorityEmailKey(email.accountEmail, email.id),
+          ruleId: rule.id,
+        },
+      ] as const;
     }),
   );
 
@@ -555,7 +582,7 @@ async function evaluateRulesWithJev(
     model: "jev-latest",
     state: {
       emails: emails.map((email) => ({
-        id: email.id,
+        id: aiPriorityEmailKey(email.accountEmail, email.id),
         from: email.from,
         to: email.to,
         subject: email.subject,
@@ -567,33 +594,334 @@ async function evaluateRulesWithJev(
     questions: Object.fromEntries(questionEntries),
   };
 
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    response = await fetch("https://api.typesafe.ai/v1/systemone", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (response.ok) break;
-    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      continue;
+  let payload: JevResponse;
+  if (credentials.builderAuth && !legacyTypesafeApiKey) {
+    try {
+      payload = await requestJevThroughBuilder(credentials.builderAuth, body, {
+        timeoutMs: 12_000,
+      });
+    } catch (error) {
+      if (!credentials.personalApiKey) throw error;
+      payload = await requestJevDirect(credentials.personalApiKey, body);
     }
-    const detail = (await response.text()).slice(0, 300);
+  } else if (credentials.personalApiKey) {
+    payload = await requestJevDirect(credentials.personalApiKey, body);
+  } else if (legacyTypesafeApiKey) {
+    payload = await requestJevDirect(legacyTypesafeApiKey, body);
+  } else {
+    throw new Error("Jev is not enabled.");
+  }
+  if (
+    !payload.answers ||
+    typeof payload.answers !== "object" ||
+    Array.isArray(payload.answers)
+  ) {
+    throw new Error("TypeSafe Jev returned no answers.");
+  }
+
+  if (payload.usage) {
+    try {
+      const { recordUsage } = await import("@agent-native/core/usage");
+      await recordUsage({
+        ownerEmail,
+        inputTokens: payload.usage.input_tokens ?? 0,
+        outputTokens: payload.usage.output_tokens ?? 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "jev-latest",
+        label: "automation",
+        app: "mail",
+      });
+    } catch (error) {
+      console.warn("[automation-engine] Jev usage recording failed:", error);
+    }
+  }
+
+  const results = new Map<string, RuleMatch[]>(
+    emails.map((email) => [
+      aiPriorityEmailKey(email.accountEmail, email.id),
+      [],
+    ]),
+  );
+  const answeredQuestionIds = new Set<string>();
+  for (const [questionId, answer] of Object.entries(payload.answers)) {
+    const question = questionIds.get(questionId);
+    const probability = answer?.noul;
+    if (!question) {
+      throw new Error("TypeSafe Jev returned an unexpected rule answer.");
+    }
+    if (
+      typeof probability !== "number" ||
+      !Number.isFinite(probability) ||
+      probability < 0 ||
+      probability > 1
+    ) {
+      throw new Error("TypeSafe Jev returned an invalid rule answer.");
+    }
+    answeredQuestionIds.add(questionId);
+    if (probability >= 0.5) {
+      results.get(question.emailKey)!.push({
+        ruleId: question.ruleId,
+        match: true,
+        confidence: probability,
+        reason: `Jev match probability ${Math.round(probability * 100)}%`,
+      });
+    }
+  }
+  if (answeredQuestionIds.size !== questionIds.size) {
+    throw new Error("TypeSafe Jev omitted one or more rule answers.");
+  }
+  return results;
+}
+
+async function evaluateRules(
+  emails: EmailSummary[],
+  rules: RuleRecord[],
+  ownerEmail: string,
+  modelSettings: AutomationModelSettings,
+  aiFilterState?: AiFilterState,
+  jevCredentials?: JevContextCredentials,
+  legacyTypesafeApiKey?: string,
+): Promise<Map<string, RuleMatch[]>> {
+  const results = new Map<string, RuleMatch[]>(
+    emails.map((email) => [
+      aiPriorityEmailKey(email.accountEmail, email.id),
+      [],
+    ]),
+  );
+  const expectedEmailIds = new Set(
+    emails.map((email) => aiPriorityEmailKey(email.accountEmail, email.id)),
+  );
+  const expectedRuleIds = new Set(rules.map((rule) => rule.id));
+  if (
+    expectedEmailIds.size !== emails.length ||
+    expectedRuleIds.size !== rules.length
+  ) {
     throw new Error(
-      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+      "Mail AI rule evaluation requires unique account-scoped email and rule IDs.",
+    );
+  }
+  if (emails.length === 0 || rules.length === 0) return results;
+
+  if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
+    if (!jevCredentials) throw new Error("Jev is not enabled.");
+    return evaluateRulesWithJev(
+      emails,
+      rules,
+      ownerEmail,
+      jevCredentials,
+      legacyTypesafeApiKey,
     );
   }
 
-  if (!response?.ok) throw new Error("TypeSafe Jev request failed.");
-  const payload = (await response.json()) as {
-    answers?: Record<string, { type?: string; noul?: number }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
+  for (
+    let rulesOffset = 0;
+    rulesOffset < rules.length;
+    rulesOffset += MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL
+  ) {
+    const ruleBatch = rules.slice(
+      rulesOffset,
+      rulesOffset + MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL,
+    );
+    const expectedRuleIds = new Set(ruleBatch.map((rule) => rule.id));
+    const batchSize = Math.min(
+      10,
+      Math.max(
+        1,
+        Math.floor(MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL / ruleBatch.length),
+      ),
+    );
+    for (let i = 0; i < emails.length; i += batchSize) {
+      const batch = emails.slice(i, i + batchSize);
+
+      const rulesText = ruleBatch
+        .map(
+          (r, idx) => `${idx + 1}. [id: ${r.id}] Condition: "${r.condition}"`,
+        )
+        .join("\n");
+
+      const emailsText = batch
+        .map(
+          (e, idx) =>
+            `--- Email ${idx + 1} (emailId: ${JSON.stringify(aiPriorityEmailKey(e.accountEmail, e.id))}) ---
+From: ${e.from}
+To: ${e.to}
+Subject: ${e.subject}
+Snippet: ${e.snippet}
+Labels: [${e.labelIds.join(", ")}]
+Date: ${e.date}`,
+        )
+        .join("\n\n");
+
+      const feedbackText = aiFilterState?.feedback.length
+        ? aiFilterState.feedback
+            .slice(-20)
+            .map(
+              (feedback) =>
+                `- ${feedback.disposition === "spam" ? "Unwanted" : "Keep"}: From ${feedback.sender}; Subject "${feedback.subject}"${feedback.comment ? `; Note: "${feedback.comment}"` : ""}`,
+            )
+            .join("\n")
+        : "None yet.";
+
+      const prompt = `You are an email classification engine. Given emails and a set of rules, determine which rules match each email.
+
+Rules:
+${rulesText}
+
+Emails:
+${emailsText}
+
+User-confirmed examples (use these as feedback, not as absolute rules):
+${feedbackText}
+
+For each email, evaluate ALL rules shown above. Include one result for every rule, even when it does not match, and never omit an email or rule. Copy each emailId exactly from its heading. Keep reasons to at most 80 characters. Respond with ONLY a JSON array, no other text. Format:
+[{"emailId": "<account-scoped emailId>", "matches": [{"ruleId": "<id>", "match": true/false, "confidence": 0.0, "reason": "short explanation"}]}]
+
+Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet. Confidence must be between 0 and 1. Give a short reason for every match.`;
+
+      const text = await callModel(prompt, ownerEmail, modelSettings);
+
+      const jsonStr = text
+        .replace(/```json?\n?/g, "")
+        .replace(/```/g, "")
+        .trim();
+      const parsed: unknown = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) {
+        throw new Error("Model returned a non-array result.");
+      }
+
+      const batchEmailIds = new Set(
+        batch.map((email) => aiPriorityEmailKey(email.accountEmail, email.id)),
+      );
+      const classifiedEmailIds = new Set<string>();
+      for (const emailResult of parsed) {
+        if (
+          !emailResult ||
+          typeof emailResult !== "object" ||
+          typeof emailResult.emailId !== "string" ||
+          !Array.isArray(emailResult.matches)
+        ) {
+          throw new Error("Model returned an invalid email classification.");
+        }
+        if (
+          !batchEmailIds.has(emailResult.emailId) ||
+          classifiedEmailIds.has(emailResult.emailId)
+        ) {
+          throw new Error("Model returned an unexpected email classification.");
+        }
+        if (emailResult.matches.length !== expectedRuleIds.size) {
+          throw new Error("Model returned an incomplete rule classification.");
+        }
+        classifiedEmailIds.add(emailResult.emailId);
+
+        const matchedRules: RuleMatch[] = [];
+        const classifiedRuleIds = new Set<string>();
+        for (const match of emailResult.matches) {
+          if (
+            !match ||
+            typeof match !== "object" ||
+            typeof match.ruleId !== "string" ||
+            !expectedRuleIds.has(match.ruleId) ||
+            classifiedRuleIds.has(match.ruleId) ||
+            typeof match.match !== "boolean"
+          ) {
+            throw new Error("Model returned an invalid rule classification.");
+          }
+          classifiedRuleIds.add(match.ruleId);
+          if (!match.match) continue;
+          if (
+            typeof match.confidence !== "number" ||
+            !Number.isFinite(match.confidence) ||
+            match.confidence < 0 ||
+            match.confidence > 1
+          ) {
+            throw new Error("Model returned an invalid rule confidence.");
+          }
+          matchedRules.push({
+            ruleId: match.ruleId,
+            match: true,
+            confidence: match.confidence,
+            ...(typeof match.reason === "string"
+              ? { reason: match.reason.slice(0, 500) }
+              : {}),
+          });
+        }
+        if (classifiedRuleIds.size !== expectedRuleIds.size) {
+          throw new Error("Model returned an incomplete rule classification.");
+        }
+        results.get(emailResult.emailId)!.push(...matchedRules);
+      }
+      if (classifiedEmailIds.size !== batchEmailIds.size) {
+        throw new Error("Model omitted one or more email classifications.");
+      }
+    }
+  }
+
+  return results;
+}
+
+type PriorityScore = {
+  score: number;
+  reason?: string;
+};
+
+async function evaluatePriorityWithJev(
+  emails: EmailSummary[],
+  instruction: string,
+  ownerEmail: string,
+  credentials: JevContextCredentials,
+  signal?: AbortSignal,
+): Promise<Map<string, PriorityScore>> {
+  const { builderAuth, personalApiKey } = credentials;
+  if (!personalApiKey && !builderAuth) {
+    throw new Error("Jev is not enabled.");
+  }
+
+  const questions = Object.fromEntries(
+    emails.map((email, index) => [
+      `q_${index}`,
+      {
+        type: "noul",
+        instructions: `Should email ${email.id} be prioritized for the user? Follow this guidance: "${instruction}"`,
+        criteria: {
+          true: "The email deserves a higher place in the user's inbox.",
+          false: "The email can safely be lower in the inbox.",
+        },
+      },
+    ]),
+  );
+  const body = {
+    model: "jev-latest",
+    state: {
+      emails: emails.map((email) => ({
+        id: email.id,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        date: email.date,
+      })),
+    },
+    questions,
   };
+
+  const request: Record<string, unknown> = { ...body };
+  let payload: JevResponse;
+  if (builderAuth) {
+    try {
+      payload = await requestJevThroughBuilder(builderAuth, request, {
+        signal,
+        timeoutMs: 12_000,
+      });
+    } catch (error) {
+      if (!personalApiKey) throw error;
+      payload = await requestJevDirect(personalApiKey, request, signal);
+    }
+  } else if (personalApiKey) {
+    payload = await requestJevDirect(personalApiKey, request, signal);
+  } else {
+    throw new Error("Jev is not enabled.");
+  }
   if (!payload.answers || typeof payload.answers !== "object") {
     throw new Error("TypeSafe Jev returned no answers.");
   }
@@ -612,160 +940,126 @@ async function evaluateRulesWithJev(
         app: "mail",
       });
     } catch (error) {
-      // Usage recording is best-effort and must not hide a valid classification.
       console.warn("[automation-engine] Jev usage recording failed:", error);
     }
   }
 
-  const results = new Map<string, RuleMatch[]>();
-  for (const [questionId, answer] of Object.entries(payload.answers)) {
-    const question = questionIds.get(questionId);
-    const probability = answer?.noul;
+  const results = new Map<string, PriorityScore>();
+  emails.forEach((email, index) => {
+    const probability = payload.answers?.[`q_${index}`]?.noul;
     if (
-      !question ||
       typeof probability !== "number" ||
       !Number.isFinite(probability) ||
-      probability < 0.5
+      probability < 0 ||
+      probability > 1
     ) {
-      continue;
+      return;
     }
-    const matches = results.get(question.emailId) ?? [];
-    matches.push({
-      ruleId: question.ruleId,
-      match: true,
-      confidence: Math.min(1, Math.max(0, probability)),
-      reason: `Jev confidence ${Math.round(probability * 100)}%`,
+    results.set(email.id, {
+      score: probability,
+      reason: `Jev priority probability ${Math.round(probability * 100)}%`,
     });
-    results.set(question.emailId, matches);
-  }
+  });
   return results;
 }
 
-async function evaluateRules(
-  emails: EmailSummary[],
-  rules: RuleRecord[],
-  ownerEmail: string,
-  modelSettings: AutomationModelSettings,
-  aiFilterState?: AiFilterState,
-): Promise<Map<string, RuleMatch[]>> {
-  // Returns: messageId → array of matched rules with model confidence/reason.
-  const results = new Map<string, RuleMatch[]>();
-  if (emails.length === 0 || rules.length === 0) return results;
-
-  if (modelSettings.engine === TYPESAFE_AUTOMATION_ENGINE) {
-    return evaluateRulesWithJev(emails, rules, ownerEmail);
+async function requestJevDirect(
+  apiKey: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<JevResponse> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    signal?.throwIfAborted();
+    const response = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+        : AbortSignal.timeout(12_000),
+    });
+    if (response.ok) return (await response.json()) as JevResponse;
+    if (attempt === 0 && (response.status === 429 || response.status === 529)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      continue;
+    }
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(
+      `TypeSafe Jev request failed (${response.status})${detail ? `: ${detail}` : ""}`,
+    );
   }
+  throw new Error("TypeSafe Jev request failed.");
+}
 
-  // Process in batches of 10 emails per call
-  const batchSize = 10;
-  for (let i = 0; i < emails.length; i += batchSize) {
-    const batch = emails.slice(i, i + batchSize);
+export async function previewAutomationPriority(
+  emails: AiPriorityEmail[],
+  ownerEmail: string,
+  instruction = AI_PRIORITY_DEFAULT_INSTRUCTION,
+  jevCredentials: JevContextCredentials,
+  signal?: AbortSignal,
+): Promise<{
+  scores: Map<string, PriorityScore>;
+  model: AutomationModelSettings;
+}> {
+  if (!jevCredentials.personalApiKey && !jevCredentials.builderAuth) {
+    throw new Error("Jev is not enabled.");
+  }
+  const model = {
+    engine: TYPESAFE_AUTOMATION_ENGINE,
+    model: TYPESAFE_AUTOMATION_MODEL,
+  };
 
-    const rulesText = rules
-      .map((r, idx) => `${idx + 1}. [id: ${r.id}] Condition: "${r.condition}"`)
-      .join("\n");
+  const messages = emails
+    .filter(
+      (email) =>
+        !email.isArchived &&
+        !email.isTrashed &&
+        mailLabelsInclude(email.labelIds, "inbox"),
+    )
+    .map((email, index) => ({
+      key: aiPriorityEmailKey(email.accountEmail, email.id),
+      summary: {
+        id: `priority-${index}`,
+        threadId: email.threadId,
+        from: email.from,
+        to: email.to,
+        subject: email.subject,
+        snippet: email.snippet,
+        labelIds: email.labelIds,
+        date: email.date,
+      },
+    }));
 
-    const emailsText = batch
-      .map(
-        (e, idx) =>
-          `--- Email ${idx + 1} (id: ${e.id}) ---
-From: ${e.from}
-To: ${e.to}
-Subject: ${e.subject}
-Snippet: ${e.snippet}
-Labels: [${e.labelIds.join(", ")}]
-Date: ${e.date}`,
-      )
-      .join("\n\n");
-
-    const feedbackText = aiFilterState?.feedback.length
-      ? aiFilterState.feedback
-          .slice(-20)
-          .map(
-            (feedback) =>
-              `- ${feedback.disposition === "spam" ? "Unwanted" : "Keep"}: From ${feedback.sender}; Subject "${feedback.subject}"${feedback.comment ? `; Note: "${feedback.comment}"` : ""}`,
-          )
-          .join("\n")
-      : "None yet.";
-
-    const prompt = `You are an email classification engine. Given emails and a set of rules, determine which rules match each email.
-
-Rules:
-${rulesText}
-
-Emails:
-${emailsText}
-
-User-confirmed examples (use these as feedback, not as absolute rules):
-${feedbackText}
-
-For each email, evaluate ALL rules. Respond with ONLY a JSON array, no other text. Format:
-[{"emailId": "<id>", "matches": [{"ruleId": "<id>", "match": true/false, "confidence": 0.0, "reason": "short explanation"}]}]
-
-Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet. Confidence must be between 0 and 1. Give a short reason for every match.`;
-
-    try {
-      const text = await callModel(prompt, ownerEmail, modelSettings);
-
-      // Parse JSON from response (handle markdown code blocks)
-      const jsonStr = text
-        .replace(/```json?\n?/g, "")
-        .replace(/```/g, "")
-        .trim();
-      const parsed = JSON.parse(jsonStr) as Array<{
-        emailId: string;
-        matches: Array<{
-          ruleId: string;
-          match: boolean;
-          confidence?: number;
-          reason?: string;
-        }>;
-      }>;
-      if (!Array.isArray(parsed)) {
-        throw new Error("Model returned a non-array result");
+  const scores = new Map<string, PriorityScore>();
+  const batches = Array.from(
+    { length: Math.ceil(messages.length / 50) },
+    (_, i) => messages.slice(i * 50, (i + 1) * 50),
+  );
+  for (let i = 0; i < batches.length; i += 3) {
+    signal?.throwIfAborted();
+    const wave = batches.slice(i, i + 3);
+    const batchScores = await Promise.all(
+      wave.map((batch) =>
+        evaluatePriorityWithJev(
+          batch.map(({ summary }) => summary),
+          instruction,
+          ownerEmail,
+          jevCredentials,
+          signal,
+        ),
+      ),
+    );
+    for (const [batchIndex, batch] of wave.entries()) {
+      for (const { key, summary } of batch) {
+        const score = batchScores[batchIndex].get(summary.id);
+        if (score) scores.set(key, score);
       }
-
-      for (const emailResult of parsed) {
-        if (
-          typeof emailResult?.emailId !== "string" ||
-          !Array.isArray(emailResult.matches)
-        ) {
-          throw new Error("Model returned an invalid email classification");
-        }
-        const matchedRules = emailResult.matches
-          .filter((m) => m.match)
-          .map((m) => ({
-            ruleId: m.ruleId,
-            match: true,
-            confidence:
-              typeof m.confidence === "number" &&
-              Number.isFinite(m.confidence) &&
-              m.confidence >= 0 &&
-              m.confidence <= 1
-                ? m.confidence
-                : 0,
-            ...(typeof m.reason === "string"
-              ? { reason: m.reason.slice(0, 500) }
-              : {}),
-          }));
-        if (matchedRules.length > 0) {
-          results.set(emailResult.emailId, matchedRules);
-        }
-      }
-    } catch (err: any) {
-      if (
-        /No LLM provider is connected|Connect an LLM provider|missing_credentials/i.test(
-          err?.message ?? "",
-        )
-      ) {
-        throw err;
-      }
-      console.error("[automation-engine] Rule evaluation failed:", err.message);
-      // Skip this batch, will retry on next cron tick
     }
   }
-
-  return results;
+  return { scores, model };
 }
 
 export async function previewAutomationRules(
@@ -778,7 +1072,8 @@ export async function previewAutomationRules(
   model: AutomationModelSettings;
 }> {
   const model = await getAutomationModelSettings(ownerEmail);
-  if (!(await canUseAutomationModel(ownerEmail, model))) {
+  const modelAccess = await canUseAutomationModel(ownerEmail, model);
+  if (!modelAccess.available) {
     throw new Error("No LLM provider is connected for Mail AI rules.");
   }
   const messages: EmailSummary[] = emails
@@ -786,6 +1081,7 @@ export async function previewAutomationRules(
     .map((email) => ({
       id: email.id,
       threadId: email.threadId,
+      accountEmail: email.accountEmail,
       from: email.from,
       to: email.to,
       subject: email.subject,
@@ -811,8 +1107,55 @@ export async function previewAutomationRules(
     ownerEmail,
     model,
     aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
   return { matches, model };
+}
+
+export async function evaluateAiFilterBackfillRules(
+  emails: AiFilterPreviewEmail[],
+  rules: AiFilterPreviewRule[],
+  ownerEmail: string,
+  aiFilterState: AiFilterState,
+): Promise<Map<string, RuleMatch[]>> {
+  const model = await getAutomationModelSettings(ownerEmail);
+  const modelAccess = await canUseAutomationModel(ownerEmail, model);
+  if (!modelAccess.available) {
+    throw new Error("No LLM provider is connected for Mail AI rules.");
+  }
+  const messages: EmailSummary[] = emails.map((email) => ({
+    id: email.id,
+    threadId: email.threadId,
+    accountEmail: email.accountEmail,
+    from: email.from,
+    to: email.to,
+    subject: email.subject,
+    snippet: email.snippet,
+    labelIds: email.labelIds,
+    date: email.date,
+  }));
+  const records: RuleRecord[] = rules.map((rule) => ({
+    id: rule.id,
+    ownerEmail,
+    domain: "mail",
+    kind: "ai-filter",
+    name: rule.name,
+    condition: rule.condition,
+    actions: JSON.stringify(rule.actions),
+    enabled: 1,
+    createdAt: 0,
+    updatedAt: 0,
+  }));
+  return evaluateRules(
+    messages,
+    records,
+    ownerEmail,
+    model,
+    aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
+  );
 }
 
 export async function rewriteAutomationRuleCondition(
@@ -869,8 +1212,6 @@ Return only the replacement instruction as one clear sentence. Keep the user's i
   return rewritten;
 }
 
-// ─── Main processor ──────────────────────────────────────────────────────────
-
 export interface ProcessResult {
   accountEmail: string;
   messagesProcessed: number;
@@ -892,8 +1233,6 @@ export async function processAutomationsForAccount(
     suggestionsCreated: 0,
   };
 
-  // 1. Load active rules and keep the AI filter's learned baseline
-  // conservative until it has several confirmed examples.
   const aiFilterState = await getAiFilterState(ownerEmail);
   const rules = (await loadActiveRules(ownerEmail, "mail")).filter(
     (rule) =>
@@ -904,27 +1243,34 @@ export async function processAutomationsForAccount(
   );
   if (rules.length === 0) return result;
 
-  // 2. Resolve model settings. Credentials are resolved by the selected engine
-  // under the owner's request context, so Builder-managed models work here too.
   const modelSettings = await getAutomationModelSettings(ownerEmail);
-  if (!(await canUseAutomationModel(ownerEmail, modelSettings))) {
+  let modelAccess: Awaited<ReturnType<typeof canUseAutomationModel>>;
+  try {
+    modelAccess = await canUseAutomationModel(ownerEmail, modelSettings);
+  } catch (error) {
+    console.error(
+      "[automation-engine] Model availability check failed:",
+      error,
+    );
+    result.errors = 1;
+    return result;
+  }
+  if (!modelAccess.available) {
     result.errors = 1;
     return result;
   }
 
-  // 3. Get watermark and processed IDs
   const watermark = await getWatermark(ownerEmail);
   const processedIds = await getProcessedIds(ownerEmail);
 
-  // 4. Fetch new inbox messages
   const { messages, newHistoryId } = await fetchNewInboxMessages(
     accessToken,
+    accountEmail,
     watermark,
     processedIds,
   );
 
   if (messages.length === 0) {
-    // Still update historyId if we got one
     if (newHistoryId) {
       await setWatermark(ownerEmail, {
         lastHistoryId: newHistoryId,
@@ -936,7 +1282,6 @@ export async function processAutomationsForAccount(
 
   result.messagesProcessed = messages.length;
 
-  // 4b. Emit event-bus events for each new message (best-effort)
   for (const msg of messages) {
     try {
       emit(
@@ -957,24 +1302,28 @@ export async function processAutomationsForAccount(
     }
   }
 
-  // 5. Evaluate rules with AI
   const matches = await evaluateRules(
     messages,
     rules,
     ownerEmail,
     modelSettings,
     aiFilterState,
+    modelAccess.jevCredentials,
+    modelAccess.legacyTypesafeApiKey,
   );
 
-  // 6. Execute matched actions
-  if (matches.size > 0) {
+  if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
     const labelCache = await buildLabelCache(accessToken);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
 
-    for (const [messageId, matchedRules] of matches) {
-      const message = messages.find((candidate) => candidate.id === messageId);
+    for (const [emailKey, matchedRules] of matches) {
+      const message = messages.find(
+        (candidate) =>
+          aiPriorityEmailKey(candidate.accountEmail, candidate.id) === emailKey,
+      );
       if (!message) continue;
+      const messageId = message.id;
 
       for (const matchedRule of matchedRules) {
         const ruleId = matchedRule.ruleId;
@@ -1054,22 +1403,17 @@ export async function processAutomationsForAccount(
     await recordAiFilterDecisions(ownerEmail, aiDecisions);
   }
 
-  // 7. Update watermark
   await setWatermark(ownerEmail, {
     lastHistoryId: newHistoryId || watermark.lastHistoryId,
     lastTimestamp: Date.now(),
   });
 
-  // 8. Mark messages as processed
   for (const msg of messages) processedIds.add(msg.id);
   await saveProcessedIds(ownerEmail, processedIds);
 
   return result;
 }
 
-/**
- * Process automations for all connected accounts.
- */
 export async function processAutomations(ownerEmail?: string): Promise<{
   result: string;
   details: ProcessResult[];
@@ -1124,8 +1468,6 @@ export async function processAutomations(ownerEmail?: string): Promise<{
   };
 }
 
-// ─── In-memory debounce for focus trigger ────────────────────────────────────
-
 const _lastTriggerTimeByOwner = new Map<string, number>();
 const TRIGGER_DEBOUNCE_MS = 30_000;
 
@@ -1140,7 +1482,6 @@ export async function triggerAutomationsDebounced(ownerEmail: string): Promise<{
   }
   _lastTriggerTimeByOwner.set(ownerEmail, now);
 
-  // Fire and forget
   processAutomations(ownerEmail).catch((err) =>
     console.error("[automation-engine] Trigger failed:", err),
   );

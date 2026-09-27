@@ -27,8 +27,6 @@ describe("splitSystemPromptForCache", () => {
     expect(stable + volatile).toBe("baseresources");
   });
 
-  // Engines that do not split forward the sentinel to the model, so it has to
-  // stay zero-width rather than becoming a readable marker.
   it("is a zero-width character", () => {
     expect(SYSTEM_PROMPT_CACHE_SPLIT).toBe("\u200b");
   });

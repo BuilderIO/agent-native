@@ -8,12 +8,31 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("fences manual finalize retries to the loaded upload identity", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "uploadAttemptId: recording?.uploadAttemptId ?? null",
+    );
+    expect(route).toContain(
+      "uploadGenerationId: recording?.uploadGenerationId ?? null",
+    );
+  });
+
   it("prefers public-share timestamps over legacy owner timestamps", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
     expect(route).toContain("requestedPlaybackRef.current");
     expect(route).toContain("playerRef.current?.seek(requestedStartMs)");
+  });
+
+  it("preserves only public playback state in the anonymous legacy redirect", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("buildShareContinuationQuery");
+    expect(route).toContain("legacyShareQuery");
+    expect(route).toContain('searchParams.get("panel")');
   });
 
   it("clamps route playback state before exposing it", () => {
@@ -29,6 +48,14 @@ describe("direct recording route shell cue", () => {
       "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
     );
     expect(shareRoute).toContain("currentMs={playbackMs}");
+  });
+
+  it("keeps timestamped comments outside the clipped video frame", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+    );
   });
 
   it("surfaces recording cleanup before advanced workflow submenus", () => {
@@ -57,6 +84,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("startAiRequestToast");
     expect(route).toContain("completeAiRequestToast");
     expect(route).toContain("failAiRequestToast");
+    expect(route).toContain(
+      "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
+    );
+    expect(route).toContain("requestedAt: result?.requestedAt ?? null");
     expect(route).toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
@@ -263,7 +294,8 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain('from "@/components/ui/breadcrumb"');
     expect(route).toContain('to: "/library"');
     expect(route).toContain('to: "/spaces"');
-    expect(route).toContain("recordingFolder.spaceId");
+    expect(route).toContain("folder.spaceId");
+    expect(route).toContain("folder: recordingFolder");
     expect(route).toContain("{recordingActions}");
     expect(route).toContain("fallback={ownerInitial}");
     expect(route).toContain("{recording.description}");
@@ -299,12 +331,6 @@ describe("direct recording route shell cue", () => {
     const effectEnd = route.indexOf("return;", effectStart);
     const effect = route.slice(effectStart, effectEnd);
 
-    // recording is undefined on the render before get-recording-player-data
-    // resolves. Gating on `recording?.enableComments` alone reads that as
-    // falsy and drops the jump-to-comment link into "transcript" before the
-    // data ever loads. Only the loaded-and-disabled case should fall back.
-    // oxfmt may wrap the setPanel(...) call across lines, so match on the
-    // normalized (whitespace-collapsed) source instead of an exact literal.
     const normalizedEffect = effect.replace(/\s+/g, " ");
     expect(normalizedEffect).not.toContain(
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
@@ -324,9 +350,6 @@ describe("direct recording route shell cue", () => {
       route.indexOf("const renderSidePanel", commentsSectionStart),
     );
 
-    // The compact (mobile) section sits inside a fixed h-[min(420px,55dvh)]
-    // RecordingSidePanel. Without overflow-hidden here, comments past that
-    // height were clipped instead of scrolling into view.
     expect(commentsSection).toContain(
       '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
     );
@@ -366,8 +389,6 @@ describe("direct recording route shell cue", () => {
     expect(debugTab).toContain('variant="secondary"');
     expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
     expect(debugTab).toContain("{unviewedDebugEventCount}");
-    // The old always-on failure dot must be gone: it never cleared and fired
-    // on console warnings, which are present on nearly every recording.
     expect(route).not.toContain("hasBrowserDiagnosticFailures");
     expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });

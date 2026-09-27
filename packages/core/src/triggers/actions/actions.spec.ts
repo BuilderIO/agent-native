@@ -40,6 +40,7 @@ enabled: true
 triggerType: schedule
 mode: agentic
 createdBy: alice@example.com
+reasoningEffort: high
 ---
 
 Send me a daily digest.
@@ -101,6 +102,7 @@ describe("automation actions", () => {
       triggerType: "schedule",
       scheduleDescription: `Every day at 9 AM (${serverTimezone()})`,
       scope: "personal",
+      reasoningEffort: "high",
     });
   });
 

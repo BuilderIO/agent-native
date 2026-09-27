@@ -25,6 +25,7 @@ export {
   type AccountSettingsFormProps,
 } from "./AccountSettingsCard.js";
 export {
+  hasBuilderOAuthCredential,
   openBuilderConnectPopup,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -35,10 +36,8 @@ export {
   type BuilderStatus,
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
-export {
-  BuilderConnectPopover,
-  type BuilderConnectPopoverProps,
-} from "./BuilderConnectPopover.js";
+export { DeferredBuilderConnectPopover as BuilderConnectPopover } from "./deferred-builder-connect-popover.js";
+export type { BuilderConnectPopoverProps } from "./BuilderConnectPopover.js";
 export {
   NewKeyMenu,
   normalizeKeyName,
@@ -80,7 +79,9 @@ export {
 } from "../agent-provider-catalog.js";
 export {
   AgentProviderPicker,
-  AgentProviderSetupForm,
   type AgentProviderPickerProps,
+} from "./AgentProviderPicker.js";
+export {
+  AgentProviderSetupForm,
   type AgentProviderSetupFormProps,
 } from "./ProviderSetupForm.js";

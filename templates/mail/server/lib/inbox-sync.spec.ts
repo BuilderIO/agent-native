@@ -16,17 +16,19 @@ const mocks = vi.hoisted(() => {
     gmailListLabels: vi.fn(),
     gmailBatchGetThreads: vi.fn(),
     getClientForConnectedAccount: vi.fn(),
+    invalidateHistoryCacheForAccount: vi.fn(),
     invalidateListCacheForOwner: vi.fn(),
     ensureSyncAccountRow: vi.fn(),
     claimSyncAccount: vi.fn(),
     releaseSyncAccount: vi.fn(),
     patchSyncAccount: vi.fn(),
     resetSyncAccountProgress: vi.fn(),
+    readInboxPushGeneration: vi.fn(),
     upsertInboxThreadRows: vi.fn(),
     deleteInboxThreadRow: vi.fn(),
     markThreadsOutOfInboxBeforeSync: vi.fn(),
     readSyncAccounts: vi.fn(),
-    assertSyncClaimHeld: vi.fn(),
+    withSyncClaim: vi.fn(),
     SyncClaimLostError,
   };
 });
@@ -49,6 +51,7 @@ vi.mock("./google-auth.js", async (importOriginal) => {
     ...actual,
     getClientForConnectedAccount: mocks.getClientForConnectedAccount,
     getConnectedAccountsWithErrors: mocks.getConnectedAccountsWithErrors,
+    invalidateHistoryCacheForAccount: mocks.invalidateHistoryCacheForAccount,
     invalidateListCacheForOwner: mocks.invalidateListCacheForOwner,
   };
 });
@@ -59,11 +62,12 @@ vi.mock("./inbox-store.js", () => ({
   releaseSyncAccount: mocks.releaseSyncAccount,
   patchSyncAccount: mocks.patchSyncAccount,
   resetSyncAccountProgress: mocks.resetSyncAccountProgress,
+  readInboxPushGeneration: mocks.readInboxPushGeneration,
   upsertInboxThreadRows: mocks.upsertInboxThreadRows,
   deleteInboxThreadRow: mocks.deleteInboxThreadRow,
   markThreadsOutOfInboxBeforeSync: mocks.markThreadsOutOfInboxBeforeSync,
   readSyncAccounts: mocks.readSyncAccounts,
-  assertSyncClaimHeld: mocks.assertSyncClaimHeld,
+  withSyncClaim: mocks.withSyncClaim,
   SyncClaimLostError: mocks.SyncClaimLostError,
 }));
 
@@ -88,9 +92,9 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}) {
     status: "syncing",
     lastError: null,
     lastSyncedAt: null,
+    lastPushGeneration: 0,
     syncClaimId: "claim-1",
     syncClaimedAt: Date.now(),
-    // Fresh so tests don't also have to mock a labels.list round trip.
     labels: [],
     labelsUpdatedAt: Date.now(),
     createdAt: 1,
@@ -147,20 +151,18 @@ beforeEach(() => {
     row: currentRow,
   }));
   mocks.ensureSyncAccountRow.mockResolvedValue(baseRow());
-  // Fenced writes report whether a row matched — default to "matched" so
-  // existing tests exercise the happy path; claim-loss tests below override
-  // this to false for the specific call under test.
   mocks.patchSyncAccount.mockResolvedValue(true);
   mocks.releaseSyncAccount.mockResolvedValue(undefined);
   mocks.upsertInboxThreadRows.mockResolvedValue(undefined);
   mocks.deleteInboxThreadRow.mockResolvedValue(undefined);
   mocks.markThreadsOutOfInboxBeforeSync.mockResolvedValue(undefined);
   mocks.resetSyncAccountProgress.mockResolvedValue(true);
-  mocks.assertSyncClaimHeld.mockResolvedValue(undefined);
+  mocks.readInboxPushGeneration.mockResolvedValue(0);
+  mocks.withSyncClaim.mockImplementation(
+    async (_owner, _account, _claimId, write) => write({}),
+  );
 });
 
-// The row `claimSyncAccount` hands back for the call under test — tests set
-// this directly since `syncInboxAccount` always claims via the mock above.
 let currentRow: any;
 
 describe("syncInboxAccount — full sync", () => {
@@ -169,7 +171,6 @@ describe("syncInboxAccount — full sync", () => {
     mocks.gmailGetProfile.mockResolvedValue({ historyId: "9000" });
 
     mocks.gmailListThreads.mockImplementationOnce(async () => {
-      // Simulate page 1 taking long enough to blow the budget.
       vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000);
       return { threads: [{ id: "t1" }, { id: "t2" }], nextPageToken: "page2" };
     });
@@ -189,8 +190,6 @@ describe("syncInboxAccount — full sync", () => {
     expect(first.state).toBe("initial");
     expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
     expect(mocks.upsertInboxThreadRows.mock.calls[0][0]).toHaveLength(2);
-    // Page token persisted so the next call resumes instead of restarting.
-    // Fenced to the claim held for this sync step (see SyncClaimLostError).
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
@@ -202,7 +201,6 @@ describe("syncInboxAccount — full sync", () => {
 
     vi.restoreAllMocks();
 
-    // Resume: the row now carries the persisted page token + full-sync id.
     currentRow = baseRow({
       fullSyncHistoryId: "9000",
       fullSyncStartedAt: 123,
@@ -230,6 +228,7 @@ describe("syncInboxAccount — full sync", () => {
       OWNER,
       ACCOUNT,
       123,
+      expect.anything(),
     );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
@@ -252,9 +251,7 @@ describe("syncInboxAccount — full sync", () => {
         data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
       },
     ]);
-    // A newer worker has already taken the claim by the time this page's
-    // hydrate round trip finishes.
-    mocks.assertSyncClaimHeld.mockRejectedValueOnce(
+    mocks.withSyncClaim.mockRejectedValueOnce(
       new mocks.SyncClaimLostError(ACCOUNT),
     );
 
@@ -279,7 +276,6 @@ describe("syncInboxAccount — incremental sync", () => {
       ],
       historyId: "1005",
     });
-    // Refetching the thread shows its current (post-removal) state.
     mocks.gmailBatchGetThreads.mockResolvedValueOnce([
       {
         id: "t1",
@@ -290,6 +286,15 @@ describe("syncInboxAccount — incremental sync", () => {
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
     expect(result.state).toBe("ready");
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      ACCOUNT,
+    );
+    expect(
+      mocks.invalidateHistoryCacheForAccount.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.releaseSyncAccount.mock.invocationCallOrder[0]);
+    expect(
+      mocks.invalidateListCacheForOwner.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.releaseSyncAccount.mock.invocationCallOrder[0]);
     const upserted = mocks.upsertInboxThreadRows.mock.calls[0][0];
     expect(upserted).toHaveLength(1);
     expect(upserted[0].inInbox).toBe(false);
@@ -299,6 +304,20 @@ describe("syncInboxAccount — incremental sync", () => {
       expect.objectContaining({ historyId: "1005" }),
       { claimId: "claim-1" },
     );
+  });
+
+  it("does not invalidate the history cache after an empty incremental sync", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [],
+      historyId: "1000",
+    });
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("ready");
+    expect(mocks.invalidateHistoryCacheForAccount).not.toHaveBeenCalled();
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(OWNER);
   });
 
   it("stamps upserts at the start of each Gmail read", async () => {
@@ -371,6 +390,7 @@ describe("syncInboxAccount — incremental sync", () => {
       ACCOUNT,
       "t1",
       expect.any(Number),
+      expect.anything(),
     );
     expect(mocks.deleteInboxThreadRow.mock.calls[0][3]).toBeLessThanOrEqual(
       batchCalledAt,
@@ -423,8 +443,6 @@ describe("syncInboxAccount — incremental sync", () => {
     const watermarks = mocks.patchSyncAccount.mock.calls
       .map((call) => call[2].historyId)
       .filter(Boolean);
-    // Page 1 must persist its last record id, never the mailbox id, so a
-    // budget cut between pages cannot skip page 2.
     expect(watermarks).toEqual(["1001", "1007", "1010"]);
   });
 
@@ -474,14 +492,10 @@ describe("syncInboxAccount — incremental sync", () => {
         data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
       },
     ]);
-    // The fenced watermark write reports 0 rows matched — another worker's
-    // claim has already taken over this account.
     mocks.patchSyncAccount.mockResolvedValue(false);
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
 
-    // Non-fatal: never "error"/"needs_reauth", and no status/lastError write
-    // (that would stomp the newer worker's row — see failAccount).
     expect(result.state).toBe("initial");
     expect(mocks.patchSyncAccount).not.toHaveBeenCalledWith(
       OWNER,
@@ -489,9 +503,38 @@ describe("syncInboxAccount — incremental sync", () => {
       expect.objectContaining({ status: "error" }),
       expect.anything(),
     );
-    // The stale claim no longer matches, so releasing it is a no-op by
-    // construction — never called with a status write for this worker's run.
     expect(mocks.releaseSyncAccount).not.toHaveBeenCalled();
+  });
+
+  it("invalidates shared caches when a later history page fails after an earlier page was applied", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1001",
+            messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+          },
+        ],
+        historyId: "1005",
+        nextPageToken: "page-2",
+      })
+      .mockRejectedValueOnce(new Error("history timeout"));
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("error");
+    expect(mocks.upsertInboxThreadRows).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateHistoryCacheForAccount).toHaveBeenCalledWith(
+      ACCOUNT,
+    );
+    expect(mocks.invalidateListCacheForOwner).toHaveBeenCalledWith(OWNER);
   });
 });
 
@@ -515,8 +558,6 @@ describe("resetInboxSync", () => {
   });
 
   it("resets a managed workspace grant with no per-user OAuth row", async () => {
-    // No OAuth accounts at all — only getConnectedAccounts (which falls
-    // back to the managed client's email) reports this account exists.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getConnectedAccountsWithErrors.mockResolvedValue({
       accounts: ["managed@example.com"],
@@ -534,10 +575,78 @@ describe("resetInboxSync", () => {
 });
 
 describe("ensureInboxFresh — managed workspace grant", () => {
+  it("syncs a recent account when the pending push generation advances from 9 to 10", async () => {
+    currentRow = baseRow({
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 9,
+    });
+    mocks.ensureSyncAccountRow.mockResolvedValue(currentRow);
+    mocks.readInboxPushGeneration.mockResolvedValue(10);
+    mocks.gmailListHistory.mockResolvedValue({ historyId: "600", history: [] });
+
+    const statuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(statuses).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "ready" }),
+    ]);
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 10 },
+      { claimId: "claim-1" },
+    );
+  });
+
+  it("leaves a newer push generation pending when it arrives during sync", async () => {
+    let liveGeneration = 2;
+    currentRow = baseRow({
+      historyId: "500",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 1,
+    });
+    mocks.ensureSyncAccountRow.mockImplementation(async () => currentRow);
+    mocks.readInboxPushGeneration.mockImplementation(
+      async () => liveGeneration,
+    );
+    mocks.gmailListHistory.mockImplementationOnce(async () => {
+      liveGeneration = 3;
+      return { historyId: "600", history: [] };
+    });
+
+    await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 2 },
+      { claimId: "claim-1" },
+    );
+
+    currentRow = baseRow({
+      historyId: "600",
+      lastSyncedAt: Date.now(),
+      lastPushGeneration: 2,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "700",
+      history: [],
+    });
+    const nextStatuses = await ensureInboxFresh(OWNER, { budgetMs: 5_000 });
+
+    expect(nextStatuses).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "ready" }),
+    ]);
+    expect(mocks.claimSyncAccount).toHaveBeenCalledTimes(2);
+    expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { lastPushGeneration: 3 },
+      { claimId: "claim-1" },
+    );
+  });
+
   it("syncs a managed grant even when listOAuthAccountsByOwner reports no accounts", async () => {
-    // HIGH review finding: listOAuthAccountsByOwner returning [] must not be
-    // read as "disconnected" — getConnectedAccounts (OAuth rows, else the
-    // managed client's email) is the single source of which accounts exist.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getConnectedAccountsWithErrors.mockResolvedValue({
       accounts: ["managed@example.com"],
@@ -658,10 +767,6 @@ describe("ensureInboxFresh — managed workspace grant", () => {
 
 describe("syncInboxAccount — managed workspace grant", () => {
   it("syncs a managed-only account by resolving its client through getClientForConnectedAccount(ownerEmail, accountEmail)", async () => {
-    // No OAuth row for the managed account — syncInboxAccount must not
-    // resolve credentials through the OAuth-only getClientForAccount path
-    // (that's exactly the bug this test guards against: a managed-only
-    // owner previously got "Google account not connected" here).
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     currentRow = baseRow({
       accountEmail: "managed@example.com",
@@ -700,10 +805,6 @@ describe("syncInboxAccount — managed workspace grant", () => {
   });
 
   it("treats the managed account's own sent reply as self even with no per-user OAuth row", async () => {
-    // HIGH review finding: connectedEmailsLower used to build the self-address
-    // set from listOAuthAccountsByOwner alone, which is empty for a
-    // managed-only workspace grant. That let the mailbox's own sent reply be
-    // picked as the "latest received" message for classification.
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
     mocks.getConnectedAccountsWithErrors.mockResolvedValue({
       accounts: ["managed@example.com"],
@@ -747,8 +848,6 @@ describe("syncInboxAccount — managed workspace grant", () => {
               },
             },
             {
-              // Latest message by date, but sent from the managed account
-              // itself — must not be picked as the classification target.
               id: "t1-m2",
               internalDate: "1700000005000",
               labelIds: ["INBOX"],

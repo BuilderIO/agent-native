@@ -423,8 +423,9 @@ const editor = {
   pageBodySyncing: "此页面的内容仍在同步",
   pageBodySyncingDescription:
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
+  createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
-  databaseCreated: "内联集合已创建",
+  databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",
   describeWhatToGenerate: "描述要生成什么...",
   enterToSubmit: "输入提交",
@@ -672,6 +673,10 @@ const editor = {
     collapsibleBlockDescription: "可折叠块",
     database: "集合",
     databaseDescription: "在此页面中插入内联集合",
+    collectionInline: "集合 — 内联",
+    collectionInlineDescription: "在此页面中添加集合",
+    collectionFullPage: "集合 — 整页",
+    collectionFullPageDescription: "创建子集合并在此处链接",
     divider: "分频器",
     dividerDescription: "水平尺",
     generate: "生成",
@@ -833,6 +838,13 @@ const rawLiterals = {
       "此页面可能已被删除，或尚未共享给你的账户。",
   },
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     suggestionCreateFailed: "无法创建建议",
     suggestionsCount: "{{count}} 条建议",
     acceptSuggestion: "接受",
@@ -898,8 +910,38 @@ const rawLiterals = {
     },
   },
   sidebar: {
+    contentSpace: "Content 空间",
     addChild: "新增子项",
     addChildTo: "新增子项至 {{title}}",
+    collapseItem: "收起 {{title}}",
+    removeFromRecent: "从最近访问中移除",
+    copyLink: "复制链接",
+    openInNewTab: "在新标签页中打开",
+    rename: "重命名",
+    duplicate: "创建副本",
+    moveTo: "移动到",
+    moveToTrash: "移到回收站",
+    lastEditedBy: "最后编辑者：{{name}}",
+    lastEdited: "最后编辑",
+    pageName: "页面名称",
+    movePageTo: "将“{{title}}”移动到",
+    topLevel: "顶层",
+    noMatchingPages: "没有匹配的页面",
+    failedRenamePage: "无法重命名页面",
+    failedDuplicatePage: "无法创建页面副本",
+    duplicatedFromLastSave:
+      "已复制最后保存的版本；最近未保存的编辑未包含在内。",
+    chooseSpace: "选择工作区",
+    moveToSpaceTitle: "移动到 {{space}}？",
+    moveToSpaceWarningShared:
+      "{{space}} 中的所有人都将能看到“{{title}}”及其子页面。当前的共享设置和公开链接将被移除，你将成为所有者。",
+    moveToSpaceWarningPrivate:
+      "“{{title}}”及其子页面在 {{space}} 中将仅你可见。当前的共享设置和公开链接将被移除，你将成为所有者。",
+    back: "返回",
+    movePage: "移动",
+    movedToSpace: "已将“{{title}}”移动到 {{space}}",
+    failedRemoveFromRecent: "无法从最近访问中移除",
+    expandItem: "展开 {{title}}",
     completeStepsAboveFirst: "请先完成上面的步骤",
     connectWorkspace: "连接工作区",
     connected: "已连接",
@@ -907,6 +949,7 @@ const rawLiterals = {
     copied: "已复制！",
     copy: "复制",
     database: "集合",
+    collection: "集合",
     databasePermanentlyDeleted: "集合已永久删除",
     databaseRestored: "集合已恢复",
     deleteDatabaseNamedPermanently: "永久删除 {{title}}",
@@ -969,6 +1012,9 @@ const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
   requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
+  workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
+  workspaceWelcomeUnavailableDescription:
+    "您可以查看此工作区，但没有创建欢迎页面的权限。",
 };
 
 const comments = {
@@ -992,6 +1038,9 @@ const comments = {
   suggestionWith: "替换为",
   suggestionReplace: "替换",
   suggestionDetails: "建议详情",
+  proposalEditCount_other: "{{count}} 项编辑",
+  acceptRemaining: "接受其余编辑",
+  rejectRemaining: "拒绝其余编辑",
   typeFilter: "类型",
   statusFilter: "状态",
   authorFilter: "人员",
@@ -1035,6 +1084,14 @@ const reference = {
 };
 
 const sidebarPinned = {
+  recent: "最近访问",
+  customizeSidebar: "自定义侧边栏",
+  noRecentVisits: "暂无最近访问记录",
+  noPinnedItems: "暂无已固定项目",
+  showMore: "显示更多",
+  showLess: "显示更少",
+  seeAll: "查看全部…",
+  seeAllFiles: "查看所有文件",
   pinned: "已固定",
   loadingPinned: "正在加载已固定项目…",
   dragToReorder: "拖动以重新排序 {{label}}",
@@ -1060,6 +1117,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
@@ -1083,6 +1147,24 @@ const exactEnglish = {
     },
     toolbar: {
       info: "信息",
+      copyLink: "复制链接",
+      copyForPeople: "复制给他人",
+      copyForAgents: "复制给智能体",
+      whoHasAccess: "谁有访问权限",
+      sharePeople: "人",
+      shareAgents: "智能体",
+      copyAgentPrompt: "复制智能体指令",
+      openInClaude: "在 Claude 中打开",
+      openInClaudeCode: "在 Claude Code 中打开",
+      openInCodex: "在 Codex 中打开",
+      agentCopyAccessNote: "智能体可以通过现有权限使用 Content MCP",
+      temporaryAgentLink: "临时智能体链接",
+      privateLinkCanView: "只有有权限的人可以查看",
+      publicLinkCanView: "任何获得链接的人都可以查看",
+      copiedAgentPrompt: "已复制智能体指令",
+      couldNotCopyAgentPrompt: "无法复制智能体指令",
+      agentPrompt:
+        '请阅读此 Content 文档：{{documentUrl}}\n\n使用适用于 {{mcpUrl}} 的可用 Content MCP 连接，以 ID "{{documentId}}" 调用 get-document。也可以直接读取公开可访问的页面。\n\n如果需要经过身份验证的访问，而 Content MCP 不可用或已退出登录，请让我连接并完成身份验证。连接设置：{{connectUrl}}。官方指南：{{docsUrl}}\n\n在我确认连接已就绪后，请使用我的账户现有权限重新尝试读取。如果经过身份验证的读取被拒绝，请告诉我这一结果。',
       closeUtilityPanel: "关闭面板",
       exportCsv: "导出 CSV",
       exportDatabase: "导出集合",
@@ -1106,6 +1188,7 @@ const exactEnglish = {
       exportedCsv: "已导出 CSV",
       copiedPageLink: "已复制页面链接",
       copyPageLink: "复制页面链接",
+      createShareableCopy: "创建可分享的副本",
       couldNotCopyLink: "无法复制链接",
       clipboardAccessUnavailable: "此浏览器无法访问剪贴板。",
       pageBreadcrumb: "页面面包屑",
@@ -1159,6 +1242,14 @@ const history = {
 };
 
 const overrides = {
+  close: "关闭",
+  setup: { checkingProvider: "正在检查 AI 连接…" },
+  onboarding: {
+    fileStorage: {
+      title: "连接存储以上传文件",
+      statusUnavailable: "文件存储状态不可用。",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1270,6 +1361,14 @@ const overrides = {
     labCreativeContext: "创意上下文",
     labCreativeContextDescription:
       "在 Content 中连接并复用受管控的参考上下文。",
+    labSlashAdvancedCode: "高级代码块",
+    labSlashAdvancedCodeDescription: "在斜杠菜单中添加代码和代码标签页块。",
+    labSlashLayouts: "布局块",
+    labSlashLayoutsDescription: "在斜杠菜单中添加自定义 HTML 和标签页块。",
+    labSlashVisuals: "可视化块",
+    labSlashVisualsDescription: "在斜杠菜单中添加图表、Mermaid 和线框图块。",
+    labSlashDeveloperDocs: "开发者文档块",
+    labSlashDeveloperDocsDescription: "在斜杠菜单中添加 API 和开发者文档块。",
   },
   chat: {
     publicEmptyState: "向我询问有关此文档的任何问题",
@@ -1289,6 +1388,13 @@ const overrides = {
     genericError: "出了点问题",
   },
   editor: {
+    iconPickerIcons: "图标",
+    iconPickerEmoji: "表情符号",
+    iconPickerRecent: "最近",
+    iconPickerColors: "颜色",
+    iconPickerDefault: "默认",
+    iconPickerUpload: "上传",
+    iconPickerUploading: "正在上传…",
     ...editor,
     sourceComponent: {
       defaultTitle: "源组件",

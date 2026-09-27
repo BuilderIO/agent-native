@@ -60,7 +60,6 @@ describe("loadCliBootstrap", () => {
 
   it("runs the app's registrations before claiming the framework slot", async () => {
     await loadCliBootstrap(appRoot("actions", "s3"));
-    // The app holds `s3`, so `ensureS3FileUploadProvider` must leave it alone.
     expect(listFileUploadProviders().map((p) => p.name)).toStrictEqual([
       "provider s3",
     ]);
@@ -73,14 +72,6 @@ describe("loadCliBootstrap", () => {
     expect(listFileUploadProviders().map((p) => p.id)).toStrictEqual(["s3"]);
   });
 
-  /*
-   * File upload providers are a process-global registry and each CLI entry
-   * point is a one-shot process, so this documents what in-process reuse
-   * actually does rather than promising isolation the registry cannot give:
-   * both roots' registrations are present afterwards, and a shared id resolves
-   * to whichever ran last. A caller that reuses one process is responsible for
-   * the registry, the same as a server that mounts two plugins.
-   */
   it("accumulates registrations when two app roots run in one process", async () => {
     await loadCliBootstrap(appRoot("actions", "first"));
     await loadCliBootstrap(appRoot("actions", "second"));

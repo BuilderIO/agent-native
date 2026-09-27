@@ -32,6 +32,7 @@ import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
 } from "./lib/loom-import-job.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -226,11 +227,13 @@ export default defineAction({
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds),
+      folderId: args.folderId ?? existingRecording?.folderId,
+    });
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
-
-    const spaceIds = (
-      args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
-    ).filter((value, index, arr) => value && arr.indexOf(value) === index);
     const title =
       args.title?.trim() ||
       (existingRecording?.title &&
@@ -264,6 +267,8 @@ export default defineAction({
       spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
+      recordingPlatform: "import" as const,
+      failureCode: null,
       sourceAppName,
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
@@ -351,12 +356,6 @@ export default defineAction({
     }
 
     if (isLoom) {
-      // Storage is connected: create/refresh the row now and hand the slow
-      // Loom download + reupload + transcript off to a durable background
-      // job (post-finalize-worker.post.ts's "loom-import" kind /
-      // runLoomImportJob). Loom's CDN plus a reupload can outlast a single
-      // request; the worker claims the row (loomImportClaimId) and moves it
-      // to "ready" or "failed" once done.
       const recordingValues = buildRecordingValues(
         existingRecording?.videoSizeBytes ?? 0,
       );
@@ -437,9 +436,6 @@ export default defineAction({
       };
     }
 
-    // Direct video links stay synchronous: they typically download and
-    // reupload well within a single request, and this keeps
-    // request-transcript as the deliberate next step for a transcript.
     const media = await downloadDirectVideo(sourceUrl);
     const videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
     const upload = await uploadFile({

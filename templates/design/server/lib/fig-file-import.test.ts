@@ -26,7 +26,6 @@ import {
   assertSafeDecodedFigDocument,
   decodeFig,
   decodeKiwiContainer,
-  sanitizeDecodedFigDocument,
 } from "./fig-file-decoder.js";
 import {
   convertDecodedFigToEditableHtml,
@@ -146,7 +145,7 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toEqual({ hello: "world" });
   });
 
-  it("allows the hex expansion of bounded binary fields during the safety re-check", () => {
+  it("keeps bounded binary fields as bytes while direct strings stay bounded", () => {
     const fieldNames = ["blob"];
     const schema = parseSchema(
       `message Message { ${fieldNames.map((name, index) => `byte[] ${name} = ${index + 1};`).join(" ")} }`,
@@ -165,20 +164,15 @@ describe("bounded .fig decoding", () => {
       ]),
     );
 
+    expect((decoded.document as { blob: unknown }).blob).toBeInstanceOf(
+      Uint8Array,
+    );
     expect(() => assertSafeDecodedFigDocument(decoded.document)).not.toThrow();
     expect(() =>
       assertSafeDecodedFigDocument({
         blobs: [{ bytes: "00".repeat(3 * 1024 * 1024) }],
       }),
     ).toThrow(/too much string data/i);
-  });
-
-  it("preserves safety metadata for a root binary value", () => {
-    const sanitized = sanitizeDecodedFigDocument(
-      new Uint8Array(3 * 1024 * 1024),
-    );
-
-    expect(() => assertSafeDecodedFigDocument(sanitized)).not.toThrow();
   });
 
   it("counts bigint serialization against the decoded string budget", () => {
@@ -399,7 +393,6 @@ describe("editable .fig conversion", () => {
 
   it("keeps a frame-child at its parent-relative offset, ignoring the frame's canvas position", () => {
     const document = editableDocument();
-    // Frame far out on the canvas.
     document.nodeChanges[2]!.transform = {
       m00: 1,
       m01: 0,
@@ -408,7 +401,6 @@ describe("editable .fig conversion", () => {
       m11: 1,
       m12: 800,
     };
-    // Child at a parent-relative offset (Kiwi transforms are relativeTransform).
     document.nodeChanges[3]!.transform = {
       m00: 1,
       m01: 0,
@@ -422,7 +414,6 @@ describe("editable .fig conversion", () => {
 
     expect(rendered.frames[0]!.html).toContain("left: 26.19px");
     expect(rendered.frames[0]!.html).toContain("top: 0px");
-    // The frame's own canvas offset must not leak into the child.
     expect(rendered.frames[0]!.html).not.toContain("left: 826.19px");
     expect(rendered.frames[0]!.html).not.toContain("left: -773");
   });
@@ -467,7 +458,6 @@ describe("editable .fig conversion", () => {
           type: "FRAME",
           name: "Image wrapper",
           size: { x: 200, y: 100 },
-          // Parent-relative offset inside the offset frame.
           transform: {
             m00: 1,
             m01: 0,
@@ -764,12 +754,6 @@ describe("editable .fig conversion", () => {
   });
 
   it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
-    // A designer can reorder or duplicate frames in the layers panel without
-    // moving them on the canvas, so `parentIndex.position` (creation/z order)
-    // can point the opposite way from where the frames actually sit. Three
-    // frames laid out left-to-right on the canvas (x: 0, 400, 800) but stored
-    // with their layer order reversed (rightmost frame has the earliest
-    // `position`) must still import in canvas order: Left, Middle, Right.
     const document = editableDocument();
     const frame = (
       localID: number,

@@ -71,7 +71,6 @@ describe("loadMcpConfig", () => {
 
   it("prefers workspace-root config over app-local", () => {
     const workspaceDir = tmpRoot;
-    // Mark as workspace root via package.json agent-native.workspaceCore
     writeJson(path.join(workspaceDir, "package.json"), {
       name: "ws",
       "agent-native": { workspaceCore: "@agent-native/core" },

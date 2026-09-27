@@ -110,7 +110,6 @@ export function TweaksPanel({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Only start drag on left click
       if (e.button !== 0) return;
       e.preventDefault();
       dragging.current = true;

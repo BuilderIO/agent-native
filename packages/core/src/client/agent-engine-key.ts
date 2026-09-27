@@ -1,14 +1,3 @@
-/**
- * Agent engine API-key helpers (browser).
- *
- * Named client helper for storing a bring-your-own provider key (Anthropic,
- * OpenAI, etc.) so the agent chat can run without a Builder connection or an
- * account. The key is persisted by the framework under the matching provider
- * key (e.g. ANTHROPIC_API_KEY) for the active organization, exactly like the
- * LLM settings panel does - UI code should call this instead of hand-writing
- * a fetch to framework routes.
- */
-
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
@@ -19,7 +8,6 @@ import {
 } from "./agent-provider-catalog.js";
 import { agentNativePath } from "./api-path.js";
 
-/** Providers that can be configured with a single pasted API key. */
 export type AgentEngineProvider = AgentProviderId;
 
 const PROVIDER_ENV_VAR: Partial<Record<AgentEngineProvider, string>> = {
@@ -32,7 +20,6 @@ const PROVIDER_ENV_VAR: Partial<Record<AgentEngineProvider, string>> = {
   ollama: OLLAMA_BASE_URL_ENV_VAR,
 };
 
-/** Event other parts of the agent UI listen for to re-check the LLM gate. */
 const CONFIGURED_CHANGED_EVENT = "agent-engine:configured-changed";
 
 export interface SaveAgentEngineApiKeyOptions {
@@ -250,12 +237,6 @@ async function readProviderSettingsError(
   return trimmed.startsWith("<") ? undefined : trimmed.slice(0, 500);
 }
 
-/**
- * Persist a provider API key for the current owner. Resolves on success.
- * Throws an Error with a readable message on failure. On success it also
- * dispatches `agent-engine:configured-changed` so any open agent chat flips
- * out of its "needs setup" state without a reload.
- */
 export async function saveAgentEngineApiKey({
   provider,
   key,
@@ -268,11 +249,6 @@ export async function saveAgentEngineApiKey({
   await saveAgentEngineProviderSettings({ provider, key, apiKey, scope });
 }
 
-/**
- * Persist provider-specific settings for the current owner. This covers
- * built-in BYOK provider keys plus optional OpenAI-compatible and Ollama
- * endpoint URLs. Values are stored server-side in scoped secrets.
- */
 export async function saveAgentEngineProviderSettings({
   provider,
   key,
@@ -312,11 +288,41 @@ export async function saveAgentEngineProviderSettings({
   dispatchConfiguredChanged();
 }
 
-/**
- * Select the provider and model for the next conversation. This is separate
- * from saving credentials so keyless local providers such as Ollama can use
- * the same setup surface as API-key providers.
- */
+export async function fetchOllamaModels(baseUrl?: string): Promise<string[]> {
+  const trimmed = baseUrl?.trim() ?? "";
+  const path = trimmed
+    ? `/_agent-native/agent-engine/ollama-models?baseUrl=${encodeURIComponent(trimmed)}`
+    : "/_agent-native/agent-engine/ollama-models";
+  const response = await fetch(agentNativePath(path), {
+    credentials: "include",
+  });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = text.trim() ? JSON.parse(text) : undefined;
+  } catch {
+    throw new Error(
+      `Could not read the Ollama models response (HTTP ${response.status}).`,
+    );
+  }
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : `Could not list Ollama models (HTTP ${response.status}).`;
+    throw new Error(message);
+  }
+  const models =
+    payload && typeof payload === "object"
+      ? (payload as { models?: unknown }).models
+      : undefined;
+  return Array.isArray(models)
+    ? models.filter((model): model is string => typeof model === "string")
+    : [];
+}
+
 export async function setAgentEngineProvider({
   provider,
   model,

@@ -1,9 +1,9 @@
-import {
-  AgentSidebar,
-  isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryVersion,
+import type {
+  AssistantChatHistoryConfig,
+  AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
+import { AgentSidebar } from "@agent-native/core/client/AgentSidebar";
+import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
@@ -33,6 +33,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
+import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
@@ -48,9 +49,6 @@ const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
-// Routes whose page renders its own custom toolbar (with AgentToggleButton).
-// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
-// there's no double-header.
 const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
 
 function loadSidebarWidth(): number {
@@ -102,13 +100,9 @@ export function Layout({ children }: LayoutProps) {
   const activeDocumentId = pendingDocumentId ?? currentDocumentId;
   const showPendingDocumentSkeleton =
     !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
-  // The route chunk for the pending page still has to load, so carry the
-  // landing title across this gap instead of flashing a blank title bar.
   const pendingDocumentTitle = useOptimisticDocumentTitle(pendingDocumentId, {
     enabled: !!pendingDocumentId,
   });
-  // Bind chat to the currently-open document. Everywhere else (list view,
-  // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
     () =>
       activeDocumentId
@@ -125,7 +119,12 @@ export function Layout({ children }: LayoutProps) {
     return {
       list: {
         action: "list-document-versions",
-        args: { documentId, includeContent: false, limit: 100 },
+        args: (threadId) => ({
+          documentId,
+          includeContent: false,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -176,6 +175,7 @@ export function Layout({ children }: LayoutProps) {
     });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
+  const openSearchAfterSidebarCloseRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 
   const handleSidebarResize = useCallback((width: number) => {
@@ -247,8 +247,16 @@ export function Layout({ children }: LayoutProps) {
               <SheetContent
                 side="left"
                 showClose={false}
-                className="w-[85vw] max-w-80 p-0"
+                className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
                 onCloseAutoFocus={(event) => {
+                  if (openSearchAfterSidebarCloseRef.current) {
+                    event.preventDefault();
+                    openSearchAfterSidebarCloseRef.current = false;
+                    openContentCommandMenu(
+                      sidebarTriggerRef.current ?? undefined,
+                    );
+                    return;
+                  }
                   if (sidebarTriggerRef.current) {
                     event.preventDefault();
                     sidebarTriggerRef.current.focus();
@@ -263,6 +271,10 @@ export function Layout({ children }: LayoutProps) {
                   collapsed={false}
                   onToggleCollapsed={() => setMobileSidebarOpen(false)}
                   onNavigate={() => setMobileSidebarOpen(false)}
+                  onOpenSearch={() => {
+                    openSearchAfterSidebarCloseRef.current = true;
+                    setMobileSidebarOpen(false);
+                  }}
                 />
               </SheetContent>
             </Sheet>

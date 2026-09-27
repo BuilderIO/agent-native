@@ -78,11 +78,6 @@ export function runGetSelectedLayerSnapshots({
 
   const snapshots: SelectedCanvasLayerSnapshot[] = [];
   for (const file of files) {
-    // A hydrated localhost app has two snapshots: `/snapshot` is the source
-    // or SSR shell, while the runtime layer snapshot is the DOM the user can
-    // actually see and select. Layers already prefers that rendered tree, so
-    // Copy must resolve against the same id namespace or client-rendered
-    // React/Vue/Svelte nodes silently produce an empty clipboard.
     const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === file.id),
       fallbackSourceType: designSourceType,

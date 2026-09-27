@@ -3,7 +3,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -11,7 +11,6 @@ import {
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -74,9 +73,6 @@ export default defineAction({
         ([key, value]) => persisted[key] === value,
       );
 
-    // Transactional CAS merge: keep every sibling key in designs.data and
-    // retry against the newest revision if another editor/action writes while
-    // this request is in flight.
     const { data: persistedData } = await mutateDesignData({
       designId,
       mutate: (prevData, { updatedAt }) => {

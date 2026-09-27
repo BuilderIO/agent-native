@@ -16,3 +16,11 @@ L’organisation définit les membres de l’équipe et la limite du tenant. L�
 L’application déclare les rôles et les clés de permission dans le code. Un administrateur peut remplacer l’ensemble des rôles d’un membre et associer les permissions déclarées à des rôles depuis l’équipe. Sans remplacement, les valeurs par défaut de l’application s’appliquent. Les invitations peuvent inclure des rôles d’application. Le rôle admin d’une application ne donne pas de droits d’administration de l’organisation.
 
 Consultez [Déploiements administrés](/docs/administered-deployments) pour les invitations et la configuration. Consultez [Cloisonnement des données](/docs/security#data-scoping) pour l’accès aux données.
+
+## Groupes d’utilisateurs {#user-groups}
+
+Une organisation peut définir des groupes réutilisables composés de ses membres actuels. Les propriétaires et les administrateurs gèrent les adhésions, et une personne peut appartenir à plusieurs groupes. Les applications peuvent utiliser un groupe pour partager une ressource compatible avec le partage par groupe ou limiter l’accès à une connexion d’espace de travail.
+
+Un groupe est une liste d’accès, pas une équipe imbriquée. Il n’a pas de rôles d’organisation ou d’application propres, de périmètre de données séparé, ni de paramètres, consignes, contexte, compétences, mémoire ou vue de travail d’équipe spécifiques. Le partage d’une ressource avec un groupe accorde le même rôle sur cette ressource à chacun de ses membres actuels. L’accès exige toujours que la personne appartienne à l’organisation de la ressource.
+
+Voir [Partage et confidentialité → Partage avec des groupes](/docs/sharing#group-grants) et [Connexions d’espace de travail](/docs/workspace-connections).

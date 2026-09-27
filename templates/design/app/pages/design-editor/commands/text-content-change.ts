@@ -25,6 +25,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -62,9 +63,7 @@ export interface TextContentChangeArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  /** Decides whether this write is the creation's first commit BEFORE the
-   *  content is applied, and hands back a `confirm` the caller runs only once
-   *  that publication is accepted. */
+  canEditLiveScreen?: boolean;
   prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
@@ -77,7 +76,13 @@ export interface TextContentChangeArgs {
     selector: string,
     value: string,
     elementInfo?: ElementInfo,
-    details?: { html?: string; originalValue?: string; originalHtml?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+      routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    },
   ) => void;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -98,6 +103,7 @@ export function runTextContentChange(
     applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     getFreshActiveContent,
     liveScreenSnapshotsById,
     prepareTextCreationFinalization,
@@ -116,9 +122,11 @@ export function runTextContentChange(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ): TextCommitStatus {
-  if (!canEditDesign) return "refused";
+  if (!canEditDesign && !canEditLiveScreen) return "refused";
   if (!activeFile) return "refused";
   if (activeCanvasSourceType === "localhost") {
     recordPendingLiveTextEdit(
@@ -130,7 +138,6 @@ export function runTextContentChange(
     );
     setActiveTool("move");
     setMode("edit");
-    // Queued against the running app: accepted, just not via a source write.
     return "accepted";
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
@@ -141,12 +148,13 @@ export function runTextContentChange(
   const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === activeFile.id
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
-  // An x-text row shows a value from the collection, so its text has one home:
-  // the item. A markup edit changes nothing — the next render puts the data
-  // back. Read from the projection, not from the bridge payload, so this does
-  // not depend on which bridge build the iframe happens to be running.
   const repeatXFor = targetNode?.repeatXFor;
   const textBinding =
     typeof targetNode?.attributes["x-text"] === "string"
@@ -248,13 +256,6 @@ export function runTextContentChange(
         ),
       )
     : null;
-  // Figma names a freshly typed text layer after its own content. The
-  // primitive is drawn with an empty draft (primitiveLayerName's text case
-  // stamps the "Text" placeholder), so the real name is only knowable once
-  // this — the creation's first content commit — lands. Computed eagerly but
-  // only ever applied below when finalizePendingTextCreation confirms this
-  // commit really is that first commit, so editing an already-named text
-  // layer later never re-syncs its name to its content.
   const namedContent = nextNode
     ? (setCodeLayerAttributeInHtml(
         nextContent,
@@ -277,9 +278,6 @@ export function runTextContentChange(
     : nextContent;
   let publication: ApplyLocalContentUpdateResult | null = null;
   if (activeLiveSnapshot) {
-    // A snapshot that vanished, or an integrity check that rejected this edit,
-    // leaves the source unchanged — consuming the creation's pending history
-    // here would spend it on a write that never happened.
     if (
       !updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
         recordHistory: !finalizedCreation.historyHandled,
@@ -292,16 +290,9 @@ export function runTextContentChange(
       skipPreview: true,
       recordHistory: !finalizedCreation.historyHandled,
     });
-    // A refused publication never wrote this text. Finalizing before it landed
-    // consumed the creation's pending history and left the typed text nowhere:
-    // keep the record so the retry still coalesces into one undo step.
     if (publication.status !== "accepted") return "refused";
   }
   finalizedCreation.confirm();
-  // T8: committing text editing should return to the move tool (matches
-  // the creation path, which already does this), not re-arm the text
-  // tool — re-arming it meant every subsequent click anywhere on the
-  // canvas started ANOTHER new text box instead of selecting/moving.
   setActiveTool("move");
   setMode("edit");
   if (removedContent) {
@@ -342,6 +333,9 @@ export function runTextContentChange(
           selector: selectedNode
             ? preferredCodeLayerSelector(selectedNode)
             : selector,
+          sourceLayerIdentity: selectedNode
+            ? { screenId: activeFile.id, nodeId: selectedNode.id }
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }

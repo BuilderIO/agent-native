@@ -1,7 +1,5 @@
 name: Mobile Build Check
 
-# Compile the generated Android and iOS projects without signing or publishing.
-# Release credentials and the complete extension/provisioning path stay in EAS.
 on:
   pull_request:
     branches: [main]
@@ -13,10 +11,6 @@ on:
       - "packages/shared-app-config/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/mobile-build-check.yml"
-  # Actions caches are branch-scoped: a cache written on a PR merge ref is only
-  # visible to that PR, so PR-only runs never warm each other. Running on push
-  # to main writes caches on the default branch, which every PR can read. This
-  # is the trusted cache-warming path that keeps new PRs from starting cold.
   push:
     branches: [main]
     paths:
@@ -39,8 +33,6 @@ permissions:
 env:
   MOBILE_APP_PATH: packages/mobile-app
   CI: "1"
-  # PR builds do not exercise push entitlements or the separately provisioned
-  # widget, keyboard, broadcast, and watch targets. EAS release builds do.
   AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS: "1"
   AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH: "1"
 
@@ -65,10 +57,6 @@ jobs:
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo prebuild --platform android --no-install
 
-      # Persist the Gradle user home so dependencies and the build cache
-      # (org.gradle.caching is enabled by with-gradle-properties.ts) survive
-      # between runs instead of being downloaded and recompiled from scratch.
-      # Keyed after prebuild so the generated Gradle files feed the hash.
       - name: Cache Gradle home
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -91,25 +79,11 @@ jobs:
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo export --platform android --output-dir .expo-ci-export
 
-      # Every native module resolves `reactNativeArchitectures` as a project
-      # property and defaults to all four ABIs, so an unqualified build compiles
-      # armeabi-v7a/x86/x86_64/arm64-v8a of every .so and then merges, strips
-      # and packages all of them. `:app:packageDebug` is the disk peak of that
-      # sequence, and it is where this job intermittently died on both main and
-      # PR branches. One ABI still proves the Java/Kotlin, JS bundle, native
-      # compile and packaging path this gate exists to check; EAS release builds
-      # are unaffected because they do not run this workflow.
-      # `--stacktrace` because Gradle otherwise reports only "a failure occurred
-      # while executing ..." and discards the cause, which is what made the
-      # earlier failures undiagnosable.
       - name: Compile Android debug APK
         working-directory: ${{ env.MOBILE_APP_PATH }}/android
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a
 
   ios:
-    # Expo SDK 57.0.6 does not currently compile reliably with the Xcode 26.x
-    # toolchains available to hosted CI. Keep the bundle/config gate truthful
-    # until the app upgrades to a compatible Expo patch.
     name: iOS production bundle
     runs-on: ubuntu-latest
     timeout-minutes: 20

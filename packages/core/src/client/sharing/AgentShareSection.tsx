@@ -19,14 +19,15 @@ export interface AgentShareSectionProps {
   resourceId: string;
   enabled?: boolean;
   className?: string;
+  label?: string;
 }
 
-/** Optional shared handoff for resources with a registered agent context. */
 export function AgentShareSection({
   resourceType,
   resourceId,
   enabled = false,
   className,
+  label,
 }: AgentShareSectionProps) {
   const t = useT();
   const createAgentLink = useActionMutation<
@@ -78,9 +79,12 @@ export function AgentShareSection({
 
   return (
     <ShareAgentsSection
-      label={t("agentChat.share.shareWithAgents", {
-        defaultValue: "Share with agents",
-      })}
+      label={
+        label ??
+        t("agentChat.share.shareWithAgents", {
+          defaultValue: "Share with agents",
+        })
+      }
       open={open}
       onOpenChange={handleOpenChange}
       className={className}

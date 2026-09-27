@@ -182,13 +182,13 @@ export {
   type AssistantChatHandle,
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
-export {
-  isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryContext,
-  type AssistantChatHistoryMessage,
-  type AssistantChatHistoryScope,
-  type AssistantChatHistoryVersion,
+export { isAssistantChatHistoryVersion } from "../chat/assistant-chat-history-version.js";
+export type {
+  AssistantChatHistoryConfig,
+  AssistantChatHistoryContext,
+  AssistantChatHistoryMessage,
+  AssistantChatHistoryScope,
+  AssistantChatHistoryVersion,
 } from "../chat/message-components.js";
 export type {
   MultiTabAssistantChatProps,
@@ -212,6 +212,7 @@ export {
 } from "../agent-chat-adapter.js";
 export {
   GuidedQuestionFlow,
+  GuidedQuestionProviderGate,
   useGuidedQuestionFlow,
   askUserQuestion,
   formatGuidedAnswerValue,
@@ -252,15 +253,17 @@ export { AgentChatHome, type AgentChatHomeProps } from "../AgentChatHome.js";
 export {
   AgentChatSurface,
   AgentPanel,
+  type AgentChatSurfaceMode,
+  type AgentChatSurfaceProps,
+  type AgentPanelProps,
+} from "../AgentPanel.js";
+export {
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
   preloadAgentChatSurface,
-  type AgentChatSurfaceMode,
-  type AgentChatSurfaceProps,
-  type AgentPanelProps,
   type AgentSidebarProps,
-} from "../AgentPanel.js";
+} from "../AgentSidebar.js";
 export {
   AgentTabsPage,
   ConnectionsTab,

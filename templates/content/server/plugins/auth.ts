@@ -6,9 +6,6 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Content",
-    screenshotPath: "/auth-marketing/content.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/content",
     tagline:
       "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
@@ -22,6 +19,9 @@ export default createAuthPlugin({
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DOCUMENT_AGENT_CONTEXT_ENDPOINT,
+    // Sessionless self-dispatch; this exact worker owns scoped-token auth.
+    // Never expose the `_agent-native-background` namespace.
+    "/api/_agent-native-background/content-trash-purge-worker",
     "/api/pages/public",
     "/p",
     "/_agent-native/agent-chat",

@@ -17,10 +17,8 @@ interface ContextMenuProps {
 export const ContextMenu: Component<ContextMenuProps> = (props) => {
   let menuRef: HTMLDivElement | undefined = undefined;
 
-  // Close on click outside
   onMount(() => {
     const handleClick = (e: MouseEvent) => {
-      // Use composedPath to pierce Shadow DOM boundary
       if (menuRef && !e.composedPath().includes(menuRef)) {
         props.onClose();
       }
@@ -28,7 +26,6 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") props.onClose();
     };
-    // Delay to avoid closing immediately from the contextmenu event
     setTimeout(() => {
       document.addEventListener("click", handleClick, true);
       document.addEventListener("keydown", handleKeyDown, true);
@@ -40,7 +37,6 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
     });
   });
 
-  // Ensure menu stays within viewport
   const x = Math.min(props.position.x, window.innerWidth - 200);
   const y = Math.min(props.position.y, window.innerHeight - 250);
 

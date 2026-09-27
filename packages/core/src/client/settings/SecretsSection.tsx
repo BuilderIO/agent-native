@@ -1,9 +1,3 @@
-/**
- * <SecretsSection /> — renders the registered secrets from the framework
- * secrets registry. Configured keys stay compact; adding or editing one
- * progressively discloses its controls.
- */
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -29,6 +23,11 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
+import {
+  listRegisteredSecrets,
+  type SecretSource,
+  type SecretStatus,
+} from "../secrets.js";
 import { cn } from "../utils.js";
 import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
@@ -43,7 +42,8 @@ const Button = React.forwardRef<
     ref={ref}
     variant="ghost"
     className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
+      props.emphasis === "solid" ? null : "hover:text-inherit",
       className,
     )}
     {...props}
@@ -51,50 +51,16 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-/** Where a stored value's effective source is, as reported by the server. */
-type SecretSource = "personal" | "workspace" | "vault" | "env";
-
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
   workspace: "secrets.sourceWorkspace",
-  env: "secrets.sourceEnvironment",
 };
 
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-interface SecretStatus {
-  key: string;
-  label: string;
-  description?: string;
-  docsUrl?: string;
-  scope: "user" | "workspace" | "org";
-  kind: "api-key" | "oauth";
-  required: boolean;
-  /**
-   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
-   * could not be read.
-   */
-  status: "set" | "unset" | "invalid" | "unknown";
-  /** Where the effective value comes from — only present when status === "set". */
-  source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault,
-   * workspace, or env value is in use instead.
-   */
-  managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
-  overrides?: "vault" | "workspace";
-  last4?: string;
-  updatedAt?: number;
-  oauthProvider?: string;
-  oauthConnectUrl?: string;
-  error?: string;
-}
-
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -106,11 +72,11 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
-  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -126,25 +92,45 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = listRegisteredSecrets({
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Secrets request timed out after 15 seconds"));
+        controller?.abort();
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const retry = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
@@ -155,9 +141,15 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={retry}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {
@@ -188,8 +180,6 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
-  // Keys the Vault or the environment provide still count as "set", but until
-  // someone adds a key of their own the quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
     (secret) => secret.status === "set" && secret.managedHere !== false,
   );
@@ -277,8 +267,6 @@ function KeysEmptyState({
   onPick: (key: string) => void;
 }) {
   const t = useT();
-  // OAuth client pairs are app setup, not "your own account"; keep them
-  // behind New so the tiles stay the keys people actually paste.
   const tiles = availableSecrets
     .filter(
       (secret) =>
@@ -348,7 +336,6 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
-  /** Dispatch Vault page, when running inside a workspace. */
   vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -535,13 +522,8 @@ function SecretCard({
   ]);
 
   const isOAuth = secret.kind === "oauth";
-  // Vault/workspace-shadowed rows only show the value form once the user
-  // opts into a personal override; an env-shadowed row shows it directly
-  // since a saved row always wins over env.
   const showRotationForm =
-    (secret.status !== "set" && secret.status !== "unknown") ||
-    (isShadowedSet && secret.source === "env") ||
-    isRotating;
+    (secret.status !== "set" && secret.status !== "unknown") || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -667,9 +649,7 @@ function SecretCard({
                   <p className="text-[10px] text-muted-foreground">
                     {secret.source === "vault"
                       ? t("secrets.managedInVault")
-                      : secret.source === "workspace"
-                        ? t("secrets.setForWorkspace")
-                        : t("secrets.fromEnvironment")}
+                      : t("secrets.setForWorkspace")}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
@@ -697,7 +677,7 @@ function SecretCard({
                         <IconExternalLink size={10} />
                       </a>
                     )}
-                    {secret.source !== "env" && secret.scope === "user" && (
+                    {secret.scope === "user" && (
                       <Button
                         type="button"
                         intent="neutral"
@@ -843,8 +823,6 @@ function SecretCard({
     </div>
   );
 }
-
-// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
 
 interface AdHocKey {
   name: string;

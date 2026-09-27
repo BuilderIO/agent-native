@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Todas",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -27,6 +28,77 @@ const messages = {
     inbox: {
       syncing: "Sincronizando caixa de entrada…",
     },
+    sort: {
+      label: "Ordenar caixa de entrada",
+      newest: "Mais recentes",
+      priority: "Prioridade",
+      priorityFailed: "Não foi possível ordenar a caixa de entrada.",
+      priorityScoreHelp:
+        "Uma pontuação maior significa que o Jev considera a mensagem mais importante.",
+      priorityFeedbackSuggestion:
+        "Transforme esse padrão em uma regra de importância ou arquivamento automático.",
+      priorityFeedbackAskAgent: "Pedir ao agente que sugira regras",
+      aiSetupTitle: "Configure sua caixa de entrada com IA",
+      aiSetupTagLabel: "Criar uma etiqueta de IA",
+      aiSetupImportanceLabel: "Emails importantes",
+      aiSetupSpamLabel: "Spam",
+      aiSetupArchiveLabel: "Pular caixa de entrada",
+      aiSetupSave: "Salvar configuração",
+      aiSetupSkip: "Pular por enquanto",
+      aiSetupImportantHeadline: "O que é importante",
+      aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
+      aiSetupTagsHeadline: "Escolha suas abas",
+      aiSetupArchiveSpamHeadline: "Pular caixa de entrada e spam",
+      aiSetupTagReceipts: "Recibos",
+      aiSetupTagUpdates: "Atualizações de produto",
+      aiSetupTagGitHub: "Pessoas no GitHub",
+      aiSetupPromptReceipts:
+        "Recibos e confirmações de pedidos de lojas online",
+      aiSetupPromptUpdates:
+        "Atualizações de produto e notas de versão das ferramentas que uso",
+      aiSetupPromptGitHub: "Notificações do GitHub com comentários de pessoas",
+      aiSetupImportantPrompt:
+        "Mensagens que precisam de resposta ou têm prazo, incluindo comentários de pessoas no GitHub. Ignore comentários de bots.",
+      aiSetupArchiveSpamPrompt:
+        "Pular caixa de entrada: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
+      aiSetupCustomTag: "Personalizado",
+      aiSetupDone: "Concluir",
+      aiSetupRunAgain: "Executar configuração novamente",
+      aiSetupTagCalendar: "Calendário",
+      aiSetupPromptCalendar:
+        "Convites e atualizações de calendário de que preciso",
+      aiSetupTagTravel: "Viagens",
+      aiSetupPromptTravel: "Confirmações e reservas de viagem de que preciso",
+      aiSetupTagFinance: "Finanças",
+      aiSetupPromptFinance: "Contas e extratos de que preciso",
+      aiSetupArchiveExample:
+        "Notificações de bots e CI do GitHub, Vercel e Dependabot",
+      aiSetupFilteredExample:
+        "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
+      aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupSortingProgress:
+        "Organizando e-mails recentes: {{processed}} de {{total}}",
+      aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
+      aiSetupSortingFailed:
+        "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
+      aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",
+      aiSetupRuleCount: "{{count}} correspondências",
+      aiSetupNoMatches:
+        "Nenhuma mensagem dos últimos 14 dias corresponde a estas regras.",
+      aiSetupChatTip:
+        "Você pode ajustar ou adicionar regras pelo chat quando quiser.",
+      aiSetupChatPrompt: "Priorize e-mails do meu chefe…",
+      aiSetupNoRules: "Nenhuma regra foi selecionada.",
+      aiSetupPartialFailure: "Não foi possível atualizar {{count}} mensagens.",
+      aiSetupSortInbox: "Organizar minha caixa de entrada",
+      aiSetupImportantExample: "Tudo da minha gerente, Priya…",
+      priorityFeedbackLabel: "Feedback de importância",
+      priorityScoreHigh: "Alta importância",
+      priorityScoreMedium: "Média importância",
+      priorityScoreLow: "Baixa importância",
+      priorityEditRules: "Editar regras de importância",
+      aiSetupContinue: "Continuar",
+    },
     toolbar: {
       toggleMenu: "Alternar menu",
       menu: "Menu",
@@ -40,7 +112,7 @@ const messages = {
       unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
-      aiSettings: "Tags e spam com IA",
+      aiSettings: "Gerenciar tags e regras",
     },
     search: {
       label: "Buscar",
@@ -55,13 +127,16 @@ const messages = {
       filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {
+      splitInbox: "Caixa de entrada dividida",
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
       renameTab: "Renomear aba",
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
-      help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
+      allTab: "Aba Todas",
+      help: "A caixa combinada reúne todas as contas; desative-a para separar os e-mails em abas.",
+      aiSetup: "Configurar tags e regras de IA",
     },
     accounts: {
       remove: "Remover",
@@ -95,6 +170,7 @@ const messages = {
       deleteDraft: "Excluir rascunho",
       deleteDrafts: "Excluir rascunhos",
       reopenDraft: "Reabrir",
+      openInMail: "Abrir no Mail",
       discardDraft: "Descartar rascunho",
       enterLinkUrl: "Digite a URL do link.",
       forward: "Forward",
@@ -427,6 +503,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Não importante",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -487,6 +564,8 @@ const messages = {
         "Adiciona a etiqueta agent-native-filtered e arquiva a conversa. Você pode desfazer a qualquer momento.",
       learningNote:
         "Mantém a mensagem na Caixa de entrada e ensina o filtro a não repetir o erro.",
+      learningProgress:
+        "{{count}} de {{required}} exemplos confirmados. Os e-mails recentes serão verificados quando todos os {{required}} forem confirmados.",
       rememberLabel: "Lembrar para emails futuros (opcional)",
       correctLabel: "O que ele deve aprender? (opcional)",
       rememberPlaceholder:
@@ -502,9 +581,47 @@ const messages = {
       actionFailed: "Não foi possível atualizar o filtro de IA.",
       settingsFailed:
         "Não foi possível salvar as configurações do filtro de IA.",
+      automationRulesLoadFailed:
+        "Não foi possível carregar as regras de triagem.",
       instructionFailed: "Não foi possível salvar a instrução do filtro de IA.",
+      skipInboxMode: "Pular caixa de entrada",
       spamMode: "Spam",
       tagMode: "Tag",
+      aiTagsTitle: "Tags de IA",
+      ruleHelpLabel: "Explicar regras de {{mode}}",
+      aiTagRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona esta tag aos e-mails correspondentes.",
+      importantRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev marca como importantes os e-mails correspondentes.",
+      skipInboxRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev arquiva os e-mails correspondentes para que não apareçam na caixa de entrada.",
+      spamRuleHelp:
+        "Escreva uma instrução em linguagem natural. O Jev adiciona a etiqueta agent-native-filtered e arquiva os e-mails correspondentes. Isso não é o Spam do Gmail.",
+      filteredMode: "Filtrado",
+      manageSettings: "Gerenciar",
+      askJev: "Perguntar ao Jev",
+      askJevPrompt:
+        "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
+      composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
+      ruleBackfillProgress:
+        "Aplicando aos e-mails recentes: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensagens recentes correspondem",
+      ruleBackfillNoMatches:
+        "Nenhuma mensagem recente corresponde a esta regra.",
+      ruleBackfillFailed:
+        "Não foi possível aplicar esta regra aos e-mails recentes.",
+      ruleBackfillPartialFailure:
+        "Não foi possível atualizar {{count}} mensagens.",
+      ruleBackfillUndoing: "Restaurando e-mails recentes…",
+      ruleBackfillUndoComplete: "{{count}} mensagens restauradas",
+      ruleBackfillReview: "Revisar correspondências",
+      importantMode: "Importante",
+      notImportantMode: "Não importante",
+      importantLabel: "Importante por IA",
+      reviewImportant: "Ver importantes",
+      importantPlaceholder:
+        "ex.: mensagens que precisam de resposta ou têm prazo",
       ruleAdded: "Regra de IA adicionada.",
       instructionHelp: "Use linguagem natural",
       tagNamePlaceholder: "Nome da tag",
@@ -512,6 +629,8 @@ const messages = {
         "As correspondências recebem uma etiqueta e saem da Caixa de entrada.",
       spamPlaceholder: "ex.: mensagens claramente promocionais ou indesejadas",
       tagPlaceholder: "ex.: recibos e confirmações de pedidos de lojas online",
+      archivePlaceholder:
+        "ex.: notificações de bots do GitHub que não precisam da minha atenção",
       addShortcut: "Pressione ⌘ Enter para adicionar",
       previewTitle: "Prévia dos emails recentes",
       previewDescription:
@@ -520,6 +639,8 @@ const messages = {
       previewButton: "Executar prévia",
       previewRunning: "Verificando emails recentes da Caixa de entrada…",
       jevBadge: "Jev",
+      jevMatchProbability:
+        "Probabilidade de correspondência do Jev: {{percent}}%",
       feedbackLabel: "Marque as correspondências que não devem ser incluídas",
       notSpamShort: "Não é spam",
       notMatchShort: "Não corresponde",
@@ -533,6 +654,18 @@ const messages = {
         "Adicione uma regra de IA para visualizar emails recentes.",
       previewEmpty: "Execute uma prévia para ver possíveis correspondências.",
       previewFailed: "Não foi possível visualizar os emails recentes.",
+      promptRulesCleared: "Regras de triagem removidas.",
+      tagTabsHelp: "Cada tag se torna uma aba da caixa de entrada",
+      addTag: "Adicionar tag",
+      triageTitle: "Triagem com IA",
+      connectJev: "Conectar Jev",
+      connectJevToRunTriage: "Conecte o Jev para executar a triagem",
+      freeBuilderOrApiKey:
+        "Grátis com Builder.io ou adicione uma chave de API.",
+      jevAvailabilityFailed:
+        "Não foi possível verificar se o Jev está disponível.",
+      connectBuilder: "Conectar Builder.io",
+      addJevApiKey: "Adicionar chave de API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -723,7 +856,7 @@ const messages = {
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
-    aiFilter: "Filtro de IA",
+    aiFilter: "Triagem com IA",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",

@@ -27,10 +27,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key.replace("designEditor.breakpointBar.", ""),
 }));
 
-// Minimal catalog covering only the keys BreakpointDeviceControl reads — see
-// the same convention/rationale note in
-// inspector/BreakpointOverrideIndicator.test.tsx. Full catalog coverage
-// across all 11 locales is verified by `guard:i18n-catalogs`, not here.
 const CATALOG_MESSAGES = {
   designEditor: {
     breakpointBar: {
@@ -296,14 +292,11 @@ describe("BreakpointDeviceControl — item 8a device icons", () => {
         { id: "bp-810", label: "Tablet", widthPx: 810 },
       ],
     });
-    // Base segment uses IconViewportWide (icon-only, no width shown for it).
     expect(markup).toContain("tabler-icon-viewport-wide");
     const tabletIndex = markup.indexOf("tabler-icon-device-tablet");
     const mobileIndex = markup.indexOf("tabler-icon-device-mobile");
     expect(tabletIndex).toBeGreaterThan(-1);
     expect(mobileIndex).toBeGreaterThan(-1);
-    // Widest-first ordering: the 810 (tablet) segment's icon appears before
-    // the 390 (mobile) segment's icon in source order.
     expect(tabletIndex).toBeLessThan(mobileIndex);
   });
 
@@ -331,8 +324,6 @@ describe("BreakpointDeviceControl — Base segment and selection state", () => {
       breakpoints: [{ id: "bp-1", label: "Tablet", widthPx: 810 }],
       activeWidthPx: 810,
     });
-    // Two aria-pressed="true": none expected on Base (false) and one on the
-    // active breakpoint segment.
     const trueCount = (markup.match(/aria-pressed="true"/g) ?? []).length;
     expect(trueCount).toBe(1);
   });
@@ -378,8 +369,6 @@ describe("extraBreakpointWidthPresets", () => {
   const allFramerWidths = FRAMER_BREAKPOINT_PRESETS.map((p) => p.widthPx);
 
   it("still offers device widths once every Framer default is used", () => {
-    // The reported gap: with Desktop/Tablet/Phone added, the "+" popover fell
-    // back to a bare number input because the only preset source was empty.
     expect(availableBreakpointPresets(allFramerWidths)).toHaveLength(0);
     expect(extraBreakpointWidthPresets(allFramerWidths).length).toBeGreaterThan(
       0,

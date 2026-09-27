@@ -1,6 +1,3 @@
-// Interaction trace, on by default in dev. From the top-frame console:
-// `__DESIGN_TRACE = false` silences it; `__designTrace.dump()` prints the
-// whole story to copy; `.clear()` and `.only("drop")` narrow it.
 declare global {
   interface Window {
     __DESIGN_TRACE?: boolean;
@@ -74,7 +71,6 @@ function ensureControls(): void {
   };
 }
 
-/** Never let a circular ref or a DOM node break a gesture. */
 function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value, (_key, v) =>
@@ -103,7 +99,6 @@ export function trace(area: TraceArea, event: string, data?: unknown): void {
   } catch {}
 }
 
-/** Short, stable label for an element in a trace line. */
 export function traceEl(el: Element | null | undefined): string | null {
   if (!el) return null;
   const id = el.getAttribute?.("data-agent-native-node-id");
@@ -120,7 +115,6 @@ export function traceEl(el: Element | null | undefined): string | null {
     .join(" ");
 }
 
-/** Compact geometry for a trace line. */
 export function roundGeo(g: {
   x: number;
   y: number;

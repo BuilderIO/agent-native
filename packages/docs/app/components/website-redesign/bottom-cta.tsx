@@ -20,7 +20,7 @@ export function BottomCta() {
         </div>
 
         <StartCtas location="bottom_cta" />
-        <InstallCommand />
+        <InstallCommand location="bottom_cta" />
       </GridInner>
     </PageSection>
   );

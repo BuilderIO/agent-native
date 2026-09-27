@@ -14,6 +14,10 @@ export interface SlidesAgentContext {
   contextVersion: string;
 }
 
+export type SlidesAgentScopeLabel =
+  | { key: "agent.currentSelection" | "agent.thisSlide" }
+  | { key: "agent.slideNumber"; number: number };
+
 interface SlidesSelectionWindow extends Window {
   __slidesAgentSelection?: SlidesAgentSelection | null;
 }
@@ -26,10 +30,6 @@ function getSlidesWindow(): SlidesSelectionWindow | null {
     : (window as SlidesSelectionWindow);
 }
 
-/**
- * Keep the visible scope chip responsive without making the browser event the
- * source of truth for agent context. The app-state write remains canonical.
- */
 export function publishSlidesSelection(
   selection: SlidesAgentSelection | null,
 ): void {
@@ -63,7 +63,6 @@ function selectionItemKey(item: unknown, index: number): string {
   return `item-${index}`;
 }
 
-/** Build the small, stable target description sent with Slides chat prompts. */
 export function buildSlidesAgentContext(
   selection: SlidesAgentSelection | null,
   deckId: string,
@@ -112,4 +111,21 @@ export function hasCurrentSlideSelection(
     Array.isArray(selection.items) &&
     selection.items.length > 0
   );
+}
+
+export function getSlidesAgentScopeLabel(
+  selection: SlidesAgentSelection | null,
+  deckId: string,
+): SlidesAgentScopeLabel {
+  if (hasCurrentSlideSelection(selection, deckId)) {
+    return { key: "agent.currentSelection" };
+  }
+
+  const slideNumber =
+    selection?.deckId === deckId ? selection.slideNumber : undefined;
+  return typeof slideNumber === "number" &&
+    Number.isSafeInteger(slideNumber) &&
+    slideNumber >= 1
+    ? { key: "agent.slideNumber", number: slideNumber }
+    : { key: "agent.thisSlide" };
 }

@@ -12,6 +12,9 @@ import {
   getAmbientOrgId,
   hasRequestBoundary,
   markRequestBoundaryInstalled,
+  getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
+  markRequestIdentityAuthenticatedAtMs,
 } from "./request-context.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,11 +41,6 @@ describe("server/request-context", () => {
     });
 
     it("does NOT leak AGENT_USER_EMAIL into a request context that explicitly has no userEmail", () => {
-      // Reproduces the A2A unsigned/api-key path: the request context is set
-      // (so we're inside an HTTP request), but the caller is not user-
-      // authenticated. Returning the env var here would let a previous
-      // request's identity leak into the unauthenticated call on a warm
-      // serverless instance.
       vi.stubEnv("AGENT_USER_EMAIL", "leaked@previous-request.com");
       runWithRequestContext({}, () => {
         expect(getRequestUserEmail()).toBeUndefined();
@@ -74,6 +72,66 @@ describe("server/request-context", () => {
       runWithRequestContext({ userEmail: "alice@example.com" }, () => {
         expect(getRequestOrgId()).toBeUndefined();
       });
+    });
+  });
+
+  describe("request identity validation time", () => {
+    it("keeps the earliest time for a matching identity and never shares it", () => {
+      const event = { context: {} };
+      markRequestIdentityAuthenticatedAtMs(
+        event,
+        "Alice@Example.com",
+        1_000,
+        "alice-session",
+      );
+      markRequestIdentityAuthenticatedAtMs(event, "alice@example.com", 2_000);
+
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "ALICE@example.com"),
+      ).toBe(1_000);
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
+      ).toBe(undefined);
+      expect(getRequestIdentitySessionToken(event, "alice@example.com")).toBe(
+        "alice-session",
+      );
+
+      markRequestIdentityAuthenticatedAtMs(event, "bob@example.com", 3_000);
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "alice@example.com"),
+      ).toBe(undefined);
+      expect(getRequestIdentitySessionToken(event, "alice@example.com")).toBe(
+        undefined,
+      );
+      expect(
+        getRequestIdentityAuthenticatedAtMs(event, "bob@example.com"),
+      ).toBe(3_000);
+    });
+
+    it("inherits a source session token only for the same request identity", () => {
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          identitySessionToken: "alice-session",
+        },
+        () =>
+          runWithRequestContext({ userEmail: "ALICE@example.com" }, () => {
+            expect(getRequestContext()?.identitySessionToken).toBe(
+              "alice-session",
+            );
+          }),
+      );
+
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          identitySessionToken: "alice-session",
+        },
+        () =>
+          runWithRequestContext({ userEmail: "bob@example.com" }, () => {
+            expect(getRequestContext()?.identitySessionToken).toBeUndefined();
+          }),
+      );
     });
   });
 
@@ -197,8 +255,6 @@ describe("server/request-context", () => {
     });
   });
 
-  // Ordered last, and internally ordered no-boundary-then-boundary, because
-  // `markRequestBoundaryInstalled()` sets a process-wide flag with no reset.
   describe("ambient process identity", () => {
     it("answers the process identity even inside a request context", () => {
       vi.stubEnv("AGENT_USER_EMAIL", "deploy@example.com");
@@ -229,7 +285,6 @@ describe("server/request-context", () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain("ambient-warned@example.com");
 
-      // Deduped per identity so one misrouted handler can't flood the log.
       getRequestUserEmail();
       expect(warn).toHaveBeenCalledTimes(1);
       warn.mockRestore();

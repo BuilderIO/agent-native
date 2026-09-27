@@ -16,7 +16,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "navigation.noSpacesAdminCta":
         "Ask an organization admin to create the first space.",
       "createSpaceDialog.description":
-        "Spaces are shared places for your organization to organize recordings.",
+        "Organize recordings by project or team so everyone can find the work that matters.",
       "createSpaceDialog.newSpace": "Create space",
     };
     return messages[key] ?? key;
@@ -57,7 +57,7 @@ describe("SpacesIndexRoute empty state", () => {
     const markup = renderSpaces();
 
     expect(markup).toContain(
-      "Spaces are shared places for your organization to organize recordings. Ask an organization admin to create the first space.",
+      "Organize recordings by project or team so everyone can find the work that matters. Ask an organization admin to create the first space.",
     );
     expect(markup).not.toContain("Create space");
   });
@@ -69,7 +69,7 @@ describe("SpacesIndexRoute empty state", () => {
 
     expect(markup).toContain("Create space");
     expect(markup).toContain(
-      "Spaces are shared places for your organization to organize recordings.",
+      "Organize recordings by project or team so everyone can find the work that matters.",
     );
     expect(markup).not.toContain(
       "Ask an organization admin to create the first space.",

@@ -2,10 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ensureGoogleFontLinkInHtml } from "./code-layer-state";
+import {
+  ensureGoogleFontLinkInHtml,
+  ensureUploadedFontFaceInHtml,
+} from "./code-layer-state";
 
 describe("known font references in saved screen HTML", () => {
-  it("persists the pinned Lato Medium face once without loading custom names", () => {
+  it("persists known Google fonts once without loading custom names", () => {
     const html =
       "<!doctype html><html><head><title>Card</title></head><body><h1>Title</h1></body></html>";
     const once = ensureGoogleFontLinkInHtml(html, "'Lato', sans-serif");
@@ -40,5 +43,34 @@ describe("known font references in saved screen HTML", () => {
     expect(
       ensureGoogleFontLinkInHtml(html, '"Custom Display", sans-serif'),
     ).toBe(html);
+
+    const montserrat = ensureGoogleFontLinkInHtml(
+      html,
+      "'Montserrat', sans-serif",
+    );
+    expect(montserrat).toContain("family=Montserrat:ital,wght@0,100..900");
+  });
+
+  it("persists an uploaded face once with its weight and source URL", () => {
+    const html = "<!doctype html><html><head></head><body></body></html>";
+    const font = {
+      family: "Brand Sans",
+      url: "https://cdn.example.com/brand-sans.woff2",
+      weight: "400",
+      style: "normal" as const,
+      format: "woff2" as const,
+    };
+    const once = ensureUploadedFontFaceInHtml(html, font);
+    const twice = ensureUploadedFontFaceInHtml(once, font);
+    const parsed = new DOMParser().parseFromString(twice, "text/html");
+    expect(
+      parsed.querySelectorAll('style[data-agent-native-uploaded-font="true"]'),
+    ).toHaveLength(1);
+    expect(parsed.querySelector("style")?.textContent).toContain(
+      'font-family: "Brand Sans"',
+    );
+    expect(parsed.querySelector("style")?.textContent).toContain(
+      "brand-sans.woff2",
+    );
   });
 });

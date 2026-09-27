@@ -7,18 +7,6 @@ import type { MediaAlign } from "./media-shared";
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * Fixed-backdrop popup for `expandable` media. Mirrors core's
- * `DiagramLightbox` contract (Escape to close, click-the-backdrop to close,
- * top-right close button, body scroll locked while open) rather than
- * importing it, since that lives in `@agent-native/core`'s public blocks
- * surface and would need a changeset for what's a docs-site-only need.
- *
- * Unlike that reference, this one also manages focus: moves focus into the
- * dialog on open, traps Tab within it while open, and restores focus to
- * whatever triggered it (the expand button) on close, per the standard
- * WAI-ARIA dialog pattern.
- */
 function MediaLightbox({
   children,
   onClose,
@@ -91,18 +79,6 @@ function MediaLightbox({
   );
 }
 
-/**
- * Shared layout for the `image` and `video` blocks: full width, or a flex row
- * with the media on one side and markdown `text` as the paired content on the
- * other. `align="left"` puts the media on the left (text on the right);
- * `align="right"` mirrors it. Falls back to full width whenever there's no
- * paired text, since a side-by-side row needs both columns to make sense.
- *
- * `expandable` adds a hover-revealed top-right button that opens the same
- * media in a larger popup. Inside the popup, paired `text` always renders
- * stacked below the media instead of beside it, since the two-column layout
- * only makes sense at the inline aligned size.
- */
 export function MediaFrame({
   className,
   align,

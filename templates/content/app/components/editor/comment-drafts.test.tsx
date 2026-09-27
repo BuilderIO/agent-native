@@ -126,6 +126,24 @@ describe("comment drafts", () => {
     expect(currentDraft!.draft.text).toBe("A");
   });
 
+  it("clears a submitted draft immediately and restores it only when no newer draft exists", () => {
+    render({});
+    act(() => currentDraft!.setText("submitted reply"));
+    act(() => currentDraft!.beginSubmission("operation-a"));
+    expect(currentDraft!.draft.text).toBe("");
+
+    act(() => currentDraft!.restoreSubmittedDraft("operation-a"));
+    expect(currentDraft!.draft).toMatchObject({ text: "submitted reply" });
+    act(() => currentDraft!.finishSubmission("operation-a"));
+
+    act(() => currentDraft!.setText("another submitted reply"));
+    act(() => currentDraft!.beginSubmission("operation-b"));
+    act(() => currentDraft!.setText("newer typing"));
+    act(() => currentDraft!.restoreSubmittedDraft("operation-b"));
+    expect(currentDraft!.draft.text).toBe("newer typing");
+    act(() => currentDraft!.finishSubmission("operation-b"));
+  });
+
   it("retains the submitted mentions across remount and replaces them on resubmit", () => {
     render({});
     act(() => currentDraft!.setText("Hello @Reviewer"));

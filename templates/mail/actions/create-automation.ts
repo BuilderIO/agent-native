@@ -3,7 +3,10 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { createAutomationRule } from "../server/lib/automations.js";
+import {
+  assertMailJevEnabled,
+  createAutomationRule,
+} from "../server/lib/automations.js";
 import { automationActionSchema } from "../shared/automation-schema.js";
 
 export default defineAction({
@@ -24,6 +27,9 @@ export default defineAction({
     if (!ownerEmail) throw new Error("Unauthenticated");
     if (!args.name || !args.condition || !args.actions) {
       throw new Error("name, condition, and actions are required");
+    }
+    if ((args.domain ?? "mail") === "mail" && args.kind === "ai-filter") {
+      await assertMailJevEnabled(ownerEmail);
     }
     const result = await createAutomationRule(ownerEmail, args);
     track(

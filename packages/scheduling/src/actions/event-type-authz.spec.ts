@@ -1,10 +1,3 @@
-/**
- * Cross-tenant write (IDOR) regression tests for event-type-scoped actions
- * that mutate a resource owned by another tenant: revoking a private hashed
- * link and duplicating an event type. Mirrors the `assertAccess("event-type",
- * ..., <role>)` guard already used by `add-private-link.ts` /
- * `delete-event-type.ts`.
- */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,10 +157,6 @@ beforeEach(async () => {
   setSchedulingContext({
     getDb: () => db,
     schema,
-    // Mirrors real app wiring (templates/scheduling's server plugin): the
-    // scheduling package's own "current user" and the framework's
-    // request-context ALS (used by `assertAccess`) both resolve to the same
-    // identity.
     getCurrentUserEmail: () => getRequestUserEmail(),
   });
   registerShareableResource({

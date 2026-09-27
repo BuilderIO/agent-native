@@ -13,7 +13,11 @@ metadata:
 
 ## Rule
 
-The tracking system provides a single `track()` call that fans out to all registered providers. Built-in providers auto-register from env vars -- set the var and tracking starts. Custom providers can be registered for any analytics backend. Tracking is server-side only, best-effort, and never blocks request handling.
+The tracking system provides a single server-side `track()` call that fans out
+to all registered providers, plus the browser-side `trackEvent()` counterpart.
+Built-in providers auto-register from env vars - set the var and tracking
+starts. Custom providers can be registered for any analytics backend. Both
+surfaces are best-effort and never block request handling.
 
 ## How It Works
 
@@ -109,9 +113,20 @@ Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_A
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered
-backend — Sentry, PostHog, and the tracking providers — from one `captureError()`
-call. Backends are additive: configuring a second one does not displace the
-first, and no backend is required for the others to work.
+backend - Sentry, PostHog, and the tracking providers - from one
+`captureError()` call. Backends are additive: configuring a second one does not
+displace the first, and no backend is required for the others to work.
+
+When first-party Agent-Native Analytics is configured, browser
+`configureTracking()` captures uncaught errors, unhandled rejections, and
+manual `captureException()` calls as `$exception` events through `/track`.
+On the server, the core route plugin registers the tracking capture provider:
+`captureError()` calls `captureException()`, and the Agent-Native provider sends
+the same event when the server public key is configured. Analytics groups both
+into owner-scoped `error_issues` and `error_events`, shown in Monitoring ->
+Errors and exposed to authenticated agents through `list-error-issues` and
+`get-error-issue`. This remains available even when external Sentry is
+unavailable or rate-limited.
 
 Emit through `captureError()` / `captureException()`. Never hand-roll a
 `track("$exception", …)`: each backend needs its own payload shape and the
@@ -141,7 +156,8 @@ a bug to re-diagnose.
 
 ### Browser keys and the SSR shell
 
-Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN) ship inside the
+Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN, and the first-party
+Analytics public key) ship inside the
 CDN-cached SSR shell — publishable and identical for every visitor. Server keys
 never do, and are never a fallback for a public one: `POSTHOG_API_KEY` may be a
 private key and this value lands in public HTML.

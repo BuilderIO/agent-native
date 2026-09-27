@@ -1,10 +1,3 @@
-/**
- * Exact public origins configured for this deployment.
- *
- * OAuth redirect construction and Better Auth's browser-origin checks must use
- * the same set so an intentional host alias is accepted by both subsystems.
- */
-
 export const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
   "WORKSPACE_OAUTH_ORIGIN",
   "VITE_WORKSPACE_OAUTH_ORIGIN",
@@ -98,4 +91,24 @@ export function getConfiguredOriginAllowlist(): Set<string> {
     addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
   }
   return out;
+}
+
+export function requestForwardedOrigin(
+  request: Request | undefined,
+): string | undefined {
+  if (!request) return undefined;
+  const url = URL.canParse(request.url) ? new URL(request.url) : undefined;
+  const host =
+    firstHeaderValue(request.headers.get("x-forwarded-host")) ||
+    request.headers.get("host") ||
+    url?.host;
+  const scheme =
+    firstHeaderValue(request.headers.get("x-forwarded-proto")) ||
+    url?.protocol.replace(":", "");
+  if (!host || !scheme) return undefined;
+  return normalizeOrigin(`${scheme}://${host}`);
+}
+
+function firstHeaderValue(value: string | null): string | undefined {
+  return value?.split(",")[0]?.trim() || undefined;
 }

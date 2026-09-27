@@ -1,6 +1,25 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+  "composer.contextAttach": "첨부",
+  "composer.menu.search": "검색…",
+  "composer.contextPrevious": "이전",
+  "composer.contextNext": "다음",
+  "composer.contextLoadFailed": "컨텍스트를 불러올 수 없습니다.",
+  "composer.contextLinkRequired": "링크를 입력하세요.",
+  "composer.submitFailed": "제출하지 못했습니다. 다시 시도하세요.",
+  "composer.addContext": "컨텍스트 추가",
+  "composer.contextActionFailed": "컨텍스트를 추가하지 못했습니다.",
+  "composer.contextBack": "뒤로",
+  "composer.searchContext": "컨텍스트 검색…",
+  "composer.noContextResults": "일치하는 컨텍스트가 없습니다.",
+  "composer.contextPending": "컨텍스트 대기 중",
+  "composer.contextError": "컨텍스트 실패",
+  "composer.retryContext": "{{name}} 컨텍스트 다시 시도",
+  "composer.contextLimitExceeded":
+    "컨텍스트가 너무 큽니다. 항목을 제거하거나 더 작은 선택 항목을 첨부하세요.",
   "activity.reasoning": "추론",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
@@ -33,22 +52,34 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "observability.viewDetails": "세부 정보 보기",
+  "observability.hideDetails": "세부 정보 숨기기",
+  "observability.input": "입력",
+  "observability.output": "출력",
+  "observability.error": "오류",
+  "observability.metadata": "메타데이터",
+  "observability.notCaptured": "캡처되지 않음",
+  "observability.openFullConversation": "전체 대화 열기",
+  "observability.learnAboutTab": "이 탭 알아보기",
   "onboarding.back": "뒤로",
   "onboarding.chooseRole": "역할 선택",
   "onboarding.customizeRole": "맞춤 설정을 시작해 보세요.",
   "onboarding.roleQuestion": "현재 역할을 가장 잘 설명하는 것은 무엇인가요?",
-  "onboarding.roleProduct": "제품",
-  "onboarding.roleDesign": "디자인",
+  "onboarding.roleHelperText":
+    "이를 통해 사용자 경험을 맞춤화하는 데 도움이 됩니다",
+  "onboarding.roleProduct": "프로덕트 매니저",
+  "onboarding.roleDesign": "디자이너",
   "onboarding.roleDeveloper": "개발",
   "onboarding.roleMarketing": "마케팅",
   "onboarding.roleSales": "영업",
   "onboarding.roleOps": "운영",
   "onboarding.roleIndividual": "개인",
   "onboarding.roleOther": "기타",
+  "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderActivateCredits": "Builder.io 무료 크레딧 활성화",
-  "onboarding.builderConnectCredits": "Builder.io 무료 크레딧 연결",
+  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
+  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -59,9 +90,9 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
-  "onboarding.builderConsentPrefix": "계속하면 Builder.io의",
+  "onboarding.builderConsentPrefix": "Builder.io 계정을 만들면 당사의",
   "onboarding.builderTerms": "서비스 약관",
-  "onboarding.builderPrivacy": "개인정보처리방침",
+  "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
@@ -75,23 +106,22 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI 크레딧을 사용할 수 있습니다. 클라우드 코드 편집에는 Background Agent 설정의 Builder 프로젝트가 필요합니다.",
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
-  "onboarding.capability.llm.keySummary": "AI 제공업체 또는 로컬 모델 연결",
-  "onboarding.capability.fileStorage.keySummary":
-    "Builder 스토리지 또는 S3 호환 버킷",
-  "onboarding.fileStorage.title": "파일 저장소 선택",
+  "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
+  "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
+  "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
+  "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
-    "관리형 Builder 스토리지 또는 자체 S3 호환 버킷용 사용자 지정 스토리지 키를 선택하세요.",
-  "onboarding.fileStorage.custom": "사용자 지정 스토리지 키 사용",
+    "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
+  "onboarding.fileStorage.custom": "사용자 지정 키 사용",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
   "onboarding.capability.voiceInput.label": "음성 입력",
-  "onboarding.capability.voiceInput.keySummary":
-    "브라우저 음성 인식 또는 음성 텍스트 변환",
+  "onboarding.capability.voiceInput.keySummary": "음성 입력",
   "onboarding.capability.voiceInput.why":
     "음성 입력은 말한 요청을 텍스트로 바꿉니다. 입력은 언제나 사용할 수 있습니다.",
   "onboarding.capability.embeddings.label": "임베딩",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini, Cohere 또는 Voyage 키",
+  "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
@@ -130,6 +160,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "공유 키를 사용 중입니다.",
   "agentPanel.useOrganizationKey": "조직 키 사용",
   "agentPanel.keyStatusUnavailable": "키 상태를 확인할 수 없습니다.",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT 구독",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT 구독을 통한 실험적 Codex 액세스입니다.",
+  "agentPanel.chatgptSubscriptionInUse": "사용 중",
+  "agentPanel.chatgptSubscriptionConnected": "연결됨",
+  "agentPanel.chatgptSubscriptionConnecting": "연결 중…",
+  "agentPanel.chatgptSubscriptionReconnect": "다시 연결",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT 연결",
+  "agentPanel.chatgptSubscriptionUse": "채팅에서 사용",
+  "agentPanel.chatgptSubscriptionDisconnect": "연결 해제",
   "agentHostNudge.sidebarTitle": "{{agent}} 채팅 사용",
   "agentHostNudge.sidebarDescription":
     "이미 {{agent}}와 대화 중입니다. 이 앱에서 직접 작업하도록 요청하세요.",
@@ -151,6 +193,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "불러오는 중...",
   "common.no": "아니요",
   "common.retry": "다시 시도",
+  "common.chunkLoadFailed": "불러오지 못했습니다. 다시 시도해 주세요.",
   "common.save": "저장",
   "agents.hostedAgent": "호스팅된 에이전트",
   "agents.provider": "제공업체",
@@ -264,6 +307,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "만들려는 스킬을 설명하세요...",
   "composer.documentTooLarge":
     '"{{name}}"의 크기는 {{size}}MB입니다. 메시지 제한을 지키기 위해 {{label}}는 {{maxSize}}MB로 제한됩니다. 파일 크기를 줄이거나 더 작은 파일로 나누세요.',
+  "composer.requestTooLarge":
+    "이 메시지와 첨부 파일은 너무 커서 보낼 수 없습니다. 첨부 파일을 삭제하거나 메시지를 줄이세요.",
   "composer.file": "파일",
   "composer.imageModel": "이미지 모델",
   "composer.imagePreview": "이미지 미리보기",
@@ -467,7 +512,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AI 제공업체가 이 요청을 일시적으로 거부했습니다. 보통 1분 이내에 해결되니 다시 시도하세요.",
   "errorMessages.startNewChat": "새 채팅 시작",
-  "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
+  "errorMessages.addCreditsInBuilder": "Builder에서 크레딧 추가",
   "feedback.inaccurate": "부정확함",
   "feedback.keyboardHint": "보내려면 {{shortcut}} Enter",
   "feedback.notHelpful": "도움이 되지 않음",
@@ -529,11 +574,14 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "응답 다시 생성",
   "message.restoreFailed": "복원 실패({{status}}).",
   "message.restoreQuestion": "여기로 복원하시겠습니까?",
+  "message.revertQuestion":
+    "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
   "message.revertHere": "여기로 되돌리기",
+  "message.revertToBeginning": "처음으로 되돌리기",
   "message.sentAt": "{{time}}에 전송",
   "contextMeter.ariaLabel":
     "컨텍스트 {{percent}}%, 총 {{totalTokens}}{{breakdown}}. 컨텍스트 X-Ray를 엽니다.",
@@ -613,7 +661,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
   "recovery.credentialRejected":
-    "현재 Builder.io 또는 모델 제공업체 자격 증명이 거부되었습니다. Builder.io에 다시 연결한 후 이 메시지를 다시 시도하세요.",
+    "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents가 연결되지 않았습니다. 이 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 연결하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
   "recovery.diagnoseRetry": "진단 후 다시 시도",
   "recovery.forkDescription": "이 대화를 별도의 채팅 스레드로 분기합니다.",
   "recovery.forkFailed":
@@ -671,6 +721,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
+  "setup.checkingProvider": "AI 연결을 확인하는 중…",
+  "setup.providerStatusUnavailable": "AI 연결을 확인할 수 없습니다.",
+  "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
+  "agentNativeClips.meetingAsk.ariaLabel": "이 회의에 대해 무엇이든 물어보세요",
   "setup.connected": "연결됨",
   "setup.connectedOrganization": "연결됨 — {{organization}}",
   "setup.connectedTo": "{{organization}}에 연결됨",
@@ -719,6 +773,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "조직 내 모든 사용자가 볼 수 있음",
   "share.owner": "소유자",
   "share.peopleWithAccess": "접근 권한이 있는 사용자",
+  "share.people": "사람",
+  "share.agents": "에이전트",
   "share.private": "비공개",
   "share.privateDescription": "접근 권한이 있는 사용자만 볼 수 있음",
   "share.public": "공개",
@@ -800,6 +856,26 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "확인 메일을 보내지 못했습니다.",
   "settings.emailNewLabel": "새 이메일",
   "settings.emailNewPlaceholder": "새 이메일 입력",
+  "usage.builderCredits": "Builder 크레딧",
+  "usage.inviteFriends": "친구 초대",
+  "usage.inviteCredits":
+    "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
+  "usage.copyInviteLink": "초대 링크 복사",
+  "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
+  "usage.creditBalance": "워크스페이스 잔액",
+  "usage.monthlyPlan": "월간 플랜",
+  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
+  "usage.creditRemaining": "{{amount}} 남음",
+  "usage.creditUsageUnavailable":
+    "Builder 크레딧 사용량을 불러오지 못했습니다.",
+  "usage.estimatedBuilderCredits": "~{{amount}} 예상 크레딧",
+  "usage.otherUsdSpend": "{{amount}} 기타 USD",
+  "usage.noBuilderCredits": "Builder 크레딧 0",
+  "usage.otherUnclassifiedSpend": "기타 또는 분류되지 않은 USD 사용액",
+  "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
+  "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
 };
 
 export default messages;

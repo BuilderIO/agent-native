@@ -1,9 +1,11 @@
 import {
+  GuidedQuestionProviderGate,
   getOtherGuidedAnswerText,
   hasGuidedAnswer,
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
+  type AgentEngineConfiguredState,
   type GuidedQuestion,
   type GuidedQuestionOption,
 } from "@agent-native/core/client/agent-chat";
@@ -25,6 +27,9 @@ interface QuestionFlowProps {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
 }
 
 export function QuestionFlow({
@@ -35,17 +40,13 @@ export function QuestionFlow({
   description,
   skipLabel,
   submitLabel,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  onRetryProviderStatus,
 }: QuestionFlowProps) {
   const t = useT();
   const guidedQuestions = questions as GuidedQuestion[];
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
-  // Guards against a rapid double-click (or two events firing within the
-  // same React batch) triggering onSubmit/onSkip twice before the parent
-  // hook clears the persisted question payload and this component unmounts.
-  // Both handlers post a message to the agent chat, so firing twice would
-  // duplicate the turn. A ref is required (not just state) because the gate
-  // must be visible synchronously to a second click handled in the same
-  // task, before React has flushed the re-render that disables the button.
   const respondedRef = useRef(false);
   const [responded, setResponded] = useState(false);
   const questionsFingerprint = useMemo(
@@ -76,12 +77,22 @@ export function QuestionFlow({
   const requiredAnswered = requiredQuestions.filter(isAnswered).length;
   const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
 
+  if (isSubmissionBlocked) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-background px-5 py-8 sm:px-8 lg:px-10">
+        <div className="w-full max-w-xl">
+          <GuidedQuestionProviderGate
+            providerStatus={providerStatus}
+            onRetry={onRetryProviderStatus}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    /* `items-start` is what makes the trailing space real: stretched, this
-       column overflows its own padding box, so its `pb` renders above the
-       overflow and the scroll container's `py` bottom is dropped. */
     <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
-      <main className="w-full max-w-[820px] pb-16">
+      <main className="w-full min-w-0 max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
           <h2 className="text-[22px] font-semibold leading-7 tracking-normal text-foreground sm:text-2xl sm:leading-8">
             {title ?? t("questionFlow.defaultTitle")}
@@ -356,7 +367,9 @@ function OptionButton({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] font-semibold leading-4">
-          <span className="min-w-0 truncate">{option.label}</span>
+          <span className="min-w-0 break-words whitespace-normal">
+            {option.label}
+          </span>
           {option.recommended && (
             <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none text-muted-foreground">
               {t("questionFlow.recommended")}
@@ -461,7 +474,7 @@ function ColorOptions({
                 )}
                 style={{ backgroundColor: option.color || option.value }}
               />
-              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4">
+              <span className="min-w-0 flex-1 break-words whitespace-normal text-[12px] font-semibold leading-4">
                 {option.label}
               </span>
               {selected && <IconPalette className="size-3.5 shrink-0" />}
@@ -511,10 +524,6 @@ function SliderQuestion({
   const step = question.step ?? 1;
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
-
-  // Do not auto-fill on mount: a required slider must be explicitly moved by
-  // the user before it counts as answered. `current` already provides a
-  // display-only midpoint fallback for the rendered slider position.
 
   return (
     <div className="max-w-xl rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-3 py-3">

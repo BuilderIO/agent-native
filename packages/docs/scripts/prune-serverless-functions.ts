@@ -1,21 +1,3 @@
-/**
- * Drop translated docs markdown from the deployed serverless functions.
- *
- * `docs-content.ts` globs `core/docs/content/locales/<locale>/*.md{,x}` with
- * `query: "?raw"`, so Vite emits one lazy chunk per translated file — 1251 of
- * them, 19.2MB, roughly 40% of a 51MB docs function. Netlify's
- * `nodeBundler: "none"` + `includedFiles: ["**"]` ships every one, and the
- * function unzips all of it on each cold start.
- *
- * It can never serve them. Every localized docs page is prerendered to a static
- * file at build time, so the CDN answers those URLs from the publish directory
- * and the render function is never invoked for them. The globs stay: the chunk
- * KEYS still drive `localizedDocKey` and the locale-availability enumeration,
- * so hreflang and the locale switcher keep working with the target files gone.
- *
- * This runs after `agent-native build`, when the emitted functions are final.
- * It deletes nothing it cannot prove is prerendered — see `assertPrerendered`.
- */
 import {
   existsSync,
   readdirSync,
@@ -36,7 +18,6 @@ const FUNCTIONS_DIR = path.join(DOCS_ROOT, ".netlify", "functions-internal");
 const PUBLISH_DIR = path.join(DOCS_ROOT, "dist");
 const LOCALES_DIR = path.resolve(DOCS_ROOT, "../core/docs/content/locales");
 
-/** `"../../../core/docs/content/locales/ar-SA/x.mdx":()=>import(`./x-HASH.mjs`)` */
 const GLOB_ENTRY =
   /"([^"]*\/core\/docs\/content\/(?:locales\/[^/"]+\/)?[^"]+\.mdx?)"\s*:\s*\(\)\s*=>\s*import\(\s*[`"']\.\/([^`"']+)[`"']\s*\)/g;
 
@@ -45,12 +26,6 @@ type Attribution = {
   keysByChunk: Map<string, string[]>;
 };
 
-/**
- * Map each emitted chunk to the glob keys that reference it. A chunk is
- * locale-only when every key that reaches it lives under `locales/`. Reading
- * the emitted bundle rather than a manifest means this cannot drift from what
- * the build actually produced.
- */
 function attributeChunks(chunksDir: string): Attribution {
   const keysByChunk = new Map<string, string[]>();
   for (const name of readdirSync(chunksDir)) {
@@ -86,8 +61,6 @@ function localeFromKey(key: string): string | undefined {
 }
 
 function isDraft(key: string): boolean {
-  // A draft is excluded from prerender, so the function is still its only
-  // renderer. `docs-content` loads the chunk before it decides visibility.
   const absolute = path.resolve(
     LOCALES_DIR,
     "..",
@@ -98,27 +71,16 @@ function isDraft(key: string): boolean {
       readFileSync(absolute, "utf8"),
     );
   } catch {
-    // Unreadable source is not provably prerendered, so keep its chunk.
     return true;
   }
 }
 
-/**
- * Refuse to delete a chunk whose page is not actually prerendered. A missing
- * static page would turn a translated doc into a 500 the moment the function
- * tried to load a chunk this script removed, so an unproven page aborts the
- * build instead.
- */
 function assertPrerendered(keys: string[]): string[] {
   const missing: string[] = [];
   for (const key of keys) {
     const locale = localeFromKey(key);
     const slug = slugFromKey(key);
     if (!locale) continue;
-    // Prerendered pages land at the canonical route path, whose locale segment
-    // is lowercase (see `docsPathForSlug`). Looking them up under the cased
-    // locale from the source filename finds nothing, and this script would then
-    // report every translated doc as un-prerendered and refuse to prune at all.
     const localeDir = locale.toLowerCase();
     const candidates =
       slug === "getting-started"
@@ -144,10 +106,6 @@ function pruneFunction(functionDir: string): {
   const provenKeys: string[] = [];
   for (const chunk of localeOnly) {
     const keys = keysByChunk.get(chunk) ?? [];
-    // A redirect slug never renders its own page, and a draft is not
-    // prerendered; query-sensitive Getting Started also stays on SSR so its
-    // `?tab=cloud` variant has a renderer. Keep those chunks rather than
-    // gamble on a 301/404 or a missing query variant.
     if (
       keys.some((key) => {
         const slug = slugFromKey(key);
@@ -199,8 +157,6 @@ function main(): void {
   let bytes = 0;
   for (const entry of readdirSync(FUNCTIONS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    // Netlify zips each function separately, so a chunk must be deleted from
-    // every emitted copy to actually leave the upload.
     const result = pruneFunction(path.join(FUNCTIONS_DIR, entry.name));
     removed += result.removed;
     bytes += result.bytes;

@@ -1,16 +1,3 @@
-/**
- * Regression coverage for edit-design's conflict-retry path.
- *
- * writeInlineSourceFile throws SourceWorkspaceEditConflictError when a
- * concurrent writer's change lands between edit-design's live read and its
- * persist call. Before this fix, that error propagated straight to the
- * agent with no fresh content to retry against, forcing a separate
- * get-design-snapshot round trip that may or may not happen. For
- * search-replace mode, edit-design now re-reads the live file and reapplies
- * the same edits automatically; replace-file mode still fails closed on the
- * first conflict since a full-document replacement computed from a stale
- * snapshot can't be safely retried blind.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -175,9 +162,6 @@ describe("edit-design conflict retry", () => {
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);
-    // The retried write must be computed from the SECOND (fresh) read, not
-    // the original stale one — proving it isn't just blindly resubmitting
-    // the same doomed content.
     expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
       "<main>Hi base, plus a concurrent change</main>",
     );

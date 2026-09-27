@@ -1,7 +1,39 @@
 import type { ReactElement, ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { CommandDialog } from "./command.js";
+import {
+  Command,
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  MenuSearchInput,
+} from "./command.js";
+
+describe("integrated search semantics", () => {
+  it("uses a real searchbox for menus without dangling listbox relationships", () => {
+    const html = renderToStaticMarkup(
+      <MenuSearchInput aria-label="Search sources" />,
+    );
+    expect(html).toContain('role="searchbox"');
+    expect(html).not.toContain('role="combobox"');
+    expect(html).not.toContain("aria-controls");
+    expect(html).toContain("border-b");
+  });
+  it("preserves the existing CommandInput combobox and associated CommandList", () => {
+    const html = renderToStaticMarkup(
+      <Command>
+        <CommandInput />
+        <CommandList />
+      </Command>,
+    );
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('role="listbox"');
+    const controls = /aria-controls="([^"]+)"/.exec(html)?.[1];
+    expect(controls).toBeDefined();
+    expect(html).toContain(`id="${controls}"`);
+  });
+});
 
 interface CommandDialogElement extends ReactElement {
   props: {

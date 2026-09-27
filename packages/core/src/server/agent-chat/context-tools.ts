@@ -8,18 +8,6 @@ import {
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
 
-// ---------------------------------------------------------------------------
-// Framework-owned "context" action entries: get-framework-context,
-// refresh-screen, the URL/ask-question tools, and the native data-widget
-// renderer. These are generic, template-agnostic tools registered into every
-// app's tool surface.
-// ---------------------------------------------------------------------------
-
-/**
- * Verbose framework sections returned by the `get-framework-context` tool.
- * Keyed by topic so the agent can request specific sections.
- * Not template-specific — lives outside buildFrameworkPrompts().
- */
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
 
@@ -245,26 +233,10 @@ export function createFrameworkContextEntry(): Record<string, ActionEntry> {
   };
 }
 
-/**
- * Creates the `refresh-screen` tool. Writes a bump to `application_state`
- * under a well-known key; the client's `useDbSync` watches for this and
- * invalidates react-query caches so the on-screen UI re-fetches its data
- * without a full page reload.
- *
- * This is the standard way for the agent to say "the data on the screen
- * just changed, please refresh it" — e.g. after editing a dashboard config,
- * updating a form schema, or mutating a row that the current view renders.
- */
 export function createRefreshScreenEntry(): Record<string, ActionEntry> {
   return {
     "refresh-screen": {
-      // Writes __screen_refresh__ to application_state, which emits its own
-      // distinct `screen-refresh` poll event. Don't double-emit a generic
-      // `action` event on top of that.
       readOnly: true,
-      // Refetching volatile on-screen state is the entire point of this
-      // tool — an identical repeat call (even with the same scope) is a
-      // legitimate re-refresh, not a redundant read to skip.
       dedupe: false,
       tool: {
         description:
@@ -295,7 +267,6 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
   };
 }
 
-/** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -308,21 +279,9 @@ export function appStateKeyForBrowserTab(
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
 }
 
-/**
- * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
- * URL command to application_state; the client's URLSync component applies
- * it via react-router (no full page reload) and then deletes the command.
- *
- * This is how the agent edits URL state — filter query params, route
- * changes, hash — without needing a per-template navigate action. The
- * current URL is visible to the agent via the auto-injected `<current-url>`
- * block, which includes parsed search params.
- */
 export function createUrlTools(): Record<string, ActionEntry> {
   return {
     "set-search-params": {
-      // Writes __set_url__ to application_state, which the app-state watcher
-      // already surfaces as a poll event. No need to double-emit.
       readOnly: true,
       tool: {
         description:
@@ -374,8 +333,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
     },
     "set-url-path": {
-      // Same as set-search-params — writes application_state, already emits
-      // via the app-state watcher.
       readOnly: true,
       tool: {
         description:
@@ -433,9 +390,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
     },
     "ask-question": {
-      // The turn is over once the question is on screen. Without this the loop
-      // asks the model for another step, and it keeps working (and re-asking)
-      // over an unanswered question no matter what the tool result says.
       endsTurn: true,
       tool: {
         description:
@@ -475,9 +429,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
-        // These must throw, not return an error string: `endsTurn` yields the
-        // turn on any non-error result, so a returned string would leave the
-        // run waiting on a question card that was never written.
         const question = String(args?.question ?? "").trim();
         if (!question) throw new Error("'question' is required.");
         const header = String(args?.header ?? "").trim();
@@ -536,18 +487,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
           );
         }
 
-        // Shape must match the GuidedQuestionFlow renderer in
-        // client/guided-questions.tsx: a `text-options` question whose options
-        // carry `value`, with `multiSelect` for multi-pick and `allowOther` for
-        // free text. The renderer otherwise injects "Explore"/"Decide" options,
-        // which would be noise for a focused clarifying question, so disable them.
-        // The application-state key is scoped per browser tab, not per chat, so
-        // the payload has to name the thread that asked. The client hides a
-        // pending question in every other conversation instead of following the
-        // user from chat to chat.
-        // A request that carried no thread id falls back to the run id (see
-        // `onRunStart`), and a per-run value would never match the chat the user
-        // is looking at. Leave those surfaces unbound — they have one chat.
         const askingRunCtx = getRequestRunContext();
         const askingThreadId =
           askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
@@ -580,8 +519,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
           ),
           payload,
         );
-        // The `startsWith` of this text is how integration surfaces recognize a
-        // delivered question (see `extractSlackInputRequest`). Keep the prefix.
         return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
       },
     },

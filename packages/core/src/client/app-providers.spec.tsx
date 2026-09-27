@@ -3,6 +3,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
@@ -124,10 +125,6 @@ function setupWebMcpManifest() {
     configurable: true,
     value: modelContext,
   });
-  // A fresh Response per call: a Response body can only be read once, and
-  // more than one surface (RuntimeConfigNotice, the deferred WebMCP
-  // registration) consumes this mock after the WebMCP start is deferred
-  // past first paint.
   const fetchMock = vi.fn(
     async () =>
       new Response(
@@ -148,9 +145,6 @@ function setupWebMcpManifest() {
   return { fetchMock, modelContext };
 }
 
-// `RequireSession` branches on `useSession().status`, not just `isLoading` —
-// every mock here must supply a status or the gate can neither redirect nor
-// hold the fallback consistently with the real hook.
 const SIGNED_OUT_SESSION = {
   session: null,
   isLoading: false,
@@ -221,9 +215,27 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('script[data-agent-native-beta-redirect="1"]'),
     ).toBeNull();
-    // WebMCP registration reads the session to skip signed-out visitors, but
-    // no gate here redirects and no RequireSession fallback holds content.
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("emits the session bootstrap on private SSR paths only", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const privateMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false}>
+        <div>content</div>
+      </AppProviders>,
+    );
+    const publicMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+        <div>content</div>
+      </AppProviders>,
+    );
+
+    expect(privateMarkup).toContain('data-agent-native-session-bootstrap="1"');
+    expect(privateMarkup).toContain("AbortController");
+    expect(privateMarkup).toContain("abort()");
+    expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
   });
 
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
@@ -245,8 +257,6 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
-    // The non-persisting runtime never mounts the session hook, and with
-    // WebMCP disabled nothing else resolves the session on a public path.
     expect(useSessionMock).not.toHaveBeenCalled();
   });
 
@@ -277,8 +287,6 @@ describe("AppProviders session gate", () => {
     renderProviders({ isPublicPath: true });
 
     await vi.waitFor(() => {
-      // The registration resolves the shared session first, so a signed-out
-      // visitor never logs the manifest 401.
       expect(useSessionMock).toHaveBeenCalled();
     });
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -319,9 +327,6 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ isPublicPath: true });
 
-    // Wait past the paint-aligned window: the manifest route needs a
-    // session, so an unreadable session waits instead of firing a request
-    // that can only fail.
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -416,10 +421,12 @@ describe("AppProviders session gate", () => {
     // Bypass surfaces register immediately: a token-authenticated MCP embed's
     // host may call tools right away, so the manifest fetch must not wait out
     // the paint-aligned window (only the session-gated variant defers).
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/_agent-native/webmcp/manifest",
-      expect.objectContaining({ credentials: "same-origin" }),
-    );
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/webmcp/manifest",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+    });
 
     await vi.waitFor(() => {
       expect(modelContext.registerTool).toHaveBeenCalledWith(

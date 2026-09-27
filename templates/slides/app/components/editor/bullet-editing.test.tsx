@@ -57,8 +57,6 @@ describe("styled bullet editing", () => {
   });
 
   it("resolves a native list item to its UL or OL", () => {
-    // Editing the LI in isolation traps Enter inside that one item, so the
-    // list itself has to become the edit host.
     const root = document.createElement("div");
     root.innerHTML = "<ul><li>One</li><li>Two</li></ul><ol><li>First</li></ol>";
     document.body.append(root);
@@ -360,13 +358,6 @@ describe("styled bullet editing", () => {
   });
 
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
-    // Regression test: Range.extractContents() on a collapsed range (caret at
-    // the very end of the text, the common case) still clones the boundary
-    // text node with empty data instead of returning a childless fragment.
-    // If that empty node is mistaken for a real "tail" to move over, the new
-    // row's text span ends up with a contentless text node instead of the
-    // zero-width-space placeholder, and the caret has nothing to anchor its
-    // font to.
     const { list } = setup();
     const thirdText = list.children[2].children[1] as HTMLElement;
     const textNode = thirdText.firstChild as Text;
@@ -482,6 +473,39 @@ describe("styled bullet editing", () => {
       "</div></div>";
     const list = document.querySelector(".bullets") as HTMLElement;
     expect(isBulletList(list)).toBe(true);
+  });
+
+  it("resolves the enclosing list for realistic agent-generated bullet HTML", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="fmd-slide"><div style="border-top:2px solid var(--deck-accent);padding-top:12px;display:flex;flex-direction:column;gap:10px;">' +
+      '<div style="font-size:12px;color:var(--deck-accent);">AE</div>' +
+      '<div style="display:flex;gap:10px;align-items:baseline;"><span style="color:var(--deck-accent);">\u2022</span><span style="font-size:15px;">Inbound Code + Content</span></div>' +
+      '<div style="display:flex;gap:10px;align-items:baseline;"><span style="color:var(--deck-accent);">\u2022</span><span style="font-size:15px;">Expansion is the bigger half</span></div>' +
+      '<div style="display:flex;gap:10px;padding-left:24px;"><span>\u2014</span><span style="color:#9aa3ad;font-size:13px">~75% of H2 numbers</span></div>' +
+      "</div></div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(
+      "div[style*='flex-direction']",
+    ) as HTMLElement;
+    expect(isBulletList(list)).toBe(true);
+
+    const firstRowText = list.children[1].children[1] as HTMLElement;
+    expect(findEnclosingList(firstRowText, root)).toBe(list);
+    const subBulletText = list.children[3].children[1] as HTMLElement;
+    expect(findEnclosingList(subBulletText, root)).toBe(list);
+  });
+
+  it("recognizes an empty CSS-shape marker as a bullet row", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="width:8px;height:8px;border-radius:50%;background:#000;"></span><span>First point</span></div>' +
+      '<div><span style="width:8px;height:8px;border-radius:50%;background:#000;"></span><span>Second point</span></div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = document.querySelector(".bullets") as HTMLElement;
+    expect(isBulletList(list)).toBe(true);
+    const secondText = list.children[1].children[1] as HTMLElement;
+    expect(findEnclosingList(secondText, root)).toBe(list);
   });
 });
 

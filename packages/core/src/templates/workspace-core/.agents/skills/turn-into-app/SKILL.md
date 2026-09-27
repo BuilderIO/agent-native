@@ -387,13 +387,9 @@ plain `pnpm dev` has the right first-run behavior without extra flags:
 }
 ```
 
-`connect` keeps the Connect Builder / Add your own keys choice visible and
-skips only the generic “This app is an agent.” integrations catalog. The
-production value includes that catalog for a hosted app. Do not replace this
-with a local credential form or remove the shared onboarding. In development,
-the shared Connect Builder card also explains the deployment-level
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` fallback and links to the full
-environment-variable guide.
+Either value keeps the shared Connect Builder / Add your own keys choice
+visible; only `"off"` disables first-run onboarding entirely. Do not replace
+this with a local credential form or remove the shared onboarding.
 
 When the onboarding default needs code rather than a static mode map, add an
 optional `agent-native.config.ts` with the same returned shape:

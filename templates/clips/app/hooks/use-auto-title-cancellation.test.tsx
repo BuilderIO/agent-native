@@ -47,11 +47,14 @@ vi.mock("./use-library", () => ({
   }),
 }));
 
+import { aiRequestTabId } from "@shared/ai-request-status";
+
 import { useAutoTitleBridge } from "./use-auto-title";
 
 const requestedAt = "2026-07-14T12:00:00.000Z";
+const requestId = "workflow-request-123";
 const workflowTabId =
-  "clips-workflow:rec_123:2026-07-14T12%3A00%3A00.000Z:chat-123";
+  "clips-workflow:rec_123:2026-07-14T12%3A00%3A00.000Z:workflow-request-123:chat-123";
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
@@ -71,6 +74,7 @@ beforeEach(async () => {
               kind: "generate-workflow",
               recordingId: "rec_123",
               requestedAt,
+              requestId,
               message: "Generate an email summary",
             },
           ],
@@ -110,6 +114,7 @@ beforeEach(async () => {
       operation: "track",
       recordingId: "rec_123",
       requestedAt,
+      requestId,
       tabId: workflowTabId,
     },
   );
@@ -120,6 +125,7 @@ beforeEach(async () => {
         operation: "mark-delivered",
         recordingId: "rec_123",
         requestedAt,
+        requestId,
         tabId: workflowTabId,
       },
     ),
@@ -131,6 +137,7 @@ beforeEach(async () => {
         operation: "consume",
         recordingId: "rec_123",
         requestedAt,
+        requestId,
         tabId: workflowTabId,
       },
     ),
@@ -155,6 +162,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 message: "Generate an email summary",
               },
             ],
@@ -217,6 +225,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 message: "Generate an email summary",
               },
             ],
@@ -252,6 +261,7 @@ describe("workflow generation cancellation", () => {
                 kind: "generate-workflow",
                 recordingId: "rec_123",
                 requestedAt,
+                requestId,
                 deliveredTabId: workflowTabId,
                 message: "Generate an email summary",
               },
@@ -273,6 +283,7 @@ describe("workflow generation cancellation", () => {
           operation: "consume",
           recordingId: "rec_123",
           requestedAt,
+          requestId,
           tabId: workflowTabId,
         },
       ),
@@ -334,6 +345,16 @@ describe("workflow generation cancellation", () => {
         ).toHaveLength(2),
       { timeout: 2500 },
     );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      {
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId,
+        tabId: workflowTabId,
+      },
+    );
 
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
@@ -351,6 +372,145 @@ describe("workflow generation cancellation", () => {
           ([, payload]) => payload?.operation === "stop",
         ),
       ).toHaveLength(3),
+    );
+  });
+
+  it("marks a stopped queued AI request cancelled on its exact chat tab", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockClear();
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") {
+        return {
+          requests: [
+            {
+              kind: "regenerate-chapters",
+              recordingId: "rec_123",
+              requestedAt,
+              message: "Generate chapters",
+            },
+          ],
+        };
+      }
+      return { cancelled: true };
+    });
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+    );
+    const tabId = aiRequestTabId("rec_123", "regenerate-chapters", requestedAt);
+    expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId }),
+      { timeoutMs: 10_000 },
+    );
+
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning: false, reason: "stopped", tabId },
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "update-ai-request-status",
+        {
+          recordingId: "rec_123",
+          kind: "regenerate-chapters",
+          requestedAt,
+          status: "cancelled",
+        },
+      ),
+    );
+  });
+
+  it("marks a failed queued AI request failed on its exact chat tab", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockClear();
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") {
+        return {
+          requests: [
+            {
+              kind: "regenerate-chapters",
+              recordingId: "rec_123",
+              requestedAt,
+              message: "Generate chapters",
+            },
+          ],
+        };
+      }
+      return { status: "failed" };
+    });
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+    );
+    const tabId = aiRequestTabId("rec_123", "regenerate-chapters", requestedAt);
+    expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId }),
+      { timeoutMs: 10_000 },
+    );
+
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning: false, reason: "failed", tabId },
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "update-ai-request-status",
+        {
+          recordingId: "rec_123",
+          kind: "regenerate-chapters",
+          requestedAt,
+          status: "failed",
+        },
+      ),
+    );
+  });
+
+  it("does not mark a completed queued AI request failed without a reason", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockClear();
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") {
+        return {
+          requests: [
+            {
+              kind: "regenerate-chapters",
+              recordingId: "rec_123",
+              requestedAt,
+              message: "Generate chapters",
+            },
+          ],
+        };
+      }
+      return { status: "completed" };
+    });
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+    );
+    const tabId = aiRequestTabId("rec_123", "regenerate-chapters", requestedAt);
+
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: { isRunning: false, tabId },
+      }),
+    );
+
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "update-ai-request-status",
+      expect.anything(),
     );
   });
 });

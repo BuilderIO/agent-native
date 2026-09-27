@@ -1,12 +1,3 @@
-/**
- * `useOnboardingPreviewMode` — toggle that the dev overlay flips to preview the
- * new-user onboarding flow without touching real setup state.
- *
- * Storage key matches the dev-overlay option id `framework-onboarding/show-as-new-user`
- * so toggling the option in the overlay automatically activates preview mode here.
- * The `?onboarding=preview` query also enables it for an existing account.
- */
-
 import { useEffect, useState } from "react";
 
 export const ONBOARDING_PREVIEW_STORAGE_KEY =
@@ -16,13 +7,9 @@ export const ONBOARDING_PREVIEW_QUERY_VALUE = "preview";
 export const ONBOARDING_PREVIEW_STEP_QUERY_PARAM = "step";
 
 export const ONBOARDING_PREVIEW_STEPS = [
-  "intro",
-  "choice",
-  "manual",
-  "tools",
   "role",
+  "choice",
   "connecting",
-  "ready",
   "extension",
   "references",
 ] as const;

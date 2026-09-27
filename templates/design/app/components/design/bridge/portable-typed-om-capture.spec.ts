@@ -303,41 +303,18 @@ describe("portable style Typed OM capture from bridge source", () => {
 
   it.each([
     [
-      "missing API",
+      "root",
       (el: Element) =>
         Object.defineProperty(el, "computedStyleMap", { value: undefined }),
-      "root",
     ],
     [
-      "missing descendant API",
-      (el: Element) =>
-        Object.defineProperty(el, "computedStyleMap", { value: undefined }),
       "descendant",
-    ],
-    [
-      "throwing API",
       (el: Element) =>
-        Object.defineProperty(el, "computedStyleMap", {
-          value: () => {
-            throw new Error("blocked");
-          },
-        }),
-      "root",
-    ],
-    [
-      "missing value",
-      (el: Element) =>
-        Object.defineProperty(el, "computedStyleMap", {
-          value: () => ({
-            get: (property: string) =>
-              property === "width" ? null : { toString: () => "auto" },
-          }),
-        }),
-      "root",
+        Object.defineProperty(el, "computedStyleMap", { value: undefined }),
     ],
   ])(
-    "refuses the whole snapshot when Typed OM has %s",
-    async (_name, patchElement, patchTarget) => {
+    "continues the style snapshot when Typed OM is unavailable on the %s",
+    async (patchTarget, patchElement) => {
       const result = await page.evaluate(
         ({
           captureSource,
@@ -370,16 +347,90 @@ describe("portable style Typed OM capture from bridge source", () => {
             .querySelector("#important-beats-inline")!
             .cloneNode(true) as Element;
           target.id = `failure-${Math.random()}`;
-          target.appendChild(document.createElement("span"));
+          (target as HTMLElement).style.color = "rgb(1, 2, 3)";
+          const child = document.createElement("span");
+          child.style.cssText =
+            "width: 77px; height: 31px; color: rgb(4, 5, 6)";
+          target.appendChild(child);
           document.body.appendChild(target);
           const patched =
             patchTarget === "descendant" ? target.firstElementChild! : target;
           new Function("el", `(${patchElement})(el);`)(patched);
           const snapshot = capture(target);
+          const inlineWidth = (target as HTMLElement).style.width;
+          target.remove();
+          return { snapshot, inlineWidth };
+        },
+        { captureSource, patchElement: patchElement.toString(), patchTarget },
+      );
+      expect(result.snapshot?.nodes).toHaveLength(2);
+      expect(result.snapshot?.nodes[0]?.styles.color).toBe("rgb(1, 2, 3)");
+      expect(result.snapshot?.nodes[1]?.styles.color).toBe("rgb(4, 5, 6)");
+      expect(result.inlineWidth).toBe("auto");
+      expect(result.snapshot?.nodes[0]?.styles.width).toBe(
+        patchTarget === "root" ? undefined : "320px",
+      );
+    },
+  );
+
+  it.each([
+    [
+      "throwing API",
+      (el: Element) =>
+        Object.defineProperty(el, "computedStyleMap", {
+          value: () => {
+            throw new Error("blocked");
+          },
+        }),
+    ],
+    [
+      "missing value",
+      (el: Element) =>
+        Object.defineProperty(el, "computedStyleMap", {
+          value: () => ({
+            get: (property: string) =>
+              property === "width" ? null : { toString: () => "auto" },
+          }),
+        }),
+    ],
+  ])(
+    "refuses the snapshot when Typed OM has %s",
+    async (_name, patchElement) => {
+      const result = await page.evaluate(
+        ({
+          captureSource,
+          patchElement,
+        }: {
+          captureSource: string;
+          patchElement: string;
+        }) => {
+          const capture = new Function(
+            "window",
+            "document",
+            "dndLog",
+            "getSourceId",
+            "getSelector",
+            "isDocumentRootElement",
+            `${captureSource}\nreturn collectPortableStyleSnapshot;`,
+          )(
+            window,
+            document,
+            () => undefined,
+            (el: Element) => el.id || undefined,
+            (el: Element) => el.tagName.toLowerCase(),
+            () => false,
+          );
+          const target = document
+            .querySelector("#important-beats-inline")!
+            .cloneNode(true) as Element;
+          target.id = `failure-${Math.random()}`;
+          document.body.appendChild(target);
+          new Function("el", `(${patchElement})(el);`)(target);
+          const snapshot = capture(target);
           target.remove();
           return snapshot;
         },
-        { captureSource, patchElement: patchElement.toString(), patchTarget },
+        { captureSource, patchElement: patchElement.toString() },
       );
       expect(result).toBeNull();
     },

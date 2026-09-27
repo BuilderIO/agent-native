@@ -35,6 +35,9 @@ export function LibraryPrimaryActions({
       <ImportMenu
         uploadHref={uploadHref}
         importLoomHref={importLoomHref}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
         iconOnly
         triggerIcon="chevron"
         size="sm"

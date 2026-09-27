@@ -19,9 +19,12 @@ const COMMENT_MUTATIONS = new Set([
 const DOCUMENT_MUTATIONS = new Set([
   "create-and-link-notion-page",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
@@ -85,7 +88,10 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "delete-content-database",
+  "execute-content-trash-purge",
+  "permanently-delete-document",
   "restore-content-database",
+  "restore-document",
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
@@ -95,6 +101,7 @@ const DATABASE_LIFECYCLE_QUERIES = new Set([
   "list-documents",
   "list-trashed-content-databases",
   "list-trashed-documents",
+  "list-content-trash",
 ]);
 
 const CONTENT_MUTATIONS = new Set([
@@ -104,15 +111,19 @@ const CONTENT_MUTATIONS = new Set([
 
 const SUGGESTION_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
   "suggest-document-edit",
   "update-resource-suggestion",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
 ]);
 
 const REVIEW_MUTATIONS = new Set([
   "create-resource-suggestion",
+  "create-resource-suggestion-proposal",
   "suggest-document-edit",
   "decide-resource-suggestion",
+  "decide-resource-suggestion-proposal",
   "create-review-comment",
   "reply-review-comment",
   "resolve-review-thread",
@@ -190,7 +201,10 @@ function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
     return queryName === "list-comments";
   if (eventKey === "apply-comment-ai-request")
     return queryName === "get-document" || queryName === "list-comments";
-  if (eventKey === "decide-resource-suggestion")
+  if (
+    eventKey === "decide-resource-suggestion" ||
+    eventKey === "decide-resource-suggestion-proposal"
+  )
     return queryName === "get-document";
   return CONTENT_MUTATIONS.has(eventKey);
 }
@@ -224,6 +238,19 @@ function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
     query.queryKey[1] === "get-content-database-personal-view" &&
     query.isActive?.() === true
   );
+}
+
+function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (
+    query.queryKey[1] === "get-content-recent" ||
+    query.queryKey[1] === "get-content-navigation-context"
+  )
+    return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
 }
 
 function isDatabaseLifecycleQuery(query: ActionQuery): boolean {
@@ -260,6 +287,14 @@ export function contentActionInvalidatePredicate(
 ): (query: ActionQuery, events: readonly ActionEvent[]) => boolean {
   const documentId = contentDocumentIdFromPathname(pathname);
   return (query, events) => {
+    if (
+      queryTargetsActiveNavigationOrRecent(query) &&
+      events.some(
+        (event) => event.source === "action" && event.key === "update-document",
+      )
+    ) {
+      return true;
+    }
     const args = query.queryKey[2];
     const targetId =
       args && typeof args === "object"
@@ -323,8 +358,6 @@ export function contentActionInvalidatePredicate(
       queryTargetsDocument(query, targetId) &&
       (query.isActive ? query.isActive() : targetId === documentId)
     ) {
-      // Mounted Page surfaces can belong to a collection preview rather than
-      // the route. Keep inactive cached Pages out of the refresh fan-out.
       return events.some(
         (event) =>
           event.source === "action" &&

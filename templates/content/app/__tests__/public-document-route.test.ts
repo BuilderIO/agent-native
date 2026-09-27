@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +39,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => conditions,
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  isNull: (column: unknown) => ({ column, value: null }),
 }));
 
 vi.mock("../../server/db", () => ({
@@ -50,6 +53,7 @@ vi.mock("../../server/db", () => ({
       content: "content_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      trashedAt: "trashed_at_col",
     },
   },
 }));
@@ -90,7 +94,7 @@ describe("public document route", () => {
   it("emits hidden MCP guidance without adding an accessible control", () => {
     const html = renderToStaticMarkup(
       createElement(AgentReadableDocumentDiscovery, {
-        document: { id: "doc-1", title: "Launch notes" },
+        document: { id: "doc-1" },
         basePath: "/content",
         origin: "https://content.example.test",
         accessState: "authentication-required",
@@ -101,16 +105,39 @@ describe("public document route", () => {
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain("https://content.example.test/content/mcp/connect");
     expect(html).toContain("get-document");
-    expect(html).toContain("Content access information:");
+    expect(html).toContain("Agent-Native Content access record");
     expect(html).toContain(
       "https://www.agent-native.com/docs/external-agents/#private-content-links",
     );
     expect(html).toContain(
-      "Document access through MCP uses the connected account&#x27;s existing permissions",
+      "Adding a connection changes the user&#x27;s agent configuration and is the user&#x27;s choice",
     );
+    expect(html).toContain(
+      "does not grant new document access. The connected account&#x27;s permission for this document has not been evaluated",
+    );
+    expect(html).not.toContain("add this instance");
+    expect(html).not.toContain("and retry");
     expect(html).not.toContain("tell the user");
     expect(html).not.toContain("Do not ask");
     expect(html).not.toContain("button");
+    expect(html).not.toContain("Launch notes");
+    expect(html).not.toContain("Ship it");
+  });
+
+  it("does not disclose private document fields to an anonymous share-page request", async () => {
+    resultQueue.current = [documentRows("private")];
+
+    const result = await loader(requestFor());
+
+    expect(result).toMatchObject({
+      document: null,
+      unavailable: {
+        reason: "private",
+        id: "doc-1",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("Launch notes");
+    expect(JSON.stringify(result)).not.toContain("Ship it");
   });
 
   it("advertises the agent context endpoint for private share pages", () => {
@@ -137,6 +164,55 @@ describe("public document route", () => {
     });
   });
 
+  it("uses document-aware social images only for public documents", () => {
+    const publicMeta =
+      meta({
+        loaderData: {
+          document: {
+            id: "doc-1",
+            title: "Launch notes",
+            content: "## Summary\n\n- Ship it",
+            visibility: "public",
+          },
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+        },
+      } as never) ?? [];
+    const imageDescriptor = publicMeta.find(
+      (item): item is { property: string; content: string } =>
+        "property" in item && "content" in item && item.property === "og:image",
+    );
+    if (!imageDescriptor) throw new Error("Public document image is missing");
+    const image = new URL(imageDescriptor.content);
+
+    expect(image.pathname).toBe("/content/_agent-native/og-image.png");
+    expect(image.searchParams.get("title")).toBe("Launch notes");
+    expect(image.searchParams.get("accentText")).toContain("Ship it");
+
+    const privateMeta =
+      meta({
+        loaderData: {
+          document: null,
+          agentAccessToken: null,
+          basePath: "/content",
+          origin: "https://content.example.test",
+          unavailable: {
+            reason: "private",
+            id: "doc-1",
+            basePath: "/content",
+          },
+        },
+      } as never) ?? [];
+
+    expect(
+      privateMeta.some(
+        (item) => "property" in item && item.property === "og:image",
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(privateMeta)).not.toContain("Launch notes");
+  });
+
   it("serves a public document without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
@@ -152,10 +228,13 @@ describe("public document route", () => {
       origin: "https://content.example.test",
     });
     expect((result as any).type).not.toBe("DataWithResponseInit");
-    expect(where).toHaveBeenCalledWith({ column: "id_col", value: "doc-1" });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 
-  it("marks tokenized document pages private and no-store", async () => {
+  it("uses a query-specific cache key for token-authorized document pages", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     resultQueue.current = [documentRows("private")];
 
@@ -169,6 +248,7 @@ describe("public document route", () => {
     expect(result.init.headers).toEqual({
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
+      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
     });
     expect(result.data).toMatchObject({
       document: { id: "doc-1", title: "Launch notes" },
@@ -176,5 +256,15 @@ describe("public document route", () => {
       basePath: "",
       origin: "https://content.example.test",
     });
+  });
+
+  it("does not load trashed documents for public previews", async () => {
+    resultQueue.current = [[]];
+
+    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
+    expect(where).toHaveBeenCalledWith([
+      { column: "id_col", value: "doc-1" },
+      { column: "trashed_at_col", value: null },
+    ]);
   });
 });

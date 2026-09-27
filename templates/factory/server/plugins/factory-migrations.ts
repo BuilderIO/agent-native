@@ -573,6 +573,11 @@ const migrations = [
         ON factory_automation_versions (org_id, automation_id, created_at);
     `,
   },
+  {
+    version: 30,
+    name: "factory-items-confidence-column",
+    sql: "ALTER TABLE factory_items ADD COLUMN confidence TEXT NOT NULL DEFAULT 'unknown'",
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

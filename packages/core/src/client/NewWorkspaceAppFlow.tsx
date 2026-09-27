@@ -15,7 +15,7 @@ import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/index.js";
-import { BuilderConnectPopover } from "./settings/BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./settings/deferred-builder-connect-popover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 
@@ -190,9 +190,6 @@ export function NewWorkspaceAppFlow({
       ? defaultDispatchBasePath(sourceApp)
       : dispatchBasePath;
 
-  // Enabled only while the connect CTA is on screen. Left always-on, the hook
-  // would poll Builder status on every mount and fire onConnected on its first
-  // status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
     provisionAccount: true,
@@ -418,7 +415,7 @@ export function NewWorkspaceAppFlow({
               </div>
               {failureReason === "builder-not-connected" ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <BuilderConnectPopover flow={connectFlow}>
+                  <DeferredBuilderConnectPopover flow={connectFlow}>
                     <button
                       type="button"
                       disabled={connectFlow.connecting}
@@ -428,7 +425,7 @@ export function NewWorkspaceAppFlow({
                         ? "Connecting..."
                         : "Connect Builder"}
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                   <a
                     href={LOCAL_APP_DOCS_URL}
                     target="_blank"

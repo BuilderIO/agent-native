@@ -1,5 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
+
 export const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
 export const AUTOMATION_WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
 
@@ -23,7 +25,7 @@ export function isAutomationWebhookToken(value: string): boolean {
 }
 
 export function automationWebhookPath(token: string): string {
-  return `/_agent-native/automations/webhook/${token}`;
+  return publicFrameworkPath(`/_agent-native/automations/webhook/${token}`);
 }
 
 export function automationWebhookTokenHash(token: string): string {

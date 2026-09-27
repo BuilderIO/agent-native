@@ -68,12 +68,11 @@ test.describe("URL-backed live auto-layout probe", () => {
     </style></head><body><main>
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
       <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
+      <button type="button">Keep focus in app</button>
     </main></body></html>`;
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      // Serve the file on every request so the post-Apply reload exercises the
-      // persisted bridge write rather than a frozen fixture string.
       res.end(fs.readFileSync(path.join(rootPath, "index.html"), "utf8"));
     });
     const devPort = await listen(devServer);
@@ -112,6 +111,201 @@ test.describe("URL-backed live auto-layout probe", () => {
     await closeServer(bridge?.server ?? null);
     await closeServer(devServer);
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
+  });
+
+  test("returns keyboard focus to the host when a live iframe becomes ready", async ({
+    page,
+  }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
+    const frame = iframe.contentFrame();
+    await expect(
+      frame.locator('[data-agent-native-node-id="flow-root"]'),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      frame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 15_000 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const liveFrame = document.querySelector(
+            "iframe[data-design-preview-iframe]",
+          );
+          return (
+            active instanceof HTMLElement &&
+            active.tabIndex === -1 &&
+            Boolean(liveFrame && active.contains(liveFrame))
+          );
+        }),
+      )
+      .toBe(true);
+
+    await frame.getByRole("button", { name: "Keep focus in app" }).focus();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        frame
+          .locator("body")
+          .evaluate((body) => body.ownerDocument.activeElement?.tagName),
+      )
+      .toBe("BUTTON");
+
+    await frame.locator("body").evaluate(() => {
+      const host = document.createElement("e2e-focus-host");
+      host.id = "open-shadow-focus-host";
+      const shadow = host.attachShadow({ mode: "open" });
+      const input = document.createElement("input");
+      input.setAttribute("aria-label", "Shadow input");
+      shadow.append(input);
+      document.body.append(host);
+      input.focus();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        frame.locator("body").evaluate((body) => {
+          const host = body.ownerDocument.querySelector(
+            "#open-shadow-focus-host",
+          );
+          return (
+            body.ownerDocument.activeElement === host &&
+            host?.shadowRoot?.activeElement?.getAttribute("aria-label") ===
+              "Shadow input"
+          );
+        }),
+      )
+      .toBe(true);
+
+    await frame.locator("body").evaluate(() => {
+      const host = document.createElement("div");
+      host.id = "closed-shadow-focus-host";
+      const shadow = host.attachShadow({ mode: "closed" });
+      const input = document.createElement("input");
+      shadow.append(input);
+      document.body.append(host);
+      input.focus();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        frame.locator("body").evaluate((body) => {
+          const host = body.ownerDocument.querySelector(
+            "#closed-shadow-focus-host",
+          );
+          return (
+            body.ownerDocument.activeElement === host &&
+            host instanceof HTMLElement &&
+            host.matches(":focus-within")
+          );
+        }),
+      )
+      .toBe(true);
+
+    for (const tagName of ["audio", "video"] as const) {
+      await frame.locator("body").evaluate((body, tag) => {
+        const media = body.ownerDocument.createElement(tag);
+        media.id = `focus-${tag}`;
+        media.controls = true;
+        body.append(media);
+        media.focus();
+      }, tagName);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              document.activeElement ===
+              document.querySelector("iframe[data-design-preview-iframe]"),
+          ),
+        )
+        .toBe(true);
+      await expect
+        .poll(() =>
+          frame
+            .locator("body")
+            .evaluate(
+              (body, tag) =>
+                body.ownerDocument.activeElement ===
+                body.ownerDocument.querySelector(`#focus-${tag}`),
+              tagName,
+            ),
+        )
+        .toBe(true);
+    }
+
+    await frame.locator("body").evaluate(() => {
+      const nested = document.createElement("iframe");
+      nested.id = "nested-focus-frame";
+      nested.srcdoc = '<input aria-label="Nested frame input">';
+      document.body.append(nested);
+    });
+    const nestedFrame = await frame
+      .locator("#nested-focus-frame")
+      .contentFrame();
+    await nestedFrame.locator("input").focus();
+    await expect
+      .poll(() =>
+        nestedFrame
+          .locator("input")
+          .evaluate((input) => input.ownerDocument.activeElement === input),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        frame
+          .locator("body")
+          .evaluate(
+            (body) =>
+              body.ownerDocument.activeElement ===
+              body.ownerDocument.querySelector("#nested-focus-frame"),
+          ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
   });
 
   test("opens signed-out capability and inspects URL-backed frames", async ({
@@ -328,6 +522,17 @@ test.describe("URL-backed live auto-layout probe", () => {
       path.join(rootPath, "index.html"),
       "utf8",
     );
+    const visualEditState = async () => {
+      const result = (await call("get-visual-edit-prompt")) as {
+        result?: { pendingEditCount?: number; status?: string };
+      };
+      return {
+        pendingEditCount: result.result?.pendingEditCount ?? -1,
+        status: result.result?.status ?? "unknown",
+      };
+    };
+    const pendingEditCount = async () =>
+      (await visualEditState()).pendingEditCount;
     const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.down(primaryModifier);
     await page.mouse.click(
@@ -383,26 +588,31 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
     await expect.poll(order, { timeout: 5_000 }).toEqual(["v2", "v3", "v1"]);
     console.log("URL probe order after drag", await order());
-    let pendingEditCount = 0;
-    await expect
-      .poll(
-        async () => {
-          const result = (await call("get-visual-edit-prompt")) as {
-            result?: { pendingEditCount?: number };
-          };
-          pendingEditCount = result.result?.pendingEditCount ?? -1;
-          return pendingEditCount;
-        },
-        { timeout: 5_000 },
-      )
-      .toBeGreaterThan(0);
+    await expect.poll(pendingEditCount, { timeout: 5_000 }).toBeGreaterThan(0);
     const promptAfterDrag = await call("get-visual-edit-prompt");
-    expect(pendingEditCount).toBeGreaterThan(0);
+    expect(promptAfterDrag).toMatchObject({ result: { status: "ready" } });
+    expect(await pendingEditCount()).toBeGreaterThan(0);
     console.log("URL probe prompt after drag", JSON.stringify(promptAfterDrag));
     expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
       diskBeforeDrag,
     );
     console.log("URL probe source on disk changed", false);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(order, { timeout: 10_000 }).toEqual(["v1", "v2", "v3"]);
+    await expect.poll(visualEditState, { timeout: 10_000 }).toEqual({
+      pendingEditCount: 0,
+      status: "empty",
+    });
+    expect(fs.readFileSync(path.join(rootPath, "index.html"), "utf8")).toBe(
+      diskBeforeDrag,
+    );
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(order, { timeout: 10_000 }).toEqual(["v2", "v3", "v1"]);
+    await expect
+      .poll(visualEditState, { timeout: 10_000 })
+      .toMatchObject({ status: "ready" });
+    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBeGreaterThan(0);
 
     const unloadGuarded = await page.evaluate(() => {
       const event = new Event("beforeunload", { cancelable: true });
@@ -412,8 +622,6 @@ test.describe("URL-backed live auto-layout probe", () => {
     expect(unloadGuarded).toBe(true);
     console.log("URL probe pending unload guard", unloadGuarded);
 
-    // Start the supported source handoff. This arms the editor's guarded
-    // source-version and runtime verification loop before the bridge write.
     const applyUpdates = page.getByRole("button", {
       name: "Apply design updates",
       exact: true,
@@ -463,11 +671,6 @@ test.describe("URL-backed live auto-layout probe", () => {
               ? payload.data.context
               : undefined,
         };
-        // The standalone signed-out visual-edit route has no mounted agent
-        // chat to acknowledge the local handoff. Acknowledge the exact
-        // submitted turn here so the product verifier can enter
-        // `awaiting-source`; the actual source write and HMR verification
-        // below still run through the public WebMCP bridge.
         window.dispatchEvent(
           new CustomEvent("agentNative.chatSubmitResult", {
             detail: { submitMessageId, delivered: true },
@@ -620,33 +823,28 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
     });
-    const reloadedFrame = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame();
+    const readReloadedOrder = async () => {
+      try {
+        return await page
+          .locator("iframe[data-design-preview-iframe]")
+          .first()
+          .contentFrame()
+          .locator(
+            '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
+          )
+          .evaluateAll((els) =>
+            els.map((el) => el.getAttribute("data-agent-native-node-id")),
+          );
+      } catch (error) {
+        if (error instanceof Error && /Frame was detached/.test(error.message))
+          return null;
+        throw error;
+      }
+    };
     await expect
-      .poll(
-        () =>
-          reloadedFrame
-            .locator(
-              '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-            )
-            .evaluateAll((els) =>
-              els.map((el) => el.getAttribute("data-agent-native-node-id")),
-            ),
-        { timeout: 15_000 },
-      )
+      .poll(readReloadedOrder, { timeout: 15_000 })
       .toEqual(["v2", "v3", "v1"]);
-    console.log(
-      "URL probe order after reload",
-      await reloadedFrame
-        .locator(
-          '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        ),
-    );
+    console.log("URL probe order after reload", await readReloadedOrder());
     console.log(
       "URL probe prompt after reload",
       JSON.stringify(await call("get-visual-edit-prompt")),
@@ -693,12 +891,20 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
+    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
     const groupA = frame.locator('[data-agent-native-node-id="group-a"]');
     const groupB = frame.locator('[data-agent-native-node-id="group-b"]');
     const occupied = frame.locator(
       '[data-agent-native-node-id="group-occupied"]',
     );
     await expect(groupA).toBeVisible({ timeout: 15_000 });
+    await expect(
+      frame.locator("[data-agent-native-editor-chrome-host]"),
+    ).toHaveCount(1, { timeout: 30_000 });
+    const iframeSrcBeforeDrag = await iframe.getAttribute("src");
+    await iframe.evaluate((element) => {
+      element.setAttribute("data-iframe-identity-regression", "stable");
+    });
     let componentDetailsRequests = 0;
     page.on("request", (request) => {
       if (
@@ -712,6 +918,50 @@ test.describe("URL-backed live auto-layout probe", () => {
       path.join(rootPath, "index.html"),
       "utf8",
     );
+    const visualEditState = async () => {
+      const result = (await call("get-visual-edit-prompt")) as {
+        result?: { pendingEditCount?: number; status?: string };
+      };
+      return {
+        pendingEditCount: result.result?.pendingEditCount ?? -1,
+        status: result.result?.status ?? "unknown",
+      };
+    };
+    const pendingEditCount = async () =>
+      (await visualEditState()).pendingEditCount;
+    const gridPlacement = () =>
+      frame.locator("[data-group-card]").evaluateAll((els) =>
+        Object.fromEntries(
+          els.map((el) => {
+            const style = getComputedStyle(el);
+            return [
+              el.id,
+              {
+                columnStart: style.gridColumnStart,
+                columnEnd: style.gridColumnEnd,
+                rowStart: style.gridRowStart,
+                rowEnd: style.gridRowEnd,
+              },
+            ];
+          }),
+        ),
+      );
+    const gridOrder = () =>
+      frame.locator("[data-group-card]").evaluateAll((els) =>
+        els
+          .map((el) => {
+            const style = getComputedStyle(el);
+            return {
+              id: el.id,
+              row: Number.parseInt(style.gridRowStart, 10),
+              column: Number.parseInt(style.gridColumnStart, 10),
+            };
+          })
+          .sort((a, b) => a.row - b.row || a.column - b.column)
+          .map((entry) => entry.id),
+      );
+    const gridPlacementBeforeDrag = await gridPlacement();
+    const gridOrderBeforeDrag = await gridOrder();
     const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     const groupABox = await groupA.boundingBox();
     const groupBBox = await groupB.boundingBox();
@@ -748,6 +998,11 @@ test.describe("URL-backed live auto-layout probe", () => {
       );
     await page.waitForTimeout(500);
     expect(componentDetailsRequests).toBe(0);
+    await expect(iframe).toHaveAttribute(
+      "data-iframe-identity-regression",
+      "stable",
+    );
+    await expect(iframe).toHaveAttribute("src", iframeSrcBeforeDrag ?? "");
     await page.mouse.move(
       groupABox.x + groupABox.width / 2,
       groupABox.y + groupABox.height / 2,
@@ -775,6 +1030,11 @@ test.describe("URL-backed live auto-layout probe", () => {
           };
         }),
       );
+    await expect(iframe).toHaveAttribute(
+      "data-iframe-identity-regression",
+      "stable",
+    );
+    await expect(iframe).toHaveAttribute("src", iframeSrcBeforeDrag ?? "");
     expect(
       heldGuides.some(
         (guide) =>
@@ -786,20 +1046,11 @@ test.describe("URL-backed live auto-layout probe", () => {
       fullPage: true,
     });
     await page.mouse.up();
-    await expect
-      .poll(
-        async () =>
-          (
-            (await call("get-visual-edit-prompt")) as {
-              result?: { pendingEditCount?: number };
-            }
-          ).result?.pendingEditCount ?? -1,
-        { timeout: 10_000 },
-      )
-      .toBe(1);
+    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBe(1);
     const prompt = (await call("get-visual-edit-prompt")) as {
-      result?: { prompt?: string };
+      result?: { prompt?: string; status?: string };
     };
+    expect(prompt).toMatchObject({ result: { status: "ready" } });
     expect(prompt.result?.prompt).toContain('"transactionId"');
     expect(prompt.result?.prompt).toContain("group-a");
     expect(prompt.result?.prompt).toContain("group-b");
@@ -817,6 +1068,31 @@ test.describe("URL-backed live auto-layout probe", () => {
     const runtimeGroupOrder = await frame
       .locator("[data-group-card]")
       .evaluateAll((els) => els.map((el) => el.id));
+    const gridPlacementAfterDrag = await gridPlacement();
+    const gridOrderAfterDrag = await gridOrder();
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(gridPlacement, { timeout: 10_000 })
+      .toEqual(gridPlacementBeforeDrag);
+    await expect
+      .poll(gridOrder, { timeout: 10_000 })
+      .toEqual(gridOrderBeforeDrag);
+    await expect.poll(visualEditState, { timeout: 10_000 }).toEqual({
+      pendingEditCount: 0,
+      status: "empty",
+    });
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(gridPlacement, { timeout: 10_000 })
+      .toEqual(gridPlacementAfterDrag);
+    await expect
+      .poll(gridOrder, { timeout: 10_000 })
+      .toEqual(gridOrderAfterDrag);
+    await expect
+      .poll(visualEditState, { timeout: 10_000 })
+      .toMatchObject({ status: "ready" });
+    await expect.poll(pendingEditCount, { timeout: 10_000 }).toBeGreaterThan(0);
     let sourceWriteCount = 0;
     page.on("request", (request) => {
       if (

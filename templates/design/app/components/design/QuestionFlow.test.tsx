@@ -7,8 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { QuestionFlow } from "./QuestionFlow";
 
-// Minimal catalog covering only the keys QuestionFlow reads. Full catalog
-// coverage across all locales is verified by `guard:i18n-catalogs`, not here.
 const CATALOG_MESSAGES = {
   questionFlow: {
     defaultTitle: "Quick questions before I design",
@@ -132,6 +130,33 @@ describe("QuestionFlow option ordering", () => {
   });
 });
 
+describe("QuestionFlow option layout", () => {
+  it("lets built-in choice labels wrap in a narrow panel", async () => {
+    const { findButton, cleanup } = await renderQuestionFlow({
+      onSubmit: vi.fn(),
+      onSkip: vi.fn(),
+      questions: [
+        {
+          id: "direction",
+          type: "text-options",
+          question: "Which direction?",
+          options: [{ label: "Editorial", value: "editorial" }],
+          includeExplore: false,
+        },
+      ],
+    });
+
+    for (const label of ["Other", "Decide for me"]) {
+      const button = findButton(label);
+      expect(button).toBeTruthy();
+      expect(button?.querySelector(".truncate")).toBeNull();
+      expect(button?.querySelector(".whitespace-normal")).not.toBeNull();
+    }
+
+    await cleanup();
+  });
+});
+
 describe("QuestionFlow Other answers", () => {
   it("offers a write-in answer by default for text options", async () => {
     const onSubmit = vi.fn();
@@ -244,7 +269,6 @@ describe("QuestionFlow double-submit guard", () => {
       onSkip,
     });
 
-    // Select an option so the required-answered gate does not block submit.
     const mobileOption = findButton("Mobile");
     expect(mobileOption).toBeTruthy();
     await act(async () => {
@@ -306,9 +330,6 @@ describe("QuestionFlow double-submit guard", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(findButton("Continue")!.hasAttribute("disabled")).toBe(true);
 
-    // A new, different question set arrives (e.g. a follow-up clarifying
-    // question later in the same design session) — the fingerprint changes,
-    // so the guard must reset instead of leaving Continue disabled forever.
     await renderQuestions([
       {
         id: "palette",

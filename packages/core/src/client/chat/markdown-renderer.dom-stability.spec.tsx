@@ -37,12 +37,6 @@ function render(text: string, streaming: boolean) {
   });
 }
 
-/**
- * Tag every rendered element so a later render can prove whether React reused
- * the same DOM nodes or destroyed and rebuilt them. A rebuilt subtree is a
- * visible flash: code blocks re-highlight, images refetch, and the measured
- * height collapses for a frame, which is what yanks the scroll position.
- */
 function tagNodes(): void {
   container.querySelectorAll("*").forEach((el, i) => {
     (el as HTMLElement).dataset.probe = String(i);
@@ -76,19 +70,12 @@ describe("SmoothMarkdownText DOM stability while streaming", () => {
     const tagged = survivingTagCount();
     expect(tagged).toBeGreaterThan(0);
 
-    // Same text, streaming just ended. Nothing the user can see changed, so
-    // every node should be reused.
     render(text, false);
 
     expect(survivingTagCount()).toBe(tagged);
   });
 
   it("keeps the DOM stable across a trailing newline", () => {
-    // A trailing newline completes a block, and the next character pulls it
-    // back into the tail. That flip happens on EVERY line break while text
-    // streams, so if the two states render different element types the
-    // paragraph's DOM is destroyed and recreated over and over — the "div
-    // rapidly being inserted and removed" / "same vs new line" report.
     render("A paragraph of text", true);
     tagNodes();
     const tagged = survivingTagCount();
@@ -105,11 +92,8 @@ describe("SmoothMarkdownText DOM stability while streaming", () => {
     tagNodes();
     const tagged = survivingTagCount();
 
-    // The tail completes and a new block starts — earlier blocks must not remount.
     render("First paragraph.\n\nSecond paragraph.\n\nThird", true);
 
-    // Every previously-tagged node must still be present. New nodes are fine;
-    // losing an old one means that paragraph's DOM was destroyed and rebuilt.
     expect(survivingTagCount()).toBe(tagged);
   });
 });

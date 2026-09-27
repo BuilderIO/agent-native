@@ -23,7 +23,7 @@ proof_requirements:
 evidence:
   ["../../../server/db/schema.ts", "../../../actions/update-document.ts"]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-14"
 ---
 
 # Pages
@@ -62,7 +62,7 @@ Given a person who knows a Page link but lacks access, when they open it through
 
 ## Current evidence
 
-`server/db/schema.ts` defines durable document rows with IDs, content, ownership, source context, and trash fields. `update-document` persists Page changes through Actions and snapshots prior content; this proves the current Page foundation, not the future Block or Version contracts.
+`server/db/schema.ts` defines durable document rows with IDs, content, ownership, source context, and trash attribution. `update-document` persists Page changes through Actions and snapshots prior content. The dedicated Trash surface and `list-content-trash` search authorized deletion roots and nested descendants without changing Page identity; `get-trashed-document` provides a read-only body preview. Planned permanent deletion freezes Page IDs and deletion generations before execution, persists per-item outcomes, and leaves later or changed Trash outside the confirmed scope. This is current Page-lifecycle evidence, not proof of richer property, comment, History, or generic durable-job contracts.
 
 ## Proof plan
 

@@ -9,9 +9,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { PageBreadcrumb, type PageBreadcrumbItem } from "./page-header";
 
-// Deliberately unequal, >4-char labels: dropping any one of them measurably
-// shrinks content length, and none is a substring of another, so `toContain`
-// assertions below can't false-positive on a partial match.
 const ITEMS: PageBreadcrumbItem[] = [
   { label: "Library", to: "/library" },
   { label: "ProjectA", to: "/library/folder/1" },
@@ -21,13 +18,6 @@ const ITEMS: PageBreadcrumbItem[] = [
   { label: "CurrentDoc" },
 ];
 
-/**
- * jsdom/happy-dom don't run layout, so clientWidth/scrollWidth are always 0.
- * Stub them on the element prototype so PageBreadcrumb's overflow check has
- * something real to measure: a fixed available width, and a content width
- * that shrinks as rendered text shrinks (mirroring how removing a segment
- * actually reduces on-screen width).
- */
 function stubMeasurements(clientWidth: number) {
   const originalClientWidth = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
@@ -122,15 +112,10 @@ describe("PageBreadcrumb overflow collapsing", () => {
   it("collapses from the left, keeping the tail nearest the current page", async () => {
     const el = await renderBreadcrumb(45);
 
-    // The root stays as an anchor and the current page always stays visible...
     expect(el.textContent).toContain("Library");
     expect(el.textContent).toContain("CurrentDoc");
-    // ...the ancestors nearest the current page survive, so the user can see
-    // where "back" leads...
     expect(el.textContent).toContain("Subfolder2");
     expect(el.textContent).toContain("Subfolder3");
-    // ...while the oldest middle segments, right after the root, collapse
-    // behind the ellipsis first.
     expect(el.textContent).not.toContain("ProjectA");
     expect(el.textContent).not.toContain("Subfolder1");
   });
@@ -139,8 +124,6 @@ describe("PageBreadcrumb overflow collapsing", () => {
     const el = await renderBreadcrumb(10);
 
     expect(el.textContent).toContain("Library");
-    // The parent (Subfolder3) is never hidden — it's where the back button
-    // goes, so it survives even at the tightest width.
     expect(el.textContent).toContain("Subfolder3");
     expect(el.textContent).toContain("CurrentDoc");
     expect(el.textContent).not.toContain("ProjectA");
@@ -149,26 +132,13 @@ describe("PageBreadcrumb overflow collapsing", () => {
   });
 });
 
-describe("PageBreadcrumb back button", () => {
-  // The back button carries the only aria-labelled link; breadcrumb segment
-  // links have none, so this selector isolates it regardless of how many
-  // ancestors happen to be visible.
-  const backLink = (el: HTMLElement) =>
-    el.querySelector<HTMLAnchorElement>("a[aria-label]");
+describe("PageBreadcrumb", () => {
+  it("renders no back-arrow icon button alongside the breadcrumb trail", async () => {
+    const el = await renderBreadcrumb(1000, [
+      { label: "Library", to: "/library" },
+      { label: "CurrentDoc" },
+    ]);
 
-  it("links one step back to the parent segment, even when the path collapses", async () => {
-    // Tight enough that the left of the path collapses, yet the back target is
-    // still the path's parent (Subfolder3 → /library/folder/4), not whatever
-    // ancestor happens to sit next to the ellipsis.
-    const el = await renderBreadcrumb(10);
-
-    expect(el.textContent).not.toContain("ProjectA");
-    expect(backLink(el)?.getAttribute("href")).toBe("/library/folder/4");
-  });
-
-  it("renders no back button at the root of the path", async () => {
-    const el = await renderBreadcrumb(1000, [{ label: "Library" }]);
-
-    expect(backLink(el)).toBeNull();
+    expect(el.querySelector("a[aria-label]")).toBeNull();
   });
 });

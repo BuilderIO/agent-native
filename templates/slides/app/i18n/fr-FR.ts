@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "Actions du modèle {{title}}",
+    previewAction: "Aperçu",
+    title: "Modèles",
+    browseAll: "Tout parcourir",
+    searchPlaceholder: "Rechercher des modèles…",
+    loading: "Chargement des modèles",
+    empty: "Aucun modèle ne correspond à votre recherche.",
+    loadFailed: "Impossible de charger les modèles.",
+    preview: "Aperçu du modèle",
+    useTemplate: "Utiliser le modèle",
+    opening: "Ouverture du modèle…",
+    createFailed: "Impossible de créer une présentation à partir de ce modèle.",
+    previous: "Précédente",
+    next: "Suivante",
+    slidePosition: "Diapositive {{current}} sur {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["fr-FR"],
   root: {
     commandPresentations: "Présentations",
@@ -26,6 +43,7 @@ const messages = {
     team: "Équipe",
   },
   settings: {
+    agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
@@ -55,6 +73,7 @@ const messages = {
     emptyState: "Posez-moi vos questions sur vos présentations",
     thisSlide: "Cette diapositive",
     currentSelection: "Sélection actuelle",
+    slideNumber: "Diapositive {{number}}",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",
@@ -109,7 +128,7 @@ const messages = {
       "Google Picker nécessite GOOGLE_PICKER_API_KEY et GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Échec de l’envoi de l’image",
     imageUploadNeedsBuilder:
-      "Connectez Builder.io depuis le menu de modèle du composeur d’agent pour téléverser des images sur les diapositives. Déposer une image sur le canevas vide peut toujours l’envoyer à l’agent sans fournisseur.",
+      "Connectez un stockage d’objets pour téléverser des images : connectez Builder.io (gratuit) ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Envois de fichiers.",
     sentToAgent: "Envoyé à l’agent",
     imageUploadGenericError:
       "Une erreur est survenue lors de l’envoi de cette image.",
@@ -187,6 +206,12 @@ const messages = {
     emptyTitle: "Configurer votre identité de marque",
     emptyDescription:
       "Créez un système de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle présentation suivra votre identité visuelle.",
+    tierLimitTitle: "Limite de systèmes de design atteinte",
+    tierLimitDescription:
+      "Vous avez atteint la limite de systèmes de design de votre forfait Builder. Passez à un forfait Builder supérieur pour en créer un autre.",
+    tierLimitDescriptionWithCount:
+      "Vous utilisez {{current}} sur {{max}} systèmes de design de votre forfait Builder {{plan}}. Passez à un forfait supérieur pour en créer un autre.",
+    tierLimitUpgrade: "Changer de forfait Builder",
   },
   editorToolbar: {
     layoutTitle: "Titre",
@@ -644,6 +669,13 @@ const messages = {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled:
+      "La génération a été mise en pause après 5 minutes sans progrès",
+    generationStalledDescription:
+      "Tes diapositives enregistrées sont toujours là. Continue ce deck dans le chat.",
+    continueInChat: "Continuer dans le chat",
+    continueGenerationPrompt:
+      "Continue la génération des diapositives de ce deck. Vérifie d’abord les diapositives actuelles et le contexte de génération enregistré. Garde les diapositives terminées et ajoute uniquement celles qui manquent.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -690,14 +722,14 @@ const messages = {
     accessApprovalSignIn: "Se connecter",
     accessApprovalLoading: "Accès en cours...",
     backToDecks: "Retour aux decks",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "Réessayer",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "Connectez Builder.io depuis le menu de modèle du composeur d’agent pour téléverser des images sur les diapositives. Déposer une image sur le canevas vide peut toujours l’envoyer à l’agent sans fournisseur.",
+      "Connectez un stockage d’objets pour téléverser des images : connectez Builder.io (gratuit) ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Envois de fichiers.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "La mise en page déborde",
@@ -713,6 +745,10 @@ const messages = {
       "Si vous quittez ou rechargez maintenant, vous risquez de perdre les modifications qui ne sont pas encore enregistrées. Voulez-vous vraiment quitter ?",
     keepEditing: "Continuer à modifier",
     leaveWithoutSaving: "Quitter sans enregistrer",
+    editorMarkupNotSaved:
+      "Cette modification n'a pas été enregistrée, car elle aurait ajouté du balisage de l'éditeur à la diapositive.",
+    textEditConflictNotSaved:
+      "Votre modification du texte n'a pas été enregistrée, car le même texte a été modifié ailleurs au même moment.",
   },
   designSystemSetup: {
     importedBrand: "Marque importée",
@@ -773,6 +809,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Ajouter",
     githubRepository: "Connecter le code : dépôt GitHub",
+    codeIndexingEnterpriseOnly:
+      "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
     githubRef: "Branche, tag ou commit (facultatif)",
     githubPaths: "Fichiers ou dossiers, séparés par des virgules (facultatif)",
     codeFiles: "Connecter des fichiers de code",
@@ -801,12 +839,130 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Créer un pitch produit",
+      roadmap: "Créer une feuille de route produit",
+      explainer: "Expliquer un sujet dans une présentation",
+    },
+    suggestedPrompts: "Prompts suggérés",
+    importMenu: {
+      import: "Importer",
+      options: "Options d’importation",
+      invalidPdf: "Choisissez un fichier PDF.",
+      invalidPptx: "Choisissez un fichier PPTX.",
+      invalidFile: "Choisissez un fichier PDF ou PPTX.",
+      networkFailed:
+        "La demande d’importation a expiré ou la connexion réseau a été interrompue. Vérifiez votre connexion et réessayez.",
+      notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+      uploadLimitExceeded:
+        "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
+    },
+    importDeck: "Importer une présentation",
+    context: {
+      websiteReference: "Joindre un site web",
+      websiteUrlLabel: "URL du site web",
+      websiteUrl: "Collez l’URL d’un site web",
+      figmaUrlLabel: "Lien Figma",
+      invalidFigmaUrl:
+        "Saisissez une URL valide de cadre ou de fichier figma.com.",
+      createSystem: "Créer un système de design",
+      noSystems:
+        "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
+      searchSystems: "Rechercher des systèmes de design…",
+      searchFrames: "Rechercher des cadres Figma…",
+      searchDesigns: "Rechercher des designs…",
+      searchPresentations: "Rechercher des présentations…",
+      menu: {
+        system: "Utiliser un système de design",
+        figma: "Joindre Figma",
+        design: "Utiliser un design comme référence",
+        deck: "Utiliser une présentation comme référence",
+        searchDesign: "Rechercher dans Design…",
+      },
+      loadFailed: "Impossible de charger cette référence. Réessayez.",
+      saveFailed: "Impossible d’enregistrer votre sélection de contexte.",
+      system: "Systèmes de design",
+      figmaUrl: "Collez un lien Figma",
+      browse: "Parcourir les cadres",
+      empty: "Aucune référence trouvée.",
+      previous: "Précédent",
+      next: "Suivant",
+      title: "Contexte",
+      remove: "Retirer la référence",
+      deck: "Présentations",
+      design: "Références de design",
+      figma: "Cadres Figma",
+      notReady:
+        "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
+      emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      figmaReadFailed:
+        "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
+      tooMany: "Choisissez jusqu’à 20 références.",
+      search: "Rechercher des références",
+      designCategory: "Création",
+    },
+    quickStart: {
+      invalidUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+      starting: "Démarrage…",
+      generate: "Générer",
+      connectionRequired:
+        "Connectez un fournisseur d’IA au-dessus du champ d’accueil ou ajoutez votre propre clé d’IA, puis réessayez.",
+      invalidPdf: "Choisissez un fichier PDF.",
+      notReady:
+        "Vérifiez le contexte en attente ou en erreur et la connexion, puis réessayez.",
+      tooLong: "Limitez le texte source à moins de 20 000 caractères.",
+      trends: {
+        label: "Créer une présentation sur les dernières tendances du secteur",
+        field: "Secteur ou sujet",
+        prompt:
+          "Recherchez les dernières tendances du sujet fourni et créez une présentation avec des sources actuelles. Vérifiez les informations avant de générer.",
+      },
+      notes: {
+        label: "Transformer des notes de réunion en présentation",
+        field: "Notes de réunion",
+        prompt:
+          "Transformez les notes de réunion fournies en présentation avec les points clés, les décisions et les prochaines étapes. Utilisez les notes comme source.",
+      },
+      pdf: {
+        label: "Résumer les points clés d’un PDF",
+        field: "Fichier PDF",
+        prompt:
+          "Lisez le PDF joint et créez une présentation résumant ses points clés. Signalez le contenu illisible au lieu de deviner.",
+      },
+      website: {
+        label: "Générer une présentation depuis le site de mon entreprise",
+        field: "URL du site de l’entreprise",
+        prompt:
+          "Lisez le site d’entreprise fourni et créez une présentation sur celle-ci. Signalez les problèmes d’accès au lieu d’inventer des faits.",
+      },
+    },
+    connectBuilderIo: "Connecter Builder.io",
+    connectingBuilder: "Connexion à Builder.io…",
+    recent: "Récents",
+    starters: {
+      pitch: {
+        label: "Présentation de projet",
+        prompt: "Crée une présentation de projet sur ",
+      },
+      update: {
+        label: "Point d’avancement",
+        prompt:
+          "Crée un point d’avancement avec les progrès, les résultats et les prochaines étapes pour ",
+      },
+      lesson: {
+        label: "Expliquer un sujet",
+        prompt: "Crée une présentation qui explique ",
+      },
+    },
     loadFailed: "Impossible de charger votre contenu",
     loadFailedDescription:
       "Votre contenu enregistré est toujours disponible. Vérifiez la connexion et réessayez.",
     retry: "Réessayer",
+    fileStorageStatusUnavailable:
+      "Impossible de vérifier le stockage d’objets. Réessayez avant d’envoyer des fichiers.",
+    fileStorageSetupRequired:
+      "Aucun stockage d’objets n’est connecté. Connectez Builder.io gratuitement ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Téléversements de fichiers.",
     decksTitle: "Decks",
-    newDeck: "Nouveau deck",
     deckLengthQuestion: "Quelle longueur doit faire ce deck ?",
     deckLengthHeader: "Longueur du deck",
     deckLengthShort: "Court (3–5 diapositives)",
@@ -832,11 +988,13 @@ const messages = {
     newDeckPlaceholder:
       "Décrivez la présentation que vous souhaitez générer...",
     skipPrompt: "Ignorer le prompt",
-    firstDeckPromptTitle: "Quel type de présentation devons-nous générer ?",
+    firstDeckPromptTitle: "Créons votre première présentation",
     firstDeckSkip: "Ignorer",
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
     importFrom: "Importer depuis",
+    referenceFileStorageUnavailable:
+      "Le stockage de fichiers n’est pas configuré. Connectez Builder.io ou un autre fournisseur pour importer des fichiers de référence.",
     attachedFiles: "Pièces jointes",
     imported: "Importé",
     importedReferenceDeck: "Deck de référence importé",
@@ -846,10 +1004,6 @@ const messages = {
     continue: "Continuer",
     continueToGenerate: "Continuer pour générer",
     designSystem: "Système de design",
-    designSystemIndexing: "Indexation…",
-    designSystemUnavailable: "Indisponible",
-    designSystemIndexingNotice:
-      "Ce système de design est toujours en cours d'indexation. Choisissez-en un autre ou attendez la fin de l'indexation avant de continuer.",
     referenceDeck: "Deck de référence",
     referenceDeckPlaceholder: "Reprendre le style d'un deck existant",
     referenceDeckNone: "Ne pas en utiliser",

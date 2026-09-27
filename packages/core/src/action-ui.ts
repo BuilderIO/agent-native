@@ -6,15 +6,13 @@ export const ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER = "core.inline-extension";
 export const ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER = "core.workspace-file";
 
 export interface ActionChatUIConfig {
-  /**
-   * Exact renderer id to use in Agent-Native chat. This is native first-party
-   * React UI, distinct from MCP Apps resources for external hosts.
-   */
   renderer: string;
-  /** Optional label for catalogs, docs, or custom renderer chrome. */
   title?: string;
-  /** Optional developer-facing description for catalogs/docs. */
   description?: string;
+  /** Show this renderer only for matching successful action calls. */
+  when?: (args: Record<string, unknown>, result: unknown) => boolean;
+  /** Return the small result needed by the renderer and interrupted-run recovery. */
+  projectResult?: (args: Record<string, unknown>, result: unknown) => unknown;
 }
 
 export function normalizeActionChatUIConfig(
@@ -34,6 +32,15 @@ export function normalizeActionChatUIConfig(
       : {}),
     ...(typeof record.description === "string" && record.description.trim()
       ? { description: record.description }
+      : {}),
+    ...(typeof record.when === "function"
+      ? { when: record.when as ActionChatUIConfig["when"] }
+      : {}),
+    ...(typeof record.projectResult === "function"
+      ? {
+          projectResult:
+            record.projectResult as ActionChatUIConfig["projectResult"],
+        }
       : {}),
   };
 }

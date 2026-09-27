@@ -616,6 +616,19 @@ const messages = {
     evaluatedThroughAsk: "Évalué avec Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Examiner les doublons",
+    duplicateReviewTitle: "Doublons possibles",
+    duplicateReviewDescription:
+      "Compare cette fiche aux candidats accessibles. Jev envoie à TypeSafe les noms, types de fiche et indices de correspondance de cinq candidats au maximum. Sa probabilité est indicative ; la fusion demande un examen distinct.",
+    duplicateReviewRun: "Chercher des doublons",
+    duplicateReviewLoading: "Recherche en cours…",
+    duplicateReviewFailed: "Impossible de terminer l'examen des doublons.",
+    duplicateReviewUnavailable:
+      "Jev n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
+    duplicateReviewEmpty: "Aucun doublon probable trouvé.",
+    duplicateRuleConfidence: "Correspondance par règles : {{percent}} %",
+    duplicateJevProbability: "Probabilité Jev de même entité : {{percent}} %",
+    duplicateMatchedOn: "Indices communs : {{values}}",
     evidenceAttached: "Preuve d’appel jointe.",
     evidenceAttachFailed: "Impossible de joindre la preuve.",
     addEvidence: "Ajouter une preuve",

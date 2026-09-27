@@ -1,13 +1,3 @@
-/**
- * Catalog entries for the framework's own system emails.
- *
- * These ship with every app rather than belonging to one, so they register
- * under the `core` app instead of the running app's slug. Importing this module
- * performs the registration; `register-system-emails.ts` is the single import
- * site so the emails appear in every app's catalog without each template
- * remembering to opt in.
- */
-
 import {
   renderChangeEmailConfirmationEmail,
   renderChangeEmailVerificationEmail,
@@ -18,7 +8,6 @@ import {
 } from "../server/email-templates.js";
 import { defineTransactionalEmail } from "./registry.js";
 
-/** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_URL = "https://example.com/accept/sample-token";
 const SAMPLE_EMAIL = "sam.rivera@example.com";
 

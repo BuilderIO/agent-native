@@ -446,7 +446,19 @@ export function ClipsCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
-      changelog={changelog}
+      changelog={changelog
+        .split(
+          "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+        )
+        .join(t("settings.changelogCommentSignup"))
+        .split(
+          "The empty comments state now explains how screen recordings help AI agents.",
+        )
+        .join(t("settings.changelogCommentsEmptyState"))
+        .split(
+          'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
+        )
+        .join(t("settings.changelogShareLink"))}
       changelogLabel={t("settings.whatsNew")}
       changelogKey="clips"
       renderResults={renderResults}

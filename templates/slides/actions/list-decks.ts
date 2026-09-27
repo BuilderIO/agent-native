@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, sql } from "drizzle-orm";
@@ -22,6 +22,16 @@ function parseJsonProjection(value: unknown, label: string): unknown {
   } catch (error) {
     throw new Error(`Invalid ${label} JSON projection`, { cause: error });
   }
+}
+
+const INVALID_TEXT_REPRESENTATION = "22P02";
+
+function isInvalidJsonCastError(error: unknown): boolean {
+  const err = error as { code?: unknown; cause?: { code?: unknown } };
+  return (
+    err?.code === INVALID_TEXT_REPRESENTATION ||
+    err?.cause?.code === INVALID_TEXT_REPRESENTATION
+  );
 }
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -86,6 +96,14 @@ export default defineAction({
       .enum(["all", "me"])
       .optional()
       .describe("Set to 'me' to list only decks created by the current user"),
+    search: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe(
+        "Optional case-insensitive substring search against deck titles, before pagination.",
+      ),
     updatedSince: z
       .string()
       .datetime({ offset: true })
@@ -131,13 +149,15 @@ export default defineAction({
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
-    const where =
+    const where = and(
+      visibleDecks,
       args.createdBy === "me" && normalizedOwnerEmail !== null
-        ? and(
-            visibleDecks,
-            sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
-          )
-        : visibleDecks;
+        ? sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`
+        : undefined,
+      args.search
+        ? sql`strpos(lower(${schema.decks.title}), ${args.search.toLowerCase()}) > 0`
+        : undefined,
+    );
 
     const paged =
       args.updatedSince !== undefined ||
@@ -210,22 +230,14 @@ export default defineAction({
     }
 
     if (args.light === "true") {
-      // Column-projected listing for cheap add/remove diffing (the client's
-      // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large. The home grid opts
-      // into the separate preview projection; polling keeps the metadata-only
-      // path below.
       if (args.includePreview === "true") {
-        // Keep the list bounded at the database boundary. `data` is an opaque
-        // full-deck blob, so selecting it and parsing it here scales with every
-        // slide even though the caller only needs the first one.
         const previewSlideProjection = sql<
           string | null
         >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`;
         const aspectRatioProjection = sql<
           string | null
         >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`;
-        const rows = await db
+        const previewQuery = db
           .select({
             id: schema.decks.id,
             title: schema.decks.title,
@@ -238,6 +250,51 @@ export default defineAction({
           .from(schema.decks)
           .where(where)
           .orderBy(desc(schema.decks.updatedAt));
+
+        let rows: Awaited<typeof previewQuery>;
+        try {
+          rows = await previewQuery;
+        } catch (error) {
+          if (!isInvalidJsonCastError(error)) throw error;
+          captureError(error, {
+            route: "list-decks",
+            extra: { includePreview: true },
+          });
+          const rawRows = await db
+            .select({
+              id: schema.decks.id,
+              title: schema.decks.title,
+              updatedAt: schema.decks.updatedAt,
+              visibility: schema.decks.visibility,
+              ownerEmail: schema.decks.ownerEmail,
+              data: schema.decks.data,
+            })
+            .from(schema.decks)
+            .where(where)
+            .orderBy(desc(schema.decks.updatedAt));
+          rows = rawRows.map(({ data, ...meta }) => {
+            let previewSlide: string | null = null;
+            let aspectRatio: string | null = null;
+            try {
+              const parsed = JSON.parse(data);
+              const firstSlide = Array.isArray(parsed?.slides)
+                ? parsed.slides[0]
+                : undefined;
+              if (firstSlide !== undefined) {
+                previewSlide = JSON.stringify(firstSlide);
+              }
+              if (typeof parsed?.aspectRatio === "string") {
+                aspectRatio = parsed.aspectRatio;
+              }
+            } catch (parseError) {
+              captureError(parseError, {
+                route: "list-decks",
+                extra: { deckId: meta.id },
+              });
+            }
+            return { ...meta, previewSlide, aspectRatio };
+          });
+        }
 
         return {
           count: rows.length,
@@ -293,9 +350,6 @@ export default defineAction({
     }
 
     if (args.includeSlides !== "true") {
-      // The deck body is an opaque JSON blob containing every slide's HTML.
-      // Metadata callers must opt into it explicitly; the frontend opens one
-      // deck at a time through get-deck instead of downloading every body.
       const rows = await db
         .select({
           id: schema.decks.id,

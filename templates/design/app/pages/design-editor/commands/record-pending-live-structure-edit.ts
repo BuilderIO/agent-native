@@ -18,6 +18,7 @@ import type {
 import {
   appendPendingLiveNonStyleUndoEntry,
   mergePendingLiveNonStyleEdits,
+  nextPendingLiveEditTimestamp,
   pendingLiveStructureEditsFromUndoEntry,
   pendingLiveStructureEditsMatch,
   projectRelativeSourcePath,
@@ -32,6 +33,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface RecordPendingLiveStructureEditArgs {
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -53,6 +55,10 @@ export interface RecordPendingLiveStructureEditArgs {
     | undefined
   >;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setPendingLiveNonStyleEdits: Dispatch<
     SetStateAction<PendingLiveNonStyleEdit[]>
@@ -63,12 +69,10 @@ export type PendingLiveStructureEditRequest = Parameters<
   typeof preparePendingLiveStructureEdit
 >;
 
-/** Builds a source handoff without changing the pending, undo, redo, or
- * verification state. Grouped gestures prepare every member before committing
- * any of them, so a rejected later member cannot leave an earlier one pending. */
 export function preparePendingLiveStructureEdit(
   {
     canEditDesign,
+    canEditLiveScreens,
     files,
     localhostConnectionRootPathByIdRef,
     overviewScreens,
@@ -76,6 +80,7 @@ export function preparePendingLiveStructureEdit(
   }: Pick<
     RecordPendingLiveStructureEditArgs,
     | "canEditDesign"
+    | "canEditLiveScreens"
     | "files"
     | "localhostConnectionRootPathByIdRef"
     | "overviewScreens"
@@ -92,6 +97,7 @@ export function preparePendingLiveStructureEdit(
     anchorElementInfo?: ElementInfo;
     requestId?: string;
     transactionId?: string;
+    routePath?: string;
     dropMode?: "flow-insert" | "absolute-container";
     forceFlowPositionOverride?: boolean;
     sourceRect?: { x: number; y: number; width: number; height: number };
@@ -113,6 +119,7 @@ export function preparePendingLiveStructureEdit(
       };
     }>;
     insertedHtml?: string;
+    remintCollidingNodeIds?: boolean;
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
@@ -121,8 +128,7 @@ export function preparePendingLiveStructureEdit(
     removed?: true;
   },
 ): PendingLiveStructureEdit | undefined {
-  if (!canEditDesign) return undefined;
-
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return undefined;
   const screen = files.find((file) => file.id === screenId);
   const overviewScreen = overviewScreens.find(
     (candidate) => candidate.id === screenId,
@@ -147,6 +153,7 @@ export function preparePendingLiveStructureEdit(
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
+    ...(details?.routePath ? { routePath: details.routePath } : {}),
     sourceId: subjectSourceId ?? null,
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info: subjectInfo,
@@ -177,6 +184,7 @@ export function preparePendingLiveStructureEdit(
     gridPlacement: details?.gridPlacement,
     gridDisplacements: details?.gridDisplacements,
     insertedHtml: details?.insertedHtml,
+    remintCollidingNodeIds: details?.remintCollidingNodeIds,
     ...(details?.replaced
       ? {
           replaced: true as const,
@@ -190,7 +198,7 @@ export function preparePendingLiveStructureEdit(
     ...(details?.removed ? { removed: true as const } : {}),
     requestId: details?.requestId,
     transactionId: details?.transactionId,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   nextEdit.subjectSignature = runtimeStructureNodeSignature({
     info: subjectInfo,
@@ -227,6 +235,7 @@ export function commitPendingLiveStructureEdits(
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     setPendingLiveNonStyleEdits,
   }: Pick<
     RecordPendingLiveStructureEditArgs,
@@ -237,6 +246,7 @@ export function commitPendingLiveStructureEdits(
     | "pendingStructureRedoReplayRef"
     | "pendingStructureRedoReplayTimerRef"
     | "pendingVisualStyleRedoStackRef"
+    | "recordPendingHistoryEntry"
     | "setPendingLiveNonStyleEdits"
   >,
   edits: readonly PendingLiveStructureEdit[],
@@ -272,11 +282,15 @@ export function commitPendingLiveStructureEdits(
     }
     pendingVisualStyleRedoStackRef.current = [];
   }
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(pendingLiveNonStyleUndoStackRef.current, {
     kind: "structure",
     edit: nextEdit,
     ...(edits.length > 1 ? { groupedEdits: [...edits] } : {}),
   });
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live", replaysUndoneStructure);
+  }
   const nextPending = mergePendingLiveNonStyleEdits([
     ...pendingLiveNonStyleEditsRef.current,
     ...edits,
@@ -288,6 +302,7 @@ export function commitPendingLiveStructureEdits(
 export function runRecordPendingLiveStructureEdit(
   {
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     files,
     localhostConnectionRootPathByIdRef,
@@ -299,6 +314,7 @@ export function runRecordPendingLiveStructureEdit(
     pendingStructureRedoReplayTimerRef,
     pendingStructureRedoPreparedEditsRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
     runtimeLayerSnapshotsById,
     setPendingLiveNonStyleEdits,
   }: RecordPendingLiveStructureEditArgs,
@@ -333,22 +349,20 @@ export function runRecordPendingLiveStructureEdit(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
-    /** The inserted markup replaced this subject as one live gesture. */
+    remintCollidingNodeIds?: boolean;
     replaced?: true;
     replacementSelector?: string;
     replacementSourceId?: string;
     replacementElementInfo?: ElementInfo;
     replacementSnapshotHtml?: string;
-    /** This change DELETED the subject; it has no anchor. */
     removed?: true;
   },
 ) {
   const nextEdit = preparePendingLiveStructureEdit(
     {
       canEditDesign,
+      canEditLiveScreens,
       files,
       localhostConnectionRootPathByIdRef,
       overviewScreens,
@@ -399,6 +413,7 @@ export function runRecordPendingLiveStructureEdit(
         pendingStructureRedoReplayRef,
         pendingStructureRedoReplayTimerRef,
         pendingVisualStyleRedoStackRef,
+        recordPendingHistoryEntry,
         setPendingLiveNonStyleEdits,
       },
       replayEdits.map(
@@ -422,6 +437,7 @@ export function runRecordPendingLiveStructureEdit(
       pendingStructureRedoReplayRef,
       pendingStructureRedoReplayTimerRef,
       pendingVisualStyleRedoStackRef,
+      recordPendingHistoryEntry,
       setPendingLiveNonStyleEdits,
     },
     [nextEdit],

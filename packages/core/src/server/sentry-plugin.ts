@@ -48,14 +48,8 @@ function readRoute(event: H3Event): string | undefined {
   }
 }
 
-/**
- * Skip session resolution for paths that obviously don't need one. Avoids
- * a DB round-trip on every static-asset / favicon / public-share request
- * while keeping API + framework routes covered.
- */
 function shouldResolveSession(path: string | undefined): boolean {
   if (!path) return false;
-  // Vite / React Router static assets and similar.
   if (
     path.startsWith("/assets/") ||
     path.startsWith("/_build/") ||
@@ -74,8 +68,6 @@ export function createSentryPlugin(): NitroPluginDef {
 
     initServerSentry();
     if (!isServerSentryEnabled()) {
-      // No DSN — skip wiring per-request hooks. We'd just be paying the
-      // call-site overhead for every request to no effect.
       return;
     }
 
@@ -113,10 +105,4 @@ export function createSentryPlugin(): NitroPluginDef {
   };
 }
 
-/**
- * Default Sentry plugin — auto-mounts when a template doesn't define its
- * own `server/plugins/sentry.ts`. Reads `SENTRY_SERVER_DSN`/`SENTRY_DSN` from env and
- * silently no-ops when it's unset, so this is safe to default-mount in
- * every template (including local dev with no DSN configured).
- */
 export const defaultSentryPlugin: NitroPluginDef = createSentryPlugin();

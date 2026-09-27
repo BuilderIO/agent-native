@@ -1,10 +1,4 @@
-/**
- * Public, non-secret configuration for an Agent-Native app.
- *
- * This module is intentionally free of Node and framework imports so it can be
- * used from a typed `agent-native.config.ts` file and from browser code after Vite
- * serializes the resolved config into the client bundle.
- */
+import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
 
@@ -20,29 +14,18 @@ export type AgentNativeFirstRunOnboardingSetting =
     });
 
 export interface AgentNativeOnboardingConfig {
-  /**
-   * First-run setup shown by the shared Agent Sidebar.
-   *
-   * `connect` shows Builder/BYOK setup and skips the generic integrations
-   * catalog. `connect-and-integrations` includes that catalog. A per-Vite-mode
-   * object is useful when local development and hosted builds need different
-   * defaults.
-   */
   firstRun?: AgentNativeFirstRunOnboardingSetting;
 }
 
 export interface AgentNativeRuntimeAuthConfig {
-  /** Whether the app expects the framework or a custom auth layer to run. */
   enabled?: boolean;
 }
 
 export interface AgentNativeRuntimeDatabaseConfig {
-  /** Whether production needs a persistent remote database. */
   required?: boolean;
 }
 
 export interface AgentNativeRuntimeEnvironmentConfig {
-  /** Additional non-secret environment keys required by this app. */
   required?: string[];
 }
 
@@ -50,6 +33,7 @@ export interface AgentNativeRuntimeConfig {
   auth?: AgentNativeRuntimeAuthConfig;
   database?: AgentNativeRuntimeDatabaseConfig;
   environment?: AgentNativeRuntimeEnvironmentConfig;
+  frameworkRoutePrefix?: string;
 }
 
 export type AgentNativeDeploymentEnvironment =
@@ -59,45 +43,34 @@ export type AgentNativeDeploymentEnvironment =
   | "preview";
 
 export interface AgentNativeDeploymentConfig {
-  /** The release lane that produced the currently running client bundle. */
   environment?: AgentNativeDeploymentEnvironment;
-  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
   badgeText?: string;
-  /** Workspace deploy settings for multi-app roots that do not use apps/. */
   workspace?: AgentNativeWorkspaceDeploymentConfig;
 }
 
 export type AgentNativeWorkspaceAuthMode = "shared" | "isolated";
+export type AgentNativeWorkspaceRootPage = "redirect" | "directory";
 
 export interface AgentNativeWorkspaceDeploymentConfig {
-  /** Relative directory containing the app package directories. Defaults to apps/. */
   appsDirectory?: string;
-  /** Whether mounted apps share auth or keep per-app sessions. Defaults to shared. */
   authMode?: AgentNativeWorkspaceAuthMode;
+  rootPage?: AgentNativeWorkspaceRootPage;
 }
 
 export interface AgentNativeDiagnosticsConfig {
-  /** Fail a production Vite build when runtime configuration has issues. */
   failOnBuild?: boolean;
 }
 
 export interface AgentNativeInstructionsConfig {
-  /** Relative Markdown file loaded by the in-app runtime agent. */
   runtime?: string;
-  /** Relative Markdown file loaded by development/coding agents. */
   development?: string;
 }
 
 export interface AgentNativeTranslationsConfig {
-  /**
-   * Locales the app intentionally ships translations for. `en-US` is the
-   * default source locale; additional locales are opt-in.
-   */
   locales?: string[];
 }
 
 export interface AgentNativeChangelogConfig {
-  /** Whether agents should create and surface user-facing changelog entries. */
   enabled?: boolean;
 }
 
@@ -108,14 +81,9 @@ export type AgentNativeHarnessRuntime =
   | "opencode";
 
 export interface AgentNativeHarnessConfig {
-  /** Optionally narrow the hosted harness picker to these runtimes. */
   runtimes?: AgentNativeHarnessRuntime[];
 }
 
-/**
- * The intentionally small app-level switch for hosted tools-only harnesses.
- * `true` enables every supported runtime; an object narrows the picker.
- */
 export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
 
 export interface AgentNativeConfig {
@@ -123,7 +91,6 @@ export interface AgentNativeConfig {
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   deployment?: AgentNativeDeploymentConfig;
-  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
   badgeText?: string;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
@@ -147,13 +114,6 @@ export type AgentNativeConfigInput =
   | AgentNativeConfig
   | AgentNativeConfigFactory;
 
-/**
- * Type-safe authoring helper for `agent-native.config.ts`.
- *
- * Like Next's typed config file, this is deliberately identity-like: the
- * framework evaluates the exported object or factory in the Vite config
- * phase, while the browser only receives the resolved serializable result.
- */
 export function defineAgentNativeConfig(
   config: AgentNativeConfigInput,
 ): AgentNativeConfigInput {
@@ -178,13 +138,6 @@ interface AgentNativeConfigEnvNode {
   dynamicObjectKeys?: boolean;
 }
 
-/**
- * Serializable public config nodes that may be initialized from the
- * deployment environment. Object nodes accept JSON fragments, which lets a
- * deploy set a whole section without requiring a separate alias for every
- * leaf. Dynamic keys in the onboarding mode map stay JSON-only at the union
- * node because they are not part of the fixed config shape.
- */
 const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: [], kind: "object" },
   { path: ["version"], kind: "number" },
@@ -204,6 +157,7 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     path: ["runtime", "environment", "required"],
     kind: "array",
   },
+  { path: ["runtime", "frameworkRoutePrefix"], kind: "string" },
   { path: ["deployment"], kind: "object" },
   {
     path: ["deployment", "environment"],
@@ -212,6 +166,7 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["deployment", "workspace"], kind: "object" },
   { path: ["deployment", "workspace", "appsDirectory"], kind: "string" },
   { path: ["deployment", "workspace", "authMode"], kind: "string" },
+  { path: ["deployment", "workspace", "rootPage"], kind: "string" },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
   { path: ["instructions"], kind: "object" },
@@ -234,7 +189,6 @@ function agentNativeConfigEnvSegment(segment: string): string {
     .toUpperCase();
 }
 
-/** Convert a config path such as `runtime.auth.enabled` to its env name. */
 export function agentNativeConfigEnvName(path: readonly string[]): string {
   if (path.length === 0) return AGENT_NATIVE_CONFIG_ENV_PREFIX;
   return `${AGENT_NATIVE_CONFIG_ENV_PREFIX}_${path
@@ -430,13 +384,6 @@ function assignAgentNativeConfigEnvFragment(
       : value;
 }
 
-/**
- * Reads the public config's deterministic environment aliases.
- *
- * `AGENT_NATIVE_CONFIG` contains a complete JSON object. A suffixed name
- * contains a JSON fragment at that config path, or a typed scalar at a leaf.
- * Nodes are applied from shallowest to deepest so a more specific path wins.
- */
 export function readAgentNativeConfigEnv(
   env: Record<string, string | undefined>,
 ): AgentNativeConfig {
@@ -728,6 +675,35 @@ export function resolveFirstRunOnboardingMode(
   return environmentValue ?? setting.default ?? "off";
 }
 
+export function isFirstRunOnboardingModeActive(
+  mode: AgentNativeFirstRunOnboardingMode | undefined,
+): boolean {
+  return mode === "connect" || mode === "connect-and-integrations";
+}
+
+export const FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY =
+  "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING";
+
+export function resolveEffectiveFirstRunOnboardingMode(
+  envOverride: string | boolean | undefined,
+  configuredMode: AgentNativeFirstRunOnboardingMode | undefined,
+): AgentNativeFirstRunOnboardingMode {
+  if (envOverride !== undefined) {
+    const enabled =
+      envOverride === true ||
+      (typeof envOverride === "string" &&
+        ["1", "true"].includes(envOverride.trim().toLowerCase()));
+    return enabled ? "connect" : "off";
+  }
+  if (
+    configuredMode !== undefined &&
+    isFirstRunOnboardingModeActive(configuredMode)
+  ) {
+    return configuredMode;
+  }
+  return "off";
+}
+
 function normalizeFirstRunSetting(
   value: unknown,
   source: string,
@@ -766,6 +742,12 @@ function normalizeRuntimeConfig(
   }
 
   const result: AgentNativeRuntimeConfig = {};
+  if (value.frameworkRoutePrefix !== undefined) {
+    result.frameworkRoutePrefix = normalizeFrameworkRoutePrefix(
+      value.frameworkRoutePrefix,
+      `${source}.frameworkRoutePrefix`,
+    );
+  }
   for (const section of ["auth", "database", "environment"] as const) {
     const sectionValue = value[section];
     if (sectionValue === undefined) continue;
@@ -821,6 +803,7 @@ function normalizeDeploymentConfig(
     }
     const appsDirectory = workspace.appsDirectory;
     const authMode = workspace.authMode;
+    const rootPage = workspace.rootPage;
     if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
       throw new Error(`${source}.workspace.appsDirectory must be a string`);
     }
@@ -833,6 +816,15 @@ function normalizeDeploymentConfig(
         `${source}.workspace.authMode must be "shared" or "isolated"`,
       );
     }
+    if (
+      rootPage !== undefined &&
+      rootPage !== "redirect" &&
+      rootPage !== "directory"
+    ) {
+      throw new Error(
+        `${source}.workspace.rootPage must be "redirect" or "directory"`,
+      );
+    }
     normalizedWorkspace = {
       ...(appsDirectory === undefined
         ? {}
@@ -843,6 +835,7 @@ function normalizeDeploymentConfig(
             ),
           }),
       ...(authMode === undefined ? {} : { authMode }),
+      ...(rootPage === undefined ? {} : { rootPage }),
     };
   }
 
@@ -1057,13 +1050,6 @@ export function isAgentNativeDeploymentEnvironment(
   );
 }
 
-/**
- * Resolve the public deployment lane from hosting facts at build time.
- *
- * Netlify exposes `CONTEXT` and `BRANCH` to builds. Keeping this inference in
- * the Vite/config boundary means browser code consumes typed public config and
- * never parses process.env itself.
- */
 export function inferAgentNativeDeploymentEnvironment(
   env: Record<string, string | undefined>,
   mode?: string,

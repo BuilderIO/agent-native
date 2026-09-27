@@ -1,19 +1,3 @@
-/**
- * Changelog UI — renders an app's CHANGELOG.md as an in-app "What's new"
- * surface. Core owns all of this; a template just passes its own
- * `CHANGELOG.md?raw` content in (Vite inlines it at build time, so this works
- * on every host with no runtime file access or server route).
- *
- * Surfaces:
- *   - <ChangelogDialog>      a self-contained modal listing every release.
- *   - <ChangelogSettingsCard> a settings-page card with the latest updates.
- *   - useChangelogSeen()     tracks the last release a user has seen (so the
- *                            command menu can show an "unseen" dot).
- *
- * The command menu's built-in `changelog` prop (see CommandMenu.tsx) wires the
- * dialog automatically — most templates never touch these directly.
- */
-
 import { IconChevronDown, IconHistory, IconX } from "@tabler/icons-react";
 import React, { useEffect, useId, useMemo, useState } from "react";
 
@@ -27,11 +11,13 @@ import {
 import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
 import { cn } from "../utils.js";
 
-// ─── Date formatting ──────────────────────────────────────────────────────────
+export {
+  getChangelogLatestId,
+  useChangelogSeen,
+} from "./use-changelog-seen.js";
 
 function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   if (entry.date) {
-    // Parse as a plain calendar date (avoid TZ shifting YYYY-MM-DD back a day).
     const [y, m, d] = entry.date.split("-").map(Number);
     if (y && m && d) {
       const formatted = new Date(y, m - 1, d).toLocaleDateString(locale, {
@@ -44,11 +30,6 @@ function formatEntryHeading(entry: ChangelogEntry, locale: LocaleCode): string {
   }
   return entry.title;
 }
-
-// ─── Markdown body ────────────────────────────────────────────────────────────
-// A small, self-contained renderer for a release body. Avoids depending on the
-// typography plugin (`prose`) being generated in the host template by applying
-// explicit utility classes that Tailwind scans from core's compiled output.
 
 const changelogMarkdownComponents = {
   h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
@@ -97,8 +78,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
   const gfm = remarkGfmFn;
 
   if (!ready || !ReactMarkdown || !gfm) {
-    // The react-markdown chunk loads on module eval; this is typically only one
-    // frame. Show readable plain text rather than nothing in the meantime.
     return (
       <div className="whitespace-pre-wrap text-sm text-foreground">
         {markdown}
@@ -115,54 +94,6 @@ function ChangelogBody({ markdown }: { markdown: string }) {
     </ReactMarkdown>
   );
 }
-
-// ─── Unseen tracking ──────────────────────────────────────────────────────────
-
-function seenStorageKey(appKey: string): string {
-  return `an:changelog-seen:${appKey}`;
-}
-
-/**
- * Tracks the latest release a user has already seen (per browser, via
- * localStorage). Returns whether there's an unseen release and a `markSeen`
- * callback to clear the indicator once the changelog is opened.
- */
-export function useChangelogSeen(
-  appKey: string,
-  latestId: string | undefined,
-): { unseen: boolean; markSeen: () => void } {
-  const [seenId, setSeenId] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    try {
-      setSeenId(window.localStorage.getItem(seenStorageKey(appKey)));
-    } catch {
-      // Private mode / disabled storage — treat as "nothing seen yet".
-    }
-    setHydrated(true);
-  }, [appKey]);
-
-  const markSeen = React.useCallback(() => {
-    if (!latestId) return;
-    setSeenId(latestId);
-    try {
-      window.localStorage.setItem(seenStorageKey(appKey), latestId);
-    } catch {
-      // Ignore storage failures; the dot just won't persist.
-    }
-  }, [appKey, latestId]);
-
-  // Don't flag "unseen" until hydrated, and never on a first-ever visit (no
-  // stored value) — only once the user has seen *something* and a newer
-  // release appears. This avoids nagging brand-new users.
-  const unseen =
-    hydrated && !!latestId && seenId !== null && seenId !== latestId;
-
-  return { unseen, markSeen };
-}
-
-// ─── Shared markup ────────────────────────────────────────────────────────────
 
 function ChangelogEntries({
   entries,
@@ -190,14 +121,10 @@ function ChangelogEntries({
   );
 }
 
-// ─── Dialog ───────────────────────────────────────────────────────────────────
-
 export interface ChangelogDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Raw CHANGELOG.md contents (e.g. `import md from "../CHANGELOG.md?raw"`). */
   markdown: string;
-  /** Dialog heading. Default: "What's new". */
   title?: string;
   closeLabel?: string;
   emptyText?: string;
@@ -262,14 +189,9 @@ export function ChangelogDialog({
   );
 }
 
-// ─── Settings card ────────────────────────────────────────────────────────────
-
 export interface ChangelogSettingsCardProps {
-  /** Raw CHANGELOG.md contents (e.g. `import md from "../CHANGELOG.md?raw"`). */
   markdown: string;
-  /** How many recent releases to show inline before "View all". Default: 2. */
   limit?: number;
-  /** Card heading. Default: "What's new". */
   title?: string;
   closeLabel?: string;
   emptyText?: string;

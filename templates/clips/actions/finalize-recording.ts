@@ -1,16 +1,7 @@
-/**
- * Finalize a recording — assemble chunks, upload the final blob,
- * update the recording row, flip status to 'processing' → 'ready',
- * and request transcription. Title generation is queued by the transcript
- * path once usable transcript text exists.
- *
- * Usage:
- *   pnpm action finalize-recording --id=<recordingId>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
+  compareAndSetManyAppState,
   deleteAppState,
   readAppState,
   writeAppState,
@@ -34,10 +25,15 @@ import {
 import { allowsLegacyS3ObjectForPersistedMedia } from "../server/lib/media-storage-provenance.js";
 import {
   mediaVerificationStateKey,
+  mediaVerificationMarkerMatchesUpload,
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
+import {
+  recordingTrackingSource,
+  trackRecordingFailure,
+} from "../server/lib/recording-failures.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -71,21 +67,12 @@ import {
   markRecordingSeekable,
 } from "./lib/ensure-seekable-video.js";
 
-// Recordings up to this size get their seekable rewrite applied inline during
-// finalize (we already hold the assembled bytes). Larger recordings are handed
-// off to the background/reprocess path so we don't stretch the finalize
-// request or exhaust serverless /tmp. Override with CLIPS_INLINE_REMUX_MAX_BYTES.
 function inlineRemuxMaxBytes(): number {
   const raw = Number(process.env.CLIPS_INLINE_REMUX_MAX_BYTES ?? "");
   if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
   return 200 * 1024 * 1024;
 }
 
-/**
- * Decode a base64 string back into a Uint8Array.
- * We store chunks as base64 in application_state because the SQL JSON
- * column holds text, not raw bytes.
- */
 function b64ToBytes(b64: string): Uint8Array {
   if (typeof Buffer !== "undefined") {
     const buf = Buffer.from(b64, "base64");
@@ -116,6 +103,43 @@ const MEDIA_SERVE_VERIFICATION_ATTEMPTS = 3;
 const MEDIA_SERVE_VERIFICATION_BACKOFF_MS = 350;
 const MEDIA_VERIFICATION_MAX_DURABLE_ATTEMPTS = 10;
 const MEDIA_VERIFICATION_INITIAL_RETRY_DELAY_MS = 5_000;
+
+function trackUploadBlockingFailure(params: {
+  id: string;
+  ownerEmail: string;
+  uploadAttemptId: string | null | undefined;
+  recordingPlatform: string | null | undefined;
+  failureCode: string;
+  failureType: string;
+}): void {
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "server_upload",
+        stage: "finalize_recording",
+        outcome: "failed",
+        failure_type: params.failureType,
+        failure_code: params.failureCode,
+        output_id: params.id,
+        output_type: "clip",
+        recording_id: params.id,
+        recording_attempt_id: params.id,
+        ...(params.uploadAttemptId
+          ? { upload_attempt_id: params.uploadAttemptId }
+          : {}),
+        recording_platform: params.recordingPlatform ?? "unknown",
+        upload_mode: "buffered",
+      },
+      recordingTrackingSource(params.ownerEmail),
+    );
+    // coercion-ok: analytics must not change the persisted upload outcome.
+  } catch {
+    // Best-effort analytics must never change upload behavior.
+  }
+}
 
 function stateNumber(
   value: Record<string, unknown> | null | undefined,
@@ -250,10 +274,6 @@ async function verifyServedMediaUrl(
         if (servedBytes === null) {
           lastFailure = "Stored media byte count could not be verified";
         } else if (await responseHasReadableMediaBytes(response)) {
-          // Builder stable video URLs intentionally replace the source object
-          // with a smaller compressed generation at the same URL. A positive,
-          // readable object is the invariant here; source-byte equality is
-          // verified separately by the upload receipt/local backup contract.
           return servedBytes;
         } else {
           lastFailure = "media URL did not serve readable bytes";
@@ -304,15 +324,28 @@ function queueBackgroundBuilderCompression(args: {
 async function failStoredButUnservableRecording(params: {
   id: string;
   ownerEmail: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedUploadState: Record<string, unknown> | null;
+  expectedVerificationState: Record<string, unknown> | null;
   failureReason: string;
 }): Promise<boolean> {
-  const { id, ownerEmail, failureReason } = params;
+  const {
+    id,
+    ownerEmail,
+    uploadAttemptId,
+    uploadGenerationId,
+    expectedUploadState,
+    expectedVerificationState,
+    failureReason,
+  } = params;
   const now = new Date().toISOString();
   const db = getDb();
   const failed = await db
     .update(schema.recordings)
     .set({
       status: "failed",
+      failureCode: "media_verification_failed",
       failureReason,
       updatedAt: now,
     })
@@ -321,29 +354,70 @@ async function failStoredButUnservableRecording(params: {
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         eq(schema.recordings.status, "processing"),
+        uploadAttemptId === null
+          ? isNull(schema.recordings.uploadAttemptId)
+          : eq(schema.recordings.uploadAttemptId, uploadAttemptId),
+        uploadGenerationId === null
+          ? isNull(schema.recordings.uploadGenerationId)
+          : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
       ),
     )
-    .returning({ id: schema.recordings.id });
-  if (failed.length !== 1) return false;
-  const uploadStateRaw = await readAppState(`recording-upload-${id}`).catch(
-    () => null,
-  );
-  const uploadState =
-    uploadStateRaw && typeof uploadStateRaw === "object"
-      ? (uploadStateRaw as Record<string, unknown>)
-      : {};
-  await writeAppState(`recording-upload-${id}`, {
-    ...uploadState,
-    recordingId: id,
-    status: "failed",
-    failureReason,
-    updatedAt: now,
-  });
-  await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
-    console.warn("[finalize] failed to clear media verification marker", {
-      id,
-      error: err instanceof Error ? err.message : String(err),
+    .returning({
+      id: schema.recordings.id,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      recordingPlatform: schema.recordings.recordingPlatform,
     });
+  if (failed.length !== 1) return false;
+  const statePublished = await compareAndSetManyAppState([
+    {
+      key: `recording-upload-${id}`,
+      expectedValue: expectedUploadState,
+      nextValue: {
+        ...(expectedUploadState ?? {}),
+        recordingId: id,
+        status: "failed",
+        pendingMediaVerification: false,
+        uploadAttemptId,
+        uploadGenerationId,
+        failureReason,
+        updatedAt: now,
+      },
+    },
+    {
+      key: mediaVerificationStateKey(id),
+      expectedValue: expectedVerificationState,
+      nextValue: null,
+    },
+  ]);
+  if (!statePublished) return false;
+  try {
+    track(
+      "clips_upload_blocking_failure",
+      {
+        app: "clips",
+        template: "clips",
+        surface: "media_verification",
+        stage: "media_verification",
+        outcome: "failed",
+        failure_type: "media_verification",
+        failure_code: "media_verification_failed",
+        recording_attempt_id: id,
+        ...(failed[0]?.uploadAttemptId
+          ? { upload_attempt_id: failed[0].uploadAttemptId }
+          : {}),
+        recording_platform: failed[0]?.recordingPlatform ?? "unknown",
+      },
+      recordingTrackingSource(ownerEmail),
+    );
+  } catch {
+    // coercion-ok: analytics is best-effort and must not change media recovery behavior.
+  }
+  trackRecordingFailure({
+    recordingId: id,
+    userId: ownerEmail,
+    uploadAttemptId: failed[0]?.uploadAttemptId,
+    platform: failed[0]?.recordingPlatform,
+    failureCode: "media_verification_failed",
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
@@ -403,11 +477,24 @@ function pendingMediaVerificationFromState(
 async function persistPendingMediaVerification(params: {
   id: string;
   ownerEmail: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedUploadState: Record<string, unknown> | null;
+  expectedVerificationState: Record<string, unknown> | null;
   media: PendingMediaVerification;
   failureReason: string;
   retryAttempt?: number;
 }): Promise<boolean> {
-  const { id, ownerEmail, media, failureReason } = params;
+  const {
+    id,
+    ownerEmail,
+    uploadAttemptId,
+    uploadGenerationId,
+    expectedUploadState,
+    expectedVerificationState,
+    media,
+    failureReason,
+  } = params;
   const now = new Date().toISOString();
   const retryAttempt = Math.max(0, params.retryAttempt ?? 0);
   const nextRetryAttempt = Math.min(
@@ -432,6 +519,7 @@ async function persistPendingMediaVerification(params: {
       hasAudio: media.finalHasAudio,
       hasCamera: media.finalHasCamera,
       failureReason: null,
+      failureCode: null,
       uploadProgress: 100,
       updatedAt: now,
     })
@@ -441,85 +529,136 @@ async function persistPendingMediaVerification(params: {
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         eq(schema.recordings.status, "processing"),
         isNull(schema.recordings.trashedAt),
+        uploadAttemptId === null
+          ? isNull(schema.recordings.uploadAttemptId)
+          : eq(schema.recordings.uploadAttemptId, uploadAttemptId),
+        uploadGenerationId === null
+          ? isNull(schema.recordings.uploadGenerationId)
+          : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
       ),
     )
     .returning({ id: schema.recordings.id });
   if (persisted.length !== 1) return false;
 
-  await writeAppState(`recording-upload-${id}`, {
-    recordingId: id,
-    status: "processing",
-    progress: 100,
-    pendingMediaVerification: true,
-    mediaVerificationAttempt: retryAttempt,
-    mediaVerificationNextAttemptAt: nextAttemptAt,
-    mediaVerificationLastError: failureReason,
-    videoUrl: media.videoUrl,
-    videoSizeBytes: media.videoSizeBytes,
-    sourceSizeBytes: media.sourceSizeBytes,
-    videoFormat: media.videoFormat,
-    durationMs: media.finalDurationMs,
-    width: media.finalWidth,
-    height: media.finalHeight,
-    hasAudio: media.finalHasAudio,
-    hasCamera: media.finalHasCamera,
-    seekableApplied: media.seekableApplied,
-    mimeType: media.mimeType,
-    providerId: media.providerId,
-    assetDbId: media.assetDbId,
-    locallyTranscoded: media.locallyTranscoded,
-    updatedAt: now,
-  });
-  await writeAppState(mediaVerificationStateKey(id), {
-    recordingId: id,
-    status: "pending",
-    completedAttempts: retryAttempt,
-    nextAttemptAt,
-    leaseUntil: null,
-    updatedAt: now,
-  });
+  const statePublished = await compareAndSetManyAppState([
+    {
+      key: `recording-upload-${id}`,
+      expectedValue: expectedUploadState,
+      nextValue: {
+        recordingId: id,
+        status: "processing",
+        progress: 100,
+        pendingMediaVerification: true,
+        mediaVerificationAttempt: retryAttempt,
+        mediaVerificationNextAttemptAt: nextAttemptAt,
+        mediaVerificationLastError: failureReason,
+        uploadAttemptId,
+        uploadGenerationId,
+        videoUrl: media.videoUrl,
+        videoSizeBytes: media.videoSizeBytes,
+        sourceSizeBytes: media.sourceSizeBytes,
+        videoFormat: media.videoFormat,
+        durationMs: media.finalDurationMs,
+        width: media.finalWidth,
+        height: media.finalHeight,
+        hasAudio: media.finalHasAudio,
+        hasCamera: media.finalHasCamera,
+        seekableApplied: media.seekableApplied,
+        mimeType: media.mimeType,
+        providerId: media.providerId,
+        assetDbId: media.assetDbId,
+        locallyTranscoded: media.locallyTranscoded,
+        updatedAt: now,
+      },
+    },
+    {
+      key: mediaVerificationStateKey(id),
+      expectedValue: expectedVerificationState,
+      nextValue: {
+        recordingId: id,
+        status: "pending",
+        completedAttempts: retryAttempt,
+        nextAttemptAt,
+        leaseUntil: null,
+        uploadAttemptId,
+        uploadGenerationId,
+        updatedAt: now,
+      },
+    },
+  ]);
+  if (!statePublished) return false;
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
 }
 
-async function claimPendingMediaVerification(
-  id: string,
-  retryAttempt: number,
-): Promise<boolean> {
+async function claimPendingMediaVerification(params: {
+  id: string;
+  retryAttempt: number;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedState: Record<string, unknown> | null;
+}): Promise<Record<string, unknown> | null> {
+  const {
+    id,
+    retryAttempt,
+    uploadAttemptId,
+    uploadGenerationId,
+    expectedState,
+  } = params;
   const key = mediaVerificationStateKey(id);
-  const raw = await readAppState(key).catch(() => null);
+  const raw = expectedState;
   const marker = parseMediaVerificationMarker(raw);
+  const rawMarker =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
   const now = Date.now();
   if (
     !marker ||
     marker.recordingId !== id ||
     retryAttempt !== marker.completedAttempts + 1 ||
+    !mediaVerificationMarkerMatchesUpload(
+      marker,
+      uploadAttemptId,
+      uploadGenerationId,
+    ) ||
     now < Date.parse(marker.nextAttemptAt) ||
     (marker.status === "leased" &&
       marker.leaseUntil !== null &&
       now < Date.parse(marker.leaseUntil))
   ) {
-    return false;
+    return null;
   }
 
   const updatedAt = new Date(now).toISOString();
-  return compareAndSetAppState(key, raw as Record<string, unknown>, {
-    ...marker,
+  const claimedState = {
+    ...(rawMarker ?? {}),
     status: "leased",
     leaseUntil: new Date(now + 60_000).toISOString(),
+    uploadAttemptId,
+    uploadGenerationId,
     updatedAt,
-  });
+  };
+  return (await compareAndSetAppState(
+    key,
+    raw as Record<string, unknown>,
+    claimedState,
+  ))
+    ? claimedState
+    : null;
 }
 
 async function dispatchMediaVerificationRetry(
   id: string,
   retryAttempt: number,
+  uploadAttemptId: string | null,
+  uploadGenerationId: string | null,
 ): Promise<void> {
   await dispatchPostFinalizeJob({
     recordingId: id,
     kind: "media-ready",
     delayMs: mediaVerificationRetryDelayMs(retryAttempt),
     retryAttempt,
+    uploadAttemptId,
+    uploadGenerationId,
     requireAccepted: true,
   }).catch((err: unknown) => {
     console.error("[finalize] media verification dispatch failed", {
@@ -533,10 +672,17 @@ async function dispatchMediaVerificationRetry(
 async function leaveRecordingProcessingForMediaVerification(params: {
   id: string;
   ownerEmail: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedUploadState: Record<string, unknown> | null;
+  expectedVerificationState?: Record<string, unknown> | null;
   media: PendingMediaVerification;
   failureReason: string;
 }) {
-  const persisted = await persistPendingMediaVerification(params);
+  const persisted = await persistPendingMediaVerification({
+    ...params,
+    expectedVerificationState: params.expectedVerificationState ?? null,
+  });
   if (!persisted) {
     const aborted = await uploadWasAborted(params.id);
     return {
@@ -549,7 +695,12 @@ async function leaveRecordingProcessingForMediaVerification(params: {
       durationMs: params.media.finalDurationMs,
     };
   }
-  await dispatchMediaVerificationRetry(params.id, 1);
+  await dispatchMediaVerificationRetry(
+    params.id,
+    1,
+    params.uploadAttemptId,
+    params.uploadGenerationId,
+  );
   return {
     id: params.id,
     status: "processing" as const,
@@ -564,10 +715,6 @@ async function leaveRecordingProcessingForMediaVerification(params: {
 async function queueReadyRecordingThumbnail(
   recordingId: string,
 ): Promise<void> {
-  // Best-effort: gives a never-attempted row a 'pending' marker the thumbnail
-  // sweeper can find later if this dispatch never lands (cold start, DNS,
-  // throttling — see post-finalize-dispatch.ts). Never overwrites a terminal
-  // status from a prior attempt.
   try {
     await getDb()
       .update(schema.recordings)
@@ -591,8 +738,41 @@ async function queueReadyRecordingThumbnail(
   });
 }
 
-// Flip recording to 'ready', seed transcript row, fire background transcript,
-// emit clip.created. Used by both the resumable and buffered upload paths.
+async function compareAndSetProcessingUploadState(params: {
+  id: string;
+  ownerEmail: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedState: Record<string, unknown> | null;
+  nextState: Record<string, unknown>;
+}): Promise<boolean> {
+  const [recording] = await getDb()
+    .select({
+      status: schema.recordings.status,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, params.id),
+        ownerEmailMatches(schema.recordings.ownerEmail, params.ownerEmail),
+      ),
+    );
+  if (
+    recording?.status !== "processing" ||
+    (recording.uploadAttemptId ?? null) !== params.uploadAttemptId ||
+    (recording.uploadGenerationId ?? null) !== params.uploadGenerationId
+  ) {
+    return false;
+  }
+  return compareAndSetAppState(
+    `recording-upload-${params.id}`,
+    params.expectedState,
+    params.nextState,
+  );
+}
+
 async function markRecordingReady(params: {
   id: string;
   ownerEmail: string;
@@ -605,10 +785,9 @@ async function markRecordingReady(params: {
   finalHeight: number;
   finalHasAudio: boolean;
   finalHasCamera: boolean;
+  recordingAttemptId: string | null;
+  recordingGenerationId: string | null;
   existingTitle: string;
-  // Whether a seekable rewrite (MP4 faststart / WebM Cues remux) was already
-  // applied to the uploaded bytes. When false, a best-effort background repair
-  // is triggered so streamed/raw uploads still become seekable.
   seekableApplied: boolean;
 }) {
   const {
@@ -623,6 +802,8 @@ async function markRecordingReady(params: {
     finalHeight,
     finalHasAudio,
     finalHasCamera,
+    recordingAttemptId,
+    recordingGenerationId,
     existingTitle,
     seekableApplied,
   } = params;
@@ -643,6 +824,7 @@ async function markRecordingReady(params: {
       hasAudio: finalHasAudio,
       hasCamera: finalHasCamera,
       failureReason: null,
+      failureCode: null,
       uploadProgress: 100,
       updatedAt: now,
     })
@@ -650,16 +832,13 @@ async function markRecordingReady(params: {
       and(
         eq(schema.recordings.id, id),
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        // The processing -> ready transition is the idempotency fence for
-        // duplicate finalize requests and durable verification workers. Only
-        // the winner performs transcript/event/post-finalize side effects.
         eq(schema.recordings.status, "processing"),
-        // Guard against the other direction of the cancel/finalize race:
-        // trash-recording's skipIfReady only blocks trashing a row that is
-        // ALREADY 'ready'. If cancel lands while this finalize is still
-        // 'processing'/'streaming', trashedAt gets set before this UPDATE
-        // runs. Excluding trashed rows here stops us from flipping status to
-        // 'ready' underneath a recording the user just trashed.
+        recordingAttemptId === null
+          ? isNull(schema.recordings.uploadAttemptId)
+          : eq(schema.recordings.uploadAttemptId, recordingAttemptId),
+        recordingGenerationId === null
+          ? isNull(schema.recordings.uploadGenerationId)
+          : eq(schema.recordings.uploadGenerationId, recordingGenerationId),
         isNull(schema.recordings.trashedAt),
       ),
     )
@@ -667,7 +846,11 @@ async function markRecordingReady(params: {
 
   if (promoted.length !== 1) {
     const [postUpdate] = await db
-      .select({ status: schema.recordings.status })
+      .select({
+        status: schema.recordings.status,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+      })
       .from(schema.recordings)
       .where(
         and(
@@ -679,7 +862,11 @@ async function markRecordingReady(params: {
       id,
       status: postUpdate?.status,
     });
-    if (postUpdate?.status === "ready") {
+    const sameUpload =
+      postUpdate?.uploadAttemptId === recordingAttemptId &&
+      postUpdate?.uploadGenerationId === recordingGenerationId;
+    const isReady = sameUpload && postUpdate?.status === "ready";
+    if (isReady) {
       await queueReadyRecordingThumbnail(id);
       await reconcileMeetingOnRecordingReady({
         recordingId: id,
@@ -693,19 +880,22 @@ async function markRecordingReady(params: {
       });
     }
     const aborted =
-      postUpdate?.status === "failed" && (await uploadWasAborted(id));
+      sameUpload &&
+      postUpdate?.status === "failed" &&
+      (await uploadWasAborted(id));
     return {
       id,
-      status:
-        postUpdate?.status === "ready"
-          ? ("ready" as const)
-          : ("failed" as const),
+      status: isReady ? ("ready" as const) : ("failed" as const),
       ...(aborted ? { aborted: true } : {}),
       transitionedToReady: false,
-      videoUrl,
-      videoSizeBytes,
-      sourceSizeBytes,
-      durationMs: finalDurationMs,
+      ...(isReady
+        ? {
+            videoUrl,
+            videoSizeBytes,
+            sourceSizeBytes,
+            durationMs: finalDurationMs,
+          }
+        : {}),
     };
   }
 
@@ -716,6 +906,8 @@ async function markRecordingReady(params: {
       template_name: "clips",
       output_id: id,
       output_type: "clip",
+      recording_attempt_id: id,
+      ...(recordingAttemptId ? { upload_attempt_id: recordingAttemptId } : {}),
       duration_s: Math.round(finalDurationMs / 1000),
       video_format: videoFormat,
       has_audio: finalHasAudio,
@@ -723,7 +915,7 @@ async function markRecordingReady(params: {
       width: finalWidth,
       height: finalHeight,
     },
-    { userId: ownerEmail },
+    recordingTrackingSource(ownerEmail),
   );
 
   await queueReadyRecordingThumbnail(id);
@@ -771,8 +963,6 @@ async function markRecordingReady(params: {
   await writeAppState("refresh-signal", { ts: Date.now() });
 
   if (seekableApplied) {
-    // Uploaded bytes are already start-playable and seekable — remember it so
-    // later reprocess sweeps skip this clip.
     await clearSeekableRepairPending(id).catch((err) => {
       console.warn("[finalize] failed to clear seekable repair marker", {
         id,
@@ -786,11 +976,6 @@ async function markRecordingReady(params: {
       });
     });
   } else {
-    // Streaming/resumable (or oversized) uploads shipped raw MediaRecorder
-    // bytes with no seekable rewrite: an MP4 with a trailing moov or a WebM
-    // without a Cues index buffers on load and re-buffers on every seek. A
-    // fresh self-dispatched request owns the repair so serverless runtimes do
-    // not freeze it when this finalize request returns.
     if (isRemoteProviderUrl(videoUrl)) {
       await markSeekableRepairPending({
         recordingId: id,
@@ -813,9 +998,6 @@ async function markRecordingReady(params: {
     });
   }
 
-  // Transcription can outlive the upload request. Dispatch it into a fresh
-  // invocation instead of leaving an unawaited promise in this serverless
-  // function, where it can be frozen immediately after the response is sent.
   await dispatchPostFinalizeJob({
     recordingId: id,
     kind: "transcript",
@@ -859,11 +1041,27 @@ async function retryPendingMediaVerification(params: {
   existingTitle: string;
   media: PendingMediaVerification;
   retryAttempt: number;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  expectedUploadState: Record<string, unknown> | null;
+  expectedVerificationState: Record<string, unknown>;
 }) {
-  const { id, ownerEmail, existingTitle, media, retryAttempt } = params;
+  const {
+    id,
+    ownerEmail,
+    existingTitle,
+    media,
+    retryAttempt,
+    uploadAttemptId,
+    uploadGenerationId,
+    expectedUploadState,
+    expectedVerificationState,
+  } = params;
   const db = getDb();
   const [recording] = await db
     .select({
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
       editsJson: schema.recordings.editsJson,
@@ -875,7 +1073,12 @@ async function retryPendingMediaVerification(params: {
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
-  if (!recording || recording.status !== "processing") {
+  if (
+    !recording ||
+    recording.status !== "processing" ||
+    (recording.uploadAttemptId ?? null) !== uploadAttemptId ||
+    (recording.uploadGenerationId ?? null) !== uploadGenerationId
+  ) {
     const aborted =
       recording?.status === "failed" && (await uploadWasAborted(id));
     return {
@@ -919,6 +1122,8 @@ async function retryPendingMediaVerification(params: {
       finalHeight: candidate.finalHeight,
       finalHasAudio: candidate.finalHasAudio,
       finalHasCamera: candidate.finalHasCamera,
+      recordingAttemptId: uploadAttemptId,
+      recordingGenerationId: uploadGenerationId,
       seekableApplied: candidate.seekableApplied,
     });
     if (result.status === "ready" && result.transitionedToReady) {
@@ -941,6 +1146,10 @@ async function retryPendingMediaVerification(params: {
       const failed = await failStoredButUnservableRecording({
         id,
         ownerEmail,
+        uploadAttemptId,
+        uploadGenerationId,
+        expectedUploadState,
+        expectedVerificationState,
         failureReason: terminalReason,
       });
       if (!failed) {
@@ -985,6 +1194,10 @@ async function retryPendingMediaVerification(params: {
     const persisted = await persistPendingMediaVerification({
       id,
       ownerEmail,
+      uploadAttemptId,
+      uploadGenerationId,
+      expectedUploadState,
+      expectedVerificationState,
       media: candidate,
       failureReason,
       retryAttempt,
@@ -1017,7 +1230,12 @@ async function retryPendingMediaVerification(params: {
         durationMs: candidate.finalDurationMs,
       };
     }
-    await dispatchMediaVerificationRetry(id, retryAttempt + 1);
+    await dispatchMediaVerificationRetry(
+      id,
+      retryAttempt + 1,
+      uploadAttemptId,
+      uploadGenerationId,
+    );
     return {
       id,
       status: "processing" as const,
@@ -1059,10 +1277,12 @@ export default defineAction({
         "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
       ),
     mediaVerificationRetryAttempt: z.number().int().min(1).max(10).optional(),
+    uploadAttemptId: z.string().min(1).max(128).nullable().optional(),
     uploadGenerationId: z
       .string()
       .min(1)
       .max(128)
+      .nullable()
       .optional()
       .describe("Upload generation that owns the scratch data being finalized"),
   }),
@@ -1072,16 +1292,6 @@ export default defineAction({
     const id = args.id;
     debugLog("[finalize] starting", { id, ownerEmail });
 
-    // Keys of chunks we normally delete after finalize exits.
-    // Collected as soon as we list chunks and purged in a finally-block so
-    // a throw mid-finalize can't leave multi-gigabyte base64 payloads
-    // lingering in application_state. This was the primary cause of the
-    // server-side half of the 70 GB memory leak — each failed finalize
-    // orphaned one recording's worth of chunks, and with base64 overhead
-    // a 30-minute recording is ~1.5 GB per corpse. Missing storage is the
-    // exception: local-dev storage gaps can keep chunks recoverable until the
-    // user connects a provider and this action runs again. Hosted SQL must
-    // never retain scratch video blobs.
     let chunkKeysToPurge: string[] = [];
     try {
       let [existing] = await db
@@ -1096,7 +1306,6 @@ export default defineAction({
 
       if (!existing) {
         console.warn("[finalize] recording not found", { id, ownerEmail });
-        // Still purge chunks for this id — it's orphaned.
         chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
@@ -1105,9 +1314,12 @@ export default defineAction({
       if ((existing.uploadGenerationId ?? null) !== generationId) {
         throw new Error("Upload generation changed before finalization");
       }
-      // Claim finalization before touching provider/scratch state. Reset only
-      // admits uploading/failed rows, so once this CAS succeeds it cannot
-      // replace the generation underneath a delayed final chunk.
+      if (
+        args.uploadAttemptId !== undefined &&
+        (existing.uploadAttemptId ?? null) !== args.uploadAttemptId
+      ) {
+        throw new Error("Upload attempt changed before finalization");
+      }
       if (generationId !== null && existing.status === "uploading") {
         const claimed = await db
           .update(schema.recordings)
@@ -1117,6 +1329,12 @@ export default defineAction({
               eq(schema.recordings.id, id),
               ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
               eq(schema.recordings.status, "uploading"),
+              existing.uploadAttemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(
+                    schema.recordings.uploadAttemptId,
+                    existing.uploadAttemptId,
+                  ),
               eq(schema.recordings.uploadGenerationId, generationId),
             ),
           )
@@ -1127,16 +1345,9 @@ export default defineAction({
         existing = claimed[0]!;
       }
 
-      // Idempotency guard: finalize can be re-invoked when a client retries the
-      // final chunk after a lost response. If already 'ready' return the existing
-      // result instead of re-running the complete/assembly path (session and
-      // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
         await queueReadyRecordingThumbnail(id);
-        // A prior attempt may have persisted the ready row and then failed
-        // before deleting its resumable-session handle. The provider upload is
-        // complete at this point, so retire only the local retry state.
         await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
@@ -1156,6 +1367,10 @@ export default defineAction({
         uploadStateRaw && typeof uploadStateRaw === "object"
           ? (uploadStateRaw as Record<string, unknown>)
           : null;
+      const verificationStateRaw = await readAppState(
+        mediaVerificationStateKey(id),
+      );
+      let verificationExpectedUploadState = uploadState;
       const mimeType =
         args.mimeType ||
         (typeof uploadState?.mimeType === "string"
@@ -1196,6 +1411,11 @@ export default defineAction({
         finalHeight,
         finalHasAudio,
         finalHasCamera,
+        recordingAttemptId:
+          args.uploadAttemptId !== undefined
+            ? args.uploadAttemptId
+            : (existing.uploadAttemptId ?? null),
+        recordingGenerationId: generationId,
         existingTitle: existing.title,
       };
 
@@ -1205,7 +1425,16 @@ export default defineAction({
           args.mediaVerificationRetryAttempt ??
           stateNumber(uploadState, "mediaVerificationAttempt") ??
           1;
-        const claimed = await claimPendingMediaVerification(id, retryAttempt);
+        const claimed = await claimPendingMediaVerification({
+          id,
+          retryAttempt,
+          uploadAttemptId: existing.uploadAttemptId ?? null,
+          uploadGenerationId: generationId,
+          expectedState:
+            verificationStateRaw && typeof verificationStateRaw === "object"
+              ? (verificationStateRaw as Record<string, unknown>)
+              : null,
+        });
         if (!claimed) {
           return {
             id,
@@ -1223,11 +1452,13 @@ export default defineAction({
           existingTitle: existing.title,
           media: pendingMedia,
           retryAttempt,
+          uploadAttemptId: existing.uploadAttemptId ?? null,
+          uploadGenerationId: generationId,
+          expectedUploadState: uploadState,
+          expectedVerificationState: claimed,
         });
       }
 
-      // Resumable path: create-recording initialized a session and chunk.post.ts
-      // forwarded all chunks to the provider. Complete the session to get the CDN URL.
       const resumableSession = await getResumableSession(id, generationId);
       if (resumableSession && isStreamingUploadDisabled()) {
         console.warn(
@@ -1244,16 +1475,13 @@ export default defineAction({
           typeof existing.failureReason === "string" &&
           isStoredButUnservableFinalizeError(existing.failureReason)
         ) {
-          // Verification failed after the provider may already have completed
-          // the multipart upload. Move only that known-recoverable failure
-          // back to processing. A later user abort writes a different failed
-          // state, and markRecordingReady's status guard will still win.
           const recoveryStartedAt = new Date().toISOString();
-          await db
+          const [recoveredRecording] = await db
             .update(schema.recordings)
             .set({
               status: "processing",
               failureReason: null,
+              failureCode: null,
               updatedAt: recoveryStartedAt,
             })
             .where(
@@ -1262,15 +1490,46 @@ export default defineAction({
                 ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
                 eq(schema.recordings.status, "failed"),
                 eq(schema.recordings.failureReason, existing.failureReason),
+                existing.uploadAttemptId
+                  ? eq(
+                      schema.recordings.uploadAttemptId,
+                      existing.uploadAttemptId,
+                    )
+                  : isNull(schema.recordings.uploadAttemptId),
+                generationId
+                  ? eq(schema.recordings.uploadGenerationId, generationId)
+                  : isNull(schema.recordings.uploadGenerationId),
               ),
-            );
-          await writeAppState(`recording-upload-${id}`, {
+            )
+            .returning({ id: schema.recordings.id });
+          if (!recoveredRecording) {
+            throw new Error("Recording changed before finalize recovery");
+          }
+          const recoveredUploadState = {
             ...(uploadState ?? {}),
             recordingId: id,
             status: "processing",
+            uploadAttemptId: existing.uploadAttemptId ?? null,
+            uploadGenerationId: generationId,
             failureReason: null,
+            failureCode: null,
             updatedAt: recoveryStartedAt,
-          });
+          };
+          const recoveredStateWritten =
+            await compareAndSetProcessingUploadState({
+              id,
+              ownerEmail,
+              uploadAttemptId: existing.uploadAttemptId ?? null,
+              uploadGenerationId: generationId,
+              expectedState: uploadState,
+              nextState: recoveredUploadState,
+            });
+          if (!recoveredStateWritten) {
+            throw new Error(
+              "Upload changed before finalize state was published",
+            );
+          }
+          verificationExpectedUploadState = recoveredUploadState;
         }
         if (existing.status !== "processing" && existing.status !== "failed") {
           const processingStartedAt = new Date().toISOString();
@@ -1279,6 +1538,7 @@ export default defineAction({
             .set({
               status: "processing",
               failureReason: null,
+              failureCode: null,
               uploadProgress: 100,
               updatedAt: processingStartedAt,
             })
@@ -1357,6 +1617,13 @@ export default defineAction({
           const pending = await leaveRecordingProcessingForMediaVerification({
             id,
             ownerEmail,
+            uploadAttemptId: existing.uploadAttemptId ?? null,
+            uploadGenerationId: generationId,
+            expectedUploadState: verificationExpectedUploadState,
+            expectedVerificationState:
+              verificationStateRaw && typeof verificationStateRaw === "object"
+                ? (verificationStateRaw as Record<string, unknown>)
+                : null,
             failureReason,
             media: {
               videoUrl,
@@ -1387,9 +1654,6 @@ export default defineAction({
           videoUrl,
           videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
           sourceSizeBytes: resumableSession.bytesUploaded,
-          // Streaming path forwards raw MediaRecorder bytes straight to the
-          // provider — no faststart/Cues rewrite happened. Repair in the
-          // background.
           seekableApplied: false,
         });
         if (result.status === "ready" && result.transitionedToReady) {
@@ -1403,26 +1667,12 @@ export default defineAction({
             locallyTranscoded: args.locallyTranscoded === true,
           });
         }
-        // Delete only after durable state is written — so a retry before
-        // this point can still find the session and re-enter this path.
         deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         return result;
       }
 
-      // Buffered path — assemble chunks from application_state, then upload.
-
-      // The recorder stashes compression metadata at
-      // `recording-compression-{id}` when its browser-side ffmpeg.wasm
-      // pass ran to bring the assembled blob under Builder.io's 100 MB
-      // upload cap. Stored under its own sub-key (rather than nested
-      // inside `recording-upload-{id}`) because the recorder client
-      // overwrites the upload key on every chunk POST — co-locating the
-      // compression context would mean it gets clobbered before this
-      // action runs. Surface it into the Sentry payload on any upload
-      // failure so we can tell at a glance whether the user hit the limit
-      // on the original blob or on the compressed one.
       const compressionRaw = await readAppState(`recording-compression-${id}`);
       const compressionMeta: {
         originalBytes?: number;
@@ -1441,8 +1691,7 @@ export default defineAction({
             })
           : null;
 
-      // Flip to 'processing' while we assemble.
-      await db
+      const [processingRecording] = await db
         .update(schema.recordings)
         .set({
           status: "processing",
@@ -1450,41 +1699,117 @@ export default defineAction({
           mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.recordings.id, id));
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, existing.status),
+            existing.uploadAttemptId
+              ? eq(schema.recordings.uploadAttemptId, existing.uploadAttemptId)
+              : isNull(schema.recordings.uploadAttemptId),
+            generationId
+              ? eq(schema.recordings.uploadGenerationId, generationId)
+              : isNull(schema.recordings.uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!processingRecording) {
+        throw new Error(
+          "Upload changed before buffered chunks could be assembled",
+        );
+      }
 
-      await writeAppState(`recording-upload-${id}`, {
+      const processingUploadState = {
         recordingId: id,
         status: "processing",
         progress: 100,
+        uploadAttemptId: existing.uploadAttemptId ?? null,
+        uploadGenerationId: generationId,
         updatedAt: new Date().toISOString(),
+      };
+      const processingStateWritten = await compareAndSetProcessingUploadState({
+        id,
+        ownerEmail,
+        uploadAttemptId: existing.uploadAttemptId ?? null,
+        uploadGenerationId: generationId,
+        expectedState: uploadState,
+        nextState: processingUploadState,
       });
+      if (!processingStateWritten) {
+        throw new Error("Upload changed before buffered state was published");
+      }
+      verificationExpectedUploadState = processingUploadState;
 
       const failChunkAssembly = async (
         failureReason: string,
+        failureCode:
+          | "chunk_assembly_failed"
+          | "recording_too_large" = "chunk_assembly_failed",
       ): Promise<never> => {
         const now = new Date().toISOString();
-        await db
+        const [failedRecording] = await db
           .update(schema.recordings)
           .set({
             status: "failed",
+            failureCode,
             failureReason,
             mediaUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.recordings.id, id));
-        await writeAppState(`recording-upload-${id}`, {
-          ...(uploadState ?? {}),
-          recordingId: id,
-          status: "failed",
-          failureReason,
-          updatedAt: now,
-        });
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "processing"),
+              existing.uploadAttemptId
+                ? eq(
+                    schema.recordings.uploadAttemptId,
+                    existing.uploadAttemptId,
+                  )
+                : isNull(schema.recordings.uploadAttemptId),
+              generationId
+                ? eq(schema.recordings.uploadGenerationId, generationId)
+                : isNull(schema.recordings.uploadGenerationId),
+            ),
+          )
+          .returning({
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            recordingPlatform: schema.recordings.recordingPlatform,
+          });
+        if (failedRecording)
+          trackUploadBlockingFailure({
+            id,
+            ownerEmail,
+            uploadAttemptId: failedRecording.uploadAttemptId,
+            recordingPlatform: failedRecording.recordingPlatform,
+            failureCode,
+            failureType:
+              failureCode === "recording_too_large"
+                ? "size_limit"
+                : "finalize_error",
+          });
+        if (failedRecording)
+          trackRecordingFailure({
+            recordingId: id,
+            userId: ownerEmail,
+            uploadAttemptId: failedRecording?.uploadAttemptId,
+            platform: failedRecording?.recordingPlatform,
+            failureCode,
+          });
+        if (failedRecording)
+          await compareAndSetAppState(
+            `recording-upload-${id}`,
+            processingUploadState,
+            {
+              ...processingUploadState,
+              status: "failed",
+              failureReason,
+              updatedAt: now,
+            },
+          );
         throw new Error(failureReason);
       };
 
-      // Pull chunk keys first, then fetch values one at a time. A single
-      // SELECT key,value over many base64 chunks can exceed Neon's 8s op
-      // timeout before we even start assembling the recording.
       const chunkKeys = await listRecordingChunkKeys(
         ownerEmail,
         id,
@@ -1496,10 +1821,6 @@ export default defineAction({
         count: chunkKeys.length,
         expectedDataChunks,
       });
-      // Commit to deleting these keys in the finally below. We collect
-      // the keys NOW (not after success) because a throw in uploadFile
-      // or the drizzle update would otherwise bypass the delete and
-      // orphan the chunks.
       chunkKeysToPurge = chunkKeys;
 
       if (chunkKeys.length === 0) {
@@ -1552,20 +1873,13 @@ export default defineAction({
       }
       const assembled = concatBytes(parts);
       if (assembled.byteLength > MAX_RECORDING_UPLOAD_BYTES) {
-        await failChunkAssembly(RECORDING_TOO_LARGE_REASON);
+        await failChunkAssembly(
+          RECORDING_TOO_LARGE_REASON,
+          "recording_too_large",
+        );
       }
-      // `parts` is no longer needed — dropping the array reference lets V8
-      // GC the Uint8Array slices while uploadFile is in flight. Each entry
-      // can be megabytes and we can be holding a gigabyte total for long
-      // recordings.
       parts.length = 0;
 
-      // Make the assembled recording seekable before upload — we already hold
-      // the full bytes, so a viewer never has to wait through a non-seekable
-      // first play. MP4: relocate moov ahead of mdat (pure TS). WebM: remux to
-      // add a Cues index + real duration (ffmpeg -c copy). When neither runs
-      // (unknown format, oversized, or ffmpeg unavailable) `seekableApplied`
-      // stays false and markRecordingReady schedules a background repair.
       let uploadData = assembled;
       let seekableApplied = false;
       if (videoFormat === "mp4") {
@@ -1605,14 +1919,8 @@ export default defineAction({
           }
           throw err;
         }
-        // moov is present and validated — the MP4 is start-playable/seekable.
         seekableApplied = true;
       } else if (videoFormat === "webm") {
-        // MediaRecorder WebM has no Cues index and an unknown duration, so
-        // Chrome buffers on load and re-buffers on every seek. A lossless
-        // `ffmpeg -c copy` remux rewrites it with a SeekHead + Cues + real
-        // duration. Bounded by size so finalize stays fast; larger clips get a
-        // background pass. Best-effort: on any failure we upload the original.
         if (assembled.byteLength <= inlineRemuxMaxBytes()) {
           try {
             const seekable = await remuxWebmToSeekable(uploadData);
@@ -1633,32 +1941,6 @@ export default defineAction({
         }
       }
 
-      // Audio sanity checks. `finalHasAudio` is a CLAIM from the client about
-      // capture intent, not proof the bytes we're about to upload actually
-      // contain an audio track — e.g. the desktop native recorder can report
-      // `hasAudio: true` for a screen recording whose ScreenCaptureKit output
-      // has no audio stream at all (mic audio isn't muxed into that file by
-      // design; see native_screen.rs). Two distinct failure modes, handled
-      // differently:
-      //
-      //   1. PIPELINE DROP — the assembled bytes had audio before our own
-      //      faststart/remux rewrite and don't after. That would be a bug in
-      //      this file, should be unreachable, and is cheap insurance against
-      //      a future regression — fail loud exactly like the existing mp4
-      //      validation failure so the recording is retryable instead of
-      //      silently publishing a video that lost audio in our own pipeline.
-      //   2. CAPTURE-LEVEL MISMATCH — the client claimed audio but the
-      //      ASSEMBLED bytes (before any rewrite of ours) never had an audio
-      //      stream to begin with. This is a capture-side gap upstream of
-      //      finalize, not something a retry here can fix, so hard-failing
-      //      would just turn every affected recording into a lost upload
-      //      instead of a silent-but-watchable one. Log it loudly and correct
-      //      the stored `hasAudio` metadata so it matches reality, but let
-      //      finalize proceed.
-      //
-      // Best-effort throughout: only acts when the probe can actually answer
-      // (skips silently if ffmpeg is unavailable), never blocks a legitimate
-      // upload on missing tooling.
       let correctedHasAudio = finalHasAudio;
       if (finalHasAudio) {
         const assembledHasAudio = await probeHasAudioStream(
@@ -1695,12 +1977,6 @@ export default defineAction({
           }
           correctedHasAudio = false;
         } else if (assembledHasAudio === true && uploadData !== assembled) {
-          // A rewrite ran (faststart/webm remux) AND we positively confirmed
-          // the pre-rewrite source had audio — re-probe the REWRITTEN bytes.
-          // Gated strictly on `=== true` (not just "not false"): when the
-          // source probe was inconclusive (`null`, e.g. ffmpeg unavailable),
-          // we have no proof audio ever existed, so we must not hard-fail a
-          // recording that may simply be a Tier-2 capture-level mismatch.
           const uploadHasAudio = await probeHasAudioStream(
             uploadData,
             videoFormat,
@@ -1742,11 +2018,6 @@ export default defineAction({
           recordAsset: false,
         });
       } catch (err) {
-        // Capture structured context so a "Builder.io upload failed (500)" can
-        // be diagnosed without round-tripping with the user. Especially
-        // important alongside the new browser-side compression — we want to
-        // know whether the user hit Builder.io's 100 MB cap on the original
-        // recording or on the compressed result.
         try {
           captureRouteError(err, {
             route: "finalize-recording",
@@ -1778,10 +2049,11 @@ export default defineAction({
       if (upload === null) {
         const now = new Date().toISOString();
         if (requiresConfiguredVideoStorage()) {
-          await db
+          const [failedRecording] = await db
             .update(schema.recordings)
             .set({
               status: "failed",
+              failureCode: "storage_setup_required",
               failureReason: STORAGE_SETUP_REQUIRED_REASON,
               durationMs: finalDurationMs,
               width: finalWidth,
@@ -1792,7 +2064,65 @@ export default defineAction({
               mediaUpdatedAt: now,
               updatedAt: now,
             })
-            .where(eq(schema.recordings.id, id));
+            .where(
+              and(
+                eq(schema.recordings.id, id),
+                ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                eq(schema.recordings.status, "processing"),
+                existing.uploadAttemptId
+                  ? eq(
+                      schema.recordings.uploadAttemptId,
+                      existing.uploadAttemptId,
+                    )
+                  : isNull(schema.recordings.uploadAttemptId),
+                generationId
+                  ? eq(schema.recordings.uploadGenerationId, generationId)
+                  : isNull(schema.recordings.uploadGenerationId),
+              ),
+            )
+            .returning({
+              uploadAttemptId: schema.recordings.uploadAttemptId,
+              recordingPlatform: schema.recordings.recordingPlatform,
+            });
+          if (!failedRecording) {
+            const [current] = await db
+              .select({ failureCode: schema.recordings.failureCode })
+              .from(schema.recordings)
+              .where(
+                and(
+                  eq(schema.recordings.id, id),
+                  ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                ),
+              );
+            if (current?.failureCode === "user_cancelled") {
+              return {
+                id,
+                status: "failed" as const,
+                aborted: true,
+                storageSetupRequired: false,
+                failureReason: "Recording cancelled by user",
+                durationMs: finalDurationMs,
+              };
+            }
+            throw new Error(
+              "Recording changed before storage failure was saved",
+            );
+          }
+          trackUploadBlockingFailure({
+            id,
+            ownerEmail,
+            uploadAttemptId: failedRecording.uploadAttemptId,
+            recordingPlatform: failedRecording.recordingPlatform,
+            failureCode: "storage_setup_required",
+            failureType: "storage_error",
+          });
+          trackRecordingFailure({
+            recordingId: id,
+            userId: ownerEmail,
+            uploadAttemptId: failedRecording?.uploadAttemptId,
+            platform: failedRecording?.recordingPlatform,
+            failureCode: "storage_setup_required",
+          });
 
           await writeAppState(`recording-upload-${id}`, {
             recordingId: id,
@@ -1813,7 +2143,7 @@ export default defineAction({
           };
         }
 
-        await db
+        const [waitingStorageRecording] = await db
           .update(schema.recordings)
           .set({
             status: "uploading",
@@ -1827,12 +2157,33 @@ export default defineAction({
             mediaUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(schema.recordings.id, id));
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "processing"),
+              existing.uploadAttemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(
+                    schema.recordings.uploadAttemptId,
+                    existing.uploadAttemptId,
+                  ),
+              generationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(schema.recordings.uploadGenerationId, generationId),
+            ),
+          )
+          .returning({ id: schema.recordings.id });
+        if (!waitingStorageRecording) {
+          throw new Error("Recording changed before waiting storage was saved");
+        }
 
-        await writeAppState(`recording-upload-${id}`, {
-          recordingId: id,
+        const waitingStorageState = {
+          ...processingUploadState,
           status: "waiting_storage",
           failureReason: STORAGE_SETUP_REQUIRED_REASON,
+          storageSetupRequired: true,
+          pendingMediaVerification: false,
           progress: 100,
           chunksReceived: chunkKeys.length,
           totalChunks: chunkKeys.length,
@@ -1843,12 +2194,29 @@ export default defineAction({
           hasAudio: finalHasAudio,
           hasCamera: finalHasCamera,
           updatedAt: now,
-        });
+        };
+        const waitingStoragePublished = await compareAndSetManyAppState([
+          {
+            key: `recording-upload-${id}`,
+            expectedValue: processingUploadState,
+            nextValue: waitingStorageState,
+          },
+          {
+            key: mediaVerificationStateKey(id),
+            expectedValue:
+              verificationStateRaw && typeof verificationStateRaw === "object"
+                ? (verificationStateRaw as Record<string, unknown>)
+                : null,
+            nextValue: null,
+          },
+        ]);
+        if (!waitingStoragePublished) {
+          throw new Error(
+            "Upload changed before waiting storage state was published",
+          );
+        }
         await writeAppState("refresh-signal", { ts: Date.now() });
 
-        // Keep the chunk scratch-space recoverable. Once the user connects
-        // Builder.io/S3, the player calls this action again and the same chunks
-        // are uploaded to the newly configured provider.
         chunkKeysToPurge = [];
 
         return {
@@ -1864,8 +2232,6 @@ export default defineAction({
         const err = new Error(
           "File upload returned no URL. Check your storage provider configuration.",
         );
-        // Provider returned success but no URL — likely a misconfigured S3
-        // bucket or a Builder.io edge case worth investigating.
         try {
           captureRouteError(err, {
             route: "finalize-recording",
@@ -1902,6 +2268,13 @@ export default defineAction({
         return await leaveRecordingProcessingForMediaVerification({
           id,
           ownerEmail,
+          uploadAttemptId: readyParams.recordingAttemptId,
+          uploadGenerationId: readyParams.recordingGenerationId,
+          expectedUploadState: verificationExpectedUploadState,
+          expectedVerificationState:
+            verificationStateRaw && typeof verificationStateRaw === "object"
+              ? (verificationStateRaw as Record<string, unknown>)
+              : null,
           failureReason,
           media: {
             videoUrl: upload.url,
@@ -1924,8 +2297,6 @@ export default defineAction({
       }
       const result = await markRecordingReady({
         ...readyParams,
-        // Use the audio-probe-corrected value, not the raw client claim in
-        // `readyParams` — see the audio sanity check above.
         finalHasAudio: correctedHasAudio,
         videoUrl: upload.url,
         videoSizeBytes: servedBytes ?? uploadData.byteLength,
@@ -1947,12 +2318,6 @@ export default defineAction({
       }
       return result;
     } finally {
-      // Unconditional chunk scratch-space cleanup. Runs on success AND on
-      // error — a throw during uploadFile / drizzle update / anything else
-      // used to leave gigabytes of base64 chunks in application_state
-      // forever. Best-effort: individual delete failures are logged but
-      // never re-thrown, because re-throwing from a finally would mask the
-      // original error that landed us here.
       if (chunkKeysToPurge.length > 0) {
         let purged = 0;
         for (const key of chunkKeysToPurge) {
@@ -1972,9 +2337,6 @@ export default defineAction({
           attempted: chunkKeysToPurge.length,
         });
       }
-      // Drop the compression sub-key written by reset-chunks. Best effort;
-      // it's small (<200 bytes) so a leaked one is harmless, but tidying
-      // up keeps `application_state` clean across many recordings.
       try {
         await deleteAppState(`recording-compression-${id}`);
       } catch (err) {

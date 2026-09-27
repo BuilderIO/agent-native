@@ -25,7 +25,6 @@ export function meta() {
   ];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
 export default function AskRoute() {
   const t = useT();
   const { status: builderStatus, stale: builderStatusStale } =

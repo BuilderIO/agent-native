@@ -25,13 +25,12 @@ function build(root: string, name: string): string {
   return dir;
 }
 
-/** An emitted function directory holding `appBytes` of app code, plus an
- *  optional bundled ffmpeg-static runtime of `ffmpegBytes`. */
 function emitFunction(
   root: string,
   name: string,
   appBytes: number,
   ffmpegBytes = 0,
+  resvgBytes = 0,
 ): void {
   const fnDir = path.join(root, name);
   mkdirSync(fnDir, { recursive: true });
@@ -40,6 +39,19 @@ function emitFunction(
     const ffmpegDir = path.join(fnDir, "node_modules", "ffmpeg-static");
     mkdirSync(ffmpegDir, { recursive: true });
     writeFileSync(path.join(ffmpegDir, "ffmpeg"), Buffer.alloc(ffmpegBytes));
+  }
+  if (resvgBytes > 0) {
+    const resvgDir = path.join(
+      fnDir,
+      "node_modules",
+      "@resvg",
+      "resvg-js-linux-x64-gnu",
+    );
+    mkdirSync(resvgDir, { recursive: true });
+    writeFileSync(
+      path.join(resvgDir, "resvgjs.linux-x64-gnu.node"),
+      Buffer.alloc(resvgBytes),
+    );
   }
 }
 
@@ -69,12 +81,6 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
-  /**
-   * The measurement stays raw on purpose. Subtracting the deploy-gated payload
-   * while the committed baselines hold a mix of payload-inclusive and
-   * payload-free numbers would let a real regression smaller than the payload
-   * pass silently — the opposite of what this guard exists for.
-   */
   it("counts a deploy-gated payload in the size it compares", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
@@ -86,7 +92,6 @@ describe("serverless function size baseline", () => {
       0,
     );
 
-    // Same app code, plus the production-only runtime payload.
     const withPayload = build(root, "production");
     emitFunction(withPayload, "server", 4 * MB, 76 * MB);
 
@@ -95,10 +100,27 @@ describe("serverless function size baseline", () => {
     assert.match(checked.output, /function payload grew/);
   });
 
-  /**
-   * The part that cost two days: a 76MB swing with no visible cause. The
-   * payload and its size have to be named at the moment the guard reports.
-   */
+  it("excludes the platform-selected Resvg binary from the comparison", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+
+    const withoutPayload = build(root, "beta");
+    emitFunction(withoutPayload, "server", 4 * MB);
+    assert.equal(
+      runGuard(withoutPayload, baselineFile, ["--update"]).status,
+      0,
+    );
+
+    const withPayload = build(root, "production");
+    emitFunction(withPayload, "server", 4 * MB, 0, 4 * MB);
+
+    const checked = runGuard(withPayload, baselineFile);
+    assert.equal(checked.status, 0, checked.output);
+    assert.match(checked.output, /resvg-js-linux-x64-gnu/);
+    assert.match(checked.output, /excluded/);
+    assert.doesNotMatch(checked.output, /function payload grew/);
+  });
+
   it("names the deploy-gated payload so the swing is not a mystery", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");

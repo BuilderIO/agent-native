@@ -67,13 +67,6 @@ export interface PreviewDocumentSaveDeferred {
   conflictSnapshot?: PreviewDocumentDraftSnapshot;
 }
 
-/**
- * A successful save can report the server's fresh `updatedAt`/emptiness back
- * to the controller so its baseline stops looking stale. Without this, a
- * baseline seeded as empty (a brand-new page) stays flagged empty forever, so
- * a later poll of content the user just saved themselves gets mistaken for a
- * non-empty body arriving externally over an empty one.
- */
 export interface PreviewDocumentSaveSuccess {
   outcome: "saved";
   loadedUpdatedAt?: string;
@@ -97,11 +90,6 @@ export interface PreviewDocumentDraftSnapshot {
   deferredReason: PreviewDocumentSaveDeferred["reason"] | null;
 }
 
-/**
- * The save could not run yet, but the payload is still user-owned and must stay
- * dirty until a later flush can persist it. This is intentionally different
- * from success: callers must never advance or reset the confirmed baseline.
- */
 export function deferredPreviewDocumentSave(
   reason: PreviewDocumentSaveDeferred["reason"] = "hydration",
   conflictSnapshot?: PreviewDocumentDraftSnapshot,
@@ -110,53 +98,22 @@ export function deferredPreviewDocumentSave(
 }
 
 export interface PreviewDocumentSaveController {
-  /** The document id this controller is permanently bound to. */
   readonly documentId: string;
-  /** Record a title edit. Schedules a debounced save when dirty. */
   changeTitle(title: string): void;
-  /** Record a content (primary body) edit. Schedules a debounced save when dirty. */
   changeContent(content: string): void;
-  /**
-   * Persist the latest dirty payload now (row-switch / unmount / close /
-   * Open-page). The final save is DISPATCHED SYNCHRONOUSLY before this returns,
-   * bound to this controller's fixed document id — so a fire-and-forget caller
-   * can tear down / navigate immediately and the trailing edit still lands on the
-   * correct document. The returned promise resolves once that final save (and any
-   * in-flight save it waited behind) has settled.
-   */
   flush(): Promise<void>;
-  /** Cancel any pending debounce without flushing. */
   cancel(): void;
-  /** Adopt `payload` as the confirmed-saved baseline (no save scheduled). */
   mark(payload: PreviewDocumentPayload): void;
-  /**
-   * Adopt a fresher server baseline while retaining only fields the user
-   * changed locally. Used only after an explicit "keep local draft" choice.
-   */
   rebasePending(payload: PreviewDocumentPayload): void;
-  /** Replace callbacks captured by an older preview mount. */
   replaceSaveAdapter(adapter: PreviewDocumentSaveAdapter): void;
-  /** Serializable dirty state for bounded browser draft storage. */
   draftSnapshot(): PreviewDocumentDraftSnapshot;
-  /** Restore a previously persisted dirty draft into a fresh controller. */
   restoreDraft(snapshot: PreviewDocumentDraftSnapshot): void;
-  /** Notify whichever preview mount currently owns this controller. */
   notifyDraftConflict(snapshot: PreviewDocumentDraftSnapshot): void;
-  /** The payload last CONFIRMED persisted. */
   readonly lastSaved: PreviewDocumentPayload;
-  /** The latest payload the user has typed (may differ from lastSaved). */
   readonly pending: PreviewDocumentPayload;
-  /** Whether a debounce timer is currently armed. */
   readonly hasPendingTimer: boolean;
-  /** Whether a save() call is currently outstanding (in flight). */
   readonly isSaving: boolean;
-  /** Why the latest attempted save remains dirty, if it was deferred. */
   readonly deferredReason: PreviewDocumentSaveDeferred["reason"] | null;
-  /**
-   * Whether this controller has confirmed at least one local save since creation.
-   * Until the server query echoes that payload, clean local state is newer than
-   * stale item/document props and must be preserved on quick preview reopens.
-   */
   readonly hasSavedLocally: boolean;
 }
 
@@ -178,14 +135,8 @@ function asSaveSuccess(result: unknown): PreviewDocumentSaveSuccess | null {
 
 export function createPreviewDocumentSaveController(
   args: PreviewDocumentSaveAdapter & {
-    /**
-     * The document id this controller persists to, fixed for its entire life. A
-     * controller NEVER changes which document it targets — switching rows acquires
-     * a different controller (see previewDocumentSaveRegistry).
-     */
     documentId: string;
     initial: PreviewDocumentPayload;
-    /** Persist `payload` to this controller's document. */
     debounceMs?: number;
     setTimeoutFn?: typeof setTimeout;
     clearTimeoutFn?: typeof clearTimeout;
@@ -208,10 +159,6 @@ export function createPreviewDocumentSaveController(
     onDraftConflict: args.onDraftConflict,
   };
 
-  // The single in-flight save, or null when idle. A debounced edit made while
-  // this is set does NOT start a new save; it updates `pending` and a trailing
-  // save fires when this settles. At most one save per controller is ever
-  // outstanding, so server write order == issue order for this document id.
   let inFlight: Promise<void> | null = null;
 
   function clearTimer() {
@@ -221,14 +168,9 @@ export function createPreviewDocumentSaveController(
     }
   }
 
-  // Start exactly one save if one isn't already running and there is dirty
-  // content. On SUCCESS the baseline advances to `attempted` (only what we
-  // actually persisted is ever marked clean) and the next trailing save is
-  // kicked. A failure leaves the payload dirty for the next edit/flush — it is
-  // never silently recorded as saved.
   function kick() {
-    if (inFlight !== null) return; // single-flight: never overlap saves.
-    if (payloadsEqual(pending, lastSaved)) return; // nothing dirty.
+    if (inFlight !== null) return;
+    if (payloadsEqual(pending, lastSaved)) return;
 
     const attempted = { ...pending };
     const promise = Promise.resolve(
@@ -243,10 +185,6 @@ export function createPreviewDocumentSaveController(
           "reason" in result &&
           (result.reason === "hydration" || result.reason === "conflict")
         ) {
-          // Hydration can begin after a keystroke but before the debounce fires.
-          // Keep the attempted payload dirty so the registry can retain it across
-          // close/reopen and a later flush can retry it. A deferred save is not a
-          // successful save, and user-authored content is never disposable.
           deferredReason = result.reason;
           inFlight = null;
           const deferredResult = result as PreviewDocumentSaveDeferred;
@@ -255,11 +193,6 @@ export function createPreviewDocumentSaveController(
           }
           return;
         }
-        // Adopt the server's fresh metadata (if the adapter reported it) into
-        // the confirmed baseline. Otherwise `loadedUpdatedAt`/
-        // `loadedContentWasEmpty` would keep carrying whatever was true when
-        // the controller was created/last marked — e.g. "empty" for a
-        // brand-new page — forever, even after real content has been saved.
         const success = asSaveSuccess(result);
         const savedMetadata = {
           ...(success?.loadedUpdatedAt !== undefined
@@ -273,17 +206,11 @@ export function createPreviewDocumentSaveController(
           ...attempted,
           ...savedMetadata,
         };
-        // A later keystroke starts from `pending`, including while this save is
-        // in flight. Rebase that trailing payload onto our own successful write
-        // so its next CAS does not mistake the preceding save for an external
-        // change.
         pending = { ...pending, ...savedMetadata };
         hasSavedLocally = true;
         deferredReason = null;
         inFlight = null;
         saveAdapter.onSaved?.(attempted);
-        // A trailing edit may have landed while this save was in flight. Issue
-        // exactly one more for the LATEST payload. Bounded: stops once quiescent.
         kick();
       })
       .catch((error) => {
@@ -316,19 +243,9 @@ export function createPreviewDocumentSaveController(
     },
     flush() {
       clearTimer();
-      // Nothing dirty: no-op, no double-save of clean content. If a save is
-      // still settling, return it so the caller can await full quiescence.
       if (payloadsEqual(pending, lastSaved)) {
         return inFlight ?? Promise.resolve();
       }
-      // The latest payload still isn't persisted (a trailing edit, or a debounce
-      // that hasn't fired). Dispatch the final save SYNCHRONOUSLY — kick() issues
-      // it now if the lane is idle. Bound to this controller's fixed doc id, so a
-      // fire-and-forget caller can tear down immediately and the write still lands
-      // on the correct document. If a save IS already in flight, single-flight
-      // skips dispatch here and its success kicks the trailing save for the latest
-      // payload; we return a promise that resolves once that trailing save (the
-      // one carrying `pending`) has settled.
       kick();
       return waitUntilPersisted({ ...pending });
     },
@@ -397,14 +314,9 @@ export function createPreviewDocumentSaveController(
     },
   };
 
-  // Resolve once `target` has been confirmed persisted (or the controller went
-  // quiescent because a failed save left it dirty — flush is best-effort and does
-  // not loop on repeated failure). Chains strictly on the in-flight save promise,
-  // so it never busy-waits and always tracks the real settle of the trailing
-  // save that carries `target`.
   function waitUntilPersisted(target: PreviewDocumentPayload): Promise<void> {
     if (payloadsEqual(lastSaved, target)) return Promise.resolve();
-    if (inFlight === null) return Promise.resolve(); // quiescent (e.g. failed).
+    if (inFlight === null) return Promise.resolve();
     return inFlight.then(() => waitUntilPersisted(target));
   }
 }

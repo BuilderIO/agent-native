@@ -160,9 +160,6 @@ describe("createAgentKitProtocolAdapter", () => {
         appId: "dispatch",
         detail: "Connect Slack to verify the workflow.",
       };
-      // A paused HTTP stream may remain open until the host sends the
-      // continuation. The adapter must release its reader at the request
-      // boundary instead of deadlocking the response behind stream closure.
       await new Promise<void>(() => {});
     }
     const continueTurn = vi.fn(async () => ({
@@ -395,6 +392,7 @@ describe("createAgentKitProtocolAdapter", () => {
         toolCallId: "tool-1",
         toolName: "run_checks",
         status: "completed",
+        result: { passed: 1 },
         resultText: "1 passed",
       };
       yield { type: "done", reason: "complete" };
@@ -455,7 +453,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
-      toolCall: { name: "run_checks", output: "1 passed" },
+      toolCall: { name: "run_checks", output: { passed: 1 } },
     });
     expect(result[5]).toMatchObject({
       type: "activity.started",
@@ -477,6 +475,191 @@ describe("createAgentKitProtocolAdapter", () => {
       status: "completed",
       lastSequence: 12,
     });
+  });
+
+  it("attaches tool-first chatUI widgets to the next assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "preview-inbox",
+          input: { query: "priority inbox" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "preview-inbox",
+        status: "completed",
+        result: { count: 3, status: "ready" },
+        chatUI: { renderer: "mail.inbox-preview" },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "mail.inbox-preview",
+          title: "Inbox preview",
+          data: { toolCallId: "tool-1", toolName: "preview-inbox" },
+        },
+      };
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Preview the inbox")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.updated")).toMatchObject(
+      {
+        toolCall: {
+          id: "tool-1",
+          name: "preview-inbox",
+          input: { query: "priority inbox" },
+          output: { count: 3, status: "ready" },
+        },
+      },
+    );
+    expect(
+      result.find((event) => event.type === "widget.created"),
+    ).toMatchObject({
+      type: "widget.created",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "mail.inbox-preview",
+        data: { toolCallId: "tool-1", toolName: "preview-inbox" },
+      },
+    });
+    expect(
+      result.find((event) => event.type === "widget.updated"),
+    ).toMatchObject({
+      messageId: "assistant-1",
+      widget: { id: "tool-1:chat-ui", kind: "mail.inbox-preview" },
+    });
+  });
+
+  it("attaches pending widgets to a message when the run ends without assistant text", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "manage-draft",
+          input: { action: "create" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "manage-draft",
+        status: "completed",
+        result: { subject: "Launch notes" },
+        chatUI: { renderer: "mail.draft-created" },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "mail.draft-created",
+          data: { toolCallId: "tool-1", toolName: "manage-draft" },
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Create a draft")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const message = result.find(
+      (event) =>
+        event.type === "message.created" && event.message.role === "assistant",
+    );
+
+    expect(message?.type).toBe("message.created");
+    if (message?.type !== "message.created") return;
+    expect(
+      result.find((event) => event.type === "widget.updated"),
+    ).toMatchObject({
+      messageId: message.message.id,
+      widget: { id: "tool-1:chat-ui", kind: "mail.draft-created" },
+    });
+    expect(
+      result.find(
+        (event) =>
+          event.type === "message.completed" &&
+          event.message.id === message.message.id,
+      ),
+    ).toBeDefined();
+    expect(result.at(-1)?.type).toBe("run.completed");
+  });
+
+  it("does not attach a late widget to an already completed assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-done",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "mail.draft-created",
+          data: { toolCallId: "tool-1", toolName: "manage-draft" },
+        },
+      };
+      yield {
+        type: "message-start",
+        message: { id: "assistant-2", role: "assistant", content: [] },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Create a draft")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(
+      result.find((event) => event.type === "widget.created"),
+    ).not.toHaveProperty("messageId");
+    expect(
+      result.find((event) => event.type === "widget.updated"),
+    ).toMatchObject({
+      messageId: "assistant-2",
+      widget: { id: "tool-1:chat-ui", kind: "mail.draft-created" },
+    });
+    expect(
+      result.some(
+        (event) =>
+          event.type === "widget.updated" && event.messageId === "assistant-1",
+      ),
+    ).toBe(false);
   });
 
   it("advertises host-owned feedback only when the operation is wired", () => {
@@ -1124,7 +1307,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
-  it("keeps an approval turn resumable until Core continues it", async () => {
+  it("omits absent runtime run ids from initial and replacement run metadata", async () => {
     let continueTurnCalled = false;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
@@ -1147,6 +1330,7 @@ describe("createAgentKitProtocolAdapter", () => {
       runtimeId: runtime.id,
       startTurn: async () => ({
         id: "turn-1",
+        runId: "runtime-run-1",
         sessionId: "thread-1",
         events: approvalEvents(),
       }),
@@ -1168,6 +1352,14 @@ describe("createAgentKitProtocolAdapter", () => {
       threadId: "thread-1",
       messages: [userMessage("Publish it")],
     });
+    const startedRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(startedRun?.metadata).toHaveProperty(
+      "x-agent-native.observability.runtimeRunId",
+      "runtime-run-1",
+    );
     const stream = transport.subscribeToRun({ threadId: "thread-1", runId });
     const iterator = stream[Symbol.asyncIterator]();
     let approvalSeen = false;
@@ -1188,6 +1380,13 @@ describe("createAgentKitProtocolAdapter", () => {
       ],
     });
     expect(resumed?.runId).not.toBe(runId);
+    const replacementRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId: resumed!.runId,
+    });
+    expect(replacementRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.runtimeRunId",
+    );
     expect(await iterator.next()).toMatchObject({ done: true });
     const remaining = await drain(
       transport.subscribeToRun({
@@ -1199,6 +1398,35 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(continueTurnCalled).toBe(true);
     expect(remaining.map((event) => event.type)).toContain("approval.resolved");
     expect(remaining.map((event) => event.type)).toContain("run.completed");
+  });
+
+  it("omits a missing runtime run id from initial run metadata", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        sessionId: "thread-1",
+        events: events(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run it")],
+    });
+    const startedRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(startedRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.runtimeRunId",
+    );
   });
 
   it("cancels a paused Core turn after its approval stream closes", async () => {

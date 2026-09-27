@@ -5,41 +5,13 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
-/**
- * Shared self-dispatch helper for the framework's serverless background-work
- * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
- * this same deployment so the work runs in its own function invocation (with
- * its own full timeout budget) instead of riding on the request that created
- * it.
- *
- * This is the single mechanism that makes background work portable across every
- * host Nitro deploys to:
- *   - Netlify Lambda / Vercel Functions / AWS Lambda — the dispatched request
- *     hits a fresh function with its own budget; no `waitUntil` needed.
- *   - Cloudflare Workers — same (and `waitUntil` still works as a belt-and-
- *     suspenders fallback where the in-process path is used).
- *   - Self-hosted / long-lived Node — the dispatch comes back as another
- *     request to the same process; each handler still runs to completion.
- *
- * Originally inlined in both `a2a/handlers.ts` (`resolveSelfBaseUrl` +
- * `fireProcessTaskDispatch`) and `integrations/webhook-handler.ts`
- * (`resolveBaseUrl` + the dispatch in `enqueueAndDispatch`). Extracted here so
- * A2A, integration webhooks, and Agent Teams sub-agents share one tested
- * implementation.
- */
 import {
   getConfiguredAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { getRequestContext } from "./request-context.js";
 
-/**
- * On serverless, returning from the dispatching handler before the outbound
- * TCP handshake starts can freeze the function with the dispatch request stuck
- * in the queue. Racing the fetch against a short timer gives the request a
- * chance to leave the box at the cost of a little added latency on the
- * dispatching call. Mirrors the 250ms used by the A2A/webhook paths.
- */
 export const DEFAULT_DISPATCH_SETTLE_MS = 250;
 
 function readHeader(event: any, name: string): string | undefined {
@@ -56,20 +28,39 @@ function readHeader(event: any, name: string): string | undefined {
   }
 }
 
+export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // A deployment that names where its own processor lives wins outright.
+  // Reaching itself through its public hostname means a round trip through the
+  // provider's edge, which was measured answering 404 to that hairpin for a
+  // deployment's whole life while serving every external request. Loopback
+  // (`http://127.0.0.1:${PORT}`) needs no edge.
+  // config-ok: read raw, like the platform deploy URLs below — it names where
+  // this process answers, which a checked-in app config cannot know (see the
+  // `app.url` docblock).
+  const declared = process.env.AGENT_NATIVE_SELF_DISPATCH_URL?.trim();
+  if (declared) {
+    const parsed = URL.canParse(declared) ? new URL(declared) : null;
+    if (parsed?.protocol !== "http:" && parsed?.protocol !== "https:") {
+      throw new Error(
+        `AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http(s) URL, got "${declared}".`,
+      );
+    }
+    return withConfiguredAppBasePath(declared);
+  }
+  return resolveDeploymentBaseUrl(event);
+}
+
 /**
- * Resolve the base URL to fire a self-dispatch request at. Prefer the URL for
- * this exact deploy before stable app URLs: a preview or in-flight deploy must
- * not send a token minted by its function fleet to a different deploy that
- * happens to serve the same public hostname. Fall back to the inbound request
- * headers and finally localhost in dev.
+ * Resolve this deployment's own address. Prefer the URL for this exact deploy
+ * before stable app URLs: a preview or in-flight deploy must not send a token
+ * minted by its function fleet to a different deploy that happens to serve the
+ * same public hostname. Fall back to the inbound request headers and finally
+ * localhost in dev.
  *
  * Throws in production / shared deployments when no env var is set — a silent
  * fallback to a bad host there would drop background work invisibly.
  */
-export function resolveSelfDispatchBaseUrl(event?: any): string {
-  // The first three are platform facts — Netlify sets them per deploy, and
-  // they are what makes this resolve to *this* deployment rather than the
-  // canonical one. `app.url` is the last rung, not the first, for that reason.
+export function resolveDeploymentBaseUrl(event?: any): string {
   const fromEnv =
     process.env.DEPLOY_PRIME_URL ||
     process.env.DEPLOY_URL ||
@@ -100,17 +91,11 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
 }
 
 export interface FireInternalDispatchOptions {
-  /** Base URL of this deployment. Defaults to `resolveSelfDispatchBaseUrl(event)`. */
   baseUrl?: string;
-  /** Request event used to derive the base URL when `baseUrl` is omitted. */
   event?: any;
-  /** Framework route path to POST to (e.g. "/_agent-native/agent-teams/_process-run"). */
   path: string;
-  /** Task/run id the processor will claim. Used to sign the HMAC token and as the default body. */
   taskId: string;
-  /** Extra fields merged into the JSON body alongside `{ taskId }`. */
   body?: Record<string, unknown>;
-  /** Max ms to wait for the outbound request to leave the box. Default 250ms. */
   settleMs?: number;
   /**
    * Await the dispatch response fully instead of racing the settle timer.
@@ -127,7 +112,6 @@ export interface FireInternalDispatchOptions {
    * `responseTimeoutMs`.
    */
   awaitResponse?: boolean;
-  /** Max ms to await the dispatch response when `awaitResponse` is set. Default 15s. */
   responseTimeoutMs?: number;
 }
 
@@ -178,13 +162,7 @@ export async function fireInternalDispatch(
   options: FireInternalDispatchOptions,
 ): Promise<void> {
   const baseUrl = options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event);
-  // Netlify function default urls (`/.netlify/functions/<name>`) live at the
-  // HOST ROOT, not under the workspace app base path. `resolveSelfDispatchBaseUrl`
-  // appends the configured base path (e.g. `https://host/starter`) so framework
-  // routes land on the right app; for a host-root function url we must dispatch
-  // to `https://host/.netlify/functions/<name>` instead. Strip the base path
-  // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
-  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${publicFrameworkPath(options.path)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -195,9 +173,6 @@ export async function fireInternalDispatch(
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    // Only local PGlite development has the loopback/unsigned exception. A
-    // shared database or production deployment must never turn a signing
-    // failure into an unauthenticated processor request.
     if (
       process.env.NODE_ENV !== "production" &&
       isLocalDatabase() &&
@@ -226,10 +201,6 @@ export async function fireInternalDispatch(
     }
   });
   dispatchPromise.catch((err) => {
-    // Include the resolved base URL: a self-dispatch failure is almost always
-    // about *which* host we POST to (custom domain behind an edge/auth wall vs
-    // the deploy URL), and that is invisible from the error alone. Keeps prod
-    // logs diagnostic without changing the URL resolution order.
     console.error(
       `[self-dispatch] dispatch to ${options.path} (base ${baseUrl}) failed:`,
       err,
@@ -237,9 +208,6 @@ export async function fireInternalDispatch(
   });
 
   if (awaitResponse) {
-    // Confirmed handoff: resolve only once the target acknowledged the
-    // dispatch (throws on network error / timeout / non-2xx). Used by callers
-    // whose own invocation is about to end — see the option doc above.
     await dispatchPromise;
     return;
   }

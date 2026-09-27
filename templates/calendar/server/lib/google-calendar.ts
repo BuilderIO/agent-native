@@ -22,6 +22,7 @@ import type {
   UpdateEventScope,
 } from "../../shared/api.js";
 import {
+  createGoogleAccountEventId,
   createGoogleCalendarCanonicalKey,
   createGoogleCalendarSourceKey,
 } from "../../shared/google-calendar-sources.js";
@@ -71,6 +72,26 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
     );
   }
   return { email: credential.accountId, accessToken: credential.accessToken };
+}
+
+/**
+ * A workspace connection can be registered and marked "connected" while its
+ * token still can't be resolved (revoked, mid-authorization, misconfigured
+ * credential). Callers that only need a yes/no read of connection status must
+ * see that as "not connected", not as a thrown error — otherwise a single
+ * flaky managed-token resolution turns every read action (list-events
+ * included) into a 500 instead of the same not-connected state the UI already
+ * shows.
+ */
+async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
+  try {
+    return await resolveManagedCalendarClient();
+  } catch {
+    // coercion-ok: null is the same typed "not connected" result callers
+    // already get for "no managed connection configured" - isConnected and
+    // getConnectedAccounts never distinguish it from a genuine read success.
+    return null;
+  }
 }
 
 const SCOPES = [
@@ -419,14 +440,6 @@ function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-/**
- * Get a valid access token for a Google account, refreshing if expired.
- *
- * Throws on refresh failure rather than returning a stale token. Callers
- * that aggregate across accounts should catch and translate to a per-
- * account error so UIs can prompt a reconnect instead of silently
- * showing empty results.
- */
 async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
@@ -454,8 +467,6 @@ async function getValidAccessToken(
       `No usable OAuth tokens for ${accountId} — please reconnect.`,
     );
   }
-  // Refresh when the token is expired (with a 5-minute buffer) or when the
-  // record has a refresh token but no access token at all.
   if (
     !tokens.access_token ||
     (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000)
@@ -495,8 +506,6 @@ async function getValidAccessToken(
       throw lastRefreshError;
     } catch (err: any) {
       if (isPermanentRefreshError(err?.message || "")) {
-        // Drop the dead row so isOAuthConnected returns false and the UI
-        // surfaces the connect banner instead of a stale-token illusion.
         await deleteOAuthTokens("google", accountId);
         throw err;
       }
@@ -553,7 +562,6 @@ export async function exchangeCode(
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokens = await oauth2.getToken(code);
 
-  // Get user email
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
@@ -565,13 +573,6 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
-  // getGoogleAccountTimezone caches by the app-owner email (the argument to
-  // listOAuthAccountsByOwner), which is `owner` here when connecting a
-  // secondary account on someone else's behalf - not necessarily the
-  // connected account's own email. Invalidate both so a cached "no
-  // timezone" result from before this account existed (or was
-  // disconnected) can't keep suppressing either party's working-hours
-  // filter now that they've just connected.
   invalidateAccountTimezoneCache(email);
   if (owner) invalidateAccountTimezoneCache(owner);
 
@@ -664,27 +665,8 @@ function cacheAccountTimezone(key: string, value: string | null): void {
   });
 }
 
-/**
- * Resolve a connected Google account's own reported primary-calendar time
- * zone. Used as a fallback when a peer has never saved an app-level time
- * zone — this reads real provider data rather than guessing, so it is safe
- * to use anywhere a peer's app-level zone would otherwise be treated as
- * "unknown".
- *
- * Looks up the peer's own OAuth account directly rather than through
- * `getClient` — that helper falls back to the shared workspace connection
- * when the peer has no personal one, which would misattribute the
- * workspace account's time zone to this peer. Cached in-process (this is a
- * stable profile value) since it's reachable from unauthenticated public
- * booking routes and would otherwise hit Google's API on every request.
- */
-// Bumped whenever an OAuth connect/disconnect invalidates a key, so an
-// in-flight lookup started before the mutation (reflecting pre-mutation
-// account state) can detect it should not write its result into the cache
-// once it finally resolves.
 const accountTimezoneEpoch = new Map<string, number>();
 
-/** Clears any cached (positive or negative) timezone result for one email. */
 export function invalidateAccountTimezoneCache(email: string): void {
   const key = email.trim().toLowerCase();
   accountTimezoneCache.delete(key);
@@ -704,9 +686,6 @@ export async function getGoogleAccountTimezone(
     accountTimezoneCache.delete(key);
   }
 
-  // Coalesce concurrent misses for the same email (e.g. several visitors
-  // hitting the same public booking link at once) onto a single lookup
-  // instead of each independently refreshing tokens and calling Google.
   const inFlight = accountTimezoneInFlight.get(key);
   if (inFlight) return inFlight;
 
@@ -747,12 +726,6 @@ async function resolveGoogleAccountTimezone(
     accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
     accounts[0];
 
-  // Refresh once, up front — retrying this per Calendar-call attempt below
-  // would re-derive a fresh token from the same request each time and
-  // needlessly re-refresh even after a successful refresh, and a refresh
-  // failure here is not the transient-network case the retry below exists
-  // for (getValidAccessToken already distinguishes permanent vs. transient
-  // refresh failures internally).
   let accessToken: string;
   try {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -764,11 +737,6 @@ async function resolveGoogleAccountTimezone(
 
   let timezone: string | null = null;
   let resolved = false;
-  // One immediate retry of just the Calendar call: a transient network
-  // blip here would otherwise be indistinguishable from a peer having no
-  // resolvable time zone at all, silently skipping their saved
-  // working-hours filter for this request (not just failing to cache a
-  // negative result, which the catch below already avoids).
   for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
     try {
       const calendar = await calendarGetCalendar(accessToken, "primary");
@@ -790,9 +758,6 @@ async function resolveGoogleAccountTimezone(
     return null;
   }
 
-  // An OAuth connect/disconnect for this email during this lookup means the
-  // account state we just read is already stale - don't let it overwrite
-  // whatever `invalidateAccountTimezoneCache` cleared.
   if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
     cacheAccountTimezone(key, timezone);
   }
@@ -828,7 +793,6 @@ export async function getDefaultAccountSelection(
   return { ownerEmail, accountEmail: account.accountId };
 }
 
-/** Resolve one connected Google account beneath its signed-in owner. */
 export async function getClientForAccount({
   ownerEmail,
   accountEmail,
@@ -862,17 +826,6 @@ export async function getClientForAccount({
   return { accessToken };
 }
 
-/**
- * Get OAuth credentials. When `forEmail` is provided, returns only that
- * user's credentials (multi-user mode). Otherwise returns an empty array.
- *
- * Refresh failures are swallowed per-account — the signature preserves
- * the "empty array means no usable client" contract that existing
- * callers rely on for graceful "no Google account connected" fallbacks.
- * Callers that need to surface "all your tokens are dead" to the UI
- * should use `getClientsWithErrors` directly (already wired into
- * `listEvents` and `listOverlayEvents`).
- */
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
@@ -880,13 +833,6 @@ export async function getClients(
   return clients;
 }
 
-/**
- * Same as `getClients`, but also returns per-account refresh errors so
- * callers can distinguish "no accounts connected" (empty errors) from
- * "all accounts failed to refresh" (errors populated). Event fetches use
- * this to return a 502 with the underlying reason instead of silently
- * rendering an empty calendar.
- */
 export async function getClientsWithErrors(forEmail?: string): Promise<{
   clients: Array<{ email: string; accessToken: string }>;
   errors: Array<{ email: string; error: string }>;
@@ -937,12 +883,6 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
   return { clients, errors };
 }
 
-/**
- * Resolve a caller's connected Google accounts without refreshing tokens. This
- * is intentionally separate from `getClientsWithErrors`: callers that accept
- * an account filter must reject an unowned requested account before they do
- * provider work for any account.
- */
 export async function getOwnedAccountEmails(
   forEmail?: string,
 ): Promise<string[]> {
@@ -974,7 +914,14 @@ export async function getClientsForAccountsWithErrors(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    let managed: ManagedCalendarClient | null = null;
+    let managedError: string | undefined;
+    try {
+      managed = await resolveManagedCalendarClient();
+    } catch (err: any) {
+      managedError =
+        err?.message || "Workspace Google Calendar connection failed";
+    }
     if (!managed) {
       if (accountEmails?.length) {
         throw new Error(
@@ -983,7 +930,9 @@ export async function getClientsForAccountsWithErrors(
       }
       return {
         clients: [],
-        errors: [],
+        errors: managedError
+          ? [{ email: "workspace", error: managedError }]
+          : [],
         requestedAccounts: [],
         resolvedAccounts: [],
       };
@@ -1087,19 +1036,42 @@ function compareCalendarSourcePaths(
   return a.accountEmail.localeCompare(b.accountEmail);
 }
 
-/**
- * Resolve a client-supplied canonical source identity against the user's live
- * CalendarList. Provider paths stay server-selected, so a stale or forged
- * source key can never choose an arbitrary account/calendar pair.
- */
+function compareCalendarEventSources(
+  a: CalendarEvent,
+  b: CalendarEvent,
+): number {
+  const writable =
+    Number(b.calendarReadOnly === false) - Number(a.calendarReadOnly === false);
+  if (writable !== 0) return writable;
+
+  const primary =
+    Number(b.calendarPrimary === true) - Number(a.calendarPrimary === true);
+  if (primary !== 0) return primary;
+
+  const access =
+    (CALENDAR_ACCESS_RANK[b.calendarAccessRole ?? "freeBusyReader"] ?? -1) -
+    (CALENDAR_ACCESS_RANK[a.calendarAccessRole ?? "freeBusyReader"] ?? -1);
+  if (access !== 0) return access;
+
+  return (a.accountEmail ?? "").localeCompare(b.accountEmail ?? "");
+}
+
 export async function resolveGoogleCalendarSource(
   ownerEmail: string,
   sourceKey: string,
 ): Promise<GoogleCalendarSource> {
   const discovered = await listGoogleCalendars(ownerEmail);
-  const source = discovered.calendars.find(
-    (candidate) => candidate.sourceKey === sourceKey,
-  );
+  const source = discovered.calendars
+    .flatMap((candidate) =>
+      (candidate.sourcePaths ?? [candidate]).map((path) => ({
+        ...candidate,
+        ...path,
+        readOnly:
+          path.primary !== true ||
+          (path.accessRole !== "owner" && path.accessRole !== "writer"),
+      })),
+    )
+    .find((candidate) => candidate.sourceKey === sourceKey);
   if (!source) {
     throw new Error(
       "Google Calendar source is not connected or no longer available",
@@ -1108,7 +1080,6 @@ export async function resolveGoogleCalendarSource(
   return source;
 }
 
-/** Discover every CalendarList entry visible to each connected Google account. */
 export async function listGoogleCalendars(forEmail?: string): Promise<{
   calendars: GoogleCalendarSource[];
   errors: Array<{ email: string; error: string }>;
@@ -1196,7 +1167,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClient());
+  return Boolean(await resolveManagedCalendarClientOrNull());
 }
 
 export async function getConnectedAccounts(
@@ -1207,7 +1178,7 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClient();
+  const managed = await resolveManagedCalendarClientOrNull();
   return managed ? [managed.email] : [];
 }
 
@@ -1247,7 +1218,7 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    const managed = await resolveManagedCalendarClientOrNull();
     return managed
       ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
       : { connected: false, accounts: [] };
@@ -1295,10 +1266,6 @@ export async function getAuthStatus(
 }
 
 export async function disconnect(email?: string): Promise<void> {
-  // The completed timezone cache is keyed by owner, which can differ from
-  // the accountId being disconnected (e.g. disconnecting a secondary
-  // account connected on someone else's behalf) - look the owner up before
-  // the row is deleted so we can invalidate the right cache key too.
   let owner: string | null = null;
   if (email) {
     const accounts = await listOAuthAccounts("google");
@@ -1325,12 +1292,10 @@ export async function listEvents(
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
-  // Seed with refresh failures so a fully-dead connection (every account's
-  // refresh_token revoked or invalidated by a GOOGLE_CLIENT_ID rotation)
-  // reaches the caller — otherwise the result is indistinguishable from
-  // "calendar is empty" and the user sees no error.
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
+  const hasMultipleOwnedAccounts =
+    clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
 
   const requestedSourceKeys = Array.from(
     new Set((options.calendarSourceKeys ?? []).filter(Boolean)),
@@ -1339,9 +1304,27 @@ export async function listEvents(
   if (requestedSourceKeys.length > 0) {
     const discovered = await listGoogleCalendars(forEmail);
     errors.push(...discovered.errors);
-    const discoveredByKey = new Map(
-      discovered.calendars.map((source) => [source.sourceKey, source]),
-    );
+    const discoveredByKey = new Map<
+      string,
+      {
+        source: GoogleCalendarSource;
+        paths: Array<
+          Pick<
+            GoogleCalendarSource,
+            "sourceKey" | "accountEmail" | "accessRole" | "primary"
+          >
+        >;
+      }
+    >();
+    for (const source of discovered.calendars) {
+      const paths = source.sourcePaths ?? [source];
+      discoveredByKey.set(source.sourceKey, { source, paths });
+      for (const path of paths) {
+        if (path.sourceKey !== source.sourceKey) {
+          discoveredByKey.set(path.sourceKey, { source, paths: [path] });
+        }
+      }
+    }
     const invalid = requestedSourceKeys.filter(
       (sourceKey) => !discoveredByKey.has(sourceKey),
     );
@@ -1351,21 +1334,14 @@ export async function listEvents(
       );
     }
     for (const sourceKey of requestedSourceKeys) {
-      const source = discoveredByKey.get(sourceKey)!;
-      const paths = source.sourcePaths ?? [
-        {
-          sourceKey: source.sourceKey,
-          accountEmail: source.accountEmail,
-          accessRole: source.accessRole,
-          primary: source.primary,
-        },
-      ];
+      const { source, paths } = discoveredByKey.get(sourceKey)!;
       for (const path of paths) {
         const accountKey = path.accountEmail.trim().toLowerCase();
         selectedSourcesByAccount.set(accountKey, [
           ...(selectedSourcesByAccount.get(accountKey) ?? []),
           {
             ...source,
+            sourceKey: path.sourceKey,
             accountEmail: path.accountEmail,
             accessRole: path.accessRole,
             primary: path.primary,
@@ -1446,18 +1422,19 @@ export async function listEvents(
           const calendarSource = event.__calendarSource as
             | GoogleCalendarSource
             | undefined;
-          // Find the current user's RSVP status from attendees
           const selfAttendee = event.attendees?.find(
             (a: any) => a.self === true,
           );
           return {
-            // Google event ids are only unique within a calendar. Retain the
-            // primary legacy id while namespacing every selected non-primary
-            // source so client keys and mutations cannot collide.
             id:
               calendarSource && !calendarSource.primary
                 ? `google-${calendarSource.sourceKey}-${event.id}`
-                : `google-${event.id}`,
+                : hasMultipleOwnedAccounts
+                  ? createGoogleAccountEventId({
+                      accountEmail: email,
+                      googleEventId: event.id,
+                    })
+                  : `google-${event.id}`,
             title: event.summary || "Untitled",
             titleIsGenerated: !event.summary,
             description: event.description || "",
@@ -1538,8 +1515,13 @@ export async function listEvents(
     const key =
       event.canonicalKey && event.googleEventId
         ? `${event.canonicalKey}:${event.googleEventId}`
-        : event.id;
-    if (!dedupedEvents.has(key)) dedupedEvents.set(key, event);
+        : event.googleEventId && event.accountEmail
+          ? `google-account:${event.accountEmail.toLowerCase()}:${event.googleEventId}`
+          : event.id;
+    const existing = dedupedEvents.get(key);
+    if (!existing || compareCalendarEventSources(event, existing) < 0) {
+      dedupedEvents.set(key, event);
+    }
   }
   return { events: Array.from(dedupedEvents.values()), errors };
 }
@@ -2113,9 +2095,6 @@ export async function updateEvent(
     requestBody.conferenceData = null;
   }
 
-  // Google validates status events as complete resources during updates. A
-  // partial PATCH can reject otherwise valid working-location changes because
-  // required eventType/start/end fields are absent from the request body.
   const response = eventPatch.workingLocationProperties
     ? await calendarUpdateEvent(
         client.accessToken,
@@ -2194,7 +2173,6 @@ export async function deleteEvent(
     return;
   }
 
-  // For "all" or "thisAndFollowing", find the master recurring event
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -2212,9 +2190,7 @@ export async function deleteEvent(
     return;
   }
 
-  // "thisAndFollowing" — truncate the recurrence rule on the master event
   if (recurringEventId === googleEventId) {
-    // This IS the master event, just delete the whole series
     await calendarDeleteEvent(
       client.accessToken,
       "primary",
@@ -2233,21 +2209,17 @@ export async function deleteEvent(
   const isAllDay =
     !instance.originalStartTime?.dateTime && !instance.start?.dateTime;
 
-  // Compute UNTIL value (day before this instance)
   const cutoff = new Date(instanceStart);
   cutoff.setDate(cutoff.getDate() - 1);
 
   let untilStr: string;
   if (isAllDay) {
-    // All-day: UNTIL=YYYYMMDD
     untilStr = cutoff.toISOString().slice(0, 10).replace(/-/g, "");
   } else {
-    // Timed: UNTIL=YYYYMMDDTHHMMSSZ (end of the cutoff day in UTC)
     cutoff.setUTCHours(23, 59, 59, 0);
     untilStr = cutoff.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
   }
 
-  // Get the master event's recurrence rules and truncate
   const master = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -2256,7 +2228,6 @@ export async function deleteEvent(
   const recurrence: string[] = master.recurrence || [];
   const updatedRecurrence = recurrence.map((rule: string) => {
     if (rule.startsWith("RRULE:")) {
-      // Remove any existing UNTIL or COUNT
       let updated = rule.replace(/;(UNTIL|COUNT)=[^;]*/g, "");
       updated += `;UNTIL=${untilStr}`;
       return updated;
@@ -2272,8 +2243,6 @@ export async function deleteEvent(
     { sendUpdates },
   );
 
-  // Truncating the master does not remove materialized exceptions after the
-  // cutoff, so remove those exceptions as well.
   const instanceStartMs = Date.parse(instanceStart);
   const exceptionIds = new Set<string>([googleEventId]);
   let pageToken: string | undefined;
@@ -2317,17 +2286,11 @@ export async function deleteEvent(
         sendUpdates,
       );
     } catch (error) {
-      // A generated occurrence may already be gone once the master is trimmed.
       if (!isGoogleEventAbsentError(error)) throw error;
     }
   }
 }
 
-/**
- * Remove an event from the current user's calendar without deleting it for others.
- * Calls the DELETE API endpoint which removes it from this user's calendar view
- * without cancelling or affecting other attendees.
- */
 export async function removeEventFromCalendar(
   googleEventId: string,
   account: GoogleAccountSelection,
@@ -2351,7 +2314,6 @@ export async function removeEventFromCalendar(
     return;
   }
 
-  // For "all" or "thisAndFollowing", find the base recurring event
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -2369,8 +2331,6 @@ export async function removeEventFromCalendar(
     return;
   }
 
-  // "thisAndFollowing" — delete each instance from this one onward
-  // For non-organizers we can only delete instance by instance; delete this one
   await calendarDeleteEvent(
     client.accessToken,
     "primary",
@@ -2379,7 +2339,6 @@ export async function removeEventFromCalendar(
   );
 }
 
-/** RSVP a single event instance without overwriting the full attendee list. */
 async function rsvpSingleEvent(
   accessToken: string,
   eventId: string,
@@ -2406,13 +2365,9 @@ async function rsvpSingleEvent(
   );
 }
 
-/**
- * Update the current user's RSVP status for an event.
- * Supports recurring event scopes: "single", "all", or "thisAndFollowing".
- */
 export async function rsvpEvent(
   googleEventId: string,
-  responseStatus: "accepted" | "declined" | "tentative",
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction",
   account: GoogleAccountSelection,
   scope: "single" | "all" | "thisAndFollowing" = "single",
   comment?: string,
@@ -2432,7 +2387,6 @@ export async function rsvpEvent(
     return;
   }
 
-  // For "all" or "thisAndFollowing", we need the base recurring event ID.
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -2441,8 +2395,6 @@ export async function rsvpEvent(
   const recurringEventId = instance.recurringEventId || googleEventId;
 
   if (scope === "all") {
-    // RSVP the base recurring event — Google propagates to all instances
-    // that don't have individual overrides.
     await rsvpSingleEvent(
       client.accessToken,
       recurringEventId,
@@ -2454,14 +2406,11 @@ export async function rsvpEvent(
     return;
   }
 
-  // "thisAndFollowing": RSVP this instance and all future instances.
-  // Get the start time of the current instance to use as the cutoff.
   const instanceStart =
     instance.start?.dateTime ||
     instance.start?.date ||
     new Date().toISOString();
 
-  // Fetch all future instances of this recurring event
   const futureEvents = await calendarListEvents(client.accessToken, "primary", {
     timeMin: instanceStart,
     singleEvents: true,
@@ -2469,13 +2418,11 @@ export async function rsvpEvent(
     maxResults: 250,
   });
 
-  // Filter to only instances of the same recurring series
   const futureInstances = (futureEvents.items || []).filter(
     (e: any) =>
       e.recurringEventId === recurringEventId || e.id === recurringEventId,
   );
 
-  // RSVP each instance (including the current one)
   await Promise.all(
     futureInstances.map((e: any) =>
       rsvpSingleEvent(

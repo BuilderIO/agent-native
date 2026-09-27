@@ -54,7 +54,7 @@ export function useCreatePage(opts?: {
   const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
-    async (parentId?: string) => {
+    async (parentId?: string, requestedId?: string) => {
       let spaceId: string | undefined;
       try {
         spaceId = contentSpaceIdForCreate({
@@ -67,7 +67,7 @@ export function useCreatePage(opts?: {
         );
         throw error;
       }
-      const id = nanoid();
+      const id = requestedId ?? nanoid();
       const now = new Date().toISOString();
       const tempDoc = markDocumentCreationPending({
         id,
@@ -114,8 +114,6 @@ export function useCreatePage(opts?: {
           ["action", "get-document", { id: created.id }],
           created,
         );
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(id));
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

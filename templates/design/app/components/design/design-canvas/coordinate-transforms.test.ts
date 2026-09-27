@@ -14,16 +14,6 @@ describe("getScreenContentPointFromClient — scrollOffset", () => {
   });
 
   it("adds an unscaled scroll offset directly, NOT divided/multiplied by scale", () => {
-    // 50% host zoom: the iframe's rendered rect is half its own content
-    // (iframe.clientWidth/Height) box, so scaleX = scaleY = 0.5. The screen
-    // is scrolled 600px down internally. A click at the iframe's visible top
-    // edge (rendered content y offset = 0) must land at content y = 600 —
-    // not 1200 (mistakenly dividing the scroll by scale) and not 300
-    // (mistakenly multiplying the scroll by scale). The scroll offset is
-    // already expressed in the iframe's own unscaled content pixels — the
-    // same units `iframeContentSize` and the return value use — so it must
-    // be added as-is, after the scale division has already been applied to
-    // the client-to-rect delta.
     const point = getScreenContentPointFromClient(
       100, // clientX === iframeRect.left (visible left edge)
       50, // clientY === iframeRect.top (visible top edge)
@@ -35,8 +25,6 @@ describe("getScreenContentPointFromClient — scrollOffset", () => {
   });
 
   it("combines a non-zero rendered offset with scroll (50% zoom)", () => {
-    // 200px into the rendered (zoomed) rect at 50% scale = 400 unscaled
-    // content px, plus a 600px vertical scroll and 50px horizontal scroll.
     const point = getScreenContentPointFromClient(
       100 + 200,
       50 + 150,
@@ -70,8 +58,6 @@ describe("getScreenContentPointFromClient — scrollOffset", () => {
   });
 
   it("undoes a zoomed-in outer transform (rect larger than content size) with scroll", () => {
-    // A 200% zoom wrapper renders the iframe's rect at double its content
-    // size, so scale = 2. 100 rendered px at 200% scale = 50 content px.
     const point = getScreenContentPointFromClient(
       10 + 100,
       20 + 60,

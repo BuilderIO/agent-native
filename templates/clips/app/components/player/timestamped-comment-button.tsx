@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { useAutoResizeCommentTextarea } from "./comment-composer";
 import { msToClock } from "./scrubber";
 
 interface TimestampedCommentButtonProps {
@@ -16,7 +17,6 @@ interface TimestampedCommentButtonProps {
   className?: string;
 }
 
-/** Trigger that opens the docked comment composer, pinned to the current time. */
 export function TimestampedCommentButton({
   enableComments,
   canComment,
@@ -49,10 +49,6 @@ interface TimestampedCommentBarProps {
   onDraftChange?: (value: string) => void;
 }
 
-/**
- * Bottom-docked comment composer. Render inside a `relative` container (the
- * video wrapper) so it overlays the bottom of the video at the captured moment.
- */
 export function TimestampedCommentBar({
   recordingId,
   atMs,
@@ -67,6 +63,7 @@ export function TimestampedCommentBar({
   const draft = controlledDraft ?? uncontrolledDraft;
   const setDraft = onDraftChange ?? setUncontrolledDraft;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useAutoResizeCommentTextarea(textareaRef, draft, 1);
 
   const addComment = useActionMutation("add-comment");
 
@@ -112,7 +109,7 @@ export function TimestampedCommentBar({
           placeholder={t("commentsPanel.composerPlaceholder")}
           rows={1}
           aria-label={t("commentsPanel.composerPlaceholder")}
-          className="min-h-9 max-h-32 resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
+          className="min-h-9 max-h-[40vh] resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
         />
         <div className="mt-1 flex items-center justify-between border-t border-border px-1 pt-1.5">
           <span className="ps-1 text-[11px] text-muted-foreground">

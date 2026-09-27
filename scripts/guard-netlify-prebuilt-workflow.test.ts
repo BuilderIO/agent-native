@@ -548,7 +548,7 @@ describe("production Netlify site concurrency guard", () => {
       String((betaBuild.with as Workflow).artifact_name),
       /github\.run_id/,
     );
-    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 16);
+    assert.equal((betaBuild.strategy as Workflow)["max-parallel"], 8);
     assert.equal(
       ((beta.jobs as Workflow).deploy as Workflow).strategy?.["max-parallel"],
       8,
@@ -575,8 +575,6 @@ describe("production Netlify site concurrency guard", () => {
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
       "utf8",
     );
-    // build is a fail-fast:false matrix over ~18 sites; one site's failed
-    // build must not skip confirm-current-source/deploy for every other site.
     assert.doesNotMatch(betaSource, /needs\.build\.result == 'success'/);
     assert.match(
       betaSource,
@@ -610,11 +608,13 @@ describe("production Netlify site concurrency guard", () => {
       .steps as Array<Workflow>;
     const betaMigration = reusableSteps.find(
       (step) =>
-        step.name === "Run the beta release migration against production",
+        step.name ===
+        "Run the beta release migration against the site database",
     );
     const betaMigrationIndex = reusableSteps.findIndex(
       (step) =>
-        step.name === "Run the beta release migration against production",
+        step.name ===
+        "Run the beta release migration against the site database",
     );
     const betaPreMigrationFreshnessIndex = reusableSteps.findIndex(
       (step) =>
@@ -665,9 +665,6 @@ describe("production Netlify site concurrency guard", () => {
       String(betaFreshness?.if),
       /steps\.beta_pre_migration_freshness\.outputs\.current == 'true'/,
     );
-    // Both freshness checks must be monotonic (ancestor-of-main and
-    // not-a-regression-of-the-published-deploy), not exact equality — an
-    // exact match livelocks the fleet against a merge every few minutes.
     for (const freshnessStep of [betaPreMigrationFreshness, betaFreshness]) {
       const script = String(freshnessStep?.with?.script ?? "");
       assert.match(script, /compareCommits/);
@@ -695,6 +692,9 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
+    assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
+    assert.match(String(betaMigration?.run), /brain\|factory/);
+    assert.match(String(betaMigration?.run), /@agent-native\/docs/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
       ((reusable.jobs as Workflow).deploy as Workflow).steps as Array<Workflow>
@@ -902,8 +902,6 @@ describe("production Netlify site concurrency guard", () => {
     const confirmCurrentSourceScript = String(
       confirmCurrentSourceStep?.with?.script,
     );
-    // The top-level fleet gate only needs check 1 (ancestor-of-main); it runs
-    // before anything is built, so it no longer requires an exact match.
     assert.match(confirmCurrentSourceScript, /compareCommits/);
     assert.match(
       confirmCurrentSourceScript,
@@ -951,9 +949,6 @@ describe("production Netlify site concurrency guard", () => {
       reusableSource,
       /did not become ready and published within 30 minutes/,
     );
-    // Monotonic, not exact-equality: the immediate pre-publish recheck
-    // inside this step must use the same ancestor-of-main compare as
-    // beta_first_publish_freshness above, not a hard SHA match.
     assert.match(reusableSource, /compare_status/);
     assert.doesNotMatch(
       reusableSource,
@@ -1125,11 +1120,11 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 15);
+    assert.equal(nodeHeredocs.length, 17);
     assert.equal(
       (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
         .length,
-      15,
+      17,
     );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
@@ -1521,14 +1516,63 @@ describe("production Netlify site concurrency guard", () => {
       appSmoke.if,
       "inputs.target != 'preview' && inputs.deploy && steps.beta_freshness.outputs.current != 'false' && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs' && (inputs.target != 'beta' || steps.beta_first_publish.outputs.deploy_id != '' || steps.beta_first_publish_reconcile.outputs.deploy_id != '' || (steps.previous.outputs.published_deploy_id != '' && steps.deploy.outputs.deploy_id != ''))",
     );
-    // The smoke step asserts the health BODY (ready, db, schema,
-    // jwks, identity), not just the status code — see scripts/smoke-check-health.ts.
     assert.match(String(appSmoke.run), /scripts\/smoke-check-health\.ts/);
     assert.match(String(appSmoke.run), /--auth-routes/);
     assert.match(String(appSmoke.run), /--check-assets/);
     assert.match(String(appSmoke.run), /SOURCE_TEMPLATE/);
     assert.match(String(appSmoke.run), /--asset-path \/overview/);
     assert.match(String(appSmoke.run), /--canonical-host/);
+    assert.equal(appSmoke.id, "beta_smoke");
+    const betaSmokeRollback = steps.find(
+      (step) =>
+        step.name === "Roll back beta deploy after smoke verification failure",
+    );
+    assert(betaSmokeRollback);
+    assert.equal(betaSmokeRollback?.id, "beta_smoke_rollback");
+    assert.match(String(betaSmokeRollback?.if), /always\(\)/);
+    assert.match(
+      String(betaSmokeRollback?.if),
+      /steps\.beta_smoke\.outcome == 'failure'/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /PREVIOUS_DEPLOY_ID/);
+    assert.match(String(betaSmokeRollback?.run), /const beforeRestore =/);
+    assert.match(
+      String(betaSmokeRollback?.run),
+      /Netlify beta smoke rollback precondition/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /\/lock/);
+    assert.match(String(betaSmokeRollback?.run), /finally/);
+    assert.match(String(betaSmokeRollback?.run), /failure cleanup/);
+    assert.doesNotMatch(String(betaSmokeRollback?.run), /\/unlock/);
+    assert.match(String(betaSmokeRollback?.run), /Left published beta deploy/);
+    assert.match(
+      String(betaSmokeRollback?.run),
+      /pinned it until the next beta publish/,
+    );
+    assert.match(String(betaSmokeRollback?.run), /\/restore/);
+    const betaFailureCleanup = steps.find(
+      (step) => step.name === "Pin the beta site after a failed cutover",
+    );
+    assert(betaFailureCleanup);
+    assert.equal(betaFailureCleanup?.id, "beta_failure_cleanup");
+    assert.match(String(betaFailureCleanup?.if), /always\(\)/);
+    assert.match(String(betaFailureCleanup?.if), /inputs.target == 'beta'/);
+    assert.match(String(betaFailureCleanup?.if), /failure\(\)/);
+    assert.match(String(betaFailureCleanup?.run), /baselineDeployId/);
+    assert.match(String(betaFailureCleanup?.run), /baselineWasLocked/);
+    assert.match(String(betaFailureCleanup?.run), /\/lock/);
+    assert.match(
+      String(betaFailureCleanup?.run),
+      /current\.published_deploy\?\.id/,
+    );
+    const cacheVerification = steps.find(
+      (step) => step.name === "Verify the deployed site still caches a miss",
+    );
+    assert(cacheVerification);
+    assert(
+      steps.indexOf(betaFailureCleanup as Workflow) >
+        steps.indexOf(cacheVerification as Workflow),
+    );
 
     assert(previewSmoke);
     assert.equal(
@@ -1749,6 +1793,16 @@ describe("production Netlify site concurrency guard", () => {
 
   it("captures the Netlify deploy baseline before draining production deploys", () => {
     const unlock = nodeHeredocs[1];
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const steps = (workflow.jobs as Record<string, Workflow>).deploy
+      .steps as Array<Workflow>;
+    const previous = steps.find(
+      (step) =>
+        step.name ===
+        "Capture the current published deploy for callback rollback",
+    );
     assert.doesNotMatch(unlock, /readyIsBlocking/);
     const baselineIndex = unlock.indexOf(
       "const preexistingDeployIds = new Set",
@@ -1758,6 +1812,20 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       unlock,
       /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?\["ready"\][\s\S]*?\);\s*const site = await readJson\(/,
+    );
+    assert.match(unlock, /published_deploy_source_ref/);
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_DEPLOY_ID,
+      "${{ steps.unlock.outputs.published_deploy_id }}",
+    );
+    assert.equal(
+      (previous?.env as Record<string, unknown>).UNLOCKED_PUBLISHED_SOURCE_REF,
+      "${{ steps.unlock.outputs.published_deploy_source_ref }}",
+    );
+    assert.match(String(previous?.run), /TARGET === "beta"/);
+    assert.match(
+      String(previous?.run),
+      /Captured beta rollback baseline .* before unlock/,
     );
   });
 

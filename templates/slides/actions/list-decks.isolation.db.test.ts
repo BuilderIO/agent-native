@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -85,8 +86,6 @@ beforeAll(async () => {
         updatedAt: "2026-05-04T00:00:00.000Z",
       },
       {
-        // Legacy pre-org row. The owner keeps it across org switches, but it
-        // must never widen to a different owner.
         id: "deck-b-solo",
         title: "Org B unscoped legacy",
         data: JSON.stringify({ slides: [{ id: "s1" }] }),
@@ -113,9 +112,6 @@ async function idsFor(
   });
 }
 
-// Every projection branch in list-decks builds its own query. A filter dropped
-// from any one of them is a cross-tenant leak, so each is asserted separately
-// rather than trusting the default branch to stand in for the rest.
 const BRANCHES: Array<[string, Record<string, unknown>]> = [
   ["default metadata", {}],
   ["light", { light: "true" }],
@@ -127,6 +123,27 @@ const BRANCHES: Array<[string, Record<string, unknown>]> = [
 ];
 
 describe("list-decks cross-organization isolation", () => {
+  it("searches visible titles before applying the page limit", async () => {
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "PRIVATE" },
+      ),
+    ).toEqual(["deck-b-private"]);
+    expect(
+      await idsFor(
+        { userEmail: ALICE, orgId: ORG_A },
+        { limit: 1, search: "Org B" },
+      ),
+    ).toEqual([]);
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "%_" },
+      ),
+    ).toEqual([]);
+  });
+
   it.each(BRANCHES)(
     "never shows another org's decks to a brand-new account (%s)",
     async (_label, args) => {
@@ -184,5 +201,42 @@ describe("list-decks cross-organization isolation", () => {
         expect(first.nextCursor).toBeUndefined();
       },
     );
+  });
+
+  it("does not fail the light+preview listing when one deck's data isn't valid JSON", async () => {
+    await getDb().insert(schema.decks).values({
+      id: "deck-a-corrupted",
+      title: "Org A corrupted",
+      data: "not valid json {{{",
+      ownerEmail: ALICE,
+      orgId: ORG_A,
+      visibility: "private",
+      createdAt: "2026-05-06T00:00:00.000Z",
+      updatedAt: "2026-05-06T00:00:00.000Z",
+    });
+    try {
+      await runWithRequestContext(
+        { userEmail: ALICE, orgId: ORG_A },
+        async () => {
+          const result: any = await listDecks.run(
+            { light: "true", includePreview: "true" } as any,
+            {} as any,
+          );
+          const decks = result.decks as any[];
+          expect(decks.map((d) => d.id).sort()).toEqual([
+            "deck-a-corrupted",
+            "deck-a-private",
+          ]);
+          const good = decks.find((d) => d.id === "deck-a-private");
+          expect(good.previewSlide).toEqual({ id: "s1" });
+          const corrupted = decks.find((d) => d.id === "deck-a-corrupted");
+          expect(corrupted).not.toHaveProperty("previewSlide");
+        },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, "deck-a-corrupted"));
+    }
   });
 });

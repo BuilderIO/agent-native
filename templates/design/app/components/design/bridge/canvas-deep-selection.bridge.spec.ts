@@ -88,10 +88,18 @@ describe("canvas deep selection modifiers", () => {
       await page.setContent(FIXTURE);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
+        (window as any).__appClicks = 0;
         window.addEventListener("message", (event: MessageEvent) => {
           if (event.source === window)
             (window as any).__bridgeMessages.push(event.data);
         });
+        document.body.addEventListener("click", () => {
+          (window as any).__appClicks += 1;
+        });
+      });
+      await page.addStyleTag({
+        content:
+          "body{position:relative;z-index:2147483647;width:100vw;height:100vh}",
       });
       await page.addScriptTag({ content: hydratedBridge() });
       await page.waitForFunction(() =>
@@ -101,10 +109,10 @@ describe("canvas deep selection modifiers", () => {
         ),
       );
 
-      // Establish a different existing primary, then deep-click a descendant.
       let elementSelectCount = await messageCount(page, "element-select");
       await page.mouse.click(150, 40);
       await waitForMessageAfter(page, "element-select", elementSelectCount);
+      expect(await page.evaluate(() => (window as any).__appClicks)).toBe(0);
       elementSelectCount = await messageCount(page, "element-select");
       await page.keyboard.down("Meta");
       await page.mouse.click(160, 148);
@@ -127,7 +135,6 @@ describe("canvas deep selection modifiers", () => {
       });
       expect(await passiveOverlayCount(page)).toBe(0);
 
-      // Reset the title as primary; Shift+Cmd deep click should keep it and add Note.
       elementSelectCount = await messageCount(page, "element-select");
       await page.mouse.click(150, 40);
       await waitForMessageAfter(page, "element-select", elementSelectCount);
@@ -154,8 +161,6 @@ describe("canvas deep selection modifiers", () => {
       });
       expect(await passiveOverlayCount(page)).toBe(1);
 
-      // Repeating the same chord toggles Note off. The bridge sends the full
-      // surviving set as a non-additive marquee packet, so the host cannot re-add Note.
       const toggleCount = await messageCount(
         page,
         "agent-native:layer-marquee-selection",

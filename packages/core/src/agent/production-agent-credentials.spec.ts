@@ -4,6 +4,7 @@ const mockReadAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn();
+const mockResolveBuilderGatewayAuth = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -18,9 +19,20 @@ vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
   getRequestUserEmail: () => undefined,
 }));
+vi.mock("../server/credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/credential-provider.js")
+  >()),
+  resolveBuilderGatewayAuth: (...args: unknown[]) =>
+    mockResolveBuilderGatewayAuth(...args),
+}));
 
 import { resetOptionalKeyCache } from "../secrets/optional-key-cache.js";
-import { getOwnerApiKey, getOwnerJevApiKey } from "./production-agent.js";
+import {
+  getJevContextCredentials,
+  getOwnerApiKey,
+  getOwnerJevApiKey,
+} from "./production-agent.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,6 +40,8 @@ beforeEach(() => {
   mockGetSetting.mockResolvedValue(undefined);
   mockGetRequestContext.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockResolveBuilderGatewayAuth.mockReset();
+  mockResolveBuilderGatewayAuth.mockResolvedValue(null);
   resetOptionalKeyCache();
 });
 
@@ -136,6 +150,90 @@ describe("getOwnerApiKey", () => {
     await expect(getOwnerJevApiKey("owner@example.com")).resolves.toBe(
       "deployment-jev-key",
     );
+  });
+
+  it("keeps a scoped Jev key distinct from the deployment fallback", async () => {
+    mockReadAppSecret.mockResolvedValueOnce({
+      value: "user-jev-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "user-jev-key",
+      personalApiKey: "user-jev-key",
+      builderAuth: null,
+    });
+
+    resetOptionalKeyCache();
+    vi.stubEnv("JEV_API_KEY", "deployment-jev-key");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "deployment-jev-key",
+      personalApiKey: undefined,
+      builderAuth: null,
+    });
+  });
+
+  it("keeps agent requests usable when Builder credentials cannot be resolved", async () => {
+    mockResolveBuilderGatewayAuth.mockRejectedValueOnce(
+      new Error("OAuth token store unavailable"),
+    );
+
+    await expect(getJevContextCredentials(null)).resolves.toEqual({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: null,
+      builderAuthLookupFailed: true,
+    });
+  });
+
+  it("keeps a saved Jev key when Builder credentials cannot be resolved", async () => {
+    mockReadAppSecret.mockResolvedValueOnce({
+      value: "user-jev-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+    mockResolveBuilderGatewayAuth.mockRejectedValueOnce(
+      new Error("OAuth token store unavailable"),
+    );
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "user-jev-key",
+      personalApiKey: "user-jev-key",
+      builderAuth: null,
+      builderAuthLookupFailed: true,
+    });
+  });
+
+  it("uses the owner's org for Builder auth in background automation", async () => {
+    mockGetRequestOrgId.mockReturnValue(undefined);
+
+    await getJevContextCredentials("owner@example.com");
+
+    expect(mockResolveBuilderGatewayAuth).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: undefined,
+    });
+  });
+
+  it("keeps Builder auth personal when Personal scope is explicit", async () => {
+    mockGetRequestContext.mockReturnValue({ orgScope: "personal" });
+    mockGetRequestOrgId.mockReturnValue(undefined);
+
+    await getJevContextCredentials("owner@example.com");
+
+    expect(mockResolveBuilderGatewayAuth).toHaveBeenCalledWith({
+      userEmail: "owner@example.com",
+      orgId: null,
+    });
   });
 
   it("does not use a deployment Jev key when scoped lookup fails", async () => {

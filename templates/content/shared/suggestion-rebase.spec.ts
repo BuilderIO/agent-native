@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalizeNfm } from "./nfm";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase";
 
 function change(before: string, from: number, to: number, inserted: string) {
@@ -207,6 +208,152 @@ describe("resolveMarkdownSuggestionRange", () => {
     expect(
       resolveMarkdownSuggestionRange(before, change(before, 0, 5, "First")),
     ).toEqual({ from: 0, to: 5 });
+  });
+
+  it.each([
+    [
+      "# Heading\n\nFirst paragraph.\n\n- List item\n- Other item",
+      "First paragraph",
+      "# Heading\nFirst paragraph.\n- List item\n- Other item",
+    ],
+    [
+      "## Heading\r\n\r\nSentence with CRLF.\r\n\r\nLast.",
+      "Sentence with CRLF",
+      "## Heading\nSentence with CRLF.\nLast.",
+    ],
+  ])(
+    "maps a target through independent surrounding canonicalization: %s",
+    (saved, target, canonical) => {
+      const from = saved.indexOf(target);
+      const expectedFrom = canonical.indexOf(target);
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonical,
+          change(saved, from, from + target.length, "Replacement"),
+        ),
+      ).toEqual({
+        from: expectedFrom,
+        to: expectedFrom + target.length,
+      });
+    },
+  );
+
+  it("does not treat canonicalization as permission to attach changed text", () => {
+    const saved = "# Heading\n\nFirst paragraph.\n\n- List item";
+    const from = saved.indexOf("First paragraph");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "# Heading\nDifferent paragraph.\n- List item",
+        change(saved, from, from + "First paragraph".length, "Replacement"),
+      ),
+    ).toBeNull();
+  });
+
+  it("does not map a target whose bytes changed during canonicalization", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from + 2, "\nReplacement\n"),
+      ),
+    ).toBeNull();
+  });
+
+  it("does not map one selected newline from a collapsed blank-line run", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n");
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from + 1, "Replacement"),
+      ),
+    ).toBeNull();
+  });
+
+  it("does not relocate a canonicalized paragraph target into a code fence", () => {
+    const saved = "Paragraph a < b.\n\n```\na < b\n```";
+    const target = "a < b";
+    const canonical = canonicalizeNfm(saved);
+    const from = saved.indexOf(target);
+    expect(canonical.indexOf(target)).toBe(canonical.lastIndexOf(target));
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "a > b"),
+      ),
+    ).toBeNull();
+  });
+
+  it("maps a target spanning Markdown block syntax without changing structure", () => {
+    const saved = "# Heading\n\n> Original quote\n\nTail";
+    const target = "> Original quote";
+    const canonical = "# Heading\n> Original quote\nTail";
+    const from = saved.indexOf(target);
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "> Revised quote"),
+      ),
+    ).toEqual({
+      from: canonical.indexOf(target),
+      to: canonical.indexOf(target) + target.length,
+    });
+  });
+
+  it.each([
+    ["First paragraph.\n\nSecond paragraph.", 16, 16],
+    ["First paragraph.\n\nSecond paragraph.", 18, 17],
+  ])(
+    "maps an insertion beside canonicalized whitespace: offset=%s",
+    (saved, from, expected) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          "First paragraph.\nSecond paragraph.",
+          change(saved, from, from, "Inserted text."),
+        ),
+      ).toEqual({ from: expected, to: expected });
+    },
+  );
+
+  it("does not guess an insertion boundary inside canonicalized whitespace", () => {
+    const saved = "First paragraph.\n\nSecond paragraph.";
+    const from = saved.indexOf("\n\n") + 1;
+    expect(
+      resolveMarkdownSuggestionRange(
+        "First paragraph.\nSecond paragraph.",
+        change(saved, from, from, "Inserted text."),
+      ),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["\nFirst paragraph.", 0, "First paragraph."],
+    ["First paragraph.\n", "First paragraph.\n".length, "First paragraph."],
+  ])(
+    "does not map a document-edge insertion across stripped whitespace: %s",
+    (saved, from, canonical) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonical,
+          change(saved, from, from, "Inserted block.\n"),
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("uses the editor canonicalizer for trailing empty blocks", () => {
+    const saved = "Paragraph text.\n\n<empty-block/>";
+    const target = "Paragraph text";
+    const from = saved.indexOf(target);
+    const canonical = canonicalizeNfm(saved);
+    expect(canonical).toContain("<empty-block/>");
+    expect(
+      resolveMarkdownSuggestionRange(
+        canonical,
+        change(saved, from, from + target.length, "Revised text"),
+      ),
+    ).toEqual({ from, to: from + target.length });
   });
 
   it("does not highlight an overlapping canonical replacement", () => {

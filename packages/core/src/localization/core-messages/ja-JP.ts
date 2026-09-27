@@ -1,6 +1,26 @@
 import type { AgentChatTranslation } from "../core-messages.js";
 
 const messages: AgentChatTranslation = {
+  "composer.contextUrlLabel": "URL",
+  "composer.contextInvalidUrl":
+    "有効な HTTP または HTTPS の URL を入力してください。",
+  "composer.contextAttach": "添付",
+  "composer.menu.search": "検索…",
+  "composer.contextPrevious": "前へ",
+  "composer.contextNext": "次へ",
+  "composer.contextLoadFailed": "コンテキストを読み込めませんでした。",
+  "composer.contextLinkRequired": "リンクを入力してください。",
+  "composer.submitFailed": "送信できませんでした。もう一度お試しください。",
+  "composer.addContext": "コンテキストを追加",
+  "composer.contextActionFailed": "コンテキストを追加できませんでした。",
+  "composer.contextBack": "戻る",
+  "composer.searchContext": "コンテキストを検索…",
+  "composer.noContextResults": "一致するコンテキストがありません。",
+  "composer.contextPending": "コンテキストを読み込み中",
+  "composer.contextError": "コンテキストの読み込みに失敗",
+  "composer.retryContext": "{{name}} のコンテキストを再試行",
+  "composer.contextLimitExceeded":
+    "コンテキストが大きすぎます。項目を削除するか、より小さな選択範囲を添付してください。",
   "activity.reasoning": "推論",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -33,22 +53,34 @@ const messages: AgentChatTranslation = {
   "commands.mention": "ファイル、エージェント、リソースをメンション",
   "commands.new": "/clear と同じ",
   "commands.plan": "読み取り専用の計画モードに切り替え",
+  "observability.viewDetails": "詳細を表示",
+  "observability.hideDetails": "詳細を非表示",
+  "observability.input": "入力",
+  "observability.output": "出力",
+  "observability.error": "エラー",
+  "observability.metadata": "メタデータ",
+  "observability.notCaptured": "未取得",
+  "observability.openFullConversation": "会話全体を開く",
+  "observability.learnAboutTab": "このタブの詳細を見る",
   "onboarding.back": "戻る",
   "onboarding.chooseRole": "役割を選択",
   "onboarding.customizeRole": "あなた向けにカスタマイズしましょう。",
   "onboarding.roleQuestion": "あなたの役割に最も当てはまるものは？",
-  "onboarding.roleProduct": "プロダクト",
-  "onboarding.roleDesign": "デザイン",
+  "onboarding.roleHelperText":
+    "これにより、あなたの体験をパーソナライズできます",
+  "onboarding.roleProduct": "プロダクトマネージャー",
+  "onboarding.roleDesign": "デザイナー",
   "onboarding.roleDeveloper": "開発",
   "onboarding.roleMarketing": "マーケティング",
   "onboarding.roleSales": "営業",
   "onboarding.roleOps": "オペレーション",
   "onboarding.roleIndividual": "個人",
   "onboarding.roleOther": "その他",
+  "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
-  "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
-  "onboarding.builderConnectCredits": "Builder.io 無料クレジットに接続",
+  "onboarding.builderCreateAccount": "Builder.io アカウントを作成",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -62,9 +94,10 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActivationDescription":
     "ワンクリックで Builder.io アカウントを自動的に作成します。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
-  "onboarding.builderConsentPrefix": "続行すると、Builder.io の",
+  "onboarding.builderConsentPrefix":
+    "Builder.io アカウントを作成すると、当社の",
   "onboarding.builderTerms": "利用規約",
-  "onboarding.builderPrivacy": "プライバシー",
+  "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
@@ -78,24 +111,24 @@ const messages: AgentChatTranslation = {
   "onboarding.builderReadyCreditsOnly":
     "AI クレジットを利用できます。クラウドコードの編集には、Background Agent 設定で Builder プロジェクトが必要です。",
   "onboarding.openBackgroundAgentSettings": "Background Agent 設定を開く",
-  "onboarding.capability.llm.keySummary":
-    "AIプロバイダーまたはローカルモデルに接続",
+  "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
-    "BuilderストレージまたはS3互換バケット",
-  "onboarding.fileStorage.title": "ファイルストレージを選択",
+    "ファイルのアップロードと保存",
+  "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
+  "onboarding.fileStorage.statusUnavailable":
+    "ストレージを確認できませんでした",
   "onboarding.fileStorage.description":
-    "Builderの管理ストレージ、または独自のS3互換バケット用のカスタムストレージキーを選択します。",
-  "onboarding.fileStorage.custom": "カスタムストレージキーを使用",
+    "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
+  "onboarding.fileStorage.custom": "カスタムキーを使用",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
   "onboarding.capability.voiceInput.label": "音声入力",
-  "onboarding.capability.voiceInput.keySummary":
-    "ブラウザーの音声認識または音声文字変換",
+  "onboarding.capability.voiceInput.keySummary": "音声入力",
   "onboarding.capability.voiceInput.why":
     "音声入力は話したリクエストをテキストに変換します。入力はいつでも使えます。",
   "onboarding.capability.embeddings.label": "埋め込み",
-  "onboarding.capability.embeddings.keySummary":
-    "Gemini、Cohere、またはVoyageのキー",
+  "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
@@ -134,6 +167,18 @@ const messages: AgentChatTranslation = {
   "agentPanel.sharedKeyInEffect": "共有キーを使用しています。",
   "agentPanel.useOrganizationKey": "組織のキーを使用",
   "agentPanel.keyStatusUnavailable": "キーの状態を取得できません。",
+  "agentPanel.chatgptSubscriptionPopupBlocked":
+    "このサイトのポップアップを許可してから、もう一度お試しください。",
+  "agentPanel.chatgptSubscriptionTitle": "ChatGPT サブスクリプション",
+  "agentPanel.chatgptSubscriptionDescription":
+    "ChatGPT サブスクリプションによる実験的な Codex アクセス。",
+  "agentPanel.chatgptSubscriptionInUse": "使用中",
+  "agentPanel.chatgptSubscriptionConnected": "接続済み",
+  "agentPanel.chatgptSubscriptionConnecting": "接続中…",
+  "agentPanel.chatgptSubscriptionReconnect": "再接続",
+  "agentPanel.chatgptSubscriptionConnect": "ChatGPT を接続",
+  "agentPanel.chatgptSubscriptionUse": "チャットで使用",
+  "agentPanel.chatgptSubscriptionDisconnect": "接続解除",
   "agentHostNudge.sidebarTitle": "{{agent}}のチャットを使う",
   "agentHostNudge.sidebarDescription":
     "すでに{{agent}}とチャットしています。このアプリを直接操作するよう依頼できます。",
@@ -155,6 +200,7 @@ const messages: AgentChatTranslation = {
   "common.loading": "読み込み中...",
   "common.no": "いいえ",
   "common.retry": "再試行",
+  "common.chunkLoadFailed": "読み込めませんでした。もう一度お試しください。",
   "common.save": "保存",
   "agents.hostedAgent": "ホスト型エージェント",
   "agents.provider": "プロバイダー",
@@ -273,6 +319,8 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill": "作成したいスキルを説明してください...",
   "composer.documentTooLarge":
     "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、{{label}} は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
+  "composer.requestTooLarge":
+    "このメッセージと添付ファイルは大きすぎて送信できません。添付ファイルを削除するか、メッセージを短くしてください。",
   "composer.file": "ファイル",
   "composer.imageModel": "画像モデル",
   "composer.imagePreview": "画像プレビュー",
@@ -481,7 +529,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.providerTransientRejection":
     "AIプロバイダーがこのリクエストを一時的に拒否しました。通常は1分以内に解消するので、再試行してください。",
   "errorMessages.startNewChat": "新しいチャットを開始",
-  "errorMessages.upgradeAtBuilder": "Builder.io でアップグレード",
+  "errorMessages.addCreditsInBuilder": "Builderでクレジットを追加",
   "feedback.inaccurate": "不正確",
   "feedback.keyboardHint": "{{shortcut}} Enter で送信",
   "feedback.notHelpful": "役に立たない",
@@ -543,11 +591,13 @@ const messages: AgentChatTranslation = {
   "message.regenerate": "応答を再生成",
   "message.restoreFailed": "復元に失敗しました（{{status}}）。",
   "message.restoreQuestion": "ここまで復元しますか？",
+  "message.revertQuestion": "この時点に戻しますか？この後の変更は失われます。",
   "message.restoreRequestFailed": "復元リクエストに失敗しました。",
   "message.threadNotFound":
     "このチャットスレッドは利用できなくなりました。新しいチャットを開始するか、想定外の場合は再試行してください。",
   "message.restoring": "復元中...",
   "message.revertHere": "ここまで戻す",
+  "message.revertToBeginning": "最初に戻す",
   "message.sentAt": "{{time}} に送信",
   "contextMeter.ariaLabel":
     "コンテキスト {{percent}}%、合計 {{totalTokens}}{{breakdown}}。コンテキスト X-Ray を開きます。",
@@ -627,7 +677,9 @@ const messages: AgentChatTranslation = {
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.credentialRejected":
-    "現在の Builder.io またはモデルプロバイダーの認証情報が拒否されました。Builder.io に再接続してから、このメッセージを再試行してください。",
+    "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
+  "codeRequired.builderAgentNotConnected":
+    "Builder Cloud Agents に接続されていません。このホスト型コード変更を実行するには、設定で Builder.io に接続してください。モデルプロバイダーキーはチャットやその他の AI 機能で引き続き使えますが、Builder Cloud Agent の認証には使えません。",
   "recovery.diagnoseRetry": "診断して再試行",
   "recovery.forkDescription": "この会話を別のチャットスレッドに分岐します。",
   "recovery.forkFailed":
@@ -684,6 +736,10 @@ const messages: AgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
+  "setup.checkingProvider": "AI 接続を確認しています…",
+  "setup.providerStatusUnavailable": "AI 接続を確認できませんでした。",
+  "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
+  "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
   "setup.connected": "接続済み",
   "setup.connectedOrganization": "接続済み — {{organization}}",
   "setup.connectedTo": "{{organization}} に接続済み",
@@ -733,6 +789,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "組織内のすべてのユーザーが閲覧可能",
   "share.owner": "所有者",
   "share.peopleWithAccess": "アクセスできるユーザー",
+  "share.people": "人",
+  "share.agents": "エージェント",
   "share.private": "非公開",
   "share.privateDescription": "アクセス権を持つユーザーのみ閲覧可能",
   "share.public": "公開",
@@ -814,6 +872,27 @@ const messages: AgentChatTranslation = {
   "settings.emailChangeError": "確認メールを送信できませんでした。",
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
+  "usage.builderCredits": "Builder クレジット",
+  "usage.inviteFriends": "友だちを招待",
+  "usage.inviteCredits":
+    "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
+  "usage.copyInviteLink": "招待リンクをコピー",
+  "usage.inviteLinkCopied": "招待リンクをコピーしました",
+  "usage.creditBalance": "ワークスペース残高",
+  "usage.monthlyPlan": "月間プラン",
+  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
+  "usage.creditRemaining": "残り {{amount}}",
+  "usage.creditUsageUnavailable":
+    "Builder クレジットの使用状況を読み込めませんでした。",
+  "usage.estimatedBuilderCredits": "~{{amount}} 推定クレジット",
+  "usage.otherUsdSpend": "{{amount}} その他の USD",
+  "usage.noBuilderCredits": "Builder クレジット 0",
+  "usage.otherUnclassifiedSpend": "その他または未分類の USD 利用額",
+  "usage.providerSpendDetail":
+    "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
+  "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
+  "usage.driverCreditsAndUsd": "Builder クレジット / USD",
 };
 
 export default messages;

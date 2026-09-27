@@ -17,12 +17,29 @@ beforeEach(() => {
 });
 
 describe("manage-gmail-filters action", () => {
+  it("only selects the rule card for successful create and replace results", () => {
+    const rule = {
+      ok: true,
+      message: "Created Gmail filter filter-1 in owner@example.test.",
+      accountEmail: "owner@example.test",
+      filter: {
+        id: "filter-1",
+        criteriaSummary: "from bots@example.test",
+        actionSummary: "Archive",
+      },
+    };
+
+    expect(
+      action.chatUI?.when?.(
+        { operation: "delete" },
+        { ok: true, deletedId: "filter-1" },
+      ),
+    ).toBe(false);
+    expect(action.chatUI?.when?.({ operation: "create" }, rule)).toBe(true);
+    expect(action.chatUI?.when?.({ operation: "replace" }, rule)).toBe(true);
+  });
+
   it("throws a typed, caller-facing ActionContractError when no Google account is connected", async () => {
-    // Regression: a plain Error here has no statusCode, so action-routes.ts
-    // collapses it to a generic 500 "Internal server error" and the specific,
-    // actionable message never reaches the UI (see find-5). ActionContractError
-    // carries an explicit sub-500 statusCode, which action-routes.ts treats as
-    // user-facing and echoes verbatim.
     await expect(action.run({ operation: "list" })).rejects.toSatisfy(
       (err: unknown) => {
         expect(isActionContractError(err)).toBe(true);

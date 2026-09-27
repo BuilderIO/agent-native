@@ -13,38 +13,17 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
-import {
-  prefetchSecrets,
-  resolveSecretDetailed,
-  type ResolvedSecretDetail,
-} from "../server/credential-provider.js";
+import type { ResolvedSecretDetail } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
-/**
- * Workspace-scoped secret writes/deletes are deployment-wide for every
- * org member who shares the resolved scopeId — a curious or malicious
- * member could otherwise overwrite `OPENAI_API_KEY` (or any unregistered
- * key) with their own value, redirecting every other member's automations
- * through their key for skimming, billing abuse, or DoS by deletion.
- *
- * Allow workspace-scope writes only for org owners/admins. The "solo"
- * fallback scopeId (`solo:<email>`) is single-user, so it bypasses the
- * check. A normal session with no active org also passes — there's no
- * privilege gradient to enforce in that case.
- *
- * Returns true if the request is allowed to write/delete this scope.
- */
 async function canMutateWorkspaceScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
-  // Solo / dev fallback scope — single user, no privilege gradient.
   if (scopeId.startsWith("solo:")) return true;
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
-  // No active org — single-tenant flow, allow.
   if (!ctx?.orgId) return true;
   return ctx.role === "owner" || ctx.role === "admin";
 }
@@ -59,6 +38,7 @@ async function canMutateOrgScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
+  const { getOrgContext } = await import("../org/context.js");
   const ctx = await getOrgContext(event).catch(() => null);
   if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
@@ -80,17 +60,12 @@ import {
   type SecretMeta,
 } from "./storage.js";
 
-/**
- * Where a stored value came from, as shown in Settings. `personal` and
- * `workspace` rows were saved from an app's Keys section; `vault` rows were
- * synced from the Dispatch workspace Vault and are managed there.
- */
-export type SecretSource = "personal" | "workspace" | "vault" | "env";
+export type SecretSource = "personal" | "workspace" | "vault";
 
 function secretSource(
   scope: SecretScope,
   description: string | null | undefined,
-): Exclude<SecretSource, "env"> {
+): SecretSource {
   if (scope === "user") return "personal";
   return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
     ? "vault"
@@ -99,17 +74,15 @@ function secretSource(
 
 const NOT_RESOLVED: ResolvedSecretDetail = { value: null, lookupFailed: false };
 
-/**
- * Run `fn` as the signed-in caller so `resolveSecret`'s precedence applies —
- * then Settings never reports a Vault- or env-provided key as "unset" and
- * invites a duplicate. Anonymous requests get nothing: the resolver's
- * env fallback would otherwise leak deployment-key suffixes to the public.
- */
 async function asRequestUser<T>(
   event: H3Event,
   fn: () => Promise<T>,
   anonymous: T,
 ): Promise<T> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
   const session = await getSession(event);
   if (!session?.email) return anonymous;
   const ctx = await getOrgContext(event);
@@ -127,34 +100,16 @@ export interface SecretStatusPayload {
   scope: SecretScope;
   kind: "api-key" | "oauth";
   required: boolean;
-  /**
-   * "set" = value present; "unset" = not configured; "invalid" = validator
-   * failed; "unknown" = the credential store could not be read.
-   */
   status: "set" | "unset" | "invalid" | "unknown";
-  /** Exact storage scope supplying the runtime value, without exposing its id. */
-  effectiveScope?: SecretScope | "env";
-  /** Where the effective value comes from — only when status === "set". */
+  effectiveScope?: SecretScope;
   source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so it can be rotated or removed here. False when a
-   * Vault, workspace, or env value is in use instead.
-   */
   managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
-  overrides?: Exclude<SecretSource, "personal" | "env">;
-  /** Scope of a shared value hidden by this user's personal row. */
+  overrides?: Exclude<SecretSource, "personal">;
   overriddenScope?: Exclude<SecretScope, "user">;
-  /** Last 4 chars — only populated when status === "set" for api-key kind. */
   last4?: string;
-  /** Timestamp (ms) of the last write — only populated when status === "set". */
   updatedAt?: number;
-  /** OAuth-kind: the provider id backing this secret. */
   oauthProvider?: string;
-  /** OAuth-kind: url the Connect button should point at. */
   oauthConnectUrl?: string;
-  /** Validator error message if status === "invalid". */
   error?: string;
 }
 
@@ -168,6 +123,7 @@ async function hasOAuthSecretForEvent(
   secret: RegisteredSecret,
 ): Promise<boolean> {
   if (!secret.oauthProvider) return false;
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return false;
   const accounts = await listOAuthAccountsByOwner(
@@ -177,11 +133,14 @@ async function hasOAuthSecretForEvent(
   return accounts.length > 0;
 }
 
-/** Resolve the scopeId for a given scope, given the current session. */
 async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
 ): Promise<{ scopeId: string | null; reason?: string }> {
+  const [{ getSession }, { getOrgContext }] = await Promise.all([
+    import("../server/auth.js"),
+    import("../org/context.js"),
+  ]);
   if (scope === "user") {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -190,25 +149,21 @@ async function resolveScopeId(
     return { scopeId: session.email };
   }
   if (scope === "org") {
-    // Org-scoped secrets require an active org — there's no solo fallback
-    // because an "org" key without an org would land in an ambiguous row.
     const ctx = await getOrgContext(event).catch(() => null);
     if (ctx?.orgId) return { scopeId: ctx.orgId };
     return { scopeId: null, reason: "No active organization" };
   }
-  // workspace
   const ctx = await getOrgContext(event).catch(() => null);
   if (ctx?.orgId) return { scopeId: ctx.orgId };
-  // Fall back to session email in solo/dev mode so secrets still work without
-  // an active organisation.
   const session = await getSession(event).catch(() => null);
   if (session?.email) return { scopeId: `solo:${session.email}` };
   return { scopeId: null, reason: "No workspace or session context" };
 }
 
-/** GET /_agent-native/secrets — list registered secrets with status. */
 export function createListSecretsHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { prefetchSecrets, resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -218,8 +173,6 @@ export function createListSecretsHandler() {
     const apiKeys = secrets
       .filter((secret) => secret.kind !== "oauth")
       .map((secret) => secret.key);
-    // One batched read per scope primes the request cache, so resolving
-    // every registered key below costs a handful of queries, not N×scopes.
     const resolved = await asRequestUser(
       event,
       async () => {
@@ -263,10 +216,6 @@ export function createListSecretsHandler() {
         continue;
       }
 
-      // api-key: report the value the runtime resolves, not only the row this
-      // UI writes. A key synced from the Dispatch Vault or supplied by the
-      // deployment environment is "set" even though no registered-scope row
-      // exists; reporting it as unset is what made people re-enter it.
       const { scopeId } = await resolveScopeId(event, secret.scope);
       const effective = resolved.get(secret.key) ?? NOT_RESOLVED;
       if (!effective.value) {
@@ -277,19 +226,19 @@ export function createListSecretsHandler() {
         payload.push(base);
         continue;
       }
-      base.status = "set";
       if (
         !effective.source ||
         effective.source === "env" ||
         !effective.scopeId
       ) {
-        base.source = "env";
-        base.effectiveScope = "env";
-        base.managedHere = false;
-        base.last4 = last4(effective.value);
+        if (effective.lookupFailed) {
+          base.status = "unknown";
+          base.error = "Could not read the credential store";
+        }
         payload.push(base);
         continue;
       }
+      base.status = "set";
       const hit = {
         key: secret.key,
         scope: effective.source,
@@ -301,8 +250,6 @@ export function createListSecretsHandler() {
       base.updatedAt = meta?.updatedAt;
       base.source = secretSource(hit.scope, meta?.description);
       base.managedHere = hit.scope === secret.scope && hit.scopeId === scopeId;
-      // A personal key hides the shared one; say so, so the fix is "remove
-      // this" rather than "edit the Vault and wonder why nothing changed".
       if (base.managedHere && secret.scope === "user") {
         const shared = await asRequestUser(
           event,
@@ -334,7 +281,6 @@ export function createListSecretsHandler() {
   });
 }
 
-/** POST /_agent-native/secrets/:key — write a secret. */
 export function createWriteSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
@@ -402,7 +348,6 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
     };
   }
 
-  // Run validator if registered — return the validator's error on failure.
   if (secret.validator) {
     try {
       const result = await secret.validator(value);
@@ -435,7 +380,6 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
       scopeId,
     });
   } catch (err) {
-    // Scrub: never surface the value in any error path.
     setResponseStatus(event, 500);
     const message =
       err instanceof Error
@@ -486,12 +430,10 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
   return { ok: true, removed };
 }
 
-/**
- * POST /_agent-native/secrets/:key/test — validate an optional candidate value
- * or the current stored value without changing anything.
- */
 export function createTestSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    const { resolveSecretDetailed } =
+      await import("../server/credential-provider.js");
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -507,7 +449,6 @@ export function createTestSecretHandler() {
       return { error: `Secret "${key}" is not registered` };
     }
     if (secret.kind === "oauth") {
-      // For OAuth we just report whether tokens exist.
       const has = await hasOAuthSecretForEvent(event, secret).catch(
         () => false,
       );
@@ -554,8 +495,6 @@ export function createTestSecretHandler() {
 
     let value = candidateValue;
     if (!value) {
-      // Test what the runtime uses, which may be a Vault or env value rather
-      // than a row saved from this UI.
       const stored = await asRequestUser(
         event,
         () => resolveSecretDetailed(secret.key),
@@ -595,10 +534,6 @@ export function createTestSecretHandler() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Ad-hoc secrets — user-/agent-created keys not in the registry
-// ---------------------------------------------------------------------------
-
 export interface AdHocSecretPayload {
   name: string;
   scope: SecretScope;
@@ -627,18 +562,6 @@ function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
   };
 }
 
-/**
- * Handler for `/_agent-native/secrets/adhoc[/:name]`.
- *
- * - GET (no name) — list all ad-hoc keys for the user's scope
- * - POST (no name) — create or update an ad-hoc key
- * - DELETE (with name) — delete an ad-hoc key
- *
- * Ad-hoc keys are arbitrary named secrets users or the agent create at
- * runtime for automation use (e.g. "SLACK_WEBHOOK", "HUBSPOT_API_KEY").
- * They differ from registered secrets (`registerRequiredSecret`) in that
- * they have no template-defined metadata, validator, or onboarding step.
- */
 export function createAdHocSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
@@ -672,8 +595,6 @@ async function handleAdHocList(event: H3Event) {
   const workspaceRows = workspaceContext.scopeId
     ? await listAppSecretsForScope("workspace", workspaceContext.scopeId)
     : [];
-  // Org rows are the Dispatch Vault's sync target. `${keys.NAME}` resolves
-  // them, so list them here or people cannot see which keys they already have.
   const orgContext = await resolveScopeId(event, "org");
   const orgRows = orgContext.scopeId
     ? await listAppSecretsForScope("org", orgContext.scopeId)
@@ -795,9 +716,6 @@ async function handleAdHocDelete(event: H3Event, name: string) {
     const workspaceContext = await resolveScopeId(event, "workspace");
     if (workspaceContext.scopeId) {
       if (!(await canMutateWorkspaceScope(event, workspaceContext.scopeId))) {
-        // No-op silently for non-admins — the user-scope row didn't exist
-        // and they don't have permission to touch the workspace row, so
-        // there's nothing to remove from their point of view.
         return { ok: true, removed: false };
       }
       const removedWorkspace = await deleteAppSecret({
@@ -817,8 +735,6 @@ function extractAdHocName(event: H3Event): string | null {
     .replace(/\/+$/, "");
   if (!pathname) return null;
   const parts = pathname.split("/");
-  // The router strips the `/secrets/adhoc` prefix, so `parts[0]` (if present)
-  // is the name. When the request is the bare `/adhoc` listing, parts is empty.
   const candidate = parts[0];
   if (!candidate) return null;
   return AD_HOC_NAME_REGEX.test(candidate) ? candidate : null;
@@ -855,7 +771,6 @@ function normalizeUrlAllowlist(
   return { ok: true, origins };
 }
 
-/** Extract the key from `/:key` or `/:key/test` after the `/secrets` prefix strip. */
 function extractKeyFromEvent(
   event: H3Event,
   opts: { suffix?: string } = {},

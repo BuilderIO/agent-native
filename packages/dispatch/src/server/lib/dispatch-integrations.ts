@@ -84,9 +84,6 @@ function fallbackOwnerForIncoming(incoming: IncomingMessage): string {
 function configuredDefaultOwnerForIncoming(
   incoming: IncomingMessage,
 ): string | null {
-  // This is intentionally Slack-only: a deployment-wide default owner grants
-  // that Slack workspace access to the owner's connected agents and org
-  // credentials, so other platforms should opt in with explicit identity links.
   if (incoming.platform !== "slack") return null;
   const email = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
   if (!email) return null;
@@ -94,8 +91,6 @@ function configuredDefaultOwnerForIncoming(
 }
 
 function platformRequiresExplicitLink(incoming: IncomingMessage): boolean {
-  // Telegram does not provide a verified email address. Require an explicit
-  // identity link before it can act as a Builder/Agent-Native user.
   return incoming.platform === "telegram";
 }
 
@@ -212,10 +207,6 @@ async function resolveSlackSenderProfile(
     return { email: null, name: null, trust: "unknown" };
   }
 
-  // Slack user IDs are scoped per workspace, so without a teamId we can't
-  // safely cache: two installs of the bot in different workspaces could
-  // share user-id strings and collide on a single "default" key. Skip the
-  // cache (and lookup on every request) when teamId is missing.
   const cacheKey = teamId ? `${teamId}:${userId}` : null;
   if (cacheKey) {
     const cached = slackProfileCache.get(cacheKey);
@@ -445,8 +436,6 @@ export async function resolveDispatchOwner(
   try {
     const externalUserId = identityKeyForIncoming(incoming);
 
-    // Webhooks do not have the browser request's org context, so allow a safe
-    // cross-org fallback when the linked platform identity maps to one owner.
     const owner = await resolveLinkedOwner(incoming.platform, externalUserId, {
       allowAnyOrgFallback: true,
     });
@@ -485,10 +474,6 @@ export async function resolveDispatchOwner(
       // the synthetic fallback owner below.
     }
 
-    // Slack gives us a user id in the event payload. Resolve it to a verified
-    // workspace email and use that user's own org context when they are an
-    // Agent-Native member, so artifacts created via @agent-native are visible
-    // when they open the target app.
     if (incoming.platform === "slack") {
       const slackOwner = await resolveSlackOwnerFromVerifiedEmail(incoming);
       if (slackOwner) return slackOwner;
@@ -505,11 +490,6 @@ export async function resolveDispatchOwner(
   }
 }
 
-/**
- * Resolve a personal DM user or a workspace-qualified channel service
- * principal. Managed Slack channels never silently inherit one requester's
- * personal credentials or memory.
- */
 export async function resolveDispatchExecutionContext(
   incoming: IncomingMessage,
 ): Promise<IntegrationExecutionContext> {
@@ -593,8 +573,6 @@ export async function resolveDispatchExecutionContext(
 
   const installation = await resolveManagedSlackInstallationOrFail(incoming);
   if (!installation) {
-    // Preserve the legacy manually configured app path while managed installs
-    // roll out. Its behavior remains explicit and visible in Settings.
     const ownerEmail = await resolveDispatchOwner(incoming);
     return {
       ownerEmail,
@@ -637,8 +615,6 @@ export async function resolveDispatchExecutionContext(
   }
   if (!scope) throw new Error("Slack channel is not enabled for Agent-Native");
   const decision = evaluateIntegrationScopePolicy(scope, {
-    // Slack channel turns only arrive here after an explicit current-message
-    // mention; keep the generic thread_reply trigger for other adapters.
     mentioned:
       incoming.triggerKind === "mention" ||
       incoming.triggerKind === "thread_reply",

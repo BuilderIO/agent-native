@@ -227,7 +227,7 @@ ChatGPT는 `window.openai`를 통해 전용 호환성 경로를 얻습니다. �
 
 Claude는 기본적으로 단일 프레임 이식 경로를 사용합니다. 호스트 모듈 로딩 동작을 디버깅할 때 `embedMode: "transplant"` 또는 `frame: "transplant"`를 사용하여 다른 호스트에서 강제로 실행할 수도 있습니다. `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` 또는 `frame: "iframe"`를 사용하여 중첩된 진단 iframe을 강제로 실행할 수 있습니다. iframe이 차단되면 `embedApp()`는 이를 오픈 앱 폴백으로 대체합니다. 사용자는 인라인으로 다시 시도하거나, 호스트를 통해 새로 생성된 포함 세션을 열거나, 표시되는 경로 URL를 사용할 수 있습니다. 여전히 범용 탈출 해치이기 때문에 액션의 `link` 타겟을 그 자체로 유용하게 유지하세요.
 
-ngrok를 통해 Claude를 테스트할 때 프로덕션 빌드(`npx @agent-native/core@latest build` 다음 `npx @agent-native/core@latest start`) 또는 배포된 미리 보기/프로덕션 URL를 사용하세요. Claude의 단일 프레임 이식 경로는 생산 자산 청크와 함께 작동합니다. `/app/root.tsx`와 같은 원시 Vite 개발 모듈은 앱 인증으로 보호될 수 있으며 Claude 리소스 원본에서 동적 가져오기가 실패합니다.
+ngrok를 통해 Claude를 테스트할 때 프로덕션 빌드(`pnpm build` 다음 `npx @agent-native/core@latest start`) 또는 배포된 미리 보기/프로덕션 URL를 사용하세요. Claude의 단일 프레임 이식 경로는 생산 자산 청크와 함께 작동합니다. `/app/root.tsx`와 같은 원시 Vite 개발 모듈은 앱 인증으로 보호될 수 있으며 Claude 리소스 원본에서 동적 가져오기가 실패합니다.
 
 ## 호스트 브리지 API {#host-bridge}
 

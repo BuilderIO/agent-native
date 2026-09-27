@@ -1,8 +1,5 @@
 import { enabledFlag } from "./env-flags.js";
 
-// Local/dev deployments can opt into resumable uploads while retaining their
-// SQL scratch fallback. Hosted deployments have no safe buffered fallback, so
-// requested video uploads use resumable storage unless explicitly disabled.
 export function isStreamingUploadDisabled(): boolean {
   return enabledFlag(process.env.CLIPS_DISABLE_STREAMING_UPLOAD);
 }

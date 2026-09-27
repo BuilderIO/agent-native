@@ -50,9 +50,14 @@ selection to the `monitoring` application-state key.
 ## Errors
 
 - UI: `app/pages/monitoring/ErrorsPanel.tsx`, `app/pages/monitoring/errors/**`
-  — Sentry-style exception triage grouped into issues by fingerprint.
+  — first-party, Sentry-style exception triage grouped into issues by
+  fingerprint.
 - Server: ingest/grouping in `server/lib/error-capture.ts` over
   `server/db/schema-errors.ts`.
+- Browser exceptions arrive through `configureTracking()` as `$exception`
+  events; server `captureError()` failures arrive through the shared tracking
+  provider when the server Analytics key is configured and use the same grouped
+  issue store.
 - Actions: `list-error-issues`, `get-error-issue`, `resolve-error-issue`,
   `capture-test-error`, `match-error-issues`.
 - Browser capture uses the SDK from `@agent-native/core/client`
@@ -62,6 +67,9 @@ selection to the `monitoring` application-state key.
 - Deep link: `?view=errors&issue=<id>`. Issue detail includes recent
   frequency, parsed/raw stack traces, source code snippets when available,
   breadcrumbs, tags, occurrence history, and session replay links.
+- Agent lookup: call `list-error-issues` first, then `get-error-issue` for
+  stack, occurrence, and replay detail. These are separate from the external
+  Sentry action and do not require a Sentry credential.
 - See `docs/error-capture.md`.
 
 ## Session Replay ↔ Errors

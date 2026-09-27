@@ -1,8 +1,8 @@
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 import AskPage from "@/pages/Ask";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.ask }];
+  return [{ title: enUSMessages.routeTitles.ask }];
 }
 
 export default function AskRoute() {

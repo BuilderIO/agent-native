@@ -1,3 +1,104 @@
+## 0.23.5
+
+### Patch Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.23.4
+
+### Patch Changes
+
+- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
+- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
+## 0.23.3
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
+
+## 0.23.2
+
+### Patch Changes
+
+- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
+
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
+## 0.23.0
+
+### Minor Changes
+
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+
+### Patch Changes
+
+- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
+- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
+## 0.22.1
+
+### Patch Changes
+
+- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
+
+## 0.22.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
+- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
+- Updated dependencies [061896a]
+  - @agent-native/toolkit@0.13.7
+
+## 0.21.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
+## 0.20.4
+
+### Patch Changes
+
+- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
+- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
+
+## 0.20.3
+
+### Patch Changes
+
+- Updated dependencies [a107169]
+  - @agent-native/toolkit@0.13.5
+
 ## 0.20.2
 
 ### Patch Changes

@@ -4,6 +4,8 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import {
+  getJevContextCredentials,
+  isJevEnabled,
   readDeployCredentialEnv,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -59,15 +61,37 @@ async function resolveEngineDefaultModel(
   });
 }
 
-/**
- * Prefer Luna for background text classification when a Luna-capable provider
- * is actually configured. An app's explicit automation setting always wins;
- * this is only the no-override default.
- */
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
-  if (readDeployCredentialEnv("TYPESAFE_API_KEY")) {
+  const jevAvailability = await runWithRequestContext(
+    { userEmail: ownerEmail },
+    async () => {
+      try {
+        return {
+          status: "checked" as const,
+          enabled: await isJevEnabled(
+            await getJevContextCredentials(ownerEmail),
+          ),
+        };
+      } catch (error) {
+        return { status: "error" as const, error };
+      }
+    },
+  );
+  if (jevAvailability.status === "error") {
+    console.warn(
+      "[automation-model] Jev availability check failed; using the configured model.",
+      jevAvailability.error,
+    );
+  }
+  if (jevAvailability.status === "checked" && jevAvailability.enabled) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+  if (readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim()) {
     return {
       engine: TYPESAFE_AUTOMATION_ENGINE,
       model: TYPESAFE_AUTOMATION_MODEL,
@@ -99,12 +123,9 @@ export async function resolveDefaultAutomationModel(
     };
   }
 
-  // Leave engine selection to resolveEngine so a configured non-Luna provider
-  // remains usable when none of the preferred Luna engines is connected.
   return {};
 }
 
-/** Text generation is only needed when feedback rewrites a rule. */
 export async function resolveTextAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
@@ -137,6 +158,8 @@ export async function resolveAutomationModelSettings(
   ownerEmail: string,
   settings: AutomationModelSettings | null | undefined,
 ): Promise<AutomationModelSettings> {
+  if (settings?.engine && settings.model) return settings;
+
   const defaults = await resolveDefaultAutomationModel(ownerEmail);
   if (!settings?.engine && !settings?.model) return defaults;
 

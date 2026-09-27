@@ -1,14 +1,3 @@
-/**
- * Delegate: remove long silences from the recording.
- *
- * The agent analyzes the transcript segments to find gaps > N ms (default
- * 1200ms) and calls the Editor-team-owned `trim-recording` action with the
- * ranges to exclude.
- *
- * Usage:
- *   pnpm action remove-silences --recordingId=<id> [--thresholdMs=1200]
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -77,6 +66,11 @@ export default defineAction({
     });
 
     console.log(`Delegation queued: remove-silences for ${args.recordingId}`);
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      kind: "remove-silences",
+      requestedAt,
+      recordingId: args.recordingId,
+    };
   },
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
@@ -8,8 +8,25 @@ import {
 import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
+  sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
+
+const mocks = vi.hoisted(() => ({
+  classifyWithJev: vi.fn(),
+  resolveOwnerEngineApiKey: vi.fn(),
+  resolveEngine: vi.fn(),
+}));
+
+vi.mock("./jev-classifier.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./jev-classifier.js")>();
+  return { ...actual, classifyWithJev: mocks.classifyWithJev };
+});
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveOwnerEngineApiKey: mocks.resolveOwnerEngineApiKey,
+  resolveEngine: mocks.resolveEngine,
+}));
 
 const baseInput = {
   kind: "transcript" as const,
@@ -24,6 +41,19 @@ const baseInput = {
   settings: DEFAULT_BRAIN_SETTINGS,
 };
 
+beforeEach(() => {
+  mocks.classifyWithJev.mockReset().mockResolvedValue({ configured: false });
+  mocks.resolveOwnerEngineApiKey.mockReset().mockResolvedValue({
+    apiKey: "not-a-real-key",
+    apiKeyEnvVar: undefined,
+  });
+  mocks.resolveEngine.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("capture sanitization", () => {
   it("suppresses credentials rather than retaining a redacted secret-bearing line", async () => {
     const result = await sanitizeCaptureForStorage({
@@ -36,6 +66,19 @@ describe("capture sanitization", () => {
     expect(result.decision?.categories).toContain("secret-credential");
     expect(result.content).not.toContain("secret123");
     expect(JSON.stringify(result.metadata)).not.toContain("secret123");
+  });
+
+  it("redacts every credential label variant it suppresses on, in any case", () => {
+    for (const line of [
+      "private-key: not-a-real-value",
+      "access_token=not-a-real-value",
+      "API_KEY: not-a-real-value",
+      "authorization: bearer exampleexampleexample",
+    ]) {
+      const redacted = sanitizeSensitiveText(line);
+      expect(redacted).not.toContain("not-a-real-value");
+      expect(redacted).not.toContain("exampleexample");
+    }
   });
 
   it("quotes workspace settings as lower-priority data in the model prompt", async () => {
@@ -71,6 +114,23 @@ describe("capture sanitization", () => {
       "Attorney-client privileged advice from outside counsel.",
     ],
     ["secret-credential", "api key: not-a-real-secret-value"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "rotate xoxb-000000000000-000000000000-EXAMPLEEXAMP"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "deploy uses AKIAEXAMPLEEXAMPLE99 today"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "oauth GOCSPX-EXAMPLEEXAMPLEEXAMPLEEX is rotating"],
+    // guard:allow-secret-literal — PEM header only, no key material
+    ["secret-credential", "-----BEGIN OPENSSH PRIVATE KEY-----"],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    [
+      "secret-credential",
+      "curl -H 'Authorization: Bearer EXAMPLEEXAMPLEEXAMPLE'",
+    ],
+    // guard:allow-secret-literal — shape-only fixtures proving suppression
+    ["secret-credential", "authorization: bearer exampleexampleexample"],
+    ["secret-credential", "private-key: not-a-real-value"],
+    ["secret-credential", "access_token=not-a-real-value"],
   ])("hard category %s is always suppressed", async (category, content) => {
     const result = await sanitizeCaptureForStorage({ ...baseInput, content });
 
@@ -188,6 +248,57 @@ describe("capture sanitization", () => {
       (result.metadata.captureSanitization as Record<string, unknown>) ?? {},
     ).toMatchObject({
       fallbackReason: "classifier-not-approved-or-malformed",
+    });
+  });
+
+  it("preserves a Jev failure when the approved-model fallback succeeds", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITEST", "");
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "builder-gateway",
+      failureReason: "jev-http-503",
+    });
+    mocks.resolveEngine.mockResolvedValueOnce({
+      stream: vi.fn(async function* () {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                disposition: "allowed",
+                categories: [],
+                safeContent: "Decision: ship the search index next Tuesday.",
+                safeSegments: [],
+              }),
+            },
+          ],
+        };
+      }),
+    });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      settings: {
+        ...DEFAULT_BRAIN_SETTINGS,
+        privacyClassifierModel: "classifier-model",
+        privacyClassifierEngine: "classifier-engine",
+      },
+      content: "Decision: ship the search index next Tuesday.",
+    });
+
+    expect(result.decision).toMatchObject({
+      classifier: "approved-model",
+      disposition: "allowed",
+    });
+    expect(result.classifierFailureReason).toBe("jev-http-503");
+    expect(
+      result.metadata.captureSanitization as Record<string, unknown>,
+    ).toMatchObject({
+      method: "approved-model",
+      jevAuthSource: "builder-gateway",
+      fallbackReason: "jev-http-503",
     });
   });
 

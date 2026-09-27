@@ -3,7 +3,6 @@ export interface AgentPromptAttachment {
   type?: string;
   size?: number;
   text?: string;
-  /** Base64 data URL for image attachments (e.g. "data:image/png;base64,..."). */
   dataUrl?: string;
 }
 
