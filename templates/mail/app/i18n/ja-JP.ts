@@ -168,6 +168,7 @@ const messages = {
       deleteDraft: "下書きを削除",
       deleteDrafts: "下書きを削除",
       reopenDraft: "再度開く",
+      openInMail: "Mailで開く",
       discardDraft: "下書きを破棄",
       enterLinkUrl: "リンクの URL を入力してください。",
       forward: "Forward",

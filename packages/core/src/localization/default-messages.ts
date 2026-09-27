@@ -1015,6 +1015,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",

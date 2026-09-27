@@ -1634,6 +1634,9 @@ export default function TemplateEditorRoute() {
         state={fileStorageState}
         open={storageSetupOpen}
         onOpenChange={setStorageSetupOpen}
+        onDismiss={() => {
+          pendingStorageUploadRef.current = null;
+        }}
         onRetry={() => void fileUploadStatus.refetch()}
       />
 

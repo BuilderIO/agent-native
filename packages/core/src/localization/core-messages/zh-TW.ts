@@ -744,6 +744,8 @@ const messages: AgentChatTranslation = {
   "share.organizationDescription": "您組織中的任何人都可以檢視",
   "share.owner": "擁有者",
   "share.peopleWithAccess": "擁有存取權的人員",
+  "share.people": "人員",
+  "share.agents": "代理程式",
   "share.private": "私人",
   "share.privateDescription": "只有擁有存取權的人員可以檢視",
   "share.public": "公開",

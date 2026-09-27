@@ -262,6 +262,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "关闭",
     shareOptions: "分享选项",
+    people: "人",
+    agents: "智能体",
     link: "链接",
     invite: "Invite",
     embed: "Embed",

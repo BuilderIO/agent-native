@@ -6,6 +6,7 @@ import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting"
 
 import {
   draftSuggestionAnchors,
+  markdownSuggestionOperation,
   markdownSuggestionOperationsForEditorRevision,
 } from "./markdown-operation";
 
@@ -71,6 +72,11 @@ export type SuggestionPersistenceEntry = {
 
 export function suggestionOperationKey(operation: SuggestionOperation) {
   const { ordinal: _ordinal, ...stableOperation } = operation;
+  if (stableOperation.kind === "replace_text") {
+    const { siblingRanges: _siblingRanges, ...stableAnchor } =
+      stableOperation.anchor as Record<string, unknown>;
+    return JSON.stringify({ ...stableOperation, anchor: stableAnchor });
+  }
   return JSON.stringify(stableOperation);
 }
 
@@ -195,16 +201,11 @@ export function suggestionDraftOperations(
     replacements: session.replacementIntents ?? [],
   });
   if (!session.existingSuggestion || operations.length < 2) return operations;
-  return markdownSuggestionOperationsForEditorRevision({
-    before: session.baseContent,
-    after: draftContent,
-    replacements: [
-      {
-        from: operations[0]!.anchor.from,
-        to: operations[operations.length - 1]!.anchor.to,
-      },
-    ],
-  });
+  const amendment = markdownSuggestionOperation(
+    session.baseContent,
+    draftContent,
+  );
+  return amendment ? [amendment] : [];
 }
 
 export function recordSuggestionReplacementIntent(

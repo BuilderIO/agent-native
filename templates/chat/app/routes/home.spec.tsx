@@ -44,6 +44,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
+  agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 

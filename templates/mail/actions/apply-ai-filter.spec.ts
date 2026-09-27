@@ -52,6 +52,16 @@ vi.mock("./helpers.js", () => ({ getAccessTokens: vi.fn() }));
 import action from "./apply-ai-filter.js";
 
 describe("apply-ai-filter Jev gate", () => {
+  it("only selects the result card when a filter changes messages", () => {
+    expect(action.chatUI?.when?.({ mode: "filter" }, { changed: 0 })).toBe(
+      false,
+    );
+    expect(action.chatUI?.when?.({ mode: "settings" }, { changed: 3 })).toBe(
+      false,
+    );
+    expect(action.chatUI?.when?.({ mode: "keep" }, { changed: 1 })).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.test");

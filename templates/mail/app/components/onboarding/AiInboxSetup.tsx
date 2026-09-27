@@ -403,11 +403,13 @@ export function AiInboxSetup({
   const [archivePrompt, setArchivePrompt] = useState(() =>
     t("mail.sort.aiSetupArchiveExample"),
   );
-  const [archiveEnabled, setArchiveEnabled] = useState(true);
+  const [archiveEnabled, setArchiveEnabled] = useState(false);
+  const [archiveUserOptedOut, setArchiveUserOptedOut] = useState(false);
   const [spamPrompt, setSpamPrompt] = useState(() =>
     t("mail.sort.aiSetupFilteredExample"),
   );
-  const [spamEnabled, setSpamEnabled] = useState(true);
+  const [spamEnabled, setSpamEnabled] = useState(false);
+  const [spamUserOptedOut, setSpamUserOptedOut] = useState(false);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
   const [customCleanupPrompt, setCustomCleanupPrompt] = useState("");
   const [customCleanupMode, setCustomCleanupMode] = useState<
@@ -444,6 +446,8 @@ export function AiInboxSetup({
       setStep(0);
       setBackfillRunId(null);
       setBackfillReviewDestinations({});
+      setArchiveUserOptedOut(false);
+      setSpamUserOptedOut(false);
     }
   }, [forceOpen, visible]);
 
@@ -706,16 +710,28 @@ export function AiInboxSetup({
                 title={t("mail.aiFilter.skipInboxMode")}
                 condition={archivePrompt}
                 enabled={archiveEnabled}
-                onConditionChange={setArchivePrompt}
-                onEnabledChange={setArchiveEnabled}
+                onConditionChange={(value) => {
+                  setArchivePrompt(value);
+                  if (!archiveUserOptedOut) setArchiveEnabled(!!value.trim());
+                }}
+                onEnabledChange={(enabled) => {
+                  setArchiveEnabled(enabled);
+                  setArchiveUserOptedOut(!enabled);
+                }}
               />
               <SetupRuleRow
                 icon={<IconFilter className="size-4" />}
                 title={t("mail.aiFilter.filteredMode")}
                 condition={spamPrompt}
                 enabled={spamEnabled}
-                onConditionChange={setSpamPrompt}
-                onEnabledChange={setSpamEnabled}
+                onConditionChange={(value) => {
+                  setSpamPrompt(value);
+                  if (!spamUserOptedOut) setSpamEnabled(!!value.trim());
+                }}
+                onEnabledChange={(enabled) => {
+                  setSpamEnabled(enabled);
+                  setSpamUserOptedOut(!enabled);
+                }}
               />
               {customCleanupOpen ? (
                 <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-border p-3 sm:flex-nowrap">

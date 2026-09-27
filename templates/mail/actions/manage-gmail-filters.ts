@@ -565,6 +565,46 @@ export default defineAction({
   description:
     "List, create, edit, or delete native Gmail filters. Use this for simple deterministic Gmail rules, such as auto-archive from a sender or query, instead of AI automations.",
   schema,
+  chatUI: {
+    renderer: "mail.gmail-filter-confirmation",
+    when: (args, result) => {
+      if (
+        (args.operation !== "create" && args.operation !== "replace") ||
+        !result ||
+        typeof result !== "object"
+      ) {
+        return false;
+      }
+      const record = result as Record<string, unknown>;
+      const filter = record.filter;
+      return (
+        record.ok === true &&
+        typeof record.message === "string" &&
+        typeof record.accountEmail === "string" &&
+        Boolean(filter) &&
+        typeof filter === "object" &&
+        !Array.isArray(filter) &&
+        typeof (filter as Record<string, unknown>).id === "string" &&
+        typeof (filter as Record<string, unknown>).criteriaSummary ===
+          "string" &&
+        typeof (filter as Record<string, unknown>).actionSummary === "string"
+      );
+    },
+    projectResult: (_args, result) => {
+      const record = result as Record<string, unknown>;
+      const filter = record.filter as Record<string, unknown>;
+      return {
+        ok: record.ok,
+        message: record.message,
+        accountEmail: record.accountEmail,
+        filter: {
+          id: filter.id,
+          criteriaSummary: filter.criteriaSummary,
+          actionSummary: filter.actionSummary,
+        },
+      };
+    },
+  },
   run: async (args) => {
     const accounts = await allAccounts();
 
