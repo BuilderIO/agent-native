@@ -23,7 +23,7 @@ which builds in GitHub Actions and uploads prebuilt artifacts to the independent
 Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
 auto-builds are disabled, so do not wait for Netlify build queues or
 deploy-preview checks; verify the Actions run and its per-site smoke checks.
-Never cancel, re-dispatch, or pin duplicate beta publisher runs; concurrency coalesces pending runs and serializes publishes.
+Never cancel, re-dispatch, or pin duplicate beta publisher runs; the automatic/handoff group coalesces pending runs and serializes publishes.
 Verify on the first successful publish whose source contains your merge.
 Production promotion is manual. A healthy beta deploy is not proof that
 production changed, and a production deploy is not expected unless an explicit

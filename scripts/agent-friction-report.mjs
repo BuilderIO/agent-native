@@ -58,8 +58,13 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
-const BETA_PUBLISHER_RUN_INTERFERENCE_RE =
-  /\b(?:don['’]?t|do not|never|stop)\b(?=[^.!?\n]{0,140}\b(?:cancel|re-?dispatch|pin)\b)[^.!?\n]{0,140}\b(?:cancel|re-?dispatch|pin)\b[^.!?\n]{0,100}\bbeta\b[^.!?\n]{0,60}\bpublisher\b/i;
+const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
+  [
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,140}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b`,
+    String.raw`\b(?:don['’]?t|do not|never|stop)\b[^.!?;\n]{0,100}\bbeta\b[^.!?;\n]{0,60}\bpublisher\b[^.!?;\n]{0,80}\b(?:cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?)\b`,
+  ].join("|"),
+  "i",
+);
 
 const WORKTREE_PERMISSION_CORRECTION_RE =
   /\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:permission|approval)s?\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\s+before\b[^.!?\n]{0,120}\bworktrees?\b|\b(?:stop|don't|do not|no need to|never)\b[^.!?\n]{0,100}\bask(?:ing)?\b[^.!?\n]{0,60}\b(?:whether|if)\b[^.!?\n]{0,40}\b(?:you|i|we)\s+(?:can|could|may)\b[^.!?\n]{0,100}\bworktrees?\b|\b(?:only|just)\s+ask\b[^.!?\n]{0,80}\b(?:permission|approval)s?\b[^.!?\n]{0,80}\b(?:outside|not in)\s+(?:a\s+)?worktrees?\b|\bno\s+(?:permissions?|approval)\s+(?:(?:are|is)\s+)?needed\b/i;
@@ -675,7 +680,18 @@ const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
     true,
     "Never cancel, re-dispatch, or pin duplicate beta publisher runs because concurrency coalesces them.",
   ],
+  [
+    true,
+    "Stop the beta publisher from being re-dispatched, including stale queued runs.",
+  ],
+  [true, "Never let beta publisher cancellation recur."],
+  [true, "Stop cancelling duplicate beta publisher runs."],
+  [true, "Stop pinning duplicate beta publisher runs."],
   [false, "Don't cancel the beta deploy preview while its smoke test runs."],
+  [
+    false,
+    "Don't cancel the production deploy; the beta publisher is still running.",
+  ],
   [false, "The beta publisher completed successfully."],
 ];
 
