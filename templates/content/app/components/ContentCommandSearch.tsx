@@ -448,15 +448,23 @@ export function SearchPage({
     { ...baseArgs, offset },
     { retry: false, enabled: Boolean(debouncedQuery) },
   );
-  const activeResults = offset === 0 ? pageOneResults : pagedResults;
+  // Server responses answer `debouncedQuery`. While the user is still typing,
+  // they belong to an earlier query, so only the instant lane is shown until
+  // the server catches up to the current text.
+  const serverIsCurrent = liveQuery === debouncedQuery;
+  const visibleOffset = serverIsCurrent ? offset : 0;
+  const activeResults = visibleOffset === 0 ? pageOneResults : pagedResults;
+  const pageOneServerDocuments = serverIsCurrent
+    ? pageOneResults.data?.documents
+    : undefined;
 
   const pageOneMerged = useMemo(
     () =>
       mergeInstantAndServerResults(
         instantMatches,
-        pageOneResults.data?.documents ?? [],
+        pageOneServerDocuments ?? [],
       ),
-    [instantMatches, pageOneResults.data],
+    [instantMatches, pageOneServerDocuments],
   );
   const pageOneShownIds = useMemo(
     () => new Set(pageOneMerged.map((document) => document.id)),
@@ -464,24 +472,25 @@ export function SearchPage({
   );
   const displayedDocuments = useMemo(
     () =>
-      offset === 0
+      visibleOffset === 0
         ? pageOneMerged
         : excludeAlreadyShownDocuments(
             pagedResults.data?.documents ?? [],
             pageOneShownIds,
           ),
-    [offset, pageOneMerged, pagedResults.data, pageOneShownIds],
+    [visibleOffset, pageOneMerged, pagedResults.data, pageOneShownIds],
   );
 
   const hasResults = displayedDocuments.length > 0;
-  const isFetchingActive = activeResults.isFetching;
+  const isFetchingActive = !serverIsCurrent || activeResults.isFetching;
+  const serverError = serverIsCurrent ? activeResults.error : null;
   const retryActive = (event: { currentTarget: HTMLElement }) => {
     focusSearchInput(event.currentTarget);
     void activeResults.refetch();
   };
 
   if (!hasResults) {
-    if (isFetchingActive || (!activeResults.error && !activeResults.data)) {
+    if (isFetchingActive || (!serverError && !activeResults.data)) {
       return (
         <>
           {renderList(staticItems)}
@@ -489,7 +498,7 @@ export function SearchPage({
         </>
       );
     }
-    if (activeResults.error) {
+    if (serverError) {
       return (
         <>
           {renderList(staticItems)}
@@ -514,7 +523,9 @@ export function SearchPage({
     );
   }
 
-  const pagination = activeResults.data?.pagination;
+  const pagination = serverIsCurrent
+    ? activeResults.data?.pagination
+    : undefined;
   return (
     <>
       {renderList(
@@ -535,10 +546,10 @@ export function SearchPage({
         </>,
       )}
       {isFetchingActive ? <SearchUpdating /> : null}
-      {activeResults.error && !isFetchingActive ? (
+      {serverError && !isFetchingActive ? (
         <SearchPartialError onRetry={() => void activeResults.refetch()} />
       ) : null}
-      {offset > 0 || pagination?.hasMore ? (
+      {visibleOffset > 0 || pagination?.hasMore ? (
         <div
           className="flex justify-between gap-2 border-t p-2"
           onKeyDown={(event) => {
@@ -552,8 +563,8 @@ export function SearchPage({
           <Button
             variant="ghost"
             size="sm"
-            disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - 20))}
+            disabled={visibleOffset === 0}
+            onClick={() => setOffset(Math.max(0, visibleOffset - 20))}
           >
             {t("root.searchPrevious")}
           </Button>

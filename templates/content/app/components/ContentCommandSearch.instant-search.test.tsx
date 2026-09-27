@@ -211,9 +211,32 @@ describe("SearchPage: instant lane + server convergence", () => {
     expect(serverIndex).toBeGreaterThanOrEqual(0);
     expect(serverIndex).toBeLessThan(instantIndex);
 
-    // User now types a new query. Debounce settles on "beta" before its
-    // server request resolves — the still-pending "alpha" response must
-    // never be attributed to "beta" (rule 1).
+    // User types "beta" but the debounce hasn't fired yet: the server lane
+    // still holds the answer for "alpha", which must not be shown as a
+    // result for "beta" (rule 1). Only the instant lane shows.
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <SearchPage
+            liveQuery="beta"
+            debouncedQuery="alpha"
+            needles={[]}
+            searchFields="all"
+            onOpenChange={() => {}}
+            renderList={(results?: ReactNode) => results}
+            staticItems={null}
+            titleIndex={titleIndex}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    expect(container.textContent).not.toContain("Server Alpha");
+    expect(container.textContent).not.toContain("Alpha Local");
+    expect(container.textContent).toContain("Beta Local");
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    // Debounce settles on "beta" before its server request resolves; the
+    // "alpha" response must still never be attributed to "beta" (rule 1).
     await act(async () =>
       root.render(
         <QueryClientProvider client={queryClient}>
