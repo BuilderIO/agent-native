@@ -16,6 +16,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
@@ -697,6 +698,24 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('class="marketing-panel"');
   });
 
+  it("localizes configured marketing for its hosted built-in template", () => {
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+      marketing: {
+        appName: "Slides",
+        learnMoreUrl: "https://agent-native.com/apps/slides",
+        tagline: BUILT_IN_AUTH_MARKETING.slides.tagline,
+      },
+    });
+    const chineseCopy = readAuthPageData(html).marketingLocales["zh-CN"];
+
+    expect(chineseCopy?.tagline).toBe(
+      AUTH_MARKETING_LOCALE_COPY["zh-CN"]?.slides?.tagline,
+    );
+    expect(chineseCopy?.authHeadline).toBe(chineseCopy?.tagline);
+    expect(chineseCopy?.authDescription).toBeUndefined();
+  });
+
   it("renders custom marketing copy beside the auth form", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",
@@ -749,6 +768,7 @@ describe("getOnboardingHtml", () => {
         tagline: BUILT_IN_AUTH_MARKETING.dispatch.tagline,
         description: "Route parcels across your own fleet.",
         features: ["Track every van on one map"],
+        learnMoreUrl: "https://agent-native.com/apps/slides",
       },
     });
 

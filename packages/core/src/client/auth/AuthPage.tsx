@@ -2377,8 +2377,11 @@ export function AuthPage(props: AuthPageProps) {
   }, [signupLocalModeNote]);
 
   const keys = headingKeys(view);
+  const localizedMarketing = marketingLocales[locale];
   const marketingCopy = marketing
-    ? { ...marketing, ...(marketingLocales[locale] ?? {}) }
+    ? localizedMarketing?.authHeadline && localizedMarketing.authDescription
+      ? { ...marketing, ...localizedMarketing }
+      : marketing
     : undefined;
   const marketingAppName =
     marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";

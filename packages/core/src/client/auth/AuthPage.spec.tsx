@@ -256,6 +256,20 @@ describe("AuthPage", () => {
     expect(html).toContain('class="oss-badge"');
   });
 
+  it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
+    const props = propsFromHtml(
+      getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
+    );
+    props.defaultLocale = "zh-CN";
+    const html = renderToString(<AuthPage {...props} />);
+
+    expect(props.marketingLocales["zh-CN"]?.authHeadline).toBeTruthy();
+    expect(props.marketingLocales["zh-CN"]?.authDescription).toBeUndefined();
+    expect(html).toContain("Say it. Show it.");
+    expect(html).toContain("Presentations that grow with your ideas.");
+    expect(html).not.toContain(props.marketingLocales["zh-CN"]!.authHeadline!);
+  });
+
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {
     const props = propsFromHtml(getOnboardingHtml({ authMode: "magic-link" }));
     const html = renderToString(<AuthPage {...props} />);

@@ -54,6 +54,7 @@ import {
   resolveBuiltInAuthMarketingByName,
   resolveBuiltInAuthMarketingPresentation,
   resolveBuiltInAuthMarketingSlug,
+  resolveBuiltInAuthMarketingSlugFromName,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import {
@@ -1212,15 +1213,24 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingWasResolvedFromCatalog = !opts.marketing;
+  const configuredMarketingSlug = resolveBuiltInAuthMarketingSlugFromName(
+    marketing?.appName,
+  );
+  const learnMoreSlug = marketing?.learnMoreUrl?.match(
+    /^https:\/\/agent-native\.com\/apps\/([^/?#]+)/,
+  )?.[1];
   const isFirstPartyMarketing =
-    marketing?.learnMoreUrl?.startsWith("https://agent-native.com/apps/") ??
-    false;
+    !!configuredMarketingSlug &&
+    configuredMarketingSlug ===
+      resolveBuiltInAuthMarketingSlugFromName(learnMoreSlug);
   const marketingSlug = marketingWasResolvedFromCatalog
     ? resolveBuiltInAuthMarketingSlug({
         requestHost: opts.requestHost,
         requestPath: opts.requestPath,
       })
-    : undefined;
+    : isFirstPartyMarketing
+      ? configuredMarketingSlug
+      : undefined;
   const marketingPresentation =
     marketingWasResolvedFromCatalog || isFirstPartyMarketing
       ? resolveBuiltInAuthMarketingPresentation(marketing, {
@@ -1313,14 +1323,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         {
           appName: marketing?.appName ?? "",
           tagline: copy.tagline ?? marketing?.tagline ?? "",
-          description: copy.description ?? marketing?.description,
+          description: copy.description,
           features: copy.features ?? marketing?.features,
           authHeadline: copy.authHeadline ?? copy.tagline,
-          authDescription:
-            copy.authDescription ??
-            copy.description ??
-            marketingPresentation?.description ??
-            marketing?.description,
+          authDescription: copy.authDescription ?? copy.description,
         },
       ]),
     );

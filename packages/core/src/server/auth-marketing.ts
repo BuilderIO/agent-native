@@ -309,6 +309,12 @@ export function resolveBuiltInAuthMarketingSlug(
   return candidateSlugs(opts).find((slug) => !!BUILT_IN_AUTH_MARKETING[slug]);
 }
 
+export function resolveBuiltInAuthMarketingSlugFromName(
+  name: string | undefined,
+): string | undefined {
+  return normalizeSlug(name);
+}
+
 export function resolveBuiltInAuthMarketingByName(
   value: string | undefined,
 ): AuthMarketingContent | undefined {
