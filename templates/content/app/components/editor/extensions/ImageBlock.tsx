@@ -507,6 +507,7 @@ export function ImageBlock({
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourceTab, setSourceTab] = useState<ImageSourceTab>("upload");
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
@@ -788,8 +789,12 @@ export function ImageBlock({
   }
 
   function handleImageFileSelectionStart() {
-    if (!canMutateMediaNow() || !fileStorageConfigured) return;
+    if (!canMutateMediaNow()) return;
     if (isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
     if (typeof getPos !== "function") return;
     const position = getPos();
     if (typeof position !== "number") return;
@@ -926,19 +931,20 @@ export function ImageBlock({
 
         {sourceTab === "upload" ? (
           <div className="media-source-panel__body">
-            {fileStorageConfigured ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={isUploading}
-                onClick={handleImageFileSelectionStart}
-              >
-                {t("editor.media.uploadFile")}
-              </Button>
-            ) : (
-              <FileStorageStatusGate status={fileUploadStatus} />
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={isUploading}
+              onClick={handleImageFileSelectionStart}
+            >
+              {t("editor.media.uploadFile")}
+            </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : sourceTab === "assets" ? (
           <div className="media-source-panel__body">

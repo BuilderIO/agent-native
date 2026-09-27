@@ -40,8 +40,35 @@ vi.mock("@agent-native/core/client/uploads", () => ({
 vi.mock("@agent-native/core/client/setup-connections", async () => {
   const { createElement } = await import("react");
   return {
-    FileStorageSetupCard: () =>
-      createElement("div", { "data-testid": "file-storage-setup-card" }),
+    FileStorageSetupPopover: ({
+      open,
+      status,
+      onRetry,
+    }: {
+      open: boolean;
+      status?: string;
+      onRetry?: () => void;
+    }) =>
+      open
+        ? createElement(
+            "div",
+            { "data-testid": "file-storage-setup-popover" },
+            status === "unavailable"
+              ? createElement(
+                  "span",
+                  {},
+                  "onboarding.fileStorage.statusUnavailable",
+                )
+              : null,
+            status === "unavailable"
+              ? createElement(
+                  "button",
+                  { onClick: onRetry, "data-testid": "file-storage-retry" },
+                  "common.retry",
+                )
+              : null,
+          )
+        : null,
   };
 });
 
@@ -152,20 +179,23 @@ describe("files and media property editor", () => {
     });
   });
 
-  it("blocks image uploads and shows the shared storage setup", async () => {
+  it("shows storage setup only after an image upload is requested", async () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Edit Image"]',
     );
     await act(async () => trigger?.click());
 
     expect(
-      container.querySelector('[data-testid="file-storage-setup-card"]'),
-    ).not.toBeNull();
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+    const uploadButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.properties.upload",
+    );
+    expect(uploadButton).not.toBeNull();
+    await act(async () => uploadButton?.click());
     expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent === "editor.properties.upload",
-      ),
-    ).toBe(false);
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).not.toBeNull();
 
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -204,18 +234,25 @@ describe("files and media property editor", () => {
       await act(async () => trigger?.click());
 
       expect(
-        container.querySelector('[data-testid="file-storage-setup-card"]'),
+        container.querySelector('[data-testid="file-storage-setup-popover"]'),
       ).toBeNull();
       expect(
         container.querySelector<HTMLInputElement>('input[type="file"]')
           ?.disabled,
       ).toBe(true);
-      expect(container.textContent).toContain(
+      expect(document.body.textContent).not.toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+      const uploadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent === "editor.properties.upload");
+      await act(async () => uploadButton?.click());
+      expect(document.body.textContent).toContain(
         "onboarding.fileStorage.statusUnavailable",
       );
 
       await act(async () => {
-        container
+        document.body
           .querySelector<HTMLButtonElement>(
             '[data-testid="file-storage-retry"]',
           )

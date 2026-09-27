@@ -75,7 +75,6 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
-  "onboarding.useOwnApiKeys": "استخدام مفاتيح API الخاصة بي",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "إنشاء حساب Builder.io",
   "onboarding.builderSignInWithAccount": "تسجيل الدخول بحساب Builder.io",
@@ -109,10 +108,11 @@ const messages: AgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
+  "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
     "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
   "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
-  "onboarding.fileStorage.custom": "استخدم مفاتيح تخزين مخصصة",
+  "onboarding.fileStorage.custom": "استخدم مفاتيح مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
   "onboarding.capability.voiceInput.label": "الإدخال الصوتي",

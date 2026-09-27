@@ -3,6 +3,7 @@ import {
   useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
   useCallback,
@@ -15,7 +16,6 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import {
@@ -114,6 +114,7 @@ export function AddSlidePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -140,6 +141,10 @@ export function AddSlidePopover({
     onDiscard: deleteUploadedPromptFile,
     onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
   });
+
+  useEffect(() => {
+    if (fileStorageConfigured) setStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
 
   useLayoutEffect(() => {
     if (!open || !panelRef.current) return;
@@ -425,17 +430,23 @@ export function AddSlidePopover({
         disabled={uploading || submitting}
         onSubmit={handleSubmit}
         onAttachmentsChange={handleAttachmentsChange}
+        onAttachmentRequest={
+          fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
+        }
         onTextChange={setPromptText}
       />
-      {!storageQuery.isLoading ? (
-        <div className="mt-2">
-          <UploadStorageGate
-            configured={fileStorageConfigured}
-            unavailable={storageQuery.isError}
-            onRetry={() => void storageQuery.refetch()}
-          />
-        </div>
-      ) : null}
+      <FileStorageSetupPopover
+        open={storagePromptOpen && !fileStorageConfigured}
+        onOpenChange={setStoragePromptOpen}
+        onConnected={() => void storageQuery.refetch()}
+        anchorRef={panelRef}
+        {...(!storageQuery.isSuccess || storageQuery.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageQuery.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
       <div className="-mx-1 mt-2">
         <GoogleDocImportHint
           promptText={promptText}

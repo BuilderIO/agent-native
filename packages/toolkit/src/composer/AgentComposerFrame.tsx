@@ -7,6 +7,7 @@ import type { AgentComposerLayoutVariant } from "./types.js";
 
 export interface AgentComposerFrameProps {
   children: React.ReactNode;
+  anchorRef?: { current: HTMLElement | null };
   attachedAccessory?: React.ReactNode;
   className?: string;
   workflowClassName?: string;
@@ -19,6 +20,7 @@ export interface AgentComposerFrameProps {
 
 export function AgentComposerFrame({
   children,
+  anchorRef,
   attachedAccessory,
   className,
   workflowClassName,
@@ -124,7 +126,10 @@ export function AgentComposerFrame({
 
   const frame = (
     <div
-      ref={frameRef}
+      ref={(element) => {
+        frameRef.current = element;
+        if (anchorRef) anchorRef.current = element;
+      }}
       data-agent-composer-variant={layoutVariant}
       data-agent-composer-slot="area"
       className={cn(

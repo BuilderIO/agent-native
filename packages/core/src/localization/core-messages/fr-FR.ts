@@ -80,7 +80,6 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
-  "onboarding.useOwnApiKeys": "Utiliser mes propres clés API",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Créer un compte Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -120,10 +119,12 @@ const messages: AgentChatTranslation = {
     "Téléversement et stockage de fichiers",
   "onboarding.fileStorage.title":
     "Connecter un stockage pour envoyer des fichiers",
+  "onboarding.fileStorage.statusUnavailable":
+    "Impossible de vérifier le stockage",
   "onboarding.fileStorage.description":
     "Connectez Builder.io (gratuit) ou configurez votre propre stockage d’objets compatible S3.",
   "onboarding.fileStorage.reconnectBuilder": "Reconnecter Builder.io",
-  "onboarding.fileStorage.custom": "Ajouter vos propres clés de stockage",
+  "onboarding.fileStorage.custom": "Utiliser des clés personnalisées",
   "onboarding.fileStorage.customDescription":
     "Configurez un bucket compatible S3 avec une URL publique stable.",
   "onboarding.capability.voiceInput.label": "Entrée vocale",

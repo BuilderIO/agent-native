@@ -23,7 +23,30 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupCard: () => <div data-storage-setup="true" />,
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: string;
+    onRetry?: () => void;
+  }) =>
+    open ? (
+      <div
+        data-dialog="true"
+        data-storage-setup={status === "unavailable" ? undefined : "true"}
+      >
+        {status === "unavailable"
+          ? "Couldn't check storage"
+          : "Connect storage to upload files"}
+        {status === "unavailable" ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : null}
+      </div>
+    ) : null,
 }));
 vi.mock("@/components/ui/button", () => ({
   Button: ({
@@ -128,7 +151,7 @@ function setUploadStatus(overrides: Partial<UploadStatus> = {}) {
     isError: false,
     isLoading: true,
     isFetching: true,
-    refetch: vi.fn(),
+    refetch: vi.fn().mockResolvedValue({ isSuccess: false }),
     ...overrides,
   };
   uploadStatus.value = status;
@@ -161,23 +184,36 @@ describe("ImageFillControls file storage gate", () => {
       <ImageFillControls value={{ url: "", fit: "fill" }} onChange={vi.fn()} />,
     );
 
-  it("keeps uploads disabled and offers retry while the status is unresolved", async () => {
-    const status = setUploadStatus();
+  it("keeps storage UI hidden until an unresolved upload attempt", async () => {
+    const status = setUploadStatus({
+      refetch: vi
+        .fn()
+        .mockResolvedValue({ isSuccess: true, data: { configured: true } }),
+    });
     await renderControls();
 
-    expect(
-      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
-    ).toBe(true);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.disabled).toBe(true);
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    const pickerClick = vi.spyOn(input, "click").mockImplementation(() => {});
+    const upload = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Upload image"]',
+    );
+    expect(upload?.disabled).toBe(false);
+    await act(async () => upload?.click());
+    expect(pickerClick).not.toHaveBeenCalled();
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Retry",
     );
     expect(retry).toBeTruthy();
     await act(async () => retry?.click());
     expect(status.refetch).toHaveBeenCalledOnce();
+    expect(pickerClick).not.toHaveBeenCalled();
   });
 
-  it("offers a status retry on error without showing setup", async () => {
+  it("offers status retry only after an upload attempt when status fails", async () => {
     const status = setUploadStatus({
       isError: true,
       isLoading: false,
@@ -189,6 +225,12 @@ describe("ImageFillControls file storage gate", () => {
       container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
     ).toBe(true);
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Upload image"]')
+        ?.click(),
+    );
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Retry",
     );
@@ -197,7 +239,7 @@ describe("ImageFillControls file storage gate", () => {
     expect(status.refetch).toHaveBeenCalledOnce();
   });
 
-  it("shows setup only after status confirms storage is missing", async () => {
+  it("shows no setup until the user requests an image upload", async () => {
     setUploadStatus({
       data: { configured: false },
       isSuccess: true,
@@ -209,11 +251,17 @@ describe("ImageFillControls file storage gate", () => {
     expect(
       container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
     ).toBe(true);
+    expect(container.querySelector("[data-storage-setup]")).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Upload image"]')
+        ?.click(),
+    );
     expect(container.querySelector("[data-storage-setup]")).not.toBeNull();
     expect(container.textContent).not.toContain("Retry");
   });
 
-  it("enables image upload only after status confirms storage is configured", async () => {
+  it("opens the picker after status confirms storage is configured", async () => {
     setUploadStatus({
       data: { configured: true },
       isSuccess: true,
@@ -222,10 +270,17 @@ describe("ImageFillControls file storage gate", () => {
     });
     await renderControls();
 
-    expect(
-      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
-    ).toBe(false);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.disabled).toBe(false);
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Upload image"]')
+        ?.click(),
+    );
+    expect(click).toHaveBeenCalledOnce();
   });
 });
 
@@ -269,9 +324,7 @@ describe("DesignBottomToolbar file storage gate", () => {
     const initialStatus = setUploadStatus();
     await renderToolbar();
 
-    expect(
-      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
-    ).toBe(true);
+    expect(container.querySelector("[data-dialog]")).toBeNull();
     await openImageVideoGate();
     expect(container.querySelector("[data-dialog]")).not.toBeNull();
     const pendingRetry = Array.from(container.querySelectorAll("button")).find(
@@ -293,7 +346,7 @@ describe("DesignBottomToolbar file storage gate", () => {
     ).toBe(true);
     expect(container.querySelector("[data-dialog]")).not.toBeNull();
     expect(container.querySelector("[data-storage-setup]")).toBeNull();
-    expect(container.textContent).toContain("Something went wrong");
+    expect(container.textContent).toContain("Couldn't check storage");
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Retry",
     );
@@ -311,9 +364,7 @@ describe("DesignBottomToolbar file storage gate", () => {
     });
     await renderToolbar();
 
-    expect(
-      container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled,
-    ).toBe(true);
+    expect(container.querySelector("[data-dialog]")).toBeNull();
     await openImageVideoGate();
     expect(container.querySelector("[data-storage-setup]")).not.toBeNull();
     expect(container.textContent).not.toContain("Retry");

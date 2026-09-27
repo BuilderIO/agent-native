@@ -90,6 +90,10 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
+    const orgId = getRequestOrgId() ?? null;
+    const organizationFilter = orgId
+      ? eq(schema.documents.orgId, orgId)
+      : isNull(schema.documents.orgId);
     const db = getDb();
     const localDocument = isLocalFileDocumentId(id)
       ? await getLocalFileDocument(id)
@@ -100,6 +104,7 @@ export default defineAction({
             and(
               eq(schema.documents.id, id),
               eq(schema.documents.ownerEmail, userEmail),
+              organizationFilter,
               eq(schema.documents.sourceMode, "local-files"),
               eq(schema.documents.sourceKind, "file"),
               isNull(schema.documents.trashedAt),
@@ -127,7 +132,6 @@ export default defineAction({
       throw new Error("The local file document has no source path.");
     }
     const now = new Date().toISOString();
-    const orgId = getRequestOrgId() ?? null;
     const provisioned = await provisionContentSpaces(db, userEmail);
     const targetSpaceId = orgId
       ? organizationContentSpaceId(orgId)
@@ -144,6 +148,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.documents.ownerEmail, userEmail),
+          organizationFilter,
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
