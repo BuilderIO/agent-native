@@ -1381,9 +1381,14 @@ export const runContentMigrations = runMigrations(
     {
       version: 115,
       name: "content-access-and-page-link-indexes",
-      sql: `CREATE INDEX IF NOT EXISTS documents_owner_email_lower_idx ON documents (lower(owner_email));
-        CREATE INDEX IF NOT EXISTS document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
-        CREATE INDEX IF NOT EXISTS document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+      // Built CONCURRENTLY so writes to these large shared tables continue
+      // during the build. The runner executes each statement on its own over
+      // the unpooled migration connection, which CONCURRENTLY requires.
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS documents_owner_email_lower_idx ON documents (lower(owner_email));
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS document_shares_principal_lower_idx ON document_shares (principal_type, lower(principal_id), resource_id);
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
+      },
     },
   ],
   { table: "content_migrations" },

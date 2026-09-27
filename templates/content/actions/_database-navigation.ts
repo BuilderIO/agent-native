@@ -32,7 +32,7 @@ import { favoriteDocumentIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
-const CURSOR_VERSION = 1;
+const CURSOR_VERSION = 2;
 
 type NavigationCursor = {
   version: typeof CURSOR_VERSION;

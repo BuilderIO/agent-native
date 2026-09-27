@@ -276,6 +276,98 @@ describe("PagedContentFilesSidebarView", () => {
     await act(async () => root.unmount());
   });
 
+  it("reloads a Show more page from a fresh cursor when its cursor expired", async () => {
+    const roots = Array.from({ length: 20 }, (_, index) =>
+      navigationItem(`root-${index + 1}`),
+    );
+    let issuedCursor = "expired-cursor";
+    const refetchFirstPage = vi.fn(async () => {
+      issuedCursor = "fresh-cursor";
+      return { data: page(roots, issuedCursor) };
+    });
+    const expired = Object.assign(new Error("stale cursor"), {
+      errorCode: "invalid_navigation_cursor",
+    });
+    useActionQuery.mockImplementation((_name, args) =>
+      args.navigation.cursor === "expired-cursor"
+        ? {
+            data: undefined,
+            error: expired,
+            isLoading: false,
+            isError: true,
+            isFetching: false,
+            refetch: vi.fn(),
+          }
+        : {
+            data: args.navigation.cursor
+              ? page([navigationItem("root-21")])
+              : page(roots, issuedCursor),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: refetchFirstPage,
+          },
+    );
+    const { container, root } = await renderHarness();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+    expect(refetchFirstPage).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain("Retry");
+
+    // React Query re-renders after a refetch; the mock needs a render pass.
+    await act(async () => root.render(<Harness />));
+    expect(container.textContent).toContain("Page root-21");
+    expect(container.textContent).not.toContain("Retry");
+
+    await act(async () => root.unmount());
+  });
+
+  it("offers Retry instead of re-reading again when the same cursor keeps expiring", async () => {
+    const roots = Array.from({ length: 20 }, (_, index) =>
+      navigationItem(`root-${index + 1}`),
+    );
+    const refetchFirstPage = vi.fn(async () => ({
+      data: page(roots, "expired-cursor"),
+    }));
+    const expired = Object.assign(new Error("stale cursor"), {
+      errorCode: "invalid_navigation_cursor",
+    });
+    useActionQuery.mockImplementation((_name, args) =>
+      args.navigation.cursor
+        ? {
+            data: undefined,
+            error: expired,
+            isLoading: false,
+            isError: true,
+            isFetching: false,
+            refetch: vi.fn(),
+          }
+        : {
+            data: page(roots, "expired-cursor"),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: refetchFirstPage,
+          },
+    );
+    const { container, root } = await renderHarness();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+
+    expect(refetchFirstPage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Retry");
+
+    await act(async () => root.unmount());
+  });
+
   it("keeps failed pages recoverable with Retry", async () => {
     const refetch = vi.fn();
     useActionQuery.mockReturnValue({

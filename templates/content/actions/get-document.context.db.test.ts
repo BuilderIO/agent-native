@@ -251,6 +251,81 @@ describe("get-document context and properties", () => {
     ).toEqual(["public-parent-of-foreign"]);
   });
 
+  it("admits an ancestor shared with the active organization only while that organization is active", async () => {
+    await addDocument({ id: "org-shared-parent", ownerEmail: OTHER });
+    await getDb().insert(schema.documentShares).values({
+      id: "org-shared-parent-share",
+      resourceId: "org-shared-parent",
+      principalType: "org",
+      principalId: ORGANIZATION_ID,
+      role: "viewer",
+      createdBy: OTHER,
+      createdAt: new Date().toISOString(),
+    });
+    await addDocument({ id: "org-shared-leaf", parentId: "org-shared-parent" });
+    const leaf = { id: "org-shared-leaf", parentId: "org-shared-parent" };
+
+    const withOrganization = await runWithRequestContext(
+      { userEmail: OWNER, orgId: ORGANIZATION_ID },
+      () => getDocumentContextPath(leaf),
+    );
+    expect(withOrganization.map((entry) => entry.id)).toEqual([
+      "org-shared-parent",
+    ]);
+    expect(await readAs(OWNER, () => getDocumentContextPath(leaf))).toEqual([]);
+  });
+
+  it("matches owner and share emails regardless of case", async () => {
+    await addDocument({
+      id: "mixed-case-owned-root",
+      ownerEmail: "Context-Owner@Example.COM",
+    });
+    await addDocument({
+      id: "mixed-case-shared-parent",
+      parentId: "mixed-case-owned-root",
+      ownerEmail: OTHER,
+    });
+    await getDb().insert(schema.documentShares).values({
+      id: "mixed-case-share",
+      resourceId: "mixed-case-shared-parent",
+      principalType: "user",
+      principalId: "CONTEXT-OWNER@example.com",
+      role: "viewer",
+      createdBy: OTHER,
+      createdAt: new Date().toISOString(),
+    });
+    await addDocument({
+      id: "mixed-case-leaf",
+      parentId: "mixed-case-shared-parent",
+    });
+
+    expect(
+      (await getDocument("mixed-case-leaf")).contextPath.map(
+        (entry) => entry.id,
+      ),
+    ).toEqual(["mixed-case-owned-root", "mixed-case-shared-parent"]);
+  });
+
+  it("never lists a document in its own path when its parent chain loops back", async () => {
+    await addDocument({ id: "self-parent", parentId: "self-parent" });
+    await addDocument({ id: "loop-a", parentId: "loop-b" });
+    await addDocument({ id: "loop-b", parentId: "loop-a" });
+
+    expect(
+      await readAs(OWNER, () =>
+        getDocumentContextPath({ id: "self-parent", parentId: "self-parent" }),
+      ),
+    ).toEqual([]);
+    expect(
+      (
+        await readAs(OWNER, () =>
+          getDocumentContextPath({ id: "loop-a", parentId: "loop-b" }),
+        )
+      ).map((entry) => entry.id),
+    ).toEqual(["loop-b"]);
+    expect((await getDocument("self-parent")).contextPath).toEqual([]);
+  });
+
   it("gives a shared page no path beyond what its reader can open", async () => {
     await addDocument({ id: "private-owner-root", ownerEmail: OTHER });
     await addDocument({

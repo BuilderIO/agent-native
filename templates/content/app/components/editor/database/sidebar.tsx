@@ -193,15 +193,24 @@ export function PagedContentFilesSidebarView({
   );
 }
 
+function navigationPageData(data: unknown) {
+  return data && !(typeof data === "object" && "available" in data)
+    ? (data as ContentDatabaseNavigationPageResponse)
+    : undefined;
+}
+
 function PagedContentFilesBranch({
   cursor,
   precedingDocumentIds = new Set(),
+  onCursorExpired,
   ...props
 }: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
   precedingDocumentIds?: ReadonlySet<string>;
+  /** Asks the page that issued `cursor` to read again; false if it already did. */
+  onCursorExpired?: () => boolean;
   sort: ContentDatabaseNavigationSort;
   viewId?: string;
   depth: number;
@@ -219,6 +228,9 @@ function PagedContentFilesBranch({
 }) {
   const t = useT();
   const [nextPageVisible, setNextPageVisible] = useState(false);
+  const [nextPageGeneration, setNextPageGeneration] = useState(0);
+  const expiredNextCursors = useRef(new Set<string>());
+  const [rereadRefused, setRereadRefused] = useState(false);
   const query = useActionQuery("query-content-database-items", {
     databaseId: props.databaseId,
     limit: 20,
@@ -229,12 +241,33 @@ function PagedContentFilesBranch({
       cursor,
     },
   });
-  const data =
-    query.data && !("available" in query.data)
-      ? (query.data as ContentDatabaseNavigationPageResponse)
-      : undefined;
+  const data = navigationPageData(query.data);
+  // A cursor stops being valid when a sibling at or before it changes, or
+  // after a server update. The page that issued it reads again and hands this
+  // branch a fresh cursor instead of leaving an error in the sidebar.
+  const cursorExpired =
+    cursor !== undefined &&
+    query.isError &&
+    (query.error as { errorCode?: unknown } | null)?.errorCode ===
+      "invalid_navigation_cursor";
+  useEffect(() => {
+    if (cursorExpired) setRereadRefused(!onCursorExpired?.());
+    // Only a new expiry asks again; the callback identity changes per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorExpired]);
+  const rereadForNextPage = () => {
+    const expired = data?.pagination.nextCursor;
+    if (!expired || expiredNextCursors.current.has(expired)) return false;
+    expiredNextCursors.current.add(expired);
+    void query.refetch().then((result) => {
+      // The same cursor again means the next page must re-read it itself.
+      if (navigationPageData(result.data)?.pagination.nextCursor === expired)
+        setNextPageGeneration((generation) => generation + 1);
+    });
+    return true;
+  };
 
-  if (query.isLoading) {
+  if (query.isLoading || (cursorExpired && !rereadRefused)) {
     return (
       <div aria-hidden="true" className="grid gap-1 p-1">
         {[70, 55, 85].map((width) => (
@@ -347,9 +380,10 @@ function PagedContentFilesBranch({
         nextPageVisible ? (
           <PagedContentFilesBranch
             {...props}
-            key={data.pagination.nextCursor}
+            key={`${data.pagination.nextCursor}:${nextPageGeneration}`}
             cursor={data.pagination.nextCursor}
             precedingDocumentIds={composedDocumentIds}
+            onCursorExpired={rereadForNextPage}
           />
         ) : (
           <Button

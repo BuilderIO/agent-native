@@ -52,6 +52,7 @@ function ancestorChain(
             array[${document.id}::text, ${schema.documents.id}]
           from ${schema.documents}
           where ${schema.documents.id} = ${document.parentId}
+            and ${schema.documents.id} <> ${document.id}
           union all
           select ${schema.documents.id}, ${schema.documents.parentId}, chain.depth + 1,
             chain.visited || ${schema.documents.id}
@@ -133,7 +134,12 @@ export async function getDocumentContextPath(
 
   const path: DocumentContextPathEntry[] = [];
   for (const ancestor of ancestors) {
-    if (!(await canReadContextDocument(ancestor.id, ancestor.directlyGranted)))
+    if (
+      !(await canReadContextDocument(
+        ancestor.id,
+        ancestor.directlyGranted === true,
+      ))
+    )
       break;
     path.unshift({
       id: ancestor.databaseId ?? ancestor.id,

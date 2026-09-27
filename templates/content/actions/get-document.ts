@@ -53,6 +53,22 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
+/**
+ * Starts a read now but raises its failure only where the result is awaited,
+ * so a read whose result a later check discards cannot fail the request.
+ */
+function deferFailure<T>(read: Promise<T>): () => Promise<T> {
+  const settled = read.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  return async () => {
+    const result = await settled;
+    if (!result.ok) throw result.error;
+    return result.value;
+  };
+}
+
 export default defineAction({
   description:
     "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
@@ -106,7 +122,6 @@ export default defineAction({
       bodyHydrationTarget,
       favoriteIds,
       externalLink,
-      contextPath,
     ] = await Promise.all([
       isSoftDeletedDatabaseDocument(args.id),
       db
@@ -163,7 +178,6 @@ export default defineAction({
             )
             .limit(1)
         : [],
-      getDocumentContextPath(doc, { databaseId: args.databaseId }),
     ]);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
@@ -180,16 +194,16 @@ export default defineAction({
       (membership) => membership.systemRole === null,
     );
     const bodyHydrationMembership = bodyHydrationTarget?.membership;
-    const [accessibleDatabases, bodyHydrationAccess] = await Promise.all([
-      accessibleDocumentIds(
-        memberships.map((membership) => membership.databaseDocumentId),
-      ),
+    const readBodyHydrationAccess = deferFailure(
       bodyHydrationTarget?.hydrationSourceId
         ? resolveDocumentAccess(bodyHydrationMembership!.database.documentId, {
             skipResourceBody: true,
           })
-        : null,
-    ]);
+        : Promise.resolve(null),
+    );
+    const accessibleDatabases = await accessibleDocumentIds(
+      memberships.map((membership) => membership.databaseDocumentId),
+    );
     accessibleDatabases.add(doc.id);
     const accessiblePrimaryMemberships = memberships.filter(
       (membership) =>
@@ -237,9 +251,19 @@ export default defineAction({
     if (selectedDatabaseId && !propertyDatabase) {
       throw new Error(`Database "${selectedDatabaseId}" not found`);
     }
+    const bodyHydrationAccess = await readBodyHydrationAccess();
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
+    // A page that only a share opens gets no collection path, so the path is
+    // read only when it will be returned, and its errors surface after the
+    // property checks that preceded it.
+    const readContextPath =
+      databaseMembership && !hasPropertyDatabaseAccess
+        ? null
+        : deferFailure(
+            getDocumentContextPath(doc, { databaseId: args.databaseId }),
+          );
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
@@ -259,6 +283,7 @@ export default defineAction({
           )
         : undefined,
     ]);
+    const contextPath = readContextPath ? await readContextPath() : [];
     let isExternallyLinked = false;
     let hasBodyTarget = true;
     if (mayBeExternallyLinked && !database) {
@@ -369,8 +394,7 @@ export default defineAction({
             ...property,
             definition: { ...property.definition, databaseId: null },
           })),
-      contextPath:
-        databaseMembership && !hasPropertyDatabaseAccess ? [] : contextPath,
+      contextPath,
     };
   },
   link: ({ result }) => {

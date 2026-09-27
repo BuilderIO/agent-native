@@ -667,6 +667,73 @@ describe("query-content-database-items Files navigation", () => {
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
   });
 
+  it("invalidates custom-order cursors when a saved or unsaved sibling at or before them changes", async () => {
+    await addFile({ id: "custom-cursor-parent", position: 260 });
+    for (let index = 0; index < 4; index += 1) {
+      await addFile({
+        id: `custom-cursor-${index}`,
+        parentId: "custom-cursor-parent",
+        position: index,
+      });
+    }
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "files",
+      views: [
+        {
+          id: "files",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          sidebarOrder: {
+            mode: "custom",
+            itemIds: [
+              "membership-custom-cursor-3",
+              "membership-custom-cursor-1",
+            ],
+          },
+        },
+      ],
+    });
+    // Saved siblings 3 and 1 come first, then 0 and 2 by position.
+    const firstPage = (limit: number) =>
+      navigate({ parentId: "custom-cursor-parent", sort: "custom" }, limit);
+    const nextPage = (cursor: string) =>
+      navigate({ parentId: "custom-cursor-parent", sort: "custom", cursor }, 4);
+    const rename = (id: string, title: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ title, updatedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, id));
+    const invalid = { errorCode: "invalid_navigation_cursor" };
+
+    const savedCursor = (await firstPage(1)).pagination.nextCursor!;
+    await rename("custom-cursor-1", "after the saved cursor");
+    await expect(nextPage(savedCursor)).resolves.toMatchObject({
+      items: [
+        { documentId: "custom-cursor-1", title: "after the saved cursor" },
+        { documentId: "custom-cursor-0" },
+        { documentId: "custom-cursor-2" },
+      ],
+    });
+    await rename("custom-cursor-3", "saved sibling at the cursor");
+    await expect(nextPage(savedCursor)).rejects.toMatchObject(invalid);
+
+    const unsavedCursor = (await firstPage(3)).pagination.nextCursor!;
+    await rename("custom-cursor-2", "after the unsaved cursor");
+    await expect(nextPage(unsavedCursor)).resolves.toMatchObject({
+      items: [{ documentId: "custom-cursor-2" }],
+    });
+    await rename("custom-cursor-1", "saved sibling before the cursor");
+    await expect(nextPage(unsavedCursor)).rejects.toMatchObject(invalid);
+
+    const atUnsavedCursor = (await firstPage(3)).pagination.nextCursor!;
+    await rename("custom-cursor-0", "unsaved sibling at the cursor");
+    await expect(nextPage(atUnsavedCursor)).rejects.toMatchObject(invalid);
+  });
+
   it("rejects malformed and wrong-scope cursors instead of falling back", async () => {
     await expect(
       navigate({ parentId: null, cursor: "not-a-cursor" }),
@@ -1138,6 +1205,28 @@ describe("query-content-database-items Files navigation", () => {
         navigationContextAction.run({ id: "cycle-a" }),
       ),
     ).rejects.toThrow("Document ancestry contains a cycle");
+  });
+
+  it("reads a 100-level ancestry and rejects a deeper one", async () => {
+    for (let depth = 0; depth <= 100; depth += 1) {
+      await addFile({
+        id: `depth-${depth}`,
+        parentId: depth === 0 ? null : `depth-${depth - 1}`,
+        position: 900,
+      });
+    }
+    const readContext = (id: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+
+    const deepest = await readContext("depth-99");
+    expect(deepest.path).toHaveLength(100);
+    expect(deepest.path[0]?.id).toBe("depth-0");
+    expect(deepest.path.at(-1)?.id).toBe("depth-99");
+    await expect(readContext("depth-100")).rejects.toThrow(
+      "Document ancestry exceeds the supported navigation depth",
+    );
   });
 
   it("associates a child without denormalized spaceId to its authoritative Files path", async () => {
