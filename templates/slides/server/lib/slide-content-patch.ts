@@ -48,13 +48,6 @@ export type SlideContentEdit =
 
 export class SlideContentEditError extends Error {
   readonly code = "slide_content_edit_failed";
-  // Every failure here names the caller's mistake — an unmatched `find`, a bad
-  // occurrence, an expectedMatches miss. The action route flattens any error it
-  // cannot recognise to "Internal server error", so without these three fields
-  // the agent is told the server broke and retries the identical arguments
-  // instead of re-reading the slide. Duck-typed to match `isActionContractError`
-  // rather than importing `fail()`, which would pull the action layer into a lib
-  // the editor also imports.
   readonly actionContractError = true;
   readonly errorCode = "slide_content_edit_failed";
   readonly statusCode = 400;
@@ -72,10 +65,6 @@ export interface SlideContentPatchResult {
   changed: boolean;
 }
 
-/**
- * Applies every edit to an in-memory string before the caller persists it.
- * A failed edit throws, so callers never write a partially applied patch list.
- */
 export async function applySlideContentEdits(
   currentContent: string,
   edits: readonly SlideContentEdit[],
@@ -105,10 +94,6 @@ export async function applySlideContentEdits(
 
 export async function formatSlideHtml(content: string): Promise<string> {
   try {
-    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
-    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
-    // HTML. Load the standalone core plus only the plugins the HTML printer
-    // reaches, which still formats embedded <style> and <script>.
     const [{ format }, ...plugins] = await Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
@@ -116,11 +101,14 @@ export async function formatSlideHtml(content: string): Promise<string> {
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
     ]);
-    return await format(content, {
+    const protectedContent = protectPreformattedBlocks(content);
+    const protectedText = protectHtmlText(protectedContent.content);
+    const formatted = await format(protectedText.content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
+    return protectedContent.restore(protectedText.restore(formatted));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
@@ -135,6 +123,230 @@ export async function formatSlideHtml(content: string): Promise<string> {
     }
     throw new Error(`Unable to format slide HTML: ${message}`);
   }
+}
+
+function protectPreformattedBlocks(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const blocks = findPreformattedBlocks(content);
+  if (blocks.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-preformatted-block";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = blocks.map((block, index) => ({
+    ...block,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const block of replacements) {
+    protectedContent +=
+      content.slice(cursor, block.start) +
+      `<pre data-slides-preformatted="${block.marker}"></pre>`;
+    cursor = block.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const block of replacements) {
+        const placeholder = `<pre data-slides-preformatted="${block.marker}"></pre>`;
+        if (!restored.includes(placeholder)) {
+          throw new Error("Unable to restore preformatted slide content");
+        }
+        restored = restored.replace(
+          placeholder,
+          content.slice(block.start, block.end),
+        );
+      }
+      return restored;
+    },
+  };
+}
+
+function findPreformattedBlocks(
+  html: string,
+): Array<{ start: number; end: number }> {
+  const blocks: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+    if (html.startsWith("<!--", tagStart)) {
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      cursor = commentEnd === -1 ? html.length : commentEnd + 3;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) break;
+
+    if (!closing && tagName === "pre") {
+      const close = findMatchingCloseTag(html, tagName, tagEnd + 1);
+      if (close) {
+        blocks.push({ start: tagStart, end: close.end });
+        cursor = close.end;
+        continue;
+      }
+    }
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      cursor = rawClose === -1 ? html.length : rawClose + tagName.length + 3;
+    } else {
+      cursor = tagEnd + 1;
+    }
+  }
+
+  return blocks;
+}
+
+function protectHtmlText(content: string): {
+  content: string;
+  restore: (formatted: string) => string;
+} {
+  const ranges = findHtmlText(content);
+  if (ranges.length === 0) return { content, restore: (html) => html };
+
+  let markerPrefix = "slides-text-node";
+  while (content.includes(markerPrefix)) markerPrefix += "-";
+
+  const replacements = ranges.map((range, index) => ({
+    ...range,
+    marker: `${markerPrefix}-${index}`,
+  }));
+  let protectedContent = "";
+  let cursor = 0;
+  for (const range of replacements) {
+    protectedContent +=
+      content.slice(cursor, range.start) +
+      (range.comment ? `<!--${range.marker}-->` : range.marker);
+    cursor = range.end;
+  }
+  protectedContent += content.slice(cursor);
+
+  return {
+    content: protectedContent,
+    restore(formatted) {
+      let restored = formatted;
+      for (const range of replacements) {
+        const placeholder = range.comment
+          ? `<!--${range.marker}-->`
+          : range.marker;
+        const index = restored.indexOf(placeholder);
+        if (index === -1) {
+          throw new Error("Unable to restore slide text content");
+        }
+        const original = content.slice(range.start, range.end);
+        if (!range.comment) {
+          let start = index;
+          let end = index + placeholder.length;
+          while (start > 0 && /[\t\n\f\r ]/.test(restored[start - 1]!)) {
+            start -= 1;
+          }
+          while (end < restored.length && /[\t\n\f\r ]/.test(restored[end]!)) {
+            end += 1;
+          }
+          restored = restored.slice(0, start) + original + restored.slice(end);
+        } else {
+          restored =
+            restored.slice(0, index) +
+            original +
+            restored.slice(index + placeholder.length);
+        }
+      }
+      return restored;
+    },
+  };
+}
+
+function findHtmlText(
+  html: string,
+): Array<{ start: number; end: number; comment?: boolean }> {
+  const ranges: Array<{ start: number; end: number; comment?: boolean }> = [];
+  const addTextRange = (start: number, end: number) => {
+    if (start < end) ranges.push({ start, end });
+  };
+  let cursor = 0;
+  let textStart = 0;
+
+  while (cursor < html.length) {
+    const tagStart = html.indexOf("<", cursor);
+    if (tagStart === -1) break;
+
+    if (html.startsWith("<!--", tagStart)) {
+      addTextRange(textStart, tagStart);
+      const commentEnd = html.indexOf("-->", tagStart + 4);
+      const end = commentEnd === -1 ? html.length : commentEnd + 3;
+      ranges.push({ start: tagStart, end, comment: true });
+      cursor = end;
+      textStart = end;
+      continue;
+    }
+
+    const closing = html[tagStart + 1] === "/";
+    const nameStart = tagStart + (closing ? 2 : 1);
+    const tagName = tagNameAt(html, nameStart);
+    if (!tagName) {
+      cursor = tagStart + 1;
+      continue;
+    }
+    const tagEnd = tagEndIndex(html, nameStart + tagName.length);
+    if (tagEnd === -1) {
+      cursor = tagStart + 1;
+      continue;
+    }
+
+    addTextRange(textStart, tagStart);
+
+    if (!closing && RAW_TEXT_TAG_NAMES.has(tagName)) {
+      const rawClose = rawTextCloseIndex(html, tagName, tagEnd + 1);
+      if (tagName === "style" || tagName === "script") {
+        if (rawClose === -1) {
+          cursor = html.length;
+          textStart = html.length;
+          break;
+        }
+        cursor = rawClose;
+        textStart = rawClose;
+        continue;
+      }
+      if (rawClose === -1) {
+        addTextRange(tagEnd + 1, html.length);
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      ranges.push({ start: tagEnd + 1, end: rawClose });
+      const closeEnd = tagEndIndex(html, rawClose + tagName.length + 2);
+      if (closeEnd === -1) {
+        cursor = html.length;
+        textStart = html.length;
+        break;
+      }
+      cursor = closeEnd + 1;
+      textStart = cursor;
+      continue;
+    }
+
+    cursor = tagEnd + 1;
+    textStart = cursor;
+  }
+
+  addTextRange(textStart, html.length);
+  return ranges.filter((range) => range.start < range.end);
 }
 
 function applyEdit(
@@ -502,9 +714,6 @@ function applyInsert(
     throw new SlideContentEditError("Patch find/marker text cannot be empty");
   }
 
-  // Only pass occurrence when the caller actually gave one — defaulting it
-  // here would suppress the helper's ambiguity check for a repeated marker
-  // and silently insert at the first hit.
   const result = findTargetedMatches(content, edit.marker, {
     occurrence: edit.occurrence,
   });
@@ -526,9 +735,6 @@ function applyInsert(
     );
   }
 
-  // occurrence, if given, was already validated (positive integer, in range)
-  // by findTargetedMatches above — an out-of-range value returns
-  // "occurrence_out_of_range" and is handled in the !result.ok branch.
   const occurrence = edit.occurrence ?? 1;
   const match = matches[occurrence - 1]!;
   const insertAt = edit.op === "insert-before" ? match.index : match.end;
@@ -539,9 +745,6 @@ function applyInsert(
   };
 }
 
-/** A literal-find edit is a no-op (not an error) on zero matches when the
- * caller either asserted `expectedMatches: 0` or opted out with
- * `required: false` and didn't assert a count at all. */
 function isCountedNoOp(edit: {
   expectedMatches?: number;
   required?: boolean;
@@ -552,13 +755,6 @@ function isCountedNoOp(edit: {
   );
 }
 
-/**
- * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
- * for the literal-find ops (replace, insert-before, insert-after). Always
- * throws — callers check the `required`/`expectedMatches` no-op case
- * themselves before reaching here (and only for a true "not_found": matches
- * exist for "occurrence_out_of_range", so that is never a no-op).
- */
 function throwLiteralMatchFailure(
   op: string,
   result: Extract<TargetedMatchesResult, { ok: false }>,
@@ -575,8 +771,6 @@ function throwLiteralMatchFailure(
     );
   }
   if (result.reason === "occurrence_out_of_range") {
-    // Restores the pre-helper validation order: an expectedMatches mismatch
-    // against the REAL total count is reported before the occurrence miss.
     if (
       expectedMatches !== undefined &&
       result.matchCount !== expectedMatches
@@ -598,11 +792,6 @@ function throwLiteralMatchFailure(
   );
 }
 
-// Candidate/ambiguous text below is echoed from the user's own slide
-// content, not a system diagnostic — wrap it so production-agent's
-// permanent-precondition classifier (broad phrases like "no authenticated
-// user", column-0-anchored) never mistakes quoted file content for a real
-// signal and stops the turn on a false positive.
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
   const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
@@ -649,11 +838,6 @@ function applyRegexReplace(
   edit: Extract<SlideContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
-  // `matchAll` over slide HTML is unbounded work for a pattern that backtracks
-  // exponentially, and nothing can interrupt it once V8 is inside the match.
-  // Name the mistake so the agent rewrites the pattern instead of retrying it.
-  // The flags are part of the verdict: `^(a|A)+$` is unambiguous on its own and
-  // catastrophic under `i`.
   const verdict = analyzeRegexSource(edit.pattern, flags, {
     inputBounded: false,
   });

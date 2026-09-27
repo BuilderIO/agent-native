@@ -1,4 +1,5 @@
 import { Skeleton } from "@agent-native/toolkit/design-system";
+import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,8 +74,6 @@ import {
   type ReactNode,
 } from "react";
 
-// Type-only: erased at build time, so declaring app roles pulls no server or
-// database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import { isFreeEmailProvider } from "../../org/free-email-providers.js";
 import { canInviteOrgMembers } from "../../org/permissions.js";
@@ -99,13 +98,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
+import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+import { useIconPickerLabels, useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   useShareOrgMemberSearch,
 } from "../sharing/share-controller-helpers.js";
+import { uploadEditorImage } from "../uploads/index.js";
+import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
@@ -114,6 +116,7 @@ import {
   useOrgInvitations,
   useCreateOrg,
   useUpdateOrg,
+  useSetOrgVisualIdentity,
   useBulkInviteMembers,
   useChangeMemberRole,
   useAcceptInvitation,
@@ -162,40 +165,11 @@ const Button = forwardRef<
 Button.displayName = "TeamPrimitiveButton";
 
 export interface TeamPageProps {
-  /**
-   * Optional wrapper around the page contents. Templates pass their own Layout
-   * component so the Team page renders inside the template's chrome.
-   */
   layout?: (children: ReactNode) => ReactNode;
-  /**
-   * Title shown at the top of the page. Defaults to "Team".
-   */
   title?: string;
-  /**
-   * Hide the page title when this is rendered inside another titled surface,
-   * such as the Settings > Team tab.
-   */
   showTitle?: boolean;
-  /**
-   * Description shown on the "Create an Organization" card. Defaults to
-   * "Set up a team to collaborate with your colleagues."
-   */
   createOrgDescription?: string;
-  /**
-   * Class applied to the outer max-width container. Templates can use this to
-   * tweak page width.
-   */
   className?: string;
-  /**
-   * Opt in to an app-role column on the members table, using the same
-   * descriptor the app passes to `defineAppRoles`. Pass it explicitly rather
-   * than letting the page discover registered apps: a workspace can host
-   * several, and a members table that silently grows a column when some
-   * unrelated module registers itself is a surprise, not a feature.
-   *
-   * Only org owners/admins can change assignments; everyone else sees the
-   * column read-only.
-   */
   appRoles?: AppRolesDescriptor;
 }
 
@@ -885,6 +859,7 @@ export function WorkspaceGroupsCard({
 
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
+  const iconPickerLabels = useIconPickerLabels();
   const { data: org } = useOrg();
   const [memberOffset, setMemberOffset] = useState(0);
   const [memberSearchInput, setMemberSearchInput] = useState("");
@@ -905,7 +880,11 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const { data: organizationMembersData } = useOrgMembers(0);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+  const setVisualIdentity = useSetOrgVisualIdentity();
   const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
+  const fileUploadStatus = useFileUploadStatus(isOwnerOrAdmin);
+  const fileStorageConfigured =
+    fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
   const groupsQuery = useActionQuery<WorkspaceUserGroup[]>(
     "list-workspace-user-groups",
     {},
@@ -980,7 +959,93 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
           id="organization"
           label={
             <span className="flex items-center gap-2">
-              <IconUsersGroup className="size-4 text-muted-foreground" />
+              {isOwnerOrAdmin ? (
+                <ResourceIconPicker
+                  value={org.icon}
+                  onValueChange={async (icon) => {
+                    await setVisualIdentity.mutateAsync(icon);
+                  }}
+                  onUpload={
+                    fileStorageConfigured
+                      ? async (file) => {
+                          const uploaded = await uploadEditorImage(file);
+                          return {
+                            version: 1,
+                            kind: "image",
+                            authority: "url",
+                            assetId: uploaded.src,
+                            alt: uploaded.alt || file.name,
+                          };
+                        }
+                      : undefined
+                  }
+                  resolveImageUrl={(image) =>
+                    image.authority === "url" ? image.assetId : undefined
+                  }
+                  disabled={setVisualIdentity.isPending}
+                  labels={{
+                    ...iconPickerLabels,
+                    trigger: t("org.workspaceIcon", {
+                      defaultValue: "Workspace icon",
+                    }),
+                    iconsTab: t("org.icons", { defaultValue: "Icons" }),
+                    emojiTab: t("org.emoji", { defaultValue: "Emoji" }),
+                    uploadTab: t("org.upload", { defaultValue: "Upload" }),
+                    search: t("org.searchIcons", {
+                      defaultValue: "Search icons",
+                    }),
+                    noResults: t("org.noIconsFound", {
+                      defaultValue: "No icons found",
+                    }),
+                    recents: t("org.recentIcons", {
+                      defaultValue: "Recent icons",
+                    }),
+                    colors: t("org.iconColors", { defaultValue: "Colors" }),
+                    defaultColor: t("org.defaultColor", {
+                      defaultValue: "Default",
+                    }),
+                    remove: t("org.removeIcon", {
+                      defaultValue: "Remove icon",
+                    }),
+                    upload: t("org.uploadIcon", {
+                      defaultValue: "Upload icon",
+                    }),
+                    uploading: t("org.uploadingIcon", {
+                      defaultValue: "Uploading…",
+                    }),
+                  }}
+                >
+                  <Button
+                    type="button"
+                    className="flex size-7 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("org.workspaceIcon", {
+                      defaultValue: "Workspace icon",
+                    })}
+                  >
+                    <ResourceIcon
+                      value={org.icon}
+                      size={16}
+                      resolveImageUrl={(image) =>
+                        image.authority === "url" ? image.assetId : undefined
+                      }
+                      fallback={
+                        <IconUsersGroup className="size-4 text-muted-foreground" />
+                      }
+                    />
+                  </Button>
+                </ResourceIconPicker>
+              ) : (
+                <ResourceIcon
+                  value={org.icon}
+                  size={16}
+                  resolveImageUrl={(image) =>
+                    image.authority === "url" ? image.assetId : undefined
+                  }
+                  fallback={
+                    <IconUsersGroup className="size-4 text-muted-foreground" />
+                  }
+                />
+              )}
               <OrgNameDisplay
                 name={org.orgName ?? ""}
                 canEdit={isOwnerOrAdmin}
@@ -1013,6 +1078,33 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
             ) : undefined
           }
         />
+        {isOwnerOrAdmin &&
+          (fileUploadStatus.data?.configured === false &&
+          !fileUploadStatus.isError ? (
+            <FileStorageSetupCard />
+          ) : fileUploadStatus.isError ? (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+            >
+              <span>{t("onboarding.fileStorage.title")}</span>
+              <Button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => void fileUploadStatus.refetch()}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          ) : null)}
+        <ErrorText error={setVisualIdentity.error} />
+        {setVisualIdentity.data?.syncPending && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {t("org.workspaceIconSyncPending", {
+              defaultValue: "Saved here. Other apps may take longer to update.",
+            })}
+          </p>
+        )}
 
         {isOwnerOrAdmin && (
           <>
@@ -1890,8 +1982,6 @@ function AppRoleControl({
     if (!setAppRoles.isPending) setDraftRoles(assignedRoles);
   }, [assignedRoles, setAppRoles.isPending]);
 
-  // An unassigned member shows the app's default only as a hint. The default
-  // never satisfies a server guard, so it must not read as a granted role.
   const display = draftRoles.length ? (
     <span className="inline-flex min-h-8 items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
       {draftRoles.map(labelFor).join(", ")}
@@ -2434,9 +2524,6 @@ function parseEmailList(input: string): string[] {
 }
 
 function parseCsvEmails(text: string): string[] {
-  // Tolerant CSV parse — split on lines, then on commas, take any cell
-  // that looks like an email. Handles "name,email,role" rows or just
-  // "email" per line. A robust full CSV parser would be overkill here.
   const cells: string[] = [];
   for (const line of text.split(/\r?\n/)) {
     for (const cell of line.split(",")) {
@@ -2557,7 +2644,6 @@ function BulkInviteForm({
           existing.add(e);
         }
       }
-      // If the only existing row is an empty placeholder, drop it.
       const cleaned = prev.filter(
         (d, i) => !(i === 0 && !d.email.trim() && prev.length === 1),
       );
@@ -2583,9 +2669,6 @@ function BulkInviteForm({
     setResultBanner(null);
     const dedup = new Map<string, DraftInvite>();
     for (const d of validDrafts) {
-      // canSetAdmin guard mirrors server-side enforcement so an admin-only
-      // user editing the form can't even attempt to grant admin (they'd
-      // get a 403 anyway).
       const role = canSetAdmin ? d.role : "member";
       dedup.set(d.email, { ...d, role });
     }
@@ -2602,8 +2685,6 @@ function BulkInviteForm({
       failed: result.failed,
     });
 
-    // Wipe drafts that succeeded; leave failed ones so the user can fix
-    // and retry. If everything succeeded, reset to a single blank row.
     const failedEmails = new Set(result.failed.map((f) => f.email));
     setDrafts((prev) => {
       const remaining = prev.filter((d) =>
@@ -2612,7 +2693,6 @@ function BulkInviteForm({
       return remaining.length > 0 ? remaining : [{ email: "", role: "member" }];
     });
 
-    // Auto-close on full success.
     if (result.failed.length === 0 && result.succeeded.length > 0) {
       setTimeout(() => onClose(), 1200);
     }
@@ -2718,7 +2798,6 @@ function BulkInviteForm({
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleFile(file);
-            // reset so re-uploading the same file re-fires onChange
             e.target.value = "";
           }}
         />
@@ -2859,9 +2938,6 @@ export function DomainSettingsSection({
   const [draft, setDraft] = useState(domain ?? "");
 
   const ownDomain = ownerEmail.split("@")[1]?.toLowerCase() ?? "";
-  // The server only ever accepts the caller's own domain (handlers.ts
-  // setDomainHandler), so a free-text field has exactly one legal value here.
-  // Skip the typing ceremony and enable it directly when that value is usable.
   const canEnableOwnDomain = !!ownDomain && !isFreeEmailProvider(ownDomain);
 
   function save() {
@@ -3622,9 +3698,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
     });
   }
 
-  // Push the current secret to all connected apps. Optionally pass the
-  // PREVIOUS secret as `signSecret` so the receiving apps (which still
-  // hold the previous value) can verify the JWT.
   function syncToApps(signSecret?: string) {
     setSyncResult(null);
     syncA2ASecret.mutate(signSecret ? { signSecret } : undefined, {
@@ -3638,9 +3711,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
     setA2ASecret.mutate(undefined, {
       onSuccess: (result) => {
         setSecret(null);
-        // Auto-sync the new secret to all connected apps. Sign with the
-        // PREVIOUS secret (which peers still hold) so verification on
-        // their side succeeds and they accept the new value.
         syncToApps(result.previousSecret ?? undefined);
       },
     });
@@ -3653,8 +3723,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
       onSuccess: (result) => {
         setPasteMode(false);
         setPasteValue("");
-        // Same auto-sync flow as regenerate: peers verify with the
-        // previous secret, then update to the new pasted value.
         syncToApps(result.previousSecret ?? undefined);
       },
     });
@@ -3892,10 +3960,6 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   );
 }
 
-/**
- * Default Team management page. Templates can route directly to this component
- * or wrap it with their own Layout via the `layout` prop.
- */
 export function TeamPage({
   layout,
   title,

@@ -4,10 +4,12 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
 import { IconHistory, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { uploadFileClient } from "@/lib/upload-file-client";
 
@@ -86,6 +89,9 @@ export function RewindExtensionDialog({
   onApplied,
 }: RewindExtensionDialogProps) {
   const t = useT();
+  const storageStatus = useVideoStorageStatus(open);
+  const storageConfigured =
+    storageStatus.data?.configured === true && !storageStatus.isError;
   const makePrivateForRewind = useActionMutation(
     "make-recording-private-for-rewind",
   );
@@ -134,6 +140,8 @@ export function RewindExtensionDialog({
       setBusy(true);
       setProgress(0);
       try {
+        const storageCheck = await storageStatus.refetch();
+        if (storageCheck.isError || !storageCheck.data?.configured) return;
         setStatus("Asking Clips Alpha for local Rewind history…");
         const created = (await requestExtension.mutateAsync({
           recordingId,
@@ -242,6 +250,7 @@ export function RewindExtensionDialog({
       recordingId,
       requestExtension,
       requestTranscript,
+      storageStatus,
       videoFormat,
       recordingWidth,
     ],
@@ -301,12 +310,17 @@ export function RewindExtensionDialog({
               {t("rewindExtension.makePrivateContinue")}
             </Button>
           </div>
+        ) : storageStatus.isError ? (
+          <StorageStatusRetry onRetry={() => void storageStatus.refetch()} />
+        ) : storageStatus.isLoading ? null : !storageConfigured ? (
+          <FileStorageSetupCard />
         ) : (
           <div className="grid gap-2">
             <Button
               variant="outline"
               className="h-auto justify-start py-3 text-left"
               onClick={() => void addFromRewind(30)}
+              disabled={busy}
             >
               <span>
                 <strong className="block">
@@ -321,6 +335,7 @@ export function RewindExtensionDialog({
               variant="outline"
               className="h-auto justify-start py-3 text-left"
               onClick={() => void addFromRewind(300)}
+              disabled={busy}
             >
               <span>
                 <strong className="block">

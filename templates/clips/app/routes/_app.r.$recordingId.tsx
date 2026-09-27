@@ -9,7 +9,6 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -26,7 +25,6 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import type {
   ClipsAiRequestKind,
   ClipsAiRequestStatus,
@@ -152,7 +150,6 @@ import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-cou
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
-import { recordingShareUrl } from "@/lib/recording-link";
 import {
   recordingProcessingTransition,
   type RecordingProcessingSnapshot,
@@ -631,9 +628,6 @@ export default function RecordingPage() {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const isCompactLayout = useIsCompactRecordingLayout();
-  // The compact layout stacks the panel below the video, so switching tabs
-  // alone leaves the user looking at the player. Desktop opens the rail beside
-  // the player, so nothing needs to scroll there.
   const openSidePanel = useCallback(
     (next: ToolbarPanel) => {
       if (panel !== next) {
@@ -693,9 +687,6 @@ export default function RecordingPage() {
     focusAgentChat();
   }, [recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
-  // When the recording lands in the processing state but never flips to
-  // 'ready', stop spinning forever and surface an error banner so the user
-  // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -714,16 +705,11 @@ export default function RecordingPage() {
       recordingId: recordingId ?? "",
     },
     {
-      // The parent app shell owns authentication. Wait for its client session
-      // to settle before sending the protected player action.
       enabled: !!recordingId && !sessionLoading,
       refetchInterval: (q) => {
         const data = q.state.data as any;
         const rec = data?.recording;
         if (!rec) return false;
-        // Poll while the recording is still being assembled / transcoded so
-        // the page auto-upgrades from "Processing" to the real player the
-        // moment the server flips status to 'ready' and writes videoUrl.
         if (rec.status !== "ready" || !rec.videoUrl) {
           readyMediaPollRef.current = null;
           return 1000;
@@ -732,10 +718,6 @@ export default function RecordingPage() {
           readyMediaPollRef.current = null;
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
         }
-        // Fresh streaming uploads can become `ready` before the background
-        // seekable/faststart repair swaps in the final player URL. Keep polling
-        // briefly so the first post-recording page catches that URL update
-        // without requiring a manual refresh.
         const mediaKey = [
           rec.id,
           rec.durationMs ?? "",
@@ -753,12 +735,7 @@ export default function RecordingPage() {
         if (now < readyMediaPollRef.current.until) {
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
         }
-        // Also keep polling while a transcript is pending so "Transcribing…"
-        // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
-        // And keep polling while the title is still the server-seeded
-        // default — the agent will land a generated title via
-        // `update-recording` and we want the skeleton to swap in promptly.
         if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
           return 3000;
         if (Date.now() < metadataRefreshUntil) return 2000;
@@ -773,9 +750,6 @@ export default function RecordingPage() {
   const playerDataUnauthorized = playerDataAccessStatus === 401;
   const playerDataForbidden = playerDataAccessStatus === 403;
 
-  // A public recording opened from an old `/r/:id` link has no session and
-  // receives 401 from the protected player action. Send that legacy URL to the
-  // share surface; a signed-in 401 still stays in the shell for session retry.
   const shouldFallbackToShare =
     playerDataForbidden || (playerDataUnauthorized && !session);
   useEffect(() => {
@@ -904,10 +878,6 @@ export default function RecordingPage() {
     playerRef.current?.seek(requestedStartMs);
     setCurrentMs(requestedStartMs);
   }, [recording?.durationMs, recording?.id, routePlaybackParam, startMs]);
-  // Resolve the playback position for reactions/comments. Native <video> exposes
-  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
-  // live time bridge, so we fall back to the last position the player reported
-  // via onTimeUpdate (seek/initial start).
   const resolvePlaybackMs = useCallback(() => {
     return playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
   }, [playbackMs]);
@@ -955,9 +925,6 @@ export default function RecordingPage() {
   });
   const comments = useMemo(() => {
     const loadedComments: PlayerComment[] = playerDataQ.data?.comments ?? [];
-    // The redesign route is a read-only fixture rather than a persisted
-    // recording. Keep it deterministic instead of sending writes that cannot
-    // satisfy the normal recording access and persistence contract.
     return recordingId === VIEWER_REDESIGN_PREVIEW_ID
       ? VIEWER_PREVIEW_COMMENTS
       : loadedComments;
@@ -1043,9 +1010,6 @@ export default function RecordingPage() {
     browserDiagnostics?.summary ?? null,
     panel === "debug",
   );
-  // Reaching this page already requires a signed-in session with at least
-  // viewer access to the recording, so any resolved role qualifies to
-  // comment/react — no separate "commenter" tier.
   const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
   useEffect(() => {
     if (
@@ -1120,14 +1084,6 @@ export default function RecordingPage() {
   const recordingBreadcrumb = (
     <PageBreadcrumb items={recordingBreadcrumbItems} />
   );
-  // Attribution `via` must never point at someone who isn't the owner, so it
-  // is only tagged when the viewer is the owner (same rule as the share dialog).
-  const shareViaId =
-    role === "owner" ? (session?.userId ?? undefined) : undefined;
-  const pendingShareUrl = useMemo(() => {
-    if (!recordingId || typeof window === "undefined") return "";
-    return recordingShareUrl(recordingId, shareViaId);
-  }, [recordingId, shareViaId]);
   useEffect(() => {
     if (!recording?.id) return;
     const now = Date.now();
@@ -1345,17 +1301,11 @@ export default function RecordingPage() {
       <ClipsShareTrigger label={t("recordingPage.share")} />
     </ShareRecordingPopover>
   );
-  /**
-   * Redactions drawn but not burned into the file. Sharing is held back while
-   * there are any: the stored video still shows everything under them.
-   */
   const pendingRedactions = parseRedactions(
     parseEdits(recording?.editsJson).overlays,
   ).length;
 
   const downloadRecording = useCallback(async () => {
-    // Every way out of here is the same file, and it still shows what the
-    // boxes are over until the burn has run.
     if (pendingRedactions > 0) {
       toast.warning(t("shareDialog.redactionsPendingTitle"), {
         description: t("shareDialog.redactionsPendingBody", {
@@ -1390,10 +1340,6 @@ export default function RecordingPage() {
       toast.dismiss(downloadToastId);
     }
   }, [
-    // `pendingRedactions` is a dependency, not just a read: drawing a box in
-    // the editor changes editsJson and nothing else this callback depends on,
-    // so a memoized closure would still think there was nothing pending and
-    // hand over the unredacted file.
     pendingRedactions,
     recording?.title,
     recording?.videoFormat,
@@ -1423,7 +1369,11 @@ export default function RecordingPage() {
                 recordingId,
                 url: recording?.sourceWindowTitle,
               }
-            : { id: recordingId },
+            : {
+                id: recordingId,
+                uploadAttemptId: recording?.uploadAttemptId ?? null,
+                uploadGenerationId: recording?.uploadGenerationId ?? null,
+              },
         ),
       });
       const body = (await res.json()) as {
@@ -1449,8 +1399,6 @@ export default function RecordingPage() {
         return;
       }
       if (isUrlImportRetry && result?.status === "processing") {
-        // Download + reupload now run as a background job; this request only
-        // confirms the retry was accepted, not that the clip is ready yet.
         toast.info(t("recordingPage.importingLoom"));
         return;
       }
@@ -1734,10 +1682,6 @@ export default function RecordingPage() {
     )} · Clips`;
   }, [recording?.title, t]);
 
-  // Self-heal stuck transcripts. Older recordings (before finalize-recording
-  // learned to auto-trigger transcription) can sit in `pending` forever with no
-  // worker to pick them up. A stale pending presentation gets a forced retry so
-  // a transient worker/provider failure does not require a manual click.
   useEffect(() => {
     if (!recording) return;
     if (role !== "owner" && role !== "admin" && role !== "editor") return;
@@ -1768,8 +1712,6 @@ export default function RecordingPage() {
     playerDataQ,
   ]);
 
-  // Long browser-extension clips can still be uploading chunks or assembling
-  // for more than 30s. Keep polling before surfacing a stuck-state fallback.
   useEffect(() => {
     if (!recording) {
       setProcessingTimeout(false);
@@ -1886,10 +1828,6 @@ export default function RecordingPage() {
     );
   }
 
-  // Desktop app opens this page the moment stop is pressed — finalize runs
-  // in the background. Show a dedicated "still processing" state and let the
-  // refetch-interval above upgrade it to the full player as soon as the
-  // server writes videoUrl + flips status to 'ready'.
   if (recording.status !== "ready" || !recording.videoUrl) {
     const progress = Number(recording.uploadProgress ?? 0);
     const explicitFailure = recording.status === "failed";
@@ -1902,8 +1840,6 @@ export default function RecordingPage() {
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
       isNativeSaveFailureReason(rawFailureReason);
-    // Give a long-running desktop save an actionable recovery state without
-    // claiming the upload failed while its bounded final request is still live.
     const stuckFailure =
       !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || waitingForStorage || nativeSaveFailed;
@@ -1946,9 +1882,7 @@ export default function RecordingPage() {
                 <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
                   {t("recordingPage.sharedWithYou")}
                 </span>
-              ) : (
-                renderShareControl()
-              )}
+              ) : null}
             </div>
           </PageHeader>
 
@@ -1976,14 +1910,6 @@ export default function RecordingPage() {
                   />
                 </div>
               ) : null}
-              <ShareCopyRow
-                value={pendingShareUrl}
-                label={t("shareDialog.shareLink")}
-                copyLabel={t("shareUi.copy")}
-                copiedLabel={t("bugReportRoute.copied")}
-                onCopy={writeClipboardText}
-                className="rounded-lg border border-border bg-muted/30 p-2 ps-3"
-              />
             </div>
           </main>
         </div>
@@ -2607,9 +2533,6 @@ export default function RecordingPage() {
                       onFullscreenChange={setIsPlayerFullscreen}
                       enableComments={recording.enableComments}
                       onAddComment={() => {
-                        // The inline conversation is outside the element the
-                        // Fullscreen API paints, so keep the portal composer for
-                        // fullscreen and move to the thread everywhere else.
                         const liveMs = resolvePlaybackMs();
                         setCurrentMs(liveMs);
                         if (!isPlayerFullscreen) {
@@ -2644,9 +2567,6 @@ export default function RecordingPage() {
                               }}
                             />
                           );
-                          // The Fullscreen API only paints the player's own
-                          // element, so portal the composer there instead of
-                          // exiting fullscreen when it's open.
                           const fullscreenContainer =
                             isPlayerFullscreen && playerRef.current?.container;
                           return fullscreenContainer

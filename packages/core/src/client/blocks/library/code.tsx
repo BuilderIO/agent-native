@@ -1,4 +1,4 @@
-import { IconCheck, IconCode, IconCopy, IconPencil } from "@tabler/icons-react";
+import { IconCode, IconPencil } from "@tabler/icons-react";
 import {
   useId,
   useEffect,
@@ -18,6 +18,7 @@ import { cn } from "../../utils.js";
 import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type { BlockReadProps, BlockEditProps } from "../types.js";
+import { CopyButton } from "./code-copy-button.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
 import {
   highlightCode,
@@ -27,19 +28,6 @@ import {
 import { codeSchema, codeMdx, type CodeData } from "./code.config.js";
 import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
-/**
- * Standard `code` block (STANDARD core library): THE primitive single code
- * snippet, used everywhere in plan + content. Notion-style — one border, a
- * hover-revealed language switcher + copy, and the shared collapse-to-N-lines
- * read surface. A "file rail" of several files is just the `tabs` primitive
- * holding `code` blocks; there is no bespoke "code-tabs" container.
- *
- * Read = the shared {@link CodeSurface} (Shiki, single border, language label,
- * "Show N more lines"). Edit = a clean, single-border editable surface (no
- * drag-to-resize; it auto-grows to its content) with the same hover chrome.
- */
-
-/** Language options for the hover switcher; "" is the Auto-detect sentinel. */
 const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "", label: "Auto" },
   { value: "typescript", label: "TypeScript" },
@@ -59,36 +47,6 @@ const CODE_LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "rust", label: "Rust" },
   { value: "diff", label: "Diff" },
 ];
-
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      data-plan-interactive
-      aria-label={copied ? "Copied" : "Copy code"}
-      title={copied ? "Copied" : "Copy code"}
-      className="plan-code-chip"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-          },
-          () => {},
-        );
-      }}
-    >
-      {copied ? (
-        <IconCheck className="size-3.5" />
-      ) : (
-        <IconCopy className="size-3.5" />
-      )}
-    </button>
-  );
-}
-
-/* ── Read ──────────────────────────────────────────────────────────────────── */
 
 function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
   const language =
@@ -136,12 +94,9 @@ function CodeRead({ data, blockId }: BlockReadProps<CodeData>) {
   );
 }
 
-/* ── Edit (single border, no resize, auto-grow, hover chrome) ──────────────── */
-
 const SETTINGS_INPUT =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** Hover "settings" (pencil) → popover to edit the filename + max-lines cap. */
 function CodeSettingsPopover({
   filename,
   maxLines,
@@ -270,11 +225,6 @@ function CodeEditorSurface({
     () => highlightCode(code, resolvedLanguage),
     [resolvedLanguage, code],
   );
-  // Size the editor to its content by line count — deterministic, no layout
-  // measurement. `wrap="off"` means one row per line. Long snippets collapse to
-  // `cap` lines behind a "Show N more lines" toggle, matching the read surface
-  // and the file-tree block. `maxLines` omitted ⇒ DEFAULT (40); `0` ⇒ never
-  // collapse (show everything).
   const lineCount = code ? code.split("\n").length : 1;
   const cap =
     maxLines == null ? DEFAULT_CODE_MAX_LINES : maxLines > 0 ? maxLines : null;
@@ -422,8 +372,6 @@ function CodeEdit({ data, onChange, editable }: BlockEditProps<CodeData>) {
     </div>
   );
 }
-
-/* ── Spec ──────────────────────────────────────────────────────────────────── */
 
 export const codeBlock = defineBlock<CodeData>({
   type: "code",

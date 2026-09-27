@@ -1,21 +1,3 @@
-/*
- * Render-layer sanitizer for model-authored wireframe HTML.
- *
- * The HTML artboard injects model HTML via dangerouslySetInnerHTML into the LIVE
- * page DOM (it can't be iframe-sandboxed because the rough overlay must measure
- * the laid-out elements). The schema's regex guard is necessary but not
- * sufficient — obfuscated schemes (java\tscript:, &#106;avascript:) slip past
- * string matching. This neutralizes the html at the render point using the
- * browser's OWN parser/URL normalization, which decodes entities and collapses
- * whitespace, so obfuscation can't survive:
- *   - drops dangerous elements (script/style/iframe/object/embed/...);
- *   - strips every on* event-handler attribute;
- *   - removes url attributes whose RESOLVED scheme isn't safe;
- *   - removes inline styles carrying expression()/javascript:/data:text/html.
- * Defense-in-depth: stored content should also be sanitized server-side, but
- * this guarantees the live DOM never carries an executable payload.
- */
-
 const BLOCKED_TAGS =
   "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal";
 const DIAGRAM_BLOCKED_TAGS = `${BLOCKED_TAGS},math,foreignObject,foreignobject`;
@@ -64,9 +46,6 @@ const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);/i;
 
 function isSafeUrl(value: string): boolean {
-  // Strip whitespace for scheme detection ONLY (the browser collapses these when
-  // resolving too, so obfuscated schemes like "java\tscript:" can't hide). The
-  // original attribute is left untouched unless we decide to drop it.
   const v = (value || "").replace(WHITESPACE, "");
   if (
     v === "" ||
@@ -77,13 +56,11 @@ function isSafeUrl(value: string): boolean {
   ) {
     return true;
   }
-  if (!HAS_SCHEME.test(v)) return true; // no scheme => relative, safe
+  if (!HAS_SCHEME.test(v)) return true;
   try {
     const a = document.createElement("a");
-    a.href = v; // browser decodes the scheme + normalizes
+    a.href = v;
     const proto = a.protocol.toLowerCase();
-    // Allow only safe raster data images; block data:image/svg+xml (can script)
-    // and data:text/html.
     if (proto === "data:") return SAFE_DATA_IMAGE.test(a.href);
     return SAFE_SCHEMES.has(proto);
   } catch {
@@ -197,11 +174,7 @@ function normalizeFallbackDiagramArrows(html: string): string {
   );
 }
 
-/** Conservative no-DOM fallback for any non-browser code path (SSR). */
 function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
-  // Drop the whole url attribute if its value (whitespace/control-stripped)
-  // carries a dangerous scheme. Mirrors the DOM path for the rare no-DOMParser
-  // case; entity-obfuscation isn't decoded here (the live DOM path handles it).
   const stripScheme = (m: string, dq?: string, sq?: string, uq?: string) => {
     const v = (dq ?? sq ?? uq ?? "").replace(/[\s\u0000-\u001f]+/g, "");
     return /^(?:javascript|vbscript):|^data:text\/html/i.test(v) ? "" : m;

@@ -468,18 +468,11 @@ export type AgentPageExtraTabFactory = (
 ) => SettingsTabItem;
 
 export interface AgentTabsPageProps {
-  /**
-   * Human-readable app name used in the MCP tab's connect instructions
-   * (e.g. "name it Mail"). Falls back to standard app-title metadata, then a
-   * hostname-derived guess — never `document.title`, which this page owns.
-   */
   appName?: string;
   extraTabs?: SettingsTabItem[];
-  /** Scoped app-specific tabs that receive the current Manage agent page scope. */
   extraTabFactories?: AgentPageExtraTabFactory[];
   defaultTab?: string;
   className?: string;
-  /** Whether to render the Agent page search box. Defaults to true. */
   enableSearch?: boolean;
   searchPlaceholder?: string;
   hiddenTabs?: string[];

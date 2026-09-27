@@ -19,9 +19,24 @@ export function formatFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
-function summarizeUploadFailure(status: number, bodyText: string): string {
+function isHtmlErrorPage(bodyText: string): boolean {
+  return /<!doctype\s+html\b|<html\b/i.test(bodyText);
+}
+
+function summarizeUploadFailure(
+  status: number,
+  bodyText: string,
+  contentType?: string | null,
+): string {
   if (status === 413) {
     return `File too large (max ${formatFileSize(MAX_BUILDER_INDEX_UPLOAD_BYTES)}).`;
+  }
+
+  if (
+    contentType?.toLowerCase().includes("text/html") ||
+    isHtmlErrorPage(bodyText)
+  ) {
+    return `Upload failed (${status})`;
   }
 
   const trimmed = bodyText
@@ -44,7 +59,13 @@ export async function readBuilderIndexResponse(
     try {
       json = JSON.parse(bodyText);
     } catch {
-      throw new Error(summarizeUploadFailure(res.status, bodyText));
+      throw new Error(
+        summarizeUploadFailure(
+          res.status,
+          bodyText,
+          res.headers.get("Content-Type"),
+        ),
+      );
     }
   }
 
@@ -52,14 +73,24 @@ export async function readBuilderIndexResponse(
     const error = (json as { error?: unknown; builderConnectUrl?: unknown })
       .error;
     throw new Error(
-      typeof error === "string"
+      typeof error === "string" && !isHtmlErrorPage(error)
         ? error
-        : summarizeUploadFailure(res.status, bodyText),
+        : summarizeUploadFailure(
+            res.status,
+            typeof error === "string" ? error : bodyText,
+            res.headers.get("Content-Type"),
+          ),
     );
   }
 
   if (!res.ok) {
-    throw new Error(summarizeUploadFailure(res.status, bodyText));
+    throw new Error(
+      summarizeUploadFailure(
+        res.status,
+        bodyText,
+        res.headers.get("Content-Type"),
+      ),
+    );
   }
 
   return json as BuilderIndexResult;

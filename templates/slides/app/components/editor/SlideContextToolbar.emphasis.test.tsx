@@ -67,9 +67,6 @@ describe("contextual toolbar size steppers", () => {
   afterEach(cleanup);
 
   it("steps from the block size when the selection has mixed sizes", () => {
-    // The scrub input reports a step on a mixed selection as a relative delta,
-    // because its displayed value is only a placeholder. Writing that delta
-    // straight through would set the whole selection to a couple of pixels.
     const onChange = renderToolbar(
       textSnapshot({ fontSize: 40, mixedTextStyles: ["fontSize"] }),
     );
@@ -169,9 +166,6 @@ describe("contextual toolbar emphasis toggles", () => {
     expect(screen.queryByRole("button", { name: "Underline" })).toBeNull();
   });
 
-  // Menus render in a portal outside the toolbar, so the mousedown that
-  // precedes Radix's onSelect ends the inline text edit unless the content
-  // itself carries the marker SlideEditor exempts.
   it("marks the portalled weight and align menus as inline-edit surfaces", () => {
     renderToolbar(textSnapshot());
 

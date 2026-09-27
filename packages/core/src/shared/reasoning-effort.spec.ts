@@ -110,7 +110,6 @@ describe("normalizeReasoningEffortForModel", () => {
   });
 
   it("returns undefined for models that do not support reasoning", () => {
-    // Groq models have no reasoning effort options
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();

@@ -1,6 +1,3 @@
-/* The capture chrome is deliberately theme-invariant. Both recorder shells
- * provide the same --pill-* tokens; these fallbacks keep the web shell equal
- * to the desktop overlay when it is rendered outside that scope. */
 .recording-playhead {
   /* guard:allow-raw-color — theme-invariant capture chrome, same as desktop */
   --playhead-chrome: var(--pill-chrome, #1e1e1e);
@@ -44,8 +41,6 @@
   box-sizing: border-box;
 }
 
-/* Collapsible segments use measured pixels, never max-width. The trailing edge
- * stays solid while a segment grows, which is the desktop pill's motion. */
 .recording-playhead__segment {
   display: flex;
   flex: none;

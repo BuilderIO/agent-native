@@ -1,32 +1,24 @@
-/**
- * Custom onboarding plugin for Clips.
- *
- * Overrides the framework's default onboarding plugin to add the required
- * "Video storage" step and register the S3 file upload provider. Must live
- * in server/plugins/ so the framework skips its default onboarding plugin,
- * and all registrations share the same module context as the onboarding
- * route handlers (which read from the same in-memory Map).
- */
-
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
+import { registerPrivateBlobProvider } from "@agent-native/core/private-blob";
 
-import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import {
+  clipsOrganizationLogoPrivateBlobProvider,
+  s3FileUploadProvider,
+} from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
 const basePlugin = createOnboardingPlugin();
 
 export default async (nitroApp: any): Promise<void> => {
-  // Mount the framework's default onboarding plugin (routes + default steps).
   await basePlugin(nitroApp);
 
-  // Register S3-compatible file upload provider.
   registerFileUploadProvider(s3FileUploadProvider);
+  registerPrivateBlobProvider(clipsOrganizationLogoPrivateBlobProvider);
 
-  // Add the required "Video storage" onboarding step.
   registerOnboardingStep({
     id: "file-storage",
     order: 15,

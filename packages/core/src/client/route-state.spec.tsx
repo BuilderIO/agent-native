@@ -340,9 +340,6 @@ describe("route-state client helpers", () => {
   });
 
   it("reports an unserializable state once per state, not once per render", async () => {
-    // `navigationKeys` is a fresh array on every render, so the write dedup key
-    // is recomputed constantly; keyed on anything render-unstable, each re-render
-    // issues another failing write and another error.
     const { fetchMock } = makeAppStateFetch({});
     vi.stubGlobal("fetch", fetchMock);
     const onError = vi.fn();
@@ -424,8 +421,6 @@ describe("route-state client helpers", () => {
         },
       },
     ]);
-    // Reads are batched, so which keys share a request is not a behavioural
-    // contract — that only the tab-scoped command was consumed is (above).
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);

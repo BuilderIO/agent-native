@@ -23,27 +23,9 @@ export interface PrimitiveDropTarget {
   nodeId: string;
   screenId: string;
   boardRect: FrameGeometry;
-  /** Exact source projection and node used by the geometry hit test. */
   targetIdentity?: ScreenProjectionNodeIdentity;
-  /**
-   * Set when the drop resolves to a flow-insert slot between two auto-layout
-   * (flex/grid) children instead of a plain "append inside" drop — mirrors
-   * the cross-screen hit-test's placement/axis contract (see
-   * getCrossScreenDropGuideForHitTest) so the overview canvas draws the same
-   * Figma-style insertion LINE, and the same anchor + placement can be
-   * threaded straight through onPrimitiveReparent. Undefined means "inside"
-   * (append as the last/only child of `nodeId`), matching pre-existing
-   * behavior.
-   */
   placement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
-  /**
-   * The sibling node to anchor a before/after flow-insert against. Only set
-   * when `placement` is "before" or "after" — `nodeId` still identifies the
-   * containing auto-layout primitive so callers can resolve the drop's
-   * screen/highlight, while `anchorNodeId` is what the actual moveNode/
-   * moveNodeBetweenDocuments call should target as its anchor.
-   */
   anchorNodeId?: string;
 }
 
@@ -51,30 +33,17 @@ export interface ParsedScreenPrimitive {
   nodeId: string;
   screenId: string;
   projectionIdentity?: ScreenProjectionNodeIdentity;
-  /** data-agent-native-node-id of the nearest ancestor primitive, if any. */
   parentNodeId?: string;
   parentProjectionNodeId?: string;
-  /** Projection ancestry, including structural wrappers without primitives. */
   projectionAncestorNodeIds?: string[];
   localLeft: number;
   localTop: number;
   localWidth: number;
   localHeight: number;
   isContainer: boolean;
-  /**
-   * Set when this primitive is itself an auto-layout (flex/grid) container,
-   * to the flow axis new children are inserted along ("x" for a row flex/
-   * multi-column grid, "y" for column flex/single-column grid). Wrapped flex
-   * containers keep their main axis here while insertion distance also uses
-   * the cross axis. Undefined for plain absolute/canvas-frame containers,
-   * which only ever accept an "inside" (append) drop.
-   */
   autoLayoutAxis?: CrossScreenDropAxis;
-  /** Wrapped flex containers choose the nearest child by two-dimensional distance. */
   autoLayoutWrapped?: boolean;
-  /** Grid containers choose anchors by two-dimensional cell distance. */
   autoLayoutGrid?: boolean;
-  /** Authored stacking level used before DOM-order tie breaking. */
   zIndex?: number;
   stackingContextZIndices?: number[];
   stackingContextOrders?: number[];
@@ -102,9 +71,6 @@ function isPrimitiveAncestor(
         )
       : false;
   }
-  // Projection ids are unique even when authored data-agent-native-node-id
-  // values are duplicated. Prefer that identity for ancestry; authored ids
-  // are only followed when they resolve to exactly one primitive.
   let parentId = descendant.parentProjectionNodeId ?? descendant.parentNodeId;
   const seen = new Set<string>();
   while (parentId && !seen.has(parentId)) {
@@ -192,9 +158,6 @@ function compareStackingContexts(
       rightOrders[index] !== undefined &&
       leftOrders[index] !== rightOrders[index]
     ) {
-      // Equal-z sibling contexts are painted in DOM order as a unit. A
-      // descendant's local z-index cannot promote an earlier context above a
-      // later sibling context with the same z-index.
       if (leftContexts[index] === rightContexts[index]) return 0;
       return (leftContexts[index] ?? 0) - (rightContexts[index] ?? 0);
     }
@@ -205,14 +168,6 @@ function compareStackingContexts(
   return (left.zIndex ?? 0) - (right.zIndex ?? 0);
 }
 
-/**
- * Mirrors hit-test.bridge.ts's parentFlowAxis: resolves the flow axis new
- * children are inserted along for a flex/grid container, or undefined when
- * the element isn't an auto-layout container at all. Kept in sync with that
- * bridge implementation (which runs against live computed styles inside the
- * iframe) — this version only has the authored inline style available, which
- * is sufficient since auto-layout is always inspector-authored inline CSS.
- */
 function computeAutoLayoutAxis(style: {
   display: string;
   flexDirection: string;
@@ -373,16 +328,6 @@ function gridSpan(style: CSSStyleDeclaration, axis: "column" | "row") {
   return 1;
 }
 
-/**
- * Resolves a between-children flow-insert slot inside `container` from a
- * screen-local drop point — the nearest child (by flow-axis center, or
- * two-dimensional visual distance for wrapped flex) becomes
- * the anchor with before/after placement, exactly mirroring hit-test.bridge.
- * ts's nearestChildInsertionTarget so overview-canvas drag-drop and in-iframe
- * cross-screen drag-drop produce the same Figma-style insertion behavior.
- * Returns null when the container isn't auto-layout or has no eligible
- * children (callers fall back to "inside" append).
- */
 export function findAutoLayoutInsertionAnchor(
   container: ParsedScreenPrimitive,
   screenPrimitives: ParsedScreenPrimitive[],
@@ -488,9 +433,6 @@ export function isPrimitiveContainer(args: {
     args.display === "inline-flex" ||
     args.display === "grid" ||
     args.display === "inline-grid";
-  // Canvas frames are structural containers even before Auto layout is
-  // enabled. Treating only rectangles as freeform containers made a freshly
-  // drawn frame reject child drops until the user changed its display mode.
   const isCanvasContainer =
     isDiv &&
     (primitiveKind === "rectangle" ||
@@ -894,7 +836,6 @@ function authoredElementSize(
         !isOutOfFlow &&
         element.tagName.toLowerCase() === "div"
       ) {
-        // A block child with width:auto fills its containing block.
         size = reference;
       }
     }
@@ -950,12 +891,6 @@ function estimatedTextLineWidth(
   );
 }
 
-/**
- * Deterministic, string/inline-style-only bounds for drawn auto-sized text.
- * This intentionally avoids layout APIs so the same fallback works in SSR,
- * tests, and before the live iframe answers. It is conservative enough for
- * hit testing while honoring the authored typography and wrap contract.
- */
 export function authoredTextIntrinsicSize(element: Element) {
   const style = (element as HTMLElement).style;
   const fontSize = Math.max(1, cssPixelNumber(style.fontSize) || 16);
@@ -1003,19 +938,6 @@ export function authoredTextIntrinsicSize(element: Element) {
   };
 }
 
-/**
- * Approximates an authored node's screen-local position from inline layout.
- * This parser is the no-iframe fallback used while a live bridge is absent;
- * absolute descendants must accumulate positioned ancestors (including
- * inline relative/sticky left/top), and common single-line flex/block
- * flows need their preceding siblings accounted for.
- *
- * Exported so DesignEditor.tsx's getAbsolutePositioningForNodeInHtml can
- * reuse the same ancestor-walking logic instead of reading a node's own
- * inline left/top in isolation (which is only correct for direct children of
- * the screen root — see that function's call sites for the nested-container
- * reparent fix this enables).
- */
 export function authoredElementPosition(
   element: Element,
   cache: AuthoredSizeCache = new Map(),
@@ -1315,8 +1237,6 @@ export function parsePrimitivesFromScreen(
     nodes.forEach((element) => {
       const nodeId = element.getAttribute("data-agent-native-node-id");
       if (!nodeId) return;
-      // Keep direct grid children as insertion anchors, but leave deeper
-      // descendants to the live bridge until authored track parsing exists.
       if (hasNestedGridAncestor(element)) return;
 
       const htmlElement = element as HTMLElement;
@@ -1389,9 +1309,6 @@ export function parsePrimitivesFromScreen(
             : "",
         );
 
-      // Nearest ancestor primitive id, used to resolve direct children of a
-      // container for auto-layout before/after anchor resolution — see
-      // findAutoLayoutInsertionAnchor.
       let parentNodeId: string | undefined;
       let ancestor: Element | null = element.parentElement;
       while (ancestor && ancestor.tagName.toLowerCase() !== "body") {
@@ -1552,9 +1469,6 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     const boardRect = toBoardRect(primitive, topScreen.geometry, metadata);
-    // A reparent target must contain the dragged layer's rendered bounds. The
-    // loop naturally falls through from an undersized nested target to an
-    // eligible ancestor when one exists.
     if (
       draggedBoardRect &&
       (draggedBoardRect.width > boardRect.width + 1 ||
@@ -1570,17 +1484,12 @@ export function getPrimitiveDropTargetForPoint(
       continue;
     }
     if (geometryContainsPoint(boardRect, point)) {
-      // Prefer the deepest eligible container.  DOM order is not paint order:
-      // overwriting `best` made a later ancestor steal nested flow drops and
-      // left the held insertion guide anchored to the wrong layout owner.
       if (
         bestPrimitive &&
         !isPrimitiveAncestor(bestPrimitive, primitive, primitives) &&
         !isPrimitiveAncestor(primitive, bestPrimitive, primitives)
       ) {
         if (compareStackingContexts(primitive, bestPrimitive) < 0) continue;
-        // Parsed order follows DOM paint order, so the later overlapping
-        // sibling is the visible target. Nested targets are handled above.
         best = {
           nodeId: primitive.nodeId,
           screenId: topScreen.screen.id,
@@ -1606,12 +1515,6 @@ export function getPrimitiveDropTargetForPoint(
     }
   }
 
-  // Auto-layout drop participation: when the winning container is itself a
-  // flex/grid container, resolve the nearest before/after sibling slot
-  // instead of always appending "inside" — matches the cross-screen
-  // hit-test's nearestChildInsertionTarget so overview-canvas primitive
-  // drags into an existing auto-layout screen get the same Figma insertion
-  // index/indicator behavior.
   if (best) {
     const hitTargetIdentity = best.targetIdentity;
     const containerPrimitive = hitTargetIdentity
@@ -1663,12 +1566,6 @@ export function getPrimitiveDropTargetForPoint(
 
   if (best) return best;
 
-  // The bridge's hit-test resolver falls back to document.body for ordinary
-  // block-layout pages. Mirror that fallback here so a board primitive can be
-  // dropped into blank Screen canvas space, not only onto an authored frame.
-  // The body is intentionally resolved from the projection rather than the
-  // primitive parser: body often has no authored width/height and is therefore
-  // not a ParsedScreenPrimitive.
   const source =
     topScreen.screen.codeLayerSource ??
     ({ kind: "design-file" as const, fileId: topScreen.screen.id } as const);

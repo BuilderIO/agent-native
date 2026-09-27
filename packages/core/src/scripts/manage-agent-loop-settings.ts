@@ -1,7 +1,3 @@
-/**
- * manage-agent-loop-settings — inspect or update the agent loop step limit.
- */
-
 import {
   canUpdateAgentLoopSettings,
   readAgentLoopSettings,

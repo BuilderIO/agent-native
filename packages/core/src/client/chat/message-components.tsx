@@ -1,8 +1,3 @@
-// Owns: message-timestamp helpers, SelectionAttachedPill, UserMessage,
-// AssistantMessage, AssistantMessageActionBar,
-// CheckpointContext, MessageActionsContext, UserStoppedRunContext,
-// RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
-
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
@@ -65,8 +60,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
@@ -143,11 +136,7 @@ import {
 
 export { toolCallHasPendingApproval };
 
-// ─── Pending selection context key ───────────────────────────────────────────
-// Mirrored from AssistantChat to avoid a cross-import on a private constant.
 const PENDING_SELECTION_KEY = "pending-selection-context";
-
-// ─── displayableUserMessageText ───────────────────────────────────────────────
 
 export function displayableUserMessageText(text: string): string {
   return splitAgentChatContextFromMessage(text).message;
@@ -168,8 +157,6 @@ export function isHiddenUserMessage(message: unknown): boolean {
     meta?.custom?.agentNativeRecoveryAction === "retry"
   );
 }
-
-// ─── Message timestamp helpers ────────────────────────────────────────────────
 
 export interface FormattedMessageTimestamp {
   short: string;
@@ -294,10 +281,10 @@ export interface AssistantMessageActionBarProps {
   messageSeq: number;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onRestore?: () => void;
+  trailingActions?: React.ReactNode;
   className?: string;
 }
 
-/** Compact, hover-revealed actions for a completed assistant response. */
 export function AssistantMessageActionBar({
   timestamp,
   threadId,
@@ -305,6 +292,7 @@ export function AssistantMessageActionBar({
   messageSeq,
   onFork,
   onRestore,
+  trailingActions,
   className,
 }: AssistantMessageActionBarProps) {
   const t = useT();
@@ -329,54 +317,56 @@ export function AssistantMessageActionBar({
     <TooltipProvider delayDuration={400}>
       <div
         className={cn(
-          "pointer-events-none inline-flex items-center gap-0.5",
+          "pointer-events-none flex w-full items-center justify-between gap-2",
           messageFooterFadeClassName,
           "group-hover:pointer-events-auto group-focus-within:pointer-events-auto",
           className,
         )}
       >
-        <MessageActionButton
-          label={
-            copied
-              ? t("agentChat.common.copied")
-              : t("agentChat.message.copyMessage")
-          }
-          onClick={handleCopy}
+        <div
+          className="inline-flex min-w-0 items-center gap-0.5"
+          data-message-action-group="feedback"
         >
-          {copied ? (
-            <IconCheck className="size-4" />
-          ) : (
-            <IconCopy className="size-4" />
+          <MessageActionButton
+            label={
+              copied
+                ? t("agentChat.common.copied")
+                : t("agentChat.message.copyMessage")
+            }
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <IconCheck className="size-4" />
+            ) : (
+              <IconCopy className="size-4" />
+            )}
+          </MessageActionButton>
+          <ThumbsFeedback
+            threadId={threadId}
+            runId={runId}
+            messageSeq={messageSeq}
+          />
+        </div>
+        <div
+          className="inline-flex shrink-0 items-center gap-0.5"
+          data-message-action-group="conversation"
+        >
+          {onRestore && (
+            <MessageActionButton
+              label={t("agentChat.message.revertHere")}
+              onClick={onRestore}
+            >
+              <IconArrowBackUp className="size-4" />
+            </MessageActionButton>
           )}
-        </MessageActionButton>
-        <ThumbsFeedback
-          threadId={threadId}
-          runId={runId}
-          messageSeq={messageSeq}
-        />
-        {onFork && (
-          <MessageActionButton
-            label={t("agentChat.message.forkChat")}
-            onClick={() => void onFork()}
-          >
-            <IconGitFork className="size-4" />
-          </MessageActionButton>
-        )}
-        {onRestore && (
-          <MessageActionButton
-            label={t("agentChat.message.revertHere")}
-            onClick={onRestore}
-          >
-            <IconArrowBackUp className="size-4" />
-          </MessageActionButton>
-        )}
-        {timestamp && <MessageTimestamp timestamp={timestamp} />}
+          {trailingActions}
+          {timestamp && <MessageTimestamp timestamp={timestamp} />}
+          <MessageActionsMenu onFork={onFork} threadId={threadId} />
+        </div>
       </div>
     </TooltipProvider>
   );
 }
-
-// ─── SelectionAttachedPill ────────────────────────────────────────────────────
 
 export function SelectionAttachedPill() {
   const t = useT();
@@ -438,7 +428,6 @@ export function SelectionAttachedPill() {
           aria-label={t("agentChat.selection.clear")}
           onClick={() => {
             setLength(null);
-            // Dispatch clear event; AssistantChat owns the DELETE call.
             window.dispatchEvent(
               new CustomEvent("agent-panel:selection-clear-requested"),
             );
@@ -452,16 +441,10 @@ export function SelectionAttachedPill() {
   );
 }
 
-// ─── CheckpointContext / MessageActionsContext ────────────────────────────────
-
 export const CheckpointContext = React.createContext<{
   apiUrl: string;
   devMode: boolean;
   threadId?: string;
-  // Run ids that actually have a saved checkpoint. Restore is only offered for
-  // these — auto-checkpointing skips turns that started from a dirty tree or a
-  // non-git cwd, and without this the menu item appears on every turn and does
-  // nothing when clicked.
   checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
@@ -499,9 +482,12 @@ export interface AssistantChatHistoryConfig<
   TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
   TRestoreResult = unknown,
 > {
+  beforeStart?: () => void | Promise<void>;
   list: {
     action: string;
-    args?: Record<string, unknown>;
+    args?:
+      | Record<string, unknown>
+      | ((threadId?: string) => Record<string, unknown>);
     getVersions: (result: TListResult) => readonly TVersion[];
   };
   restore: {
@@ -509,6 +495,7 @@ export interface AssistantChatHistoryConfig<
     args: (
       version: TVersion,
     ) => Record<string, unknown> | Promise<Record<string, unknown>>;
+    beforeRestore?: () => void | Promise<void>;
     onRestored?: (
       result: TRestoreResult,
       version: TVersion,
@@ -529,6 +516,8 @@ export interface AssistantChatHistoryConfig<
 }
 
 export interface AssistantChatHistoryContextValue {
+  beginningVersion: AssistantChatHistoryVersion | null;
+  isRestoring: boolean;
   findVersion: (
     message: AssistantChatHistoryMessage,
   ) => AssistantChatHistoryVersion | null;
@@ -541,11 +530,6 @@ export const AssistantChatHistoryContext =
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   onRetryRunError?: () => void;
-  /**
-   * Key of the run error the transient recovery banner is already showing. The
-   * turn that owns that run stays quiet so one failure is never announced
-   * twice; every other failed turn keeps its own inline marker.
-   */
   bannerRunErrorKey?: string | null;
 } | null>(null);
 
@@ -619,7 +603,7 @@ export function findMatchingAssistantChatHistoryVersion<
     return null;
   }
   let match: TVersion | null = null;
-  let matchTime = Number.POSITIVE_INFINITY;
+  let matchTime = Number.NEGATIVE_INFINITY;
 
   for (const version of versions) {
     if (!isAssistantChatHistoryVersion(version)) continue;
@@ -627,6 +611,7 @@ export function findMatchingAssistantChatHistoryVersion<
       continue;
     }
     const chatContext = version.chatContext;
+    if (chatContext?.phase === "start") continue;
     const matchesChatTurn = Boolean(
       chatContext &&
       ((message.turnId && chatContext.turnId
@@ -642,7 +627,7 @@ export function findMatchingAssistantChatHistoryVersion<
     const matches = options.matchVersion
       ? options.matchVersion(version, message)
       : true;
-    if (!matches || versionTime >= matchTime) continue;
+    if (!matches || versionTime <= matchTime) continue;
     match = version;
     matchTime = versionTime;
   }
@@ -650,12 +635,34 @@ export function findMatchingAssistantChatHistoryVersion<
   return match;
 }
 
-/**
- * Restore rewrites the working tree, so only offer it when the server actually
- * has a checkpoint for this turn. Auto-checkpointing skips turns that started
- * from a dirty tree or a non-git cwd; gating on Code mode alone put a
- * "Revert to here" item on turns where clicking it could do nothing.
- */
+export function findAssistantChatHistoryBeginningVersion<
+  TVersion extends AssistantChatHistoryVersion,
+>(
+  versions: readonly TVersion[],
+  threadId?: string,
+  isEditable?: (version: TVersion) => boolean,
+): TVersion | null {
+  if (!threadId) return null;
+  let beginning: TVersion | null = null;
+  let beginningTime = Number.POSITIVE_INFINITY;
+  for (const version of versions) {
+    if (
+      !isAssistantChatHistoryVersion(version) ||
+      version.editable === false ||
+      isEditable?.(version) === false ||
+      version.chatContext?.threadId !== threadId ||
+      version.chatContext.phase !== "start"
+    ) {
+      continue;
+    }
+    const versionTime = coerceMessageDate(version.createdAt)?.getTime();
+    if (versionTime == null || versionTime >= beginningTime) continue;
+    beginning = version;
+    beginningTime = versionTime;
+  }
+  return beginning;
+}
+
 export function shouldOfferRestore(args: {
   devMode: boolean | undefined;
   isComplete: boolean;
@@ -674,10 +681,6 @@ export function shouldOfferRestore(args: {
   );
 }
 
-/**
- * Live yields put the run id at `metadata.custom.runId`; server-persisted
- * messages put it at `metadata.runId`.
- */
 export function assistantMessageRunId(message: unknown): string | undefined {
   const metadata = (message as { metadata?: unknown })?.metadata as
     | { custom?: { runId?: unknown }; runId?: unknown }
@@ -689,7 +692,6 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
-/** Stable logical-turn identity shared by chained continuation run IDs. */
 export function assistantMessageTurnId(message: unknown): string | undefined {
   const metadata = (message as { metadata?: unknown })?.metadata as
     | { custom?: { turnId?: unknown }; turnId?: unknown }
@@ -720,8 +722,6 @@ export function resolveAssistantRequestId(
     (activeRun?.threadId === threadId ? activeRun.runId : undefined)
   );
 }
-
-// ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
   const t = useT();
@@ -757,8 +757,6 @@ export function MessageBranchPicker() {
   );
 }
 
-// ─── Mention rendering ────────────────────────────────────────────────────────
-
 const mentionIconProps = {
   size: 14,
   className: "shrink-0 text-muted-foreground",
@@ -787,12 +785,10 @@ function MentionChipIcon({ icon }: { icon?: string }) {
   }
 }
 
-// Matches rich mention format: @[label|icon] or plain @word
 const richMentionPattern = /@\[([^\]|]+)\|([^\]]+)\]/g;
 const plainMentionPattern = /((?:^|(?<=\s))@(\w+))/g;
 
 function UserMessageText({ text }: { text: string }) {
-  // Strip injected <context>...</context> blocks before display
   const displayText = displayableUserMessageText(text);
 
   const parts: React.ReactNode[] = [];
@@ -800,7 +796,6 @@ function UserMessageText({ text }: { text: string }) {
   let match: RegExpExecArray | null;
   let hasRichMentions = false;
 
-  // First try rich mentions (@[label|icon])
   richMentionPattern.lastIndex = 0;
   while ((match = richMentionPattern.exec(displayText)) !== null) {
     hasRichMentions = true;
@@ -830,7 +825,6 @@ function UserMessageText({ text }: { text: string }) {
     return <>{parts}</>;
   }
 
-  // Fallback: plain @word mentions (for older messages)
   plainMentionPattern.lastIndex = 0;
   while ((match = plainMentionPattern.exec(displayText)) !== null) {
     const matchStart = match.index;
@@ -857,16 +851,9 @@ function UserMessageText({ text }: { text: string }) {
   return <>{parts.length > 0 ? parts : displayText}</>;
 }
 
-// ─── UserMessageAttachments ───────────────────────────────────────────────────
-
 function UserMessageAttachments() {
   const messageRuntime = useMessageRuntime();
   const msg = messageRuntime.getState();
-  // assistant-ui stores user attachments on msg.attachments (separate from content).
-  // Each attachment has: { id, type, name, contentType?, content: MessagePart[] }.
-  // Image adapters put a {type:"image", image:"data:..."} part in content; text
-  // adapters put a {type:"text", text:"<attachment>..."} part. Fall back to a
-  // file chip when there's no inline image.
   const attachments = (msg as { attachments?: readonly Attachment[] })
     .attachments;
   if (!attachments || attachments.length === 0) return null;
@@ -878,9 +865,6 @@ function UserMessageAttachments() {
           return <PastedTextChip key={att.id} attachment={att} compact />;
         }
 
-        // Prefer the hosted upload URL when available (set by the server after
-        // preUploadAttachments). This avoids re-shipping base64 in each poll
-        // and lets the browser cache the image via a stable URL.
         const uploadUrl = (
           att as unknown as { metadata?: { uploadUrl?: string } }
         ).metadata?.uploadUrl;
@@ -975,8 +959,6 @@ export function ChatImageAttachmentPreview({
   );
 }
 
-// ─── UserMessageEditComposer ──────────────────────────────────────────────────
-
 function UserMessageEditComposer() {
   const t = useT();
   return (
@@ -1008,47 +990,18 @@ function UserMessageEditComposer() {
   );
 }
 
-// ─── MessageActionsMenu ────────────────────────────────────────────────────────
-
 export function MessageActionsMenu({
-  showRevert,
-  onRevert,
+  onFork,
   threadId = "",
 }: {
-  showRevert?: boolean;
-  onRevert?: () => void;
+  onFork?: () => void | boolean | Promise<void | boolean>;
   threadId?: string;
 } = {}) {
   const t = useT();
-  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const timestamp = formatMessageTimestamp(
-    messageRuntime.getState().createdAt,
-    locale,
-    t("agentChat.history.yesterday"),
-  );
-
-  const handleCopyMessage = useCallback(() => {
-    const m = messageRuntime.getState();
-    const text = m.content
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
-    // Rich flavor keeps formatting in targets that read text/html (e.g. Slack);
-    // null when the markdown renderer isn't ready yet, so we copy plain markdown.
-    const html = renderMarkdownToClipboardHtml(text);
-    void writeClipboardText(text, html ? { html } : undefined).then((ok) => {
-      if (!ok) return;
-      setCopied("message");
-      setTimeout(() => {
-        setCopied(null);
-        setOpen(false);
-      }, 1000);
-    });
-  }, [messageRuntime]);
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
@@ -1072,13 +1025,8 @@ export function MessageActionsMenu({
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
-    void actionsCtx?.onForkChat?.();
-  }, [actionsCtx]);
-
-  const handleRevert = useCallback(() => {
-    setOpen(false);
-    onRevert?.();
-  }, [onRevert]);
+    void (onFork ?? actionsCtx?.onForkChat)?.();
+  }, [actionsCtx, onFork]);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -1094,31 +1042,16 @@ export function MessageActionsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="start"
+        align="end"
         sideOffset={6}
         className="w-48 rounded-lg border-border p-1.5 shadow-xl"
       >
-        {actionsCtx?.onForkChat && (
+        {(onFork || actionsCtx?.onForkChat) && (
           <DropdownMenuItem onSelect={handleForkChat}>
             <IconGitFork className="h-3.5 w-3.5" />
             {t("agentChat.message.forkChat")}
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            handleCopyMessage();
-          }}
-        >
-          {copied === "message" ? (
-            <IconCheck className="h-3.5 w-3.5" />
-          ) : (
-            <IconCopy className="h-3.5 w-3.5" />
-          )}
-          {copied === "message"
-            ? t("agentChat.common.copied")
-            : t("agentChat.message.copyMessage")}
-        </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();
@@ -1138,20 +1071,6 @@ export function MessageActionsMenu({
                 ? t("agentChat.recovery.copyFailed")
                 : t("agentChat.message.copyRequestId")}
         </DropdownMenuItem>
-        {showRevert && (
-          <DropdownMenuItem onSelect={handleRevert}>
-            <IconArrowBackUp className="h-3.5 w-3.5" />
-            {t("agentChat.message.revertHere")}
-          </DropdownMenuItem>
-        )}
-        {timestamp && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-              {t("agentChat.message.sentAt", { time: timestamp.short })}
-            </DropdownMenuLabel>
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1160,11 +1079,18 @@ export function MessageActionsMenu({
 function AssistantChatHistoryRevertButton({
   onRestore,
   onRestored,
+  label,
+  persistent = false,
 }: {
   onRestore: () => Promise<void>;
-  onRestored: () => void;
+  onRestored?: () => void;
+  label?: string;
+  persistent?: boolean;
 }) {
   const t = useT();
+  const chatRunning = React.useContext(ChatRunningContext);
+  const history = React.useContext(AssistantChatHistoryContext);
+  const restoreInProgress = chatRunning || Boolean(history?.isRestoring);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"confirming" | "restoring" | "error">(
     "confirming",
@@ -1173,7 +1099,7 @@ function AssistantChatHistoryRevertButton({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && state === "restoring") return;
+      if (nextOpen && restoreInProgress) return;
       setOpen(nextOpen);
       if (nextOpen) {
         setState("confirming");
@@ -1182,16 +1108,21 @@ function AssistantChatHistoryRevertButton({
         setError(null);
       }
     },
-    [state],
+    [restoreInProgress],
   );
 
+  useEffect(() => {
+    if (restoreInProgress) setOpen(false);
+  }, [restoreInProgress]);
+
   const handleRestore = useCallback(async () => {
+    if (restoreInProgress) return;
     setState("restoring");
     setError(null);
     try {
       await onRestore();
       setOpen(false);
-      onRestored();
+      onRestored?.();
     } catch (restoreError) {
       const status = (restoreError as { status?: unknown } | undefined)?.status;
       const actionMessage = actionErrorMessage(restoreError);
@@ -1203,7 +1134,7 @@ function AssistantChatHistoryRevertButton({
       );
       setState("error");
     }
-  }, [onRestore, onRestored, t]);
+  }, [onRestore, onRestored, restoreInProgress, t]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1213,10 +1144,11 @@ function AssistantChatHistoryRevertButton({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label={t("agentChat.message.revertHere")}
+                aria-label={label ?? t("agentChat.message.revertHere")}
+                disabled={restoreInProgress}
                 className={cn(
                   "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
-                  messageFooterFadeClassName,
+                  !persistent && messageFooterFadeClassName,
                   open && "bg-accent text-foreground",
                 )}
               >
@@ -1225,7 +1157,7 @@ function AssistantChatHistoryRevertButton({
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            {t("agentChat.message.revertHere")}
+            {label ?? t("agentChat.message.revertHere")}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -1238,7 +1170,7 @@ function AssistantChatHistoryRevertButton({
         {state === "confirming" ? (
           <div className="grid gap-2">
             <p className="text-xs font-medium text-foreground">
-              {t("agentChat.message.restoreQuestion")}
+              {t("agentChat.message.revertQuestion")}
             </p>
             <div className="flex justify-end gap-1.5">
               <button
@@ -1250,10 +1182,11 @@ function AssistantChatHistoryRevertButton({
               </button>
               <button
                 type="button"
+                disabled={restoreInProgress}
                 onClick={() => void handleRestore()}
                 className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
               >
-                {t("agentChat.message.revertHere")}
+                {label ?? t("agentChat.message.revertHere")}
               </button>
             </div>
           </div>
@@ -1281,7 +1214,22 @@ function AssistantChatHistoryRevertButton({
   );
 }
 
-// ─── UserMessage ──────────────────────────────────────────────────────────────
+export function AssistantChatHistoryBeginningRevertButton() {
+  const t = useT();
+  const history = React.useContext(AssistantChatHistoryContext);
+  const chatRunning = React.useContext(ChatRunningContext);
+  const version = history?.beginningVersion;
+  if (!history || !version || chatRunning) return null;
+  return (
+    <div className="flex justify-end">
+      <AssistantChatHistoryRevertButton
+        label={t("agentChat.message.revertToBeginning")}
+        onRestore={() => history.restoreVersion(version)}
+        persistent
+      />
+    </div>
+  );
+}
 
 export function UserMessage() {
   const t = useT();
@@ -1337,7 +1285,6 @@ export function UserMessage() {
 
   if (hidden) return null;
 
-  // When in edit mode, show the inline edit composer instead of the message bubble.
   if (isEditing) {
     return (
       <div className="flex justify-end">
@@ -1466,8 +1413,6 @@ export function UserMessage() {
   );
 }
 
-// ─── AssistantMessage ─────────────────────────────────────────────────────────
-
 function assistantMessageHasRenderableContent(message: {
   content?: unknown;
 }): boolean {
@@ -1520,7 +1465,6 @@ export function isMissingFinalResponseWarningText(text: string): boolean {
   return (
     normalized.includes("stopped before sending a final message") ||
     normalized.includes("stopped without sending a final message") ||
-    // "stopped after <action> failed, without sending a final message."
     (normalized.startsWith("The agent stopped after ") &&
       normalized.includes("without sending a final message"))
   );
@@ -1728,9 +1672,6 @@ export function assistantMessageHasCustomUi(content: unknown): boolean {
   });
 }
 
-// Only the last assistant message may shimmer as "the currently running
-// tool" — an older message's dangling unresolved tool-call must never
-// shimmer once a later run is active.
 export function computeActiveTailToolCallId(
   content: ContentPart[] | undefined,
   { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
@@ -1778,9 +1719,6 @@ export function shouldShowAssistantMessageFooter({
   const ownsActiveTurn =
     activeTurnId != null &&
     (messageTurnId == null || activeTurnId === messageTurnId);
-  // Keep the run-id comparison only for legacy messages that predate the
-  // turn-id metadata. Once either side has a logical-turn identity, absent
-  // turn evidence must not be treated as proof of a different run.
   const ownsLegacyRun =
     activeTurnId == null &&
     messageTurnId == null &&
@@ -1795,12 +1733,6 @@ export function shouldShowAssistantMessageFooter({
   return statusIsTerminal;
 }
 
-/**
- * Server-authoritative "a run for this thread is still active and running".
- * Local `chatRunning` dips to not-running at every chunk boundary and transport
- * re-attach while the turn is alive server-side, so it cannot decide on its own
- * that the agent stopped.
- */
 export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
   (runId?: string, turnId?: string) => boolean
@@ -1828,8 +1760,6 @@ export function shouldShowMissingFinalResponse({
 }): boolean {
   if (userStoppedRun) return false;
   if (serverRunActive) return false;
-  // A completed tool can make the latest message look terminal before the
-  // active turn attaches its follow-up text.
   return (
     !isCurrentTurnRunning &&
     statusIsTerminal &&
@@ -1840,12 +1770,6 @@ export function shouldShowMissingFinalResponse({
   );
 }
 
-/**
- * "The agent stopped" is derived from local client state, which dips to
- * not-running at every chunk boundary and transport re-attach while the turn is
- * still alive server-side. Requiring the shape to hold for a beat keeps the
- * notice off the screen for those gaps without hiding a real stop for long.
- */
 export const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
 
 export function useSettledFlag(active: boolean, delayMs: number): boolean {
@@ -1878,16 +1802,9 @@ export function shouldShowAssistantWorkSummary({
 }): boolean {
   if (!hasCollapsibleWork) return false;
 
-  // Keep every work segment behind its disclosure while the current turn is
-  // streaming. Text parts still break the grouped-parts sequence, so a final
-  // response appears between separate work summaries instead of being buried
-  // with the tool calls that surround it.
   if (isLast && chatRunning) return true;
   if (hasActiveTool || hasUnresolvedTool) return true;
 
-  // Keep completed historical work grouped while a later turn is running.
-  // Removing the wrapper exposes/remounts ReasoningCell and resets its
-  // disclosure state to the default-open value on every new submission.
   return isComplete || !isLast;
 }
 
@@ -1913,10 +1830,6 @@ function ReasoningMessagePart() {
       messagePart.type === "reasoning" ? index : latestIndex,
     -1,
   );
-  // Time thinking client-side: record the moment streaming first starts and
-  // the moment it stops so the cell can show "Thought for Xs". Historical
-  // messages that were never observed streaming in this session never get a
-  // start time, so they correctly fall back to a plain "Thought" label.
   const startedAtRef = useRef<number | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   useEffect(() => {
@@ -1967,17 +1880,12 @@ export function isCollapsibleAssistantWorkPart(
   },
   thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
 ): boolean {
-  // Hidden reasoning renders nothing, so counting it as work would wrap a
-  // reasoning-only turn in an empty "Worked for…" disclosure.
   if (part.type === "reasoning") return thinkingDisplay !== "hidden";
   return (
     part.type === "tool-call" &&
     !isAlwaysVisibleAssistantTool(part) &&
     part.chatUI === undefined &&
     part.mcpApp === undefined &&
-    // Keep the Approve/Deny affordance outside "Worked for…" - needsApproval
-    // tools finish with a result string, so without this they collapse and the
-    // human gate disappears from the viewport.
     !toolCallHasPendingApproval(part)
   );
 }
@@ -2424,11 +2332,11 @@ export function AssistantMessage() {
     [historyContext, historyMessage],
   );
   const showHistoryRevert =
-    isComplete && !historyReverted && historyVersion !== null;
+    !chatRunning && isComplete && !historyReverted && historyVersion !== null;
   const handleHistoryRestore = useCallback(async () => {
-    if (!historyContext || !historyVersion) return;
+    if (chatRunning || !historyContext || !historyVersion) return;
     await historyContext.restoreVersion(historyVersion);
-  }, [historyContext, historyVersion]);
+  }, [chatRunning, historyContext, historyVersion]);
   const cpCtx = React.useContext(CheckpointContext);
 
   useEffect(() => {
@@ -2439,7 +2347,6 @@ export function AssistantMessage() {
     }
   }, [chatRunning, isLast]);
 
-  // Capture live run duration when this message finishes streaming.
   const runStartedAtRef = useRef<number | null>(null);
   const [capturedDurationMs, setCapturedDurationMs] = useState<number | null>(
     null,
@@ -2521,7 +2428,6 @@ export function AssistantMessage() {
     hostname: window.location.hostname,
   });
 
-  // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
   const assistantToolSummary = getAssistantToolSummaryInfo(
     Array.isArray(msgContent) ? msgContent : [],
@@ -2693,88 +2599,85 @@ export function AssistantMessage() {
         )}
       </div>
       {isComplete && (
-        <div className="mt-1 flex items-center justify-between">
-          <div className="flex min-w-0 items-center gap-1">
-            {showHistoryRevert && (
-              <AssistantChatHistoryRevertButton
-                onRestore={handleHistoryRestore}
-                onRestored={() => setHistoryReverted(true)}
-              />
-            )}
-            <AssistantMessageActionBar
-              timestamp={timestamp}
-              threadId={cpCtx?.threadId ?? ""}
-              runId={messageRunId ?? ""}
-              messageSeq={msg.index}
-              onFork={messageActions?.onForkChat}
-              onRestore={
-                showRestore && restoreState === "idle"
-                  ? handleRestore
-                  : undefined
-              }
-            />
-            {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
-            {isLast && (
-              <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <ActionBarPrimitive.Reload asChild>
-                      <button
-                        type="button"
-                        aria-label={t("agentChat.message.regenerate")}
-                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
-                      >
-                        <IconRefresh className="h-3.5 w-3.5" />
-                      </button>
-                    </ActionBarPrimitive.Reload>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    {t("agentChat.message.regenerate")}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <MessageBranchPicker />
-          </div>
-          {showRestore && restoreState === "confirming" ? (
-            <div className="flex items-center gap-1 text-xs">
-              <button
-                onClick={handleRestore}
-                className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
-              >
-                {t("agentChat.message.restoreQuestion")}
-              </button>
-              <button
-                onClick={cancelRestore}
-                className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
-              >
-                {t("agentChat.common.cancel")}
-              </button>
-            </div>
-          ) : showRestore && restoreState === "restoring" ? (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              {t("agentChat.message.restoring")}
-            </span>
-          ) : restoreState === "error" ? (
-            <span className="flex items-center gap-1 text-xs text-destructive">
-              <IconAlertTriangle className="h-3 w-3 shrink-0" />
-              <span className="truncate">{restoreError}</span>
-              <button
-                onClick={cancelRestore}
-                className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
-              >
-                {t("agentChat.common.dismiss")}
-              </button>
-            </span>
-          ) : null}
-        </div>
+        <AssistantMessageActionBar
+          className="mt-1"
+          timestamp={timestamp}
+          threadId={cpCtx?.threadId ?? ""}
+          runId={messageRunId ?? ""}
+          messageSeq={msg.index}
+          onFork={messageActions?.onForkChat}
+          onRestore={
+            showRestore && restoreState === "idle" ? handleRestore : undefined
+          }
+          trailingActions={
+            <>
+              {showHistoryRevert && (
+                <AssistantChatHistoryRevertButton
+                  onRestore={handleHistoryRestore}
+                  onRestored={() => setHistoryReverted(true)}
+                />
+              )}
+              {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
+              {isLast && (
+                <TooltipProvider delayDuration={400}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <ActionBarPrimitive.Reload asChild>
+                        <button
+                          type="button"
+                          aria-label={t("agentChat.message.regenerate")}
+                          className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
+                        >
+                          <IconRefresh className="h-3.5 w-3.5" />
+                        </button>
+                      </ActionBarPrimitive.Reload>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {t("agentChat.message.regenerate")}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              <MessageBranchPicker />
+              {showRestore && restoreState === "confirming" ? (
+                <div className="flex items-center gap-1 text-xs">
+                  <button
+                    onClick={handleRestore}
+                    className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {t("agentChat.message.restoreQuestion")}
+                  </button>
+                  <button
+                    onClick={cancelRestore}
+                    className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+                  >
+                    {t("agentChat.common.cancel")}
+                  </button>
+                </div>
+              ) : showRestore && restoreState === "restoring" ? (
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                  {t("agentChat.message.restoring")}
+                </span>
+              ) : restoreState === "error" ? (
+                <span className="flex items-center gap-1 text-xs text-destructive">
+                  <IconAlertTriangle className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{restoreError}</span>
+                  <button
+                    onClick={cancelRestore}
+                    className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+                  >
+                    {t("agentChat.common.dismiss")}
+                  </button>
+                </span>
+              ) : null}
+            </>
+          }
+        />
       )}
     </div>
   );
 }
-
-// ─── RunningActivityStatus / ThinkingIndicator ────────────────────────────────
 
 export function RunningActivityStatus({ label }: { label: string }) {
   return (

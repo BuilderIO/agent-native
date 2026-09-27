@@ -18,14 +18,6 @@ import { getOrgContext } from "./context.js";
 import { isOrgMember } from "./membership.js";
 import { canManageOrg } from "./permissions.js";
 
-/**
- * Resolve the descriptor a request is talking about.
- *
- * The `appId` arrives from the client but can only ever select among
- * descriptors the server already declared through `defineAppRoles`; an
- * unregistered id is a 404, never an implicit new app. That keeps the trusted
- * vocabulary in app source while still letting one workspace host several apps.
- */
 function requireDescriptor(appId: string | null): AppRolesDescriptor<string> {
   if (!appId?.trim()) {
     throw createError({ statusCode: 400, message: "appId is required" });
@@ -48,7 +40,6 @@ function appIdFromEvent(event: H3Event, fallback?: unknown): string | null {
   return url.searchParams.get("appId");
 }
 
-/** Extract the :email tail. The mount prefix is stripped before we see it. */
 function extractMemberEmail(event: H3Event): string | undefined {
   const path = getRequestURL(event).pathname;
   const match =
@@ -56,10 +47,6 @@ function extractMemberEmail(event: H3Event): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
-/**
- * GET /_agent-native/org/app-roles?appId=X — the app's vocabulary plus every
- * assignment in the active org, and the caller's own resolved role.
- */
 export const listAppRolesHandler = defineEventHandler(
   async (event: H3Event) => {
     const url = getRequestURL(event);
@@ -79,7 +66,6 @@ export const listAppRolesHandler = defineEventHandler(
         ...base,
         assignments: [],
         myRoles: [],
-        // Compatibility fields for clients upgrading from the single-role API.
         myRole: null,
       };
 
@@ -88,7 +74,6 @@ export const listAppRolesHandler = defineEventHandler(
     ).map((assignment) => ({
       ...assignment,
       roles: assignment.roles.filter((role) => descriptor.roles.includes(role)),
-      // Compatibility field: the old API exposed only its first role.
       role:
         assignment.roles.find((role) => descriptor.roles.includes(role)) ??
         null,
@@ -99,9 +84,6 @@ export const listAppRolesHandler = defineEventHandler(
     return {
       ...base,
       assignments,
-      // The caller's own role, for progressive disclosure only. Every guarded
-      // operation re-resolves this server-side; a client that lies about it gains
-      // nothing but a differently-shaped UI.
       myRoles: mine
         ? mine.roles.filter((role) => descriptor.roles.includes(role))
         : [],
@@ -111,14 +93,6 @@ export const listAppRolesHandler = defineEventHandler(
   },
 );
 
-/**
- * PUT /_agent-native/org/app-roles/:email — replace a member's app roles.
- * Body: `{ appId, roles: string[] }`; an empty array clears the assignment.
- *
- * Org owner/admin only. App roles never confer the right to manage app roles:
- * that would let an app admin escalate inside a team they cannot otherwise
- * administer, and it is the org roster this overlay hangs off.
- */
 export const setAppRoleHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
   if (!ctx.email) {
@@ -156,8 +130,6 @@ export const setAppRoleHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  // Assignments hang off membership. Writing one for a non-member would leave a
-  // row that resolves to nothing and reappears if that person is ever invited.
   if (!(await isOrgMember(ctx.orgId, email))) {
     throw createError({
       statusCode: 404,

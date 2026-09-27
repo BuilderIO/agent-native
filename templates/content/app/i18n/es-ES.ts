@@ -953,6 +953,13 @@ const rawLiterals = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",
@@ -1300,6 +1307,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
@@ -1427,6 +1441,15 @@ const history = {
 };
 
 const overrides = {
+  close: "Cerrar",
+  setup: { checkingProvider: "Comprobando la conexión de IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+      statusUnavailable:
+        "El estado del almacenamiento de archivos no está disponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1583,6 +1606,13 @@ const overrides = {
     genericError: "Algo salió mal",
   },
   editor: {
+    iconPickerIcons: "Iconos",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Recientes",
+    iconPickerColors: "Colores",
+    iconPickerDefault: "Predeterminado",
+    iconPickerUpload: "Subir",
+    iconPickerUploading: "Subiendo…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Componente de origen",

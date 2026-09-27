@@ -80,8 +80,6 @@ export function createTtlCache<V>(options: {
       return hit.value;
     },
     set(key: string, value: V): void {
-      // Delete before insert so Map insertion order tracks the newest write,
-      // which is what the eviction loop below reads as "oldest".
       entries.delete(key);
       entries.set(key, { value, expiresAt: Date.now() + ttlMs });
       while (entries.size > maxEntries) {

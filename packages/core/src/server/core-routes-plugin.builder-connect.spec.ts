@@ -124,8 +124,6 @@ describe("selectLiveBuilderConnectStates", () => {
       (async (key: string) => rows[key] ?? null) as never,
     );
 
-    // Builder dropped the query state: the finished flow must not make this
-    // callback look ambiguous.
     expect(
       resolveBuilderConnectCallbackState(null, (states ?? []).join(",")),
     ).toEqual({ state: pending, resetStateCookie: false });

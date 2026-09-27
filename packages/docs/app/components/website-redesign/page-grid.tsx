@@ -5,31 +5,8 @@ import {
   type ReactNode,
 } from "react";
 
-// The one content measure — `--site-max-width` in global.css, aliased into
-// Tailwind's theme as the `site` container, so every consumer spells it
-// `max-w-site` and the gridlines, the header, and each page body cannot drift.
-//
-// Tailwind cannot build a class from a runtime value, so the `grid-cols-3`
-// utilities below spell this number out. Changing it means changing those too.
 export const GRID_COLUMNS = 3;
 
-// The 1/3 and 2/3 lines are real `repeat(3, 1fr)` grid cells with a
-// `border-right` on the non-last ones — the same structure `.pillars-grid`
-// uses for its own column dividers below. A centered percentage-width
-// overlay box divides its available space with plain percentage math,
-// while a CSS Grid divides it via the browser's track-sizing algorithm;
-// those two techniques can round sub-pixel remainders differently even over
-// the same total width, which showed up as the lines not quite lining up
-// with the real feature grid's dividers beneath them. Using the same grid
-// technique in both places means they round the same way.
-//
-// The gap matters too, not just the track count: the card grids draw their
-// dividers as a 1px gap, so their tracks split the width that is left after
-// the gaps are taken out. Without the same gap here the tracks are ~0.7px
-// wider and the two sets of lines land just off each other, which reads as a
-// doubled, darker line where a section meets the grid below it. The line is
-// then drawn on the far side of the gap (border-left pulled back over it) so
-// it sits in the gap rather than beside it.
 function GridLines({ gridLines }: { gridLines: "all" | "edges" }) {
   const columns = gridLines === "all" ? GRID_COLUMNS : 1;
   return (

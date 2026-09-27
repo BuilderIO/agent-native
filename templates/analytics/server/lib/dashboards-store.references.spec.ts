@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  // One entry per `select` when a test needs the candidate query and the
-  // out-of-scope probe to answer differently; otherwise every call sees `rows`.
   rowsByCall: [] as Record<string, unknown>[][],
   legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,
@@ -111,7 +109,47 @@ vi.mock("../db/index.js", () => {
   };
 });
 
-const { searchDashboardReferences } = await import("./dashboards-store.js");
+const { getPublicDashboardMetadata, searchDashboardReferences } =
+  await import("./dashboards-store.js");
+
+describe("getPublicDashboardMetadata", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.rowsByCall = [];
+    state.legacySettings = {};
+    state.projection = null;
+    state.where = null;
+    state.limit = null;
+  });
+
+  it("guards metadata extraction when dashboard config is malformed", async () => {
+    state.rows = [
+      {
+        title: "Public dashboard",
+        description: null,
+        panelTitlesJson: "[]",
+      },
+    ];
+
+    await expect(getPublicDashboardMetadata("dashboard-1")).resolves.toEqual({
+      title: "Public dashboard",
+      description: null,
+      panelTitles: [],
+    });
+    expect(state.where).toEqual(
+      expect.objectContaining({
+        kind: "and",
+        conditions: expect.arrayContaining([
+          { kind: "isNull", target: { name: "archivedAt" } },
+        ]),
+      }),
+    );
+
+    const projection = JSON.stringify(state.projection);
+    expect(projection.match(/is json/g)).toHaveLength(2);
+    expect(projection).toContain("else '{}'::jsonb");
+  });
+});
 
 describe("searchDashboardReferences", () => {
   beforeEach(() => {

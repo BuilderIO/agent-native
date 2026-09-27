@@ -41,7 +41,6 @@ export function normalizedElementTagName(
   return tagName?.trim().toLowerCase() || "element";
 }
 
-/** Build a `vscode://file/...` deep link for an absolute path + position. */
 export function vscodeDeepLink(
   absolutePath: string,
   line?: number,
@@ -52,18 +51,9 @@ export function vscodeDeepLink(
   return column == null ? `${base}:${line}` : `${base}:${line}:${column}`;
 }
 
-/**
- * Extract the *opening tag* from an element's outer HTML for an at-a-glance
- * summary (e.g. `<main class="hero" data-x="y">`). Self-closing tags keep
- * their `/>`. Returns `null` when no tag can be parsed.
- *
- * Pure — exported for tests.
- */
 export function openingTagOf(html: string | null | undefined): string | null {
   if (!html) return null;
   const trimmed = html.trimStart();
-  // Match the first `<tag ...>` (greedy up to the first unquoted `>`), allowing
-  // quoted attribute values to contain `>`.
   const match = /^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>])*?)\/?>/.exec(
     trimmed,
   );
@@ -71,13 +61,6 @@ export function openingTagOf(html: string | null | undefined): string | null {
   return match[0];
 }
 
-/**
- * Collapse long attribute values in an opening tag so the at-a-glance summary
- * stays readable. Values longer than `max` chars are truncated with an
- * ellipsis (the surrounding quotes are preserved).
- *
- * Pure — exported for tests.
- */
 export function truncateOpeningTag(openTag: string, max = 32): string {
   return openTag.replace(
     /("|')((?:\\.|(?!\1)[^\\])*)\1/g,
@@ -117,10 +100,6 @@ function parseInspectCodeOpeningTag(openTag: string): ParsedOpeningTag | null {
   };
 }
 
-/**
- * Remove Design's runtime-only attributes, then format retained attributes to
- * fit the Inspect Code popover without routine horizontal scrolling.
- */
 export function formatInspectCodeOpeningTag(
   openTag: string,
   maxInlineLength = INSPECT_CODE_MAX_INLINE_TAG_LENGTH,
@@ -351,17 +330,6 @@ export function highlightedHtml(source: string): ReactNode {
   ));
 }
 
-/**
- * Parse the top-level `key: value` pairs from an Alpine `x-data` object literal
- * (e.g. `{ variant: 'outline', size: 'lg', disabled: false }`).
- *
- * Best-effort: only handles a flat object of simple string / boolean / number
- * literals — exactly the shape used for component variant + state props. Nested
- * objects, methods, and computed expressions are ignored. Returns `null` when
- * the value is not a recognizable flat object literal.
- *
- * Pure — exported for tests.
- */
 export function parseAlpineDataObject(
   xData: string | null | undefined,
 ): Record<string, string> | null {
@@ -372,14 +340,6 @@ export function parseAlpineDataObject(
   if (!inner) return {};
 
   const out: Record<string, string> = {};
-  // Split on top-level commas only (no nesting / quotes inside values here).
-  // The quoted-value alternatives allow backslash-escaped quotes (`\\.`)
-  // inside the literal — without that, a value like `'it\'s ok'` truncates
-  // at the escaped quote (matching only `'it\'`), silently dropping the rest
-  // of the string. That mismatch used to slip past `canRebuildAlpineDataLosslessly`
-  // as a false positive: the truncated value round-tripped "stably" (in the
-  // sense of parse -> serialize -> parse staying self-consistent) while still
-  // being wrong relative to the original source.
   const pairRe =
     /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/g;
   let m: RegExpExecArray | null;
@@ -388,9 +348,6 @@ export function parseAlpineDataObject(
     matched = true;
     const key = m[1] ?? m[2] ?? m[3];
     let raw = m[4]!;
-    // Unwrap quotes for string literals, un-escaping backslash-escaped quotes
-    // back to their literal form (the inverse of the escaping
-    // `serializeAlpineDataObject` applies); keep booleans / numbers verbatim.
     if (raw.startsWith("'") && raw.endsWith("'")) {
       raw = raw.slice(1, -1).replace(/\\'/g, "'");
     } else if (raw.startsWith('"') && raw.endsWith('"')) {
@@ -398,18 +355,10 @@ export function parseAlpineDataObject(
     }
     if (key) out[key] = raw;
   }
-  // If there was content but nothing parsed, the shape is too complex to edit
-  // safely — bail so the caller falls back to attribute-based prop edits.
   if (!matched) return null;
   return out;
 }
 
-/**
- * Re-serialize a flat Alpine data object back into an `x-data` literal,
- * preserving boolean / number literals unquoted and single-quoting strings.
- *
- * Pure — exported for tests.
- */
 export function serializeAlpineDataObject(obj: Record<string, string>): string {
   const parts = Object.entries(obj).map(([key, value]) => {
     const isBoolean = value === "true" || value === "false";
@@ -421,12 +370,6 @@ export function serializeAlpineDataObject(obj: Record<string, string>): string {
   return parts.length ? `{ ${parts.join(", ")} }` : "{}";
 }
 
-/**
- * Format a single editable prop value as an `x-data` literal: bare for
- * boolean / number values, single-quoted (with escaping) for strings.
- *
- * Pure — exported for tests.
- */
 export function alpineDataValueLiteral(value: string): string {
   const isBoolean = value === "true" || value === "false";
   const isNumber = /^-?\d+(\.\d+)?$/.test(value);
@@ -463,17 +406,11 @@ export function replaceAlpineDataKeyValue(
 
   const s = xData;
   const n = s.length;
-  // Walk the whole string tracking nesting depth and skipping over strings,
-  // template literals, regex-ish slashes are not handled (Alpine x-data does
-  // not use them at the object-key level), and line / block comments. Only at
-  // object depth 1 (directly inside the outermost `{ … }`) do we look for the
-  // target `key :` token.
   let depth = 0;
   let i = 0;
 
-  /** Advance `i` past a quoted string starting at `i` (handles escapes). */
   const skipString = (quote: string): void => {
-    i += 1; // opening quote
+    i += 1;
     while (i < n) {
       const c = s[i];
       if (c === "\\") {
@@ -489,17 +426,12 @@ export function replaceAlpineDataKeyValue(
   };
 
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Bare identifier key at a token boundary: `key` then optional ws then `:`.
   const bareRe = new RegExp(`^(${escapedKey})(\\s*:\\s*)`);
-  // Quoted key: `'key'` or `"key"` then optional ws then `:`.
   const quotedRe = new RegExp(`^(['"]${escapedKey}['"])(\\s*:\\s*)`);
 
   while (i < n) {
     const c = s[i];
 
-    // At the top level, a `{` / `,` (or the string start) opens a fresh value
-    // slot. Try to match the target key here *before* treating a quote as an
-    // opaque string — this is how quoted keys (`'size': …`) are recognised.
     if (depth === 1) {
       const prev = lastNonSpaceBefore(s, i);
       if (prev === "{" || prev === ",") {
@@ -508,7 +440,7 @@ export function replaceAlpineDataKeyValue(
         if (m) {
           const valueStart = i + m[1].length + m[2].length;
           const valueEnd = simpleValueEnd(s, valueStart);
-          if (valueEnd === null) return null; // value is not a simple literal
+          if (valueEnd === null) return null;
           return (
             s.slice(0, valueStart) +
             alpineDataValueLiteral(nextValue) +
@@ -518,12 +450,10 @@ export function replaceAlpineDataKeyValue(
       }
     }
 
-    // Skip strings / template literals wholesale.
     if (c === '"' || c === "'" || c === "`") {
       skipString(c);
       continue;
     }
-    // Skip comments.
     if (c === "/" && s[i + 1] === "/") {
       i += 2;
       while (i < n && s[i] !== "\n") i += 1;
@@ -553,20 +483,12 @@ export function replaceAlpineDataKeyValue(
   return null;
 }
 
-/** Last non-whitespace char strictly before index `i` (or `""`). */
 function lastNonSpaceBefore(s: string, i: number): string {
   let j = i - 1;
   while (j >= 0 && /\s/.test(s[j]!)) j -= 1;
   return j >= 0 ? s[j]! : "";
 }
 
-/**
- * Given the start index of a value in an `x-data` literal, return the index
- * just past a *simple* literal value (single/double-quoted string with
- * escapes, boolean, or number). Returns `null` when the value is anything else
- * (an expression, function, object, array, template literal, etc.) so the
- * caller can fail safe rather than mangle it.
- */
 function simpleValueEnd(s: string, start: number): number | null {
   const c = s[start];
   if (c === "'" || c === '"') {
@@ -579,9 +501,8 @@ function simpleValueEnd(s: string, start: number): number | null {
       if (s[i] === c) return i + 1;
       i += 1;
     }
-    return null; // unterminated string
+    return null;
   }
-  // Boolean / number: read the bare token, then confirm it is exactly one.
   const m = /^[A-Za-z0-9_.+-]+/.exec(s.slice(start));
   if (!m) return null;
   const token = m[0];
@@ -591,34 +512,16 @@ function simpleValueEnd(s: string, start: number): number | null {
   return start + token.length;
 }
 
-/**
- * True when an `x-data` literal can be rebuilt from its flat parsed map with
- * no loss — i.e. there is nothing richer than the simple `key: literal` pairs
- * that `serializeAlpineDataObject` already round-trips. Used as the gate for
- * falling back to a full rebuild when a surgical single-key replace is not
- * possible (e.g. when adding a brand-new key).
- *
- * Returns `true` for an empty / absent literal (nothing to lose) and for a
- * flat object whose `parse → serialize` round-trip is semantically stable.
- * Returns `false` when the original holds methods, nested objects, comments,
- * or expressions that a rebuild would silently drop.
- *
- * Pure — exported for tests.
- */
 export function canRebuildAlpineDataLosslessly(
   xData: string | null | undefined,
 ): boolean {
   const trimmed = (xData ?? "").trim();
-  // No object literal at all → there is nothing richer to preserve.
   if (!trimmed || trimmed === "{}" || trimmed === "{ }") return true;
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
 
   const parsed = parseAlpineDataObject(trimmed);
   if (!parsed) return false;
 
-  // Re-serialize and re-parse; if the round-trip is stable AND the parsed map
-  // accounts for every top-level key actually present in the original, a
-  // rebuild loses nothing.
   const reserialized = serializeAlpineDataObject(parsed);
   const reparsed = parseAlpineDataObject(reserialized);
   if (!reparsed) return false;
@@ -626,19 +529,9 @@ export function canRebuildAlpineDataLosslessly(
   const keysB = Object.keys(reparsed).sort().join(",");
   if (keysA !== keysB) return false;
 
-  // Guard against dropped content the flat parser ignores (e.g. a trailing
-  // method): the number of top-level `key:` tokens in the original must match
-  // the number of parsed keys. Count top-level `:` separators conservatively.
   return countTopLevelKeys(trimmed) === Object.keys(parsed).length;
 }
 
-/**
- * Count top-level `key:` entries in an `x-data` object literal, skipping
- * strings, comments, and nested braces/brackets/parens. A method like
- * `toggle() { … }` is counted as a key too (its `:`-less form still occupies a
- * top-level slot), so a mismatch against the flat parser's key count reveals
- * dropped content.
- */
 function countTopLevelKeys(xData: string): number {
   const s = xData;
   const n = s.length;
@@ -707,7 +600,6 @@ function countTopLevelKeys(xData: string): number {
   return count;
 }
 
-/** A boolean-ish prop value (`"true"` / `"false"`), case-insensitive. */
 export function isBooleanPropValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   return v === "true" || v === "false";

@@ -104,11 +104,6 @@ export function markdownToHtml(markdown: string): string {
   return `<div>${html}</div>`;
 }
 
-/**
- * Split a compose body at the reply/forward quote separator.
- * Returns null for non-reply bodies (no separator found).
- * Mirrors `splitReplyQuote` in server/handlers/emails.ts.
- */
 function splitReplyQuote(body: string): {
   newContent: string;
   attribution: string;
@@ -125,11 +120,6 @@ function splitReplyQuote(body: string): {
   return { newContent, attribution, quotedBody: afterSeparator };
 }
 
-/**
- * Convert quoted content into Gmail-compatible HTML blockquote.
- * Strips leading `> ` prefixes from each line before converting to HTML.
- * Mirrors `quotedContentToHtml` in server/handlers/emails.ts.
- */
 function quotedContentToHtml(attribution: string, quotedBody: string): string {
   const stripped = quotedBody
     .split("\n")
@@ -149,12 +139,6 @@ function quotedContentToHtml(attribution: string, quotedBody: string): string {
   );
 }
 
-/**
- * Convert a compose body to HTML, properly formatting reply/forward quotes
- * with Gmail-compatible blockquote structure. Mirrors `bodyToHtml` in
- * server/handlers/emails.ts so the optimistic reply preview renders
- * identically to the real sent message.
- */
 export function bodyToHtml(body: string): string {
   const split = splitReplyQuote(body);
   if (split) {

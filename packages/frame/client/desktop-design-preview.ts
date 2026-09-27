@@ -35,12 +35,6 @@ function offsetRect(rect: PreviewRect, offset: DOMRect): PreviewRect {
   };
 }
 
-/**
- * Relay nested local Design requests to the top-level desktop webview preload.
- * The nested iframe never receives Electron APIs: both its Window identity and
- * exact configured origin must match before the frame forwards a bounded
- * request to the main process, which performs the authoritative validation.
- */
 export function installDesktopDesignPreviewRelay(options: {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   appUrl: string;

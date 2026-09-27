@@ -185,6 +185,18 @@ export default {
     teamCreateOrgDescription:
       "Richte ein Team ein, um Designs mit deinen Kollegen zu teilen.",
   },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
+  },
   chat: {
     emptyState: "Beschreibe ein Design, das erstellt werden soll",
     suggestionLandingPage: "Entwirf eine Landingpage für mein Startup",
@@ -263,6 +275,12 @@ export default {
       opacity: "Opazität",
       padding: "Polsterung",
       margin: "Marge",
+      marginTop: "Oberer Außenabstand",
+      marginRight: "Rechter Außenabstand",
+      marginBottom: "Unterer Außenabstand",
+      marginLeft: "Linker Außenabstand",
+      linkMarginSides: "Außenabstände verknüpfen",
+      unlinkMarginSides: "Außenabstände lösen",
       radius: "Radius",
       flexGrow: "Wachsen",
       flexShrink: "Schrumpfen",
@@ -580,6 +598,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "Live-Zusammenarbeit",
+      description:
+        "Ermögliche Personen ohne Zugriff auf den localhost des Eigentümers, eine Live-Kopie dieses Designs anzusehen und zu bearbeiten.",
+      enabled: "Ein",
+      disabled: "Aus",
+      saving: "Wird gespeichert…",
+      enableError: "Live-Zusammenarbeit konnte nicht aktualisiert werden.",
+    },
     vectorEndpoints: {
       startPoint: "Startpunkt",
       endPoint: "Endpunkt",
@@ -961,6 +988,11 @@ export default {
     signUpToSaveDescription:
       "Erstelle ein kostenloses Konto, um Designs und Screen-Layouts zu speichern und neue Richtungen zu generieren.",
     signUpToShare: "Zum Teilen registrieren",
+    signUpToShareLiveCanvas:
+      "Registriere dich, um eine Live-Arbeitsfläche zu teilen",
+    liveCanvasLink: "Link zur Live-Arbeitsfläche",
+    liveCanvasWaitingForOwner:
+      "Warte auf den Live-Snapshot der Arbeitsfläche des Besitzers.",
     shareEditorLink: "Design-Editor-Link",
     shareEditorLinkDescription:
       "Alle mit Zugriff koennen dieses Design im Editor oeffnen.",
@@ -1236,12 +1268,14 @@ export default {
     pendingVisualStyles: {
       applyAria: "Ausstehende visuelle Stiländerungen anwenden",
       applyButton: "Stile anwenden",
+      applySharedEdits: "Änderungen anwenden",
       previewLabel: "Ausstehende visuelle Vorschau",
       applyDesignUpdates: "Design-Updates anwenden",
       applying: "Wird angewendet…",
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
         "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
@@ -1254,6 +1288,8 @@ export default {
       sourceCheckFailedToast:
         "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
       copiedToast: "Stil-Prompt kopiert",
+      copiedToastDescription:
+        "Füge ihn in deinen Programmier-Agenten ein und bitte ihn, die visuellen Änderungen umzusetzen.",
       abortedToast: "Ausstehende Vorschau verworfen",
       interactBlocked:
         "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
@@ -1318,6 +1354,8 @@ export default {
       annotationSendError:
         "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
       codingHandoffError: "Code-Übergabe konnte nicht erstellt werden",
+      visualEditPendingConflict:
+        "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",
@@ -1658,7 +1696,66 @@ export default {
     staleAnchorDetail:
       "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
   },
+  homeContext: {
+    websiteReference: "Website anhängen",
+    websiteUrlLabel: "Website-URL",
+    websiteUrl: "Website-URL einfügen",
+    figmaUrlLabel: "Figma-Link",
+    invalidFigmaUrl:
+      "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
+    tooMany: "Wähle bis zu 20 Referenzen.",
+    invalidWebsiteUrl: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+    createSystem: "Designsystem erstellen",
+    noSystems:
+      "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
+    searchSystems: "Designsysteme suchen…",
+    searchFrames: "Figma-Frames suchen…",
+    searchDesigns: "Designs suchen…",
+    searchPresentations: "Präsentationen suchen…",
+    searchDesign: "Design suchen…",
+    useDesignSystem: "Ein Designsystem verwenden",
+    notReady:
+      "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
+    search: "Kontext suchen…",
+    figmaUrl: "Figma-Link einfügen",
+    browse: "Frames durchsuchen",
+    loadFailed: "Diese Referenz konnte nicht geladen werden.",
+    retry: "Erneut versuchen",
+    empty: "Keine passenden Referenzen.",
+    none: "Keine",
+    design: "Design",
+    slides: "Folien",
+    referenceDesign: "Ein Design als Referenz verwenden",
+    figmaReference: "Figma anhängen",
+    referenceDeck: "Eine Präsentation als Referenz verwenden",
+    quickSaas: "SaaS-Landingpage erstellen",
+    quickDashboard: "Dashboard erstellen",
+    quickDeck: "Präsentation erstellen",
+    deckPrompt:
+      "Erstelle eine ansprechende Präsentation mit Titelfolie, klarer Erzählung, visuellen Daten und einer prägnanten Abschlussfolie.",
+  },
   home: {
+    suggestedPrompts: "Vorgeschlagene Prompts",
+    import: "Importieren",
+    importOptions: "Importoptionen",
+    figmaLink: "Figma-Link",
+    importFromFigma: "Aus Figma importieren",
+    figmaFile: "Figma-Datei (.fig)",
+    openImport: "Import öffnen",
+    importSelectedFile: "Ausgewählte Datei importieren",
+    starterSaasPrompt:
+      "Eine moderne SaaS-Landingpage mit dunklem Design, einem Hero-Bereich, drei Funktionskarten und einem abschließenden Handlungsaufruf.",
+    starterDashboardPrompt:
+      "Ein übersichtliches Analyse-Dashboard mit seitlicher Navigation, vier Kennzahlenkarten, einem Diagramm und einer Tabelle mit den letzten Aktivitäten.",
+    starterMobilePrompt:
+      "Ein mobiler App-Prototyp in einem Smartphone-Rahmen mit einer Tab-Leiste unten und drei Listenkarten auf dem Startbildschirm.",
+    starterPricingPrompt:
+      "Eine Preisseite mit drei Tarifen, einer monatlichen/jährlichen Umschaltung, Funktionslisten und einem hervorgehobenen empfohlenen Tarif.",
+    designPromptTitle: "Lass uns dein erstes Design erstellen",
+    recent: "Zuletzt verwendet",
+    browseAllTemplates: "Alle ansehen",
+    connectBuilderIo: "Builder.io verbinden",
+    connectingBuilder: "Builder.io wird verbunden…",
     pageTitle: "Designs",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",
@@ -1725,6 +1822,8 @@ export default {
     layoutLabel: "Bildschirm-Layout bereit zum Speichern",
   },
   templatesPage: {
+    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
       "Mit passenden Abmessungen und Standardwerten starten und entsperrte Inhalte per Prompt anpassen.",
@@ -1754,7 +1853,7 @@ export default {
     deleteTitle: "Vorlage löschen?",
     deleteDescription:
       "Dadurch wird {{title}} dauerhaft gelöscht. Bereits erstellte Designs bleiben erhalten.",
-    templateActions: "Vorlagenaktionen",
+    templateActions: "Aktionen für {{title}}",
     lockedCount: "{{count}} gesperrt",
     categories: {
       ad: "Anzeige",

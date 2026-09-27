@@ -22,7 +22,6 @@ export interface AgentShareSectionProps {
   label?: string;
 }
 
-/** Optional shared handoff for resources with a registered agent context. */
 export function AgentShareSection({
   resourceType,
   resourceId,

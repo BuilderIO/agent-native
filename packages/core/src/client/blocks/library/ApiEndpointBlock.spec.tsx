@@ -78,11 +78,6 @@ describe("ApiEndpointBlock", () => {
   });
 
   it("renders a valid-JSON request body with the explorer even when its content type is not JSON", () => {
-    // The request body must use the SAME interactive JSON explorer as responses
-    // whenever the example parses as JSON — driven by parseability, not the
-    // declared content type. A WebSocket-upgrade request, for example, declares a
-    // non-`application/json` content type but still carries a JSON payload; it
-    // must NOT fall through to the static code block.
     act(() => {
       root.render(
         <ApiEndpointRead
@@ -113,8 +108,6 @@ describe("ApiEndpointBlock", () => {
       );
     });
 
-    // Interactive explorer chrome present, JSON keys rendered, and NO static
-    // `<pre>` fallback even though the content type is not `application/json`.
     expect(container.textContent).toContain("Expand all");
     expect(container.textContent).toContain("Collapse all");
     expect(container.textContent).toContain('"type"');
@@ -123,9 +116,6 @@ describe("ApiEndpointBlock", () => {
   });
 
   it("renders a JSONC (commented) example with the JSON explorer", () => {
-    // The second endpoint in a recap often carries example bodies annotated with
-    // `//` comments. Those must still earn the collapsible explorer (comments are
-    // stripped before parsing) — not the plain code fallback.
     act(() => {
       root.render(
         <ApiEndpointRead
@@ -159,21 +149,15 @@ describe("ApiEndpointBlock", () => {
       );
     });
 
-    // Explorer chrome present, comment text gone, but a `//` INSIDE a string is
-    // preserved (the URL value survives intact).
     expect(container.textContent).toContain("Expand all");
     expect(container.textContent).toContain('"planId"');
     expect(container.textContent).toContain('"blocks"');
     expect(container.textContent).toContain("https://example.com");
     expect(container.textContent).not.toContain("the plan to update");
-    // No plain `<pre>` fallback — JSONC resolved to the explorer.
     expect(container.querySelector("pre")).toBeNull();
   });
 
   it("renders a non-JSON example in the shared code surface, not a bare pre box", () => {
-    // A genuinely non-JSON / non-parseable example falls back to a code surface
-    // that MATCHES the explorer chrome (single rounded `bg-plan-code` box with a
-    // scrollable `<pre>`), so it never looks like a differently-styled box.
     act(() => {
       root.render(
         <ApiEndpointRead
@@ -204,10 +188,8 @@ describe("ApiEndpointBlock", () => {
 
     const surface = container.querySelector("[data-code-surface]");
     expect(surface).toBeTruthy();
-    // Same surface tokens as the explorer box (no extra background tint).
     expect(surface?.classList.contains("bg-plan-code")).toBe(true);
     expect(surface?.classList.contains("rounded-xl")).toBe(true);
-    // Body scrolls horizontally rather than clipping/overflowing.
     const pre = surface?.querySelector("pre");
     expect(pre).toBeTruthy();
     expect(pre?.className).toContain("overflow-x-auto");
@@ -215,12 +197,6 @@ describe("ApiEndpointBlock", () => {
   });
 
   it("tags each endpoint so a run of consecutive endpoints renders flush", () => {
-    // Render two endpoints back-to-back the way the document flow does. The tight
-    // list look (no divider/gap between adjacent endpoints, merged flush cards)
-    // is driven by CSS that keys off `data-block-type="api-endpoint"` on the
-    // block section plus the `.an-api-endpoint-card` surface. Assert the renderer
-    // emits both markers so consecutive endpoints can be detected and merged —
-    // and that there is NO per-block separator element between the two sections.
     act(() => {
       root.render(
         <>
@@ -242,14 +218,10 @@ describe("ApiEndpointBlock", () => {
       'section[data-block-type="api-endpoint"]',
     );
     expect(sections).toHaveLength(2);
-    // Both endpoints expose the run marker and the flush-able card surface.
     sections.forEach((section) => {
       expect(section.classList.contains("plan-block")).toBe(true);
       expect(section.querySelector(".an-api-endpoint-card")).toBeTruthy();
     });
-    // The two endpoint sections are immediate siblings — no divider/separator
-    // node is injected between them; the run-collapse is purely CSS on the
-    // adjacent `data-block-type="api-endpoint"` pair.
     expect(sections[0]?.nextElementSibling).toBe(sections[1]);
   });
 });

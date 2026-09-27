@@ -11,12 +11,13 @@ import { shouldSkipVisualStyleCommitForPreview } from "@/pages/design-editor/edi
 import { styleWriteTarget } from "./style-write-target";
 
 export interface StylesChangeArgs {
+  canEditLiveScreen?: (screenId: string | null | undefined) => boolean;
   commitInteractionStateStyles: (
     state: InteractionState,
     styles: Record<string, string>,
   ) => boolean;
   commitRelativeStyleDeltaToSelectedLayers: (
-    property: string,
+    property: string | string[],
     operation: number | ScrubRelativeExpression,
     phase?: StyleChangeMeta["phase"],
   ) => boolean;
@@ -48,12 +49,20 @@ export interface StylesChangeArgs {
   ) => void;
   selectedCanvasSelectorCandidates: string[];
   selectedElement: ElementInfo | null;
+  selectedScreenStyleChange?: (
+    screenId: string,
+    selector: string,
+    styles: Record<string, string>,
+    elementInfo?: ElementInfo,
+    metadata?: StyleChangeMeta,
+  ) => void;
   selectedLayerTargetsRef: RefObject<SelectedLayerTarget[]>;
   textEditingState: { active: boolean; selector?: string; hasRange?: boolean };
 }
 
 export function runStylesChange(
   {
+    canEditLiveScreen,
     commitInteractionStateStyles,
     commitRelativeStyleDeltaToSelectedLayers,
     commitStylesToSelectedLayers,
@@ -63,35 +72,76 @@ export function runStylesChange(
     previewInteractionStateStyles,
     selectedCanvasSelectorCandidates,
     selectedElement,
+    selectedScreenStyleChange,
     selectedLayerTargetsRef,
     textEditingState,
   }: StylesChangeArgs,
   styles: Record<string, string>,
   meta?: StyleChangeMeta,
 ) {
-  // Gesture cancellation is paired with a preceding preview that restored the
-  // pointerdown values. It must not enter this command's preview or commit path.
+  const selectedScreenId =
+    selectedLayerTargetsRef.current.length <= 1
+      ? (selectedLayerTargetsRef.current[0]?.fileId ??
+        selectedElement?.sourceLayerIdentity?.screenId)
+      : null;
+  const selector = selectedElement?.selector ?? "body";
+  const capturedLiveTarget =
+    meta?.capturedStyleTargets?.length === 1
+      ? meta.capturedStyleTargets[0]
+      : undefined;
+  if (
+    capturedLiveTarget &&
+    canEditLiveScreen?.(capturedLiveTarget.fileId) &&
+    selectedScreenStyleChange
+  ) {
+    const capturedElement = capturedLiveTarget.elementInfo;
+    selectedScreenStyleChange(
+      capturedLiveTarget.fileId,
+      styleWriteTarget({
+        selector: capturedElement.selector ?? "body",
+        selectedElement: capturedElement,
+      }),
+      styles,
+      capturedElement,
+      meta,
+    );
+    return;
+  }
+
   if (meta?.phase === "cancel") {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        styleWriteTarget({ selector, selectedElement }),
+        styles,
+        selectedElement ?? undefined,
+        meta,
+      );
+    }
     commitStylesToSelectedLayers({}, "cancel");
     return;
   }
   if (meta?.capturedStyleTargets && meta.phase !== "preview") {
     commitCapturedStyleTargets(
       Object.fromEntries(
-        Object.entries(styles).filter(([, value]) => Boolean(value)),
+        Object.entries(styles).filter(([, value]) => value !== undefined),
       ),
       meta.capturedStyleTargets,
       meta.interactionState,
     );
     return;
   }
-  // Interaction-states phase 2 — see handleStyleChange's matching branch
-  // (and commitInteractionStateStyles's doc comment) for the full
-  // contract. Batched form: every property in this one commit lands in
-  // the SAME managed-block write (one applyFileContentUpdate call), so a
-  // multi-property commit made while a state is active (e.g. a shadow
-  // popover's X/Y/blur/spread) is still exactly one history step.
   if (meta?.interactionState) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        styleWriteTarget({ selector, selectedElement }),
+        styles,
+        selectedElement ?? undefined,
+        meta,
+      );
+      return;
+    }
     if (meta.phase === "preview") {
       previewInteractionStateStyles(meta.interactionState, styles);
       return;
@@ -100,13 +150,6 @@ export function runStylesChange(
       return;
     }
   }
-  // Item 14 — see handleStyleChange's matching branch for the full
-  // breakpointReset contract. EditPanel's BreakpointOverrideIndicator
-  // reset currently only fires through onStyleChange (a single
-  // property), but StylesChangeHandler shares the same StyleChangeMeta
-  // type, so this guards defensively for any batched caller too —
-  // breakpointReset only ever targets its own `property`, so only that
-  // one key of `styles` is relevant here.
   if (meta?.breakpointReset) {
     handleClearBreakpointOverride(
       meta.breakpointReset.property,
@@ -114,44 +157,80 @@ export function runStylesChange(
     );
     return;
   }
-  const selector = selectedElement?.selector ?? "body";
-  const entries = Object.entries(styles).filter(([, value]) => Boolean(value));
+  const entries = Object.entries(styles).filter(
+    ([, value]) => value !== undefined,
+  );
   if (entries.length === 0) return;
-  if (meta?.relativeExpression && entries.length === 1) {
-    const [property] = entries[0]!;
-    commitRelativeStyleDeltaToSelectedLayers(
-      property,
-      meta.relativeExpression,
-      meta.phase,
+  const target = styleWriteTarget({ selector, selectedElement });
+  if (textEditingState.hasRange && textEditingState.selector === selector) {
+    if (selectedScreenId && selectedScreenStyleChange) {
+      selectedScreenStyleChange(
+        selectedScreenId,
+        target,
+        Object.fromEntries(entries),
+        selectedElement ?? undefined,
+        { ...meta, phase: "preview" },
+      );
+      return;
+    }
+    if (!selectedScreenId) {
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChange === "function") {
+        entries.forEach(([property, value]) =>
+          sendStyleChange(selector, property, value, {
+            selectorCandidates: selectedCanvasSelectorCandidates,
+            nodeId: selectedElement?.sourceId,
+            phase: meta?.phase,
+          }),
+        );
+        return;
+      }
+    }
+  }
+  if (
+    meta?.phase === "preview" &&
+    selectedScreenId &&
+    selectedScreenStyleChange
+  ) {
+    selectedScreenStyleChange(
+      selectedScreenId,
+      styleWriteTarget({ selector, selectedElement }),
+      Object.fromEntries(entries),
+      selectedElement ?? undefined,
+      meta,
     );
     return;
   }
-  const target = styleWriteTarget({ selector, selectedElement });
-  // T10: mirror handleStyleChange's text-range routing here. Without
-  // this, a multi-property style commit (e.g. EditPanel's typography
-  // controls, which batch fontSize/lineHeight/etc into one call) while a
-  // text RANGE is selected mid-edit would restyle the whole element
-  // instead of just the selected range — handleStyleChange (the
-  // single-property path) already special-cases this; handleStylesChange
-  // just never got the same treatment.
-  if (textEditingState.hasRange && textEditingState.selector === selector) {
-    const sendStyleChange = (window as any).__designCanvasSendStyle;
-    if (typeof sendStyleChange === "function") {
-      entries.forEach(([property, value]) => {
-        sendStyleChange(selector, property, value, {
-          selectorCandidates: selectedCanvasSelectorCandidates,
-          nodeId: selectedElement?.sourceId,
-          phase: meta?.phase,
-        });
-      });
-      return;
-    }
+  if (selectedScreenId && selectedScreenStyleChange) {
+    selectedScreenStyleChange(
+      selectedScreenId,
+      target,
+      Object.fromEntries(entries),
+      selectedElement ?? undefined,
+      meta,
+    );
+    return;
   }
-  // PF12: same preview/commit split as handleStyleChange — see its
-  // comment for the full undo-safety rationale. A batched multi-property
-  // preview tick (e.g. EditPanel's shadow X/Y/blur/spread popover) is
-  // still just a live preview: send every property to the cheap iframe
-  // bridge and skip the expensive multi-property commitVisualStyles call.
+  const relativeProperties =
+    meta?.relativeDeltaProperties ??
+    (entries.length === 1 ? [entries[0]![0]] : []);
+  const relativeOperation = meta?.relativeExpression ?? meta?.relativeDelta;
+  if (
+    relativeOperation !== undefined &&
+    relativeProperties.length > 0 &&
+    relativeProperties.every((property) =>
+      entries.some(([entryProperty]) => entryProperty === property),
+    )
+  ) {
+    const applied = commitRelativeStyleDeltaToSelectedLayers(
+      relativeProperties.length === 1
+        ? relativeProperties[0]!
+        : relativeProperties,
+      relativeOperation,
+      meta?.phase,
+    );
+    if (meta?.relativeExpression || applied) return;
+  }
   if (
     shouldSkipVisualStyleCommitForPreview({
       phase: meta?.phase,
@@ -168,26 +247,6 @@ export function runStylesChange(
       });
     }
     return;
-  }
-  // Mixed-value arrow-step parity (item 7): see handleStyleChange's
-  // matching comment for the full defensive-read rationale. A relative
-  // delta is inherently single-valued (one scrub gesture on one field),
-  // so this only applies when the batched patch has exactly one entry —
-  // a multi-property patch (e.g. a shadow popover's X+Y+blur+spread all
-  // at once) has no single delta to apply per-node and falls through to
-  // the existing absolute-value paths unchanged.
-  const relativeDelta = (meta as { relativeDelta?: number } | undefined)
-    ?.relativeDelta;
-  if (typeof relativeDelta === "number" && entries.length === 1) {
-    const [singleProperty] = entries[0]!;
-    if (
-      commitRelativeStyleDeltaToSelectedLayers(
-        singleProperty,
-        relativeDelta,
-        meta?.phase,
-      )
-    )
-      return;
   }
   if (
     selectedElement &&

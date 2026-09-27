@@ -79,7 +79,6 @@ describe("resolveRestartHandoff", () => {
         true,
       ),
     ).toThrow(RESTART_CAPTURE_ENDED_MESSAGE);
-    // The surviving mic must not be left running behind a failed restart.
     expect(audio.getTracks()[0].readyState).toBe("ended");
   });
 
@@ -216,8 +215,6 @@ describe("recorderWithCaptureSuspension", () => {
     await handle.discardForRestart();
     await handle.cancel();
 
-    // The backend still gets its cancel — it owns whatever session teardown a
-    // restart deliberately skipped.
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(display.getTracks()[0].readyState).toBe("ended");
     expect(audio.getTracks()[0].readyState).toBe("ended");
@@ -237,8 +234,6 @@ describe("recorderWithCaptureSuspension", () => {
       },
     );
 
-    // Losing the handoff here would strand a live screen capture with nobody
-    // holding a reference to stop it.
     await expect(handle.discardForRestart()).resolves.toEqual({
       displayStream: display,
       audioStream: null,

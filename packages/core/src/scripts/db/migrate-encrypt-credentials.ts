@@ -1,9 +1,3 @@
-/**
- * Core script: db-migrate-encrypt-credentials
- *
- * Encrypt plaintext credential rows in the settings table in place.
- */
-
 import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";

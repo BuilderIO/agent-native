@@ -366,8 +366,6 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     );
 
     expect(mocks.saveBackend).not.toHaveBeenCalled();
-    // Only first-party panels route through the translator; a warehouse panel
-    // already speaks BigQuery.
     expect(mocks.assertBigQuerySql).toHaveBeenCalledTimes(1);
   });
 

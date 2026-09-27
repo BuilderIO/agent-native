@@ -833,6 +833,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionCreateFailed: "Impossible de créer la suggestion",
     suggestionsCount: "{{count}} suggestions",
     acceptSuggestion: "Accepter",
@@ -1051,6 +1058,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
@@ -1180,6 +1194,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Fermer",
+  setup: { checkingProvider: "Vérification de la connexion à l’IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1338,6 +1360,13 @@ const overrides = {
     genericError: "Une erreur est survenue",
   },
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Composant source",

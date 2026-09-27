@@ -12,22 +12,10 @@ import {
 export interface SignInPromptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The participation action that triggered the account prompt. */
   intent: "comment" | "react";
-  /**
-   * Same-origin path to return the viewer to after sign-in. Defaults to the
-   * current URL so anonymous viewers on a public share page land back where
-   * they were.
-   */
   returnTo?: string;
-  /**
-   * Fired when the viewer activates the "Sign in" button, before navigation.
-   * Used by the public share page to emit the signin funnel event. Must not
-   * change navigation behavior.
-   */
   onSignIn?: () => void;
   onSignUp?: () => void;
-  /** Open the in-place signup flow instead of navigating away. */
   onCreateAccount?: () => void;
 }
 

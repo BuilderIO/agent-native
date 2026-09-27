@@ -143,7 +143,6 @@ async function getFirstAccountToken(
     if (strictPreference) return null;
   }
 
-  // Only return accounts owned by the given owner
   const accounts = ownerEmail
     ? await listOAuthAccountsByOwner("google", ownerEmail)
     : await listOAuthAccounts("google");
@@ -275,16 +274,7 @@ async function threadHasReplySinceSnooze(
 export async function listPendingJobs(
   ownerEmail: string,
 ): Promise<ScheduledJobRecord[]> {
-  // The scheduled_jobs table is created by the db-migrations plugin at
-  // startup. If migrations failed (e.g. fresh deploy where the database
-  // couldn't initialize) the query throws — return an empty list instead
-  // of bubbling a 500 to the inbox endpoint.
   try {
-    // Scope to this owner at the SQL level (idx_scheduled_jobs_owner_status_run_at
-    // covers this). Legacy rows written before the owner_email backfill only have
-    // account_email set (or neither), so keep matching those the same way the old
-    // in-memory filter did: owner_email match, or owner_email is null and
-    // account_email matches, or both are null (unattributed legacy row).
     const jobs = await db
       .select()
       .from(schema.scheduledJobs)
@@ -478,9 +468,6 @@ export async function resurfaceEmail(
         ["UNREAD"],
         [],
       )) as { historyId?: string } | undefined;
-      // No threadId hint: resolve it from the store (no extra Gmail
-      // round-trip) so this message-scoped mutation still reaches the
-      // mirror instead of silently skipping it.
       const mirrorThreadId =
         threadId ??
         (
@@ -519,10 +506,6 @@ export async function resurfaceEmail(
   });
 }
 
-/**
- * Get the set of thread IDs that are currently snoozed (pending snooze jobs).
- * Used to filter snoozed emails out of inbox results.
- */
 export async function getSnoozedThreadIds(
   ownerEmail: string,
 ): Promise<Set<string>> {
@@ -532,7 +515,6 @@ export async function getSnoozedThreadIds(
     if (job.type !== "snooze") continue;
     const tid = getSnoozeThreadId(job);
     if (tid) ids.add(tid);
-    // Also add emailId in case threadId is missing
     if (job.emailId) ids.add(job.emailId);
   }
   return ids;
@@ -556,8 +538,6 @@ export async function shouldResurfaceSnoozedThread(
   if (!ownerEmail) return true;
   const threadId = getSnoozeThreadId(job);
   if (!threadId) {
-    // Back-compat: older snooze jobs had no thread metadata. Resurface rather
-    // than silently dropping them when they come due.
     return true;
   }
 

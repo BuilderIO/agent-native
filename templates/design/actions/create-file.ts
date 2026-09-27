@@ -25,9 +25,6 @@ import {
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
-// Matches the desktop default the in-app generation directives use
-// (generation-prompt-directives.ts) so a screen created directly via this
-// action looks the same as one the in-app agent generated.
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
@@ -47,7 +44,6 @@ export default defineAction({
       .describe("Type of file"),
   }),
   run: async ({ designId, filename, content, fileType }, context) => {
-    // Path traversal guard
     if (
       filename.includes("..") ||
       filename.includes("/") ||
@@ -65,14 +61,8 @@ export default defineAction({
     const id = nanoid();
     const now = new Date().toISOString();
 
-    // Stamp missing data-agent-native-node-id attributes before persisting so
-    // the new screen is fully addressable by id-keyed editor operations from
-    // the moment it's created, instead of depending on a client-side backfill
-    // the first time someone opens it.
     const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
 
-    // Reject malformed HTML before the row exists — creation went through raw
-    // inserts, so it was the one write path with no integrity gate.
     const advisory = assertDesignHtmlCreateIntegrity({
       content: annotatedContent,
       fileType: fileType ?? "html",
@@ -80,8 +70,6 @@ export default defineAction({
     });
 
     await withDesignSourceMutationTransaction(designId, async (tx) => {
-      // Guard against duplicate (designId, filename) inside the same
-      // transaction as the insert; the unique index remains the final guard.
       const [existing] = await tx
         .select({ id: schema.designFiles.id })
         .from(schema.designFiles)
@@ -114,7 +102,6 @@ export default defineAction({
         .where(eq(schema.designs.id, designId));
     });
 
-    // Seed collab state for the new file
     await seedFromText(id, annotatedContent);
 
     const db = getDb();
@@ -124,12 +111,6 @@ export default defineAction({
       (resolvedFileType === "html" || resolvedFileType === "jsx") &&
       content.trim().length > 0;
 
-    // A renderable screen with no canvas placement fell back to the overview
-    // board's blank-frame default (a small 320x640 card meant for a screen
-    // the user will sketch and resize by hand), which reads as broken for a
-    // complete screen an agent just authored. Give it a real desktop
-    // placement immediately, the same way generate-design and
-    // present-design-variants place screens they create.
     if (renderable) {
       const screenFiles = await db
         .select({

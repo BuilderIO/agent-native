@@ -67,12 +67,6 @@ import {
   sidebarRowTitleFadeClassName,
 } from "./SidebarRowActions";
 
-/**
- * A Recent destination. Recent is personal history, not hierarchy, so its menu
- * carries only actions that leave the Page unchanged: pin, copy link, open in
- * a new tab, and forget. Rename, duplicate, move, trash, add child, and
- * reorder stay with Files and Pinned.
- */
 function RecentSidebarRow({
   entry,
   active,
@@ -120,7 +114,6 @@ function RecentSidebarRow({
           href={appPath(contentRecentHref(entry.target))}
           shareLink={
             sidebarPageLinks(entry.target.documentId, {
-              // Local-file Pages are not published; copy their in-app link.
               localFile:
                 entry.target.documentId.startsWith("local-file:") ||
                 entry.target.documentId.startsWith("local-folder:"),
@@ -226,7 +219,6 @@ export function PersonalSidebarSections({
         }
       });
     queueBySpace.current.set(targetSpaceId, queued);
-    // The error is displayed above; keep the queue usable for a later explicit change.
     void queued.catch(() => undefined);
   }
   function change(

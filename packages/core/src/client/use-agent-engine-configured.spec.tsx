@@ -18,8 +18,6 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-// The initial readiness probe is deferred past first paint; the fallback
-// timer bounds that wait at 250ms, so settling past it is deterministic.
 async function flushAfterPaint() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -131,9 +129,6 @@ describe("useAgentEngineConfigured", () => {
   });
 
   it("an event inside the deferral window consumes the scheduled probe instead of duplicating it", async () => {
-    // A failed probe is the case the shared client-status cache cannot
-    // dedupe (only successful results are cached), so it is the case where
-    // the stacked scheduled probe would hit the endpoint again.
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -157,12 +152,7 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // The event-driven probe stays immediate and the scheduled initial probe
-    // is consumed, not stacked behind it.
     expect(engineFetchCount).toBe(1);
-    // Fail the canonical probe; the legacy fallback probes it spawns fail
-    // too, so the check settles on "unavailable" (and schedules a retry the
-    // unmount below cancels).
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
         resolve(new Response("unavailable", { status: 500 }));
@@ -178,8 +168,6 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
     });
 
-    // Settling past the paint window (fallback timer bounds it at 250ms)
-    // must not start the duplicate scheduled probe.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       await Promise.resolve();
@@ -443,7 +431,6 @@ describe("useAgentEngineConfigured", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
-    // Never "missing": an unanswered probe is not evidence of no provider.
     expect(container.textContent).toBe("unavailable");
 
     failing = false;

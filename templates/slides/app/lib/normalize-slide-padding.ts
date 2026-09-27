@@ -1,16 +1,21 @@
-/**
- * Ensure the outer `.fmd-slide` wrapper has a padding declaration.
- *
- * Explicit padding is part of the slide layout, so preserve it. In particular,
- * an overflow repair often needs to reduce vertical padding; rewriting that
- * value here makes a successful-looking agent edit a no-op in the renderer.
- */
+function fmdSlideClass(openingTag: string): RegExpExecArray | null {
+  const classMatch = /\bclass\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
+  return classMatch && /\bfmd-slide\b/i.test(classMatch[2]) ? classMatch : null;
+}
+
+function fmdSlideStartTag(html: string): string | null {
+  for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
+    if (fmdSlideClass(match[0])) return match[0];
+  }
+  return null;
+}
+
 export function normalizeSlidePadding(html: string): string {
   for (const match of html.matchAll(/<div\b[^>]*>/gi)) {
     const openingTag = match[0];
-    const classMatch = /\bclass\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
+    const classMatch = fmdSlideClass(openingTag);
 
-    if (!classMatch || !/\bfmd-slide\b/i.test(classMatch[2])) continue;
+    if (!classMatch) continue;
 
     const styleMatch = /\bstyle\s*=\s*(["'])(.*?)\1/i.exec(openingTag);
     if (styleMatch) {
@@ -47,4 +52,17 @@ export function normalizeSlidePadding(html: string): string {
   }
 
   return html;
+}
+
+export function normalizeSlidePaddingForWrite(
+  previous: string | undefined,
+  next: string,
+): string {
+  if (
+    previous !== undefined &&
+    fmdSlideStartTag(previous) === fmdSlideStartTag(next)
+  ) {
+    return next;
+  }
+  return normalizeSlidePadding(next);
 }

@@ -378,10 +378,6 @@ export default defineAction({
         },
       );
     } else if (args.parentId !== undefined) {
-      // Appending to the end of the new parent's children reads MAX(position)
-      // then writes MAX+1. Serialize the read through the write so a
-      // concurrent move/create/add targeting the same parent can't read the
-      // same MAX and land on the same position (see _position-utils.ts).
       const parentId = args.parentId;
       await withPositionLock(
         documentsPositionScope(ownerEmail, parentId),

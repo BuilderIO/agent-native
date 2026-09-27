@@ -27,6 +27,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@/hooks/use-slide-file-storage-status", () => ({
+  useSlideFileStorageStatus: () => ({
+    data: { configured: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("@agent-native/core/client/composer", () => ({
   useEagerFileUploads: () => ({
     commitFiles: vi.fn(),
@@ -199,8 +208,6 @@ describe("EditorSidebar AI-active slide", () => {
       onAwaitAddSlidePersisted: () => Promise.resolve(),
       addSlideAgentSubmit,
     };
-    // "New slide" sets the describe target after the rail is already mounted;
-    // the popover only anchors once that thumbnail's ref re-registers.
     const { rerender } = render(
       <EditorSidebar {...props} describeSlideId={null} />,
     );

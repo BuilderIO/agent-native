@@ -20,6 +20,7 @@ export default mergeConfig(
         "**/dist/**",
         "**/.output/**",
         "**/.react-router/**",
+        "**/desktop/**",
         "**/e2e/**",
       ],
     },

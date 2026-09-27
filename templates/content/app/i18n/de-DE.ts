@@ -837,6 +837,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionCreateFailed: "Vorschlag konnte nicht erstellt werden",
     suggestionsCount: "{{count}} Vorschläge",
     acceptSuggestion: "Annehmen",
@@ -1053,6 +1060,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
@@ -1181,6 +1195,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Schließen",
+  setup: { checkingProvider: "KI-Verbindung wird geprüft…" },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+      statusUnavailable: "Der Status des Dateispeichers ist nicht verfügbar.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1338,6 +1360,13 @@ const overrides = {
     genericError: "Etwas ist schiefgelaufen",
   },
   editor: {
+    iconPickerIcons: "Symbole",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Zuletzt verwendet",
+    iconPickerColors: "Farben",
+    iconPickerDefault: "Standard",
+    iconPickerUpload: "Hochladen",
+    iconPickerUploading: "Wird hochgeladen…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Quellkomponente",
