@@ -112,7 +112,6 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
             </h2>
             <BuilderConnectCard
               title={title}
-              description=""
               trackingSource="file_upload_chat_popover"
               onConnected={onConnected}
               render={({ viewModel }) => {

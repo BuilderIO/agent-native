@@ -32,10 +32,10 @@ export function PromptComposer(props: PromptComposerProps) {
     setStoragePromptOpen(true);
   }, []);
   const onAttachmentRequest =
-    props.attachmentsEnabled === false
+    props.onAttachmentRequest ??
+    (props.attachmentsEnabled === false || fileStorageConfigured
       ? undefined
-      : (props.onAttachmentRequest ??
-        (fileStorageConfigured ? undefined : openStoragePrompt));
+      : openStoragePrompt);
 
   useEffect(() => {
     if (fileStorageConfigured) setStoragePromptOpen(false);

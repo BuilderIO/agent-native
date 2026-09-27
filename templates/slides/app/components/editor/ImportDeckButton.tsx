@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,17 +88,7 @@ export function ImportDeckButton({
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <ButtonGroup aria-label={t("home.importMenu.import")}>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={() => openPicker()}
-          >
-            <IconUpload />
-            {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
-          </Button>
+        <div className="inline-flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -107,8 +96,17 @@ export function ImportDeckButton({
                 type="button"
                 size="sm"
                 disabled={busy}
-                aria-label={t("home.importMenu.options")}
+                aria-busy={busy}
+                aria-label={t(
+                  busy ? "editorToolbar.importing" : "home.importMenu.import",
+                )}
               >
+                <IconUpload />
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>
@@ -139,7 +137,7 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-        </ButtonGroup>
+        </div>
       </PopoverAnchor>
       <input
         ref={input}
@@ -152,6 +150,7 @@ export function ImportDeckButton({
       />
       <PopoverContent
         align="end"
+        className="w-[min(28rem,calc(100vw-2rem))]"
         onOpenAutoFocus={(event) => {
           if (popover === "google") {
             event.preventDefault();

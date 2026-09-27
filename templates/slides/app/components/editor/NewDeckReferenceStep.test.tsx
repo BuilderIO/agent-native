@@ -2,6 +2,11 @@
 vi.mock("@/hooks/use-design-system-workflows", () => ({
   useDesignSystemWorkflows: () => true,
 }));
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
+  isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -17,8 +22,33 @@ import type { Deck } from "@/context/DeckContext";
 import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
 
 vi.mock("@agent-native/core/client/setup-connections", () => ({
-  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="file-storage-setup-card" /> : null,
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: "missing" | "unavailable";
+    onRetry?: () => void;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label={
+          status === "unavailable"
+            ? "Couldn't check storage"
+            : "Connect storage to upload files"
+        }
+        data-testid="file-storage-setup-card"
+      >
+        {status === "unavailable" ? <h2>Couldn't check storage</h2> : null}
+        {status === "unavailable" ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : null}
+      </div>
+    ) : null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -34,6 +64,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
+        "home.importMenu.networkFailed":
+          "The import request timed out or lost its network connection. Check your connection and retry.",
+        "home.importMenu.notStarted":
+          "Complete any required sign-in, then retry the import.",
+        "home.fileStorageStatusUnavailable":
+          "Couldn't check object storage. Retry before uploading files.",
+        "home.retry": "Retry",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
@@ -73,9 +110,11 @@ import {
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
-function render(ui: ReactNode, configured = true) {
+function render(ui: ReactNode, configured: boolean | null = true) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  if (configured !== null) {
+    queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  }
   return renderWithoutQueryClient(ui, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -85,7 +124,7 @@ function render(ui: ReactNode, configured = true) {
 
 async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
-  storageConfigured = true,
+  storageConfigured: boolean | null = true,
 ) {
   const onSelect = vi.fn();
   const onImport =
@@ -141,7 +180,10 @@ async function renderStep(
 }
 
 describe("<NewDeckReferenceStep>", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    isReferenceStorageReadyMock.mockReset();
+  });
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
     const imported: ImportedReference = {
@@ -187,6 +229,50 @@ describe("<NewDeckReferenceStep>", () => {
       referenceSource: null,
       referenceFilePaths: ["/uploads/reference.pptx"],
     });
+  });
+
+  it("only shows storage setup after a file import is requested", async () => {
+    isReferenceStorageReadyMock.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    await renderStep({}, null);
+
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    expect(isReferenceStorageReadyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    Object.assign(new Error("private storage response"), {
+      code: "reference_storage_auth_required",
+    }),
+    Object.assign(new Error("Storage status request failed (503)"), {
+      code: "reference_storage_http_failed",
+    }),
+    Object.assign(new Error("Storage status response is invalid"), {
+      code: "reference_storage_contract_failed",
+    }),
+  ])("shows generic storage guidance after a failed check", async (error) => {
+    isReferenceStorageReadyMock.mockRejectedValue(error);
+    await renderStep({}, null);
+
+    expect(
+      screen.queryByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    const setup = await screen.findByRole("dialog", {
+      name: "Couldn't check storage",
+    });
+    expect(setup.textContent).toContain("Couldn't check storage");
+    expect(setup.textContent).not.toMatch(
+      /private storage|503|response is invalid/i,
+    );
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {

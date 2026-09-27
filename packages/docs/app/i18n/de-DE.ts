@@ -1786,6 +1786,8 @@ const deDE = {
       heroDescription:
         "Sag Jev in einfacher Sprache, was wichtig ist. Es hält menschliche GitHub-Kommentare sichtbar, rückt die Nachrichten deiner Führungskraft nach oben und räumt Bot-Benachrichtigungen weg – und lernt aus deinen Korrekturen.",
       heroCta: "Verwalte deinen Posteingang",
+      mobileArchiveToast:
+        "1.167 Bot-Benachrichtigungen archiviert · 4 PR-Kommentare behalten",
       useCasesHeading: "Ein intelligenterer Posteingang, unterstützt von Jev",
       useCasesBody:
         "Lege eine Regel in natürlicher Sprache fest. Jev priorisiert wichtige Personen und Unterhaltungen, vergibt passende Labels und archiviert wiederkehrende Nachrichten automatisch.",

@@ -1229,6 +1229,78 @@ export const runContentMigrations = runMigrations(
       name: "content-property-icons",
       sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS icon TEXT`,
     },
+    {
+      version: 103,
+      name: "content-browser-save-attempt-receipts",
+      sql: `CREATE TABLE IF NOT EXISTS document_browser_save_attempts (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          payload_digest TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_browser_save_attempts_scope_unique
+          ON document_browser_save_attempts (document_id, actor_email, org_id, attempt_id);
+        CREATE INDEX IF NOT EXISTS document_browser_save_attempts_owner_document_idx
+          ON document_browser_save_attempts (owner_email, document_id)`,
+    },
+    {
+      version: 104,
+      name: "content-document-body-intent-order",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_intents (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT NOT NULL DEFAULT '',
+          document_id TEXT NOT NULL,
+          writer_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          generation INTEGER,
+          authored_base_revision INTEGER NOT NULL,
+          committed_revision INTEGER NOT NULL,
+          displaced_checkpoint_id TEXT,
+          affected_block_indexes_json TEXT NOT NULL DEFAULT '[]',
+          canonical_changed BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS document_body_intents_document_writer_operation_unique
+          ON document_body_intents (document_id, writer_id, operation_id);
+        CREATE INDEX IF NOT EXISTS document_body_intents_owner_document_revision_idx
+          ON document_body_intents (owner_email, document_id, committed_revision)`,
+    },
+    {
+      version: 105,
+      name: "content-history-body-revision-provenance",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS body_revision INTEGER;
+        CREATE INDEX IF NOT EXISTS document_versions_owner_document_body_revision_idx
+          ON document_versions (owner_email, document_id, body_revision)`,
+    },
+    {
+      version: 106,
+      name: "content-document-body-intent-candidate-hash",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_hash TEXT`,
+    },
+    {
+      version: 107,
+      name: "content-document-body-intent-metadata-hash",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS metadata_hash TEXT`,
+    },
+    {
+      version: 108,
+      name: "content-preview-draft-discarded-generation",
+      sql: `ALTER TABLE document_preview_draft_settlements ADD COLUMN IF NOT EXISTS discarded_generation INTEGER`,
+    },
+    {
+      version: 109,
+      name: "content-legacy-body-intent-checkpoints-optional",
+      sql: `ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS before_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ADD COLUMN IF NOT EXISTS candidate_checkpoint_id TEXT;
+        ALTER TABLE document_body_intents ALTER COLUMN before_checkpoint_id DROP NOT NULL;
+        ALTER TABLE document_body_intents ALTER COLUMN candidate_checkpoint_id DROP NOT NULL`,
+    },
   ],
   { table: "content_migrations" },
 );

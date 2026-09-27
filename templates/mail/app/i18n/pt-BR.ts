@@ -71,6 +71,27 @@ const messages = {
       aiSetupPromptTravel: "Confirmações e reservas de viagem de que preciso",
       aiSetupTagFinance: "Finanças",
       aiSetupPromptFinance: "Contas e extratos de que preciso",
+      aiSetupArchiveExample:
+        "Notificações de bots e CI do GitHub, Vercel e Dependabot",
+      aiSetupFilteredExample:
+        "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
+      aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupSortingProgress:
+        "Organizando e-mails recentes: {{processed}} de {{total}}",
+      aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
+      aiSetupSortingFailed:
+        "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
+      aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",
+      aiSetupRuleCount: "{{count}} correspondências",
+      aiSetupNoMatches:
+        "Nenhuma mensagem dos últimos 14 dias corresponde a estas regras.",
+      aiSetupChatTip:
+        "Você pode ajustar ou adicionar regras pelo chat quando quiser.",
+      aiSetupChatPrompt: "Priorize e-mails do meu chefe…",
+      aiSetupNoRules: "Nenhuma regra foi selecionada.",
+      aiSetupPartialFailure: "Não foi possível atualizar {{count}} mensagens.",
+      aiSetupSortInbox: "Organizar minha caixa de entrada",
+      aiSetupImportantExample: "Tudo da minha gerente, Priya…",
       priorityFeedbackLabel: "Feedback de importância",
       priorityScoreHigh: "Alta importância",
       priorityScoreMedium: "Média importância",
@@ -542,6 +563,8 @@ const messages = {
         "Adiciona a etiqueta agent-native-filtered e arquiva a conversa. Você pode desfazer a qualquer momento.",
       learningNote:
         "Mantém a mensagem na Caixa de entrada e ensina o filtro a não repetir o erro.",
+      learningProgress:
+        "{{count}} de {{required}} exemplos confirmados. Os e-mails recentes serão verificados quando todos os {{required}} forem confirmados.",
       rememberLabel: "Lembrar para emails futuros (opcional)",
       correctLabel: "O que ele deve aprender? (opcional)",
       rememberPlaceholder:
@@ -564,6 +587,26 @@ const messages = {
       spamMode: "Spam",
       tagMode: "Tag",
       aiTagsTitle: "Tags de IA",
+      filteredMode: "Filtrado",
+      autoArchiveMode: "Arquivar automaticamente",
+      manageSettings: "Gerenciar",
+      askJev: "Perguntar ao Jev",
+      askJevPrompt:
+        "Ajude a ajustar esta regra do Mail: {{condition}}. Pergunte o que quero mudar e depois atualize a regra.",
+      composerPlaceholder: "Peça ao Jev para organizar sua caixa de entrada…",
+      ruleBackfillStarting: "Aplicando esta regra aos e-mails recentes…",
+      ruleBackfillProgress:
+        "Aplicando aos e-mails recentes: {{processed}} de {{total}}",
+      ruleBackfillMatches: "{{count}} mensagens recentes correspondem",
+      ruleBackfillNoMatches:
+        "Nenhuma mensagem recente corresponde a esta regra.",
+      ruleBackfillFailed:
+        "Não foi possível aplicar esta regra aos e-mails recentes.",
+      ruleBackfillPartialFailure:
+        "Não foi possível atualizar {{count}} mensagens.",
+      ruleBackfillUndoing: "Restaurando e-mails recentes…",
+      ruleBackfillUndoComplete: "{{count}} mensagens restauradas",
+      ruleBackfillReview: "Revisar correspondências",
       importantMode: "Importante",
       notImportantMode: "Não importante",
       importantLabel: "Importante por IA",

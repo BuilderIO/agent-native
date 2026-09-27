@@ -572,6 +572,7 @@ export function NewDeckReferenceStep({
                 open={storagePromptOpen}
                 onOpenChange={setStoragePromptOpen}
                 onRetry={() => void storageQuery.refetch()}
+                onConnected={() => void storageQuery.refetch()}
               />
               {selectedSource && (
                 <Input

@@ -3458,7 +3458,7 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // url-safety keeps this Node-only import opaque so browser builds do not
     // bundle undici; the emitted server bundle still needs the package at runtime.
-    if (/(\"|')undici\1/.test(source)) packagesToCopy.add("undici");
+    if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
     for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
       if (hasExternalSsrRuntimeReference(source, packageName)) {
         packagesToCopy.add(packageName);

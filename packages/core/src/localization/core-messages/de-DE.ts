@@ -80,6 +80,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.useOwnApiKeys": "Meine eigenen API-Schlüssel verwenden",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
   "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",

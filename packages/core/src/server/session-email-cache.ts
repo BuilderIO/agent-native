@@ -24,13 +24,22 @@ const sessionEmailCache = createTtlCache<string>({
   ttlMs: SESSION_EMAIL_TTL_MS,
   maxEntries: 4_096,
 });
+let cacheGeneration = 0;
 
 export function getCachedSessionEmail(token: string): string | undefined {
   return sessionEmailCache.get(token);
 }
 
-export function setCachedSessionEmail(token: string, email: string): void {
-  sessionEmailCache.set(token, email);
+export function getSessionEmailCacheGeneration(): number {
+  return cacheGeneration;
+}
+
+export function setCachedSessionEmail(
+  token: string,
+  email: string,
+  generation: number,
+): void {
+  if (generation === cacheGeneration) sessionEmailCache.set(token, email);
 }
 
 export function forgetCachedSessionEmail(token: string): void {
@@ -46,6 +55,7 @@ export function forgetCachedSessionEmail(token: string): void {
  * resolving for the rest of the TTL.
  */
 export function invalidateSessionEmailCache(): void {
+  cacheGeneration++;
   sessionEmailCache.clear();
 }
 

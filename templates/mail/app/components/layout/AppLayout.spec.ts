@@ -20,6 +20,22 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses the stable router link for tooltip-wrapped tabs and sidebar settings gears", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain("RouterSidebarLink,");
+    expect(source).toContain("const link = ( <RouterSidebarLink");
+    expect(source).toContain(
+      "<Tooltip key={item.id}> <TooltipTrigger asChild> <RouterSidebarLink",
+    );
+    expect(
+      source.match(
+        /<TooltipTrigger asChild> <RouterSidebarLink to=\"\/settings\"/g,
+      ),
+    ).toHaveLength(2);
+    expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+  });
+
   it("keeps the tab scrollport within the space before its settings cog", () => {
     const source = appLayoutSource();
 
@@ -231,6 +247,21 @@ describe("AppLayout inbox tab bar", () => {
       '<Switch\n            id="split-inbox-toggle"\n            checked={!combinedInbox}\n            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}',
     );
     expect(source).toContain('t("mail.tabSettings.splitInbox")');
+  });
+
+  it("lists AI rule tags first and keeps them out of the Gmail label tree", () => {
+    const source = appLayoutSource();
+    const aiTagsSection = source.indexOf("{/* AI rule tags stay separate");
+    const viewsSection = source.indexOf("{/* System views */}");
+
+    expect(source).toContain('rule.kind !== "ai-filter"');
+    expect(source).toContain('aiFilterRuleMode(rule) !== "tag"');
+    expect(source).toContain(
+      "!aiTagIds.has(normalizedAiFilterLabelId(l.name))",
+    );
+    expect(source).toContain("checked={pinnedLabels.includes(tag.id)}");
+    expect(aiTagsSection).toBeGreaterThan(-1);
+    expect(viewsSection).toBeGreaterThan(aiTagsSection);
   });
 
   it("routes saved searches through the Gmail query path", () => {

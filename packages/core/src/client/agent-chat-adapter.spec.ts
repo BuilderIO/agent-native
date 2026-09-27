@@ -2478,7 +2478,7 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
-  it("keeps recovery prompts from replacing the original user request", async () => {
+  it("retries the original request with its file attachments", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -2505,6 +2505,19 @@ describe("createAgentChatAdapter", () => {
           {
             role: "user",
             content: [{ type: "text", text: "Build a CS operations tool" }],
+            attachments: [
+              {
+                name: "brief.md",
+                contentType: "text/markdown",
+                content: [
+                  {
+                    type: "file",
+                    data: "# Signup flow",
+                    mimeType: "text/markdown",
+                  },
+                ],
+              },
+            ],
           },
           {
             role: "assistant",
@@ -2521,11 +2534,11 @@ describe("createAgentChatAdapter", () => {
             content: [
               {
                 type: "text",
-                text: "Continue from where you left off and finish my last request.",
+                text: "Retry my previous request now that the model provider is connected.",
               },
             ],
             metadata: {
-              custom: { agentNativeRecoveryAction: "continue" },
+              custom: { agentNativeRecoveryAction: "retry" },
             },
           },
         ],
@@ -2535,14 +2548,26 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.message).toBe(
-      "Continue from where you left off and finish my last request.",
+      "Retry my previous request now that the model provider is connected.",
     );
     expect(body.displayMessage).toBe("Build a CS operations tool");
     expect(body.internalContinuation).toBe(true);
-    expect(body.history).toEqual([
-      { role: "user", content: "Build a CS operations tool" },
-      { role: "assistant", content: "The agent stopped before finishing." },
+    expect(body.attachments).toEqual([
+      {
+        type: "file",
+        name: "brief.md",
+        contentType: "text/markdown",
+        text: "# Signup flow",
+      },
     ]);
+    expect(body.history[0]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("Build a CS operations tool"),
+    });
+    expect(body.history[1]).toEqual({
+      role: "assistant",
+      content: "The agent stopped before finishing.",
+    });
 
     await drain(
       adapter.run({
@@ -2550,6 +2575,19 @@ describe("createAgentChatAdapter", () => {
           {
             role: "user",
             content: [{ type: "text", text: "Build a CS operations tool" }],
+            attachments: [
+              {
+                name: "brief.md",
+                contentType: "text/markdown",
+                content: [
+                  {
+                    type: "file",
+                    data: "# Signup flow",
+                    mimeType: "text/markdown",
+                  },
+                ],
+              },
+            ],
           },
           {
             role: "assistant",
@@ -2566,11 +2604,11 @@ describe("createAgentChatAdapter", () => {
             content: [
               {
                 type: "text",
-                text: "Continue from where you left off and finish my last request.",
+                text: "Retry my previous request now that the model provider is connected.",
               },
             ],
             metadata: {
-              custom: { agentNativeRecoveryAction: "continue" },
+              custom: { agentNativeRecoveryAction: "retry" },
             },
           },
         ],

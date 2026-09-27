@@ -1648,16 +1648,17 @@ export function ResourcesPanel({
       const selected = Array.from(files, (file) => ({ file, targetScope }));
       const processAttempt = (storageConfigured: boolean) => {
         const pending = pendingResourceUploadsRef.current.splice(0);
-        processResourceUploads(
-          [...pending, ...selected],
-          storageConfigured,
-          true,
-        );
+        processResourceUploads(pending, storageConfigured, true);
       };
       if (fileUploadStatus.data && !fileUploadStatus.isError) {
-        processAttempt(fileUploadStatus.data.configured);
+        processResourceUploads(
+          selected,
+          fileUploadStatus.data.configured,
+          true,
+        );
         return;
       }
+      pendingResourceUploadsRef.current.push(...selected);
       void fileUploadStatus
         .refetch()
         .then((result) => {

@@ -1,9 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import {
-  agentNativePath,
-  appBasePath,
-  appPath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
@@ -82,6 +78,16 @@ import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
+import {
+  cleanupUploadedPromptFiles,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
 import { parseUploadResponse } from "@/lib/upload-response";
 
 import {
@@ -251,6 +257,7 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
+  const hasSlides = deck.slides.length > 0;
   const creativeContextEnabled = useCreativeContextLab();
   // Public decks default to the read-only presentation URL so recipients do
   // not get sent through the editor's auth gate. Restricted decks keep the
@@ -277,6 +284,7 @@ export default function EditorToolbar({
   };
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const showShareLink = hasSlides || shareLinkOrder.primary === "editor";
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -360,6 +368,7 @@ export default function EditorToolbar({
       return;
     }
     setImporting(true);
+    let uploadedFiles: UploadedFile[] = [];
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
@@ -376,27 +385,12 @@ export default function EditorToolbar({
         return;
       }
 
-      const formData = new FormData();
-      formData.append("file", file);
-      const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      // R83 — guard the parse: a failed upload can come back as a non-JSON
-      // body (upstream proxy/platform error page, plaintext "Internal
-      // Error", etc.). Parsing before the ok check used to throw a raw
-      // "Unexpected token ... is not valid JSON" SyntaxError into this
-      // toast instead of the clean message below.
-      const uploadData = await parseUploadResponse(
-        uploadRes,
-        t("editorToolbar.uploadFailed"),
+      uploadedFiles = await uploadPromptFiles(
+        [file],
+        t("home.referenceFileStorageUnavailable"),
       );
-      if (!uploadRes.ok) {
-        throw new Error(uploadData?.error || t("editorToolbar.uploadFailed"));
-      }
-      const uploaded = Array.isArray(uploadData) ? uploadData[0] : uploadData;
-      const filePath = uploaded?.path || uploaded?.url;
-      if (!filePath) throw new Error(t("editorToolbar.uploadMissingPath"));
+      const uploaded = uploadedFiles[0];
+      if (!uploaded) throw new Error(t("editorToolbar.uploadMissingPath"));
 
       const importRes = await fetch(
         agentNativePath("/_agent-native/actions/import-file"),
@@ -404,14 +398,13 @@ export default function EditorToolbar({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            filePath,
+            filePath: uploaded.path,
             deckId,
             format: "auto",
             importIntoDeck: true,
           }),
         },
       );
-      // R83 — same parse guard as the upload response above.
       const importData = await parseUploadResponse(
         importRes,
         t("editorToolbar.importFailed"),
@@ -435,15 +428,27 @@ export default function EditorToolbar({
       const storageSetupRequired = isStorageSetupRequiredError(err);
       if (storageSetupRequired) void storageQuery.refetch();
       toast.error(t("editorToolbar.importFailed"), {
-        description: storageSetupRequired
-          ? t("home.fileStorageSetupRequired")
-          : err instanceof DeckBackupError
-            ? t("editorToolbar.invalidBackup")
-            : err instanceof Error
-              ? err.message
-              : t("editorToolbar.importFailedDescription"),
+        description: formatPromptUploadFailure(
+          err,
+          storageSetupRequired
+            ? t("home.fileStorageSetupRequired")
+            : err instanceof DeckBackupError
+              ? t("editorToolbar.invalidBackup")
+              : isPromptUploadAuthRequiredError(err)
+                ? t("home.importMenu.notStarted")
+                : isPromptUploadNetworkError(err)
+                  ? t("home.importMenu.networkFailed")
+                  : isPromptUploadLimitError(err)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(err)
+                      ? t("editorToolbar.importFailedDescription")
+                      : err instanceof Error
+                        ? err.message
+                        : t("editorToolbar.importFailedDescription"),
+        ),
       });
     } finally {
+      await cleanupUploadedPromptFiles(uploadedFiles);
       setImporting(false);
       e.target.value = "";
     }
@@ -597,41 +602,43 @@ export default function EditorToolbar({
       });
     }
 
-    commands.push(
-      {
-        id: "download-html",
-        group: "deck",
-        label: t("editorExport.downloadHtml"),
-        keywords: ["export", "html", "download"],
-        icon: IconCode,
-        run: () => void exportMenuRef.current?.exportHtml(),
-      },
-      {
-        id: "export-pdf",
-        group: "deck",
-        label: t("editorExport.exportPdf"),
-        keywords: ["export", "pdf", "download"],
-        icon: IconFileTypePdf,
-        run: () => void exportMenuRef.current?.exportPdf(),
-      },
-      {
-        id: "export-pptx",
-        group: "deck",
-        label: t("editorExport.exportPptx"),
-        keywords: ["export", "powerpoint", "pptx", "download"],
-        icon: IconDownload,
-        run: () => void exportMenuRef.current?.exportPptx(),
-      },
-    );
-    if (onExportGoogleSlides) {
-      commands.push({
-        id: "export-to-google-slides",
-        group: "deck",
-        label: t("editorExport.openInGoogleSlides"),
-        keywords: ["google", "slides", "export"],
-        icon: IconBrandGoogle,
-        run: () => void exportMenuRef.current?.exportGoogleSlides(),
-      });
+    if (hasSlides) {
+      commands.push(
+        {
+          id: "download-html",
+          group: "deck",
+          label: t("editorExport.downloadHtml"),
+          keywords: ["export", "html", "download"],
+          icon: IconCode,
+          run: () => void exportMenuRef.current?.exportHtml(),
+        },
+        {
+          id: "export-pdf",
+          group: "deck",
+          label: t("editorExport.exportPdf"),
+          keywords: ["export", "pdf", "download"],
+          icon: IconFileTypePdf,
+          run: () => void exportMenuRef.current?.exportPdf(),
+        },
+        {
+          id: "export-pptx",
+          group: "deck",
+          label: t("editorExport.exportPptx"),
+          keywords: ["export", "powerpoint", "pptx", "download"],
+          icon: IconDownload,
+          run: () => void exportMenuRef.current?.exportPptx(),
+        },
+      );
+      if (onExportGoogleSlides) {
+        commands.push({
+          id: "export-to-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        });
+      }
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -684,6 +691,7 @@ export default function EditorToolbar({
     commentsOpen,
     currentSlide,
     drawMode,
+    hasSlides,
     importing,
     isDark,
     openFileImport,
@@ -983,6 +991,7 @@ export default function EditorToolbar({
               inline
               hideExportDialog
               onExportStatusChange={setExportStatus}
+              hasSlides={hasSlides}
               deckId={deckId}
               deckTitle={deckTitle}
               onDuplicate={onDuplicateDeck ?? (() => {})}
@@ -1025,9 +1034,10 @@ export default function EditorToolbar({
               description: t("editorToolbar.commenterRoleDescription"),
             },
           }}
-          shareUrl={primaryShareLink.url}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
           shareTabs={
             creativeContextEnabled
               ? {
@@ -1058,15 +1068,26 @@ export default function EditorToolbar({
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
-      <Link
-        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={onPresent ? handlePresentClick : undefined}
-        onAuxClick={onPresent ? handlePresentClick : undefined}
-        className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-      >
-        <IconPlayerPlay className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
-      </Link>
+      {hasSlides ? (
+        <Link
+          to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
+          onClick={onPresent ? handlePresentClick : undefined}
+          onAuxClick={onPresent ? handlePresentClick : undefined}
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Link>
+      ) : (
+        <Button
+          type="button"
+          disabled
+          className="h-9 flex-shrink-0 gap-1.5 border border-border px-3 text-sm font-medium"
+        >
+          <IconPlayerPlay className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
+        </Button>
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

@@ -56,6 +56,7 @@ export function ComposerContextPickerDialog({
     >
       <DialogContent
         aria-describedby={undefined}
+        overlayClassName="bg-background/85 backdrop-blur-sm"
         closeLabel={t("agentChat.common.close", { defaultValue: "Close" })}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -222,9 +223,9 @@ export function ComposerContextPickerDialog({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          {error &&
-            (stage === "link" ? picker.actionError?.retry : picker.retry) && (
-              <div>
+          <DialogFooter>
+            {error &&
+              (stage === "link" ? picker.actionError?.retry : picker.retry) && (
                 <Button
                   type="button"
                   variant="outline"
@@ -236,9 +237,7 @@ export function ComposerContextPickerDialog({
                 >
                   {t("agentChat.common.retry", { defaultValue: "Retry" })}
                 </Button>
-              </div>
-            )}
-          <DialogFooter>
+              )}
             {stage === "results" && (
               <Button
                 type="button"

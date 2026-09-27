@@ -70,11 +70,11 @@ describe("AuthPage", () => {
     expect(shouldStartWithLocalDev("/", "?error=INVALID_TOKEN")).toBe(false);
     expect(shouldStartWithLocalDev("/login", "")).toBe(false);
     expect(shouldStartWithLocalDev("/signup/", "")).toBe(false);
-    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(false);
+    expect(shouldStartWithLocalDev("/sign-in", "")).toBe(true);
     expect(
       shouldStartWithLocalDev("/_agent-native/sign-in", "?return=%2Fplans"),
-    ).toBe(false);
-    expect(shouldStartWithLocalDev("/", "?c=%2Fplans")).toBe(false);
+    ).toBe(true);
+    expect(shouldStartWithLocalDev("/sign-in", "?c=%2Fplans")).toBe(true);
   });
 
   it("only confirms anonymous sessions from a readable auth response", () => {

@@ -115,12 +115,55 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var editorChromeRootObserver: MutationObserver | null = null;
   var repairingEditorChromeHost = false;
 
+  function isCanvasFocusTransferSafe() {
+    if (activeTextEditEl) return false;
+    var active = document.activeElement;
+    var visited = new Set();
+    var focusTargetSelector =
+      'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+    while (active && !visited.has(active)) {
+      visited.add(active);
+      if (
+        isEditorTypingTarget(active) ||
+        active.closest?.(focusTargetSelector)
+      ) {
+        return false;
+      }
+      var shadowActive = active.shadowRoot?.activeElement;
+      if (shadowActive) {
+        active = shadowActive;
+        continue;
+      }
+      if (
+        active !== document.body &&
+        active !== document.documentElement &&
+        active.matches?.(":focus-within")
+      ) {
+        return false;
+      }
+      return true;
+    }
+    return true;
+  }
+
+  function reportCanvasFocusState(): void {
+    if (readOnly || interactionMode) return;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:canvas-focus-state",
+        focusSafe: isCanvasFocusTransferSafe(),
+      },
+      "*",
+    );
+  }
+
   function sendEditorChromeReady(): void {
     (window.parent as Window).postMessage(
       {
         type: "agent-native:editor-chrome-ready",
         routePath: window.location.pathname + window.location.search,
         documentId: runtimeDocumentId,
+        focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe(),
       },
       "*",
     );
@@ -11388,7 +11431,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function isEditorTypingTarget(target) {
     if (!target || !target.closest) return false;
     return !!target.closest(
-      'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]',
+      'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]',
     );
   }
 
@@ -17117,6 +17160,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
+    var reverseFlow =
+      !multiTrackGrid &&
+      ((axis === "x" &&
+        (containerStyles.flexDirection === "row" ||
+          containerStyles.flexDirection === "row-reverse") &&
+        (containerStyles.flexDirection === "row-reverse") !==
+          (containerStyles.direction === "rtl")) ||
+        (axis === "y" && containerStyles.flexDirection === "column-reverse"));
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -17144,14 +17195,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         bestDistance = distance;
         best = children[j];
         var placementPointer = axis === "x" ? clientX : clientY;
-        placement =
-          multiTrackGrid || wrappedFlexAxis
-            ? placementPointer < center
-              ? "before"
-              : "after"
-            : pointer < center
-              ? "before"
-              : "after";
+        var before = placementPointer < center;
+        if (reverseFlow) before = !before;
+        placement = before ? "before" : "after";
       }
     }
     if (!best) return null;
@@ -17486,7 +17532,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
     }
 
-    var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    var receivingContainer = currentParent.parentElement;
+    var target = null;
+    if (
+      pointerOutsideCurrentParent &&
+      receivingContainer &&
+      isAutoLayoutElement(receivingContainer) &&
+      pointHit === receivingContainer
+    ) {
+      target = nearestChildInsertionTarget(
+        receivingContainer,
+        clientX,
+        clientY,
+        dragged,
+      ) || {
+        anchor: receivingContainer,
+        placement: "inside",
+        axis: parentFlowAxis(receivingContainer),
+        dropMode: "flow-insert",
+      };
+    } else {
+      target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    }
     if (
       (forceNestedAutoLayout || ignoreTargetAutoLayout) &&
       !pointerOutsideCurrentParent
@@ -17558,14 +17625,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       };
     }
 
-    // Body has no node-id, so persist cannot resolve `html > body` as an
-    // inside-anchor. After the current parent lands the same freeform root
-    // sibling and gives persist a real node-id.
+    // Body has no node-id. Preserve only an unnest target that already names a
+    // board-root sibling; ordinary flow slots under body must escape as an
+    // absolute drop at the pointer instead of inheriting body's flow origin.
+    var unnestPromotedBoardRootTarget =
+      target?.dropMode === "absolute-container" &&
+      target.placement !== "inside" &&
+      target.anchor?.parentElement === document.body;
     if (
       currentParent !== document.body &&
       (container === document.body ||
         container === document.documentElement ||
-        target?.anchor === document.body)
+        target?.anchor === document.body) &&
+      !unnestPromotedBoardRootTarget
     ) {
       target = {
         anchor: currentParent,
@@ -17587,7 +17659,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       exitedContainer &&
       receivingContainer &&
       isContainerDropTarget(exitedContainer) &&
-      targetContainer === receivingContainer &&
+      !isAutoLayoutElement(receivingContainer) &&
+      target.anchor?.parentElement !== document.body &&
+      (targetContainer === receivingContainer ||
+        target?.anchor === receivingContainer) &&
       (pointHit === receivingContainer ||
         !pointHit ||
         pointHit === document.body ||
@@ -18023,25 +18098,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // After-the-parent (not inside body): body often has no node-id, so persist
   // cannot resolve it and the style-only write leaves the child clipped.
   function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-    var parent = el && el.parentElement;
+    var child = el && el.parentElement;
+    var childRect = child && child.getBoundingClientRect();
     if (
-      !parent ||
-      parent === document.body ||
-      parent === document.documentElement
+      !child ||
+      child === document.body ||
+      child === document.documentElement ||
+      !childRect ||
+      (clientX >= childRect.left &&
+        clientX <= childRect.right &&
+        clientY >= childRect.top &&
+        clientY <= childRect.bottom)
     ) {
       return null;
     }
-    var parentRect = parent.getBoundingClientRect();
-    if (
-      clientX >= parentRect.left &&
-      clientX <= parentRect.right &&
-      clientY >= parentRect.top &&
-      clientY <= parentRect.bottom
+    var parent = child.parentElement;
+    while (
+      parent &&
+      parent !== document.body &&
+      parent !== document.documentElement
     ) {
-      return null;
+      var parentRect = parent.getBoundingClientRect();
+      if (
+        clientX >= parentRect.left &&
+        clientX <= parentRect.right &&
+        clientY >= parentRect.top &&
+        clientY <= parentRect.bottom
+      ) {
+        return {
+          anchor: child,
+          placement: "after",
+          axis: parentFlowAxis(parent),
+          dropMode: "absolute-container",
+        };
+      }
+      child = parent;
+      parent = parent.parentElement;
     }
     return {
-      anchor: parent,
+      anchor: child,
       placement: "after",
       axis: "y",
       dropMode: "absolute-container",
@@ -24952,6 +25047,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ].forEach(function (type) {
     document.addEventListener(type, stopBlockedLayerInteraction, true);
   });
+  document.addEventListener("focusin", reportCanvasFocusState, true);
+  document.addEventListener(
+    "focusout",
+    function () {
+      window.setTimeout(reportCanvasFocusState, 0);
+    },
+    true,
+  );
+  document.addEventListener(
+    "pointerup",
+    function () {
+      window.setTimeout(reportCanvasFocusState, 0);
+    },
+    true,
+  );
 
   shieldOverlay.addEventListener("click", selectElementAtEvent, true);
   shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
@@ -26584,6 +26694,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       sendEditorChromeReady();
       return;
     }
+    if (e.data.type === "agent-native:canvas-focus-state-probe") {
+      reportCanvasFocusState();
+      return;
+    }
     // NOTE: no message type in this handler is sourced from a `payload`
     // sub-object — every host sender (DesignCanvas.tsx) puts its fields
     // directly on the top-level message. A previous blanket
@@ -26732,6 +26846,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         if (selectedEl?.isConnected)
           positionOverlay(selectionOverlay, selectedEl);
         scheduleRuntimeLayerSnapshot();
+        window.setTimeout(reportCanvasFocusState, 0);
       }
       return;
     }

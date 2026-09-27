@@ -829,6 +829,11 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "أنشئ عرضًا تقديميًا لمنتج",
+      roadmap: "أنشئ خارطة طريق لمنتج",
+      explainer: "اشرح موضوعًا في عرض تقديمي",
+    },
     suggestedPrompts: "الاقتراحات المقترحة",
     importMenu: {
       import: "استيراد",
@@ -836,7 +841,11 @@ const messages = {
       invalidPdf: "اختر ملف PDF.",
       invalidPptx: "اختر ملف PPTX.",
       invalidFile: "اختر ملف PDF أو PPTX.",
+      networkFailed:
+        "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
       notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      uploadLimitExceeded:
+        "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
     },
     importDeck: "استيراد عرض",
     context: {
@@ -875,6 +884,8 @@ const messages = {
       notReady:
         "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
       emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      figmaReadFailed:
+        "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
       tooMany: "اختر حتى 20 مرجعًا.",
       search: "البحث عن مراجع",
       designCategory: "التصميم",

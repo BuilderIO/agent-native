@@ -77,6 +77,7 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
+  "onboarding.useOwnApiKeys": "내 API 키 사용",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",

@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "@playwright/test";
 import { build } from "esbuild";
+import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 
 import { handleDesignHotkey } from "@/hooks/useDesignHotkeys";
@@ -63,6 +64,26 @@ import { AUTHORED_INLINE_STYLE_PROPERTIES } from "../edit-panel/interaction-stat
 
 const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
+
+function compileBridgeFunction<T extends (...args: any[]) => any>(
+  name: string,
+  nextFunction: string,
+  globals: Record<string, unknown>,
+): T {
+  const source = readFileSync(
+    join(bridgeDir, "editor-chrome.bridge.ts"),
+    "utf8",
+  );
+  const start = source.indexOf(`  function ${name}(`);
+  const end = source.indexOf(`\n  function ${nextFunction}(`, start);
+  if (start < 0 || end < 0) {
+    throw new Error(`Could not isolate ${name} from the bridge source`);
+  }
+  return new Function(
+    ...Object.keys(globals),
+    `${ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2020 })}; return ${name};`,
+  )(...Object.values(globals)) as T;
+}
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
@@ -10090,6 +10111,483 @@ it(
   },
 );
 
+it("editor chrome bridge converts a body flow slot to an absolute board-root drop", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const frame = {
+    parentElement: body,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 300,
+      bottom: 300,
+    }),
+  } as unknown as Element;
+  const rootSibling = { parentElement: body } as unknown as Element;
+  const el = { parentElement: frame } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  const target = {
+    anchor: rootSibling,
+    placement: "after",
+    dropMode: "flow-insert",
+  };
+  const flowMoveTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
+    document,
+    dropContainerForTarget: (dropTarget: typeof target) =>
+      dropTarget.placement === "inside"
+        ? dropTarget.anchor
+        : dropTarget.anchor.parentElement,
+    elementFromEditorPoint: () => body,
+    isAutoLayoutElement: () => false,
+    reorderTargetForPoint: () => target,
+    isContainerDropTarget: () => false,
+    parentFlowAxis: () => "y",
+    unnestAbsoluteToScreenRoot: () => null,
+    nearestChildInsertionTarget: () => null,
+    isEmptyDropContainer: () => false,
+  });
+
+  expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
+    anchor: frame,
+    placement: "after",
+    dropMode: "absolute-container",
+  });
+});
+
+it("editor chrome bridge does not self-anchor same-parent unnest for a clone", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const root = {
+    parentElement: body,
+    getBoundingClientRect: () => ({
+      left: 50,
+      top: 50,
+      right: 500,
+      bottom: 500,
+    }),
+  } as unknown as Element;
+  const parent = {
+    parentElement: root,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 250,
+      bottom: 250,
+    }),
+  } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  const unnestAbsoluteToScreenRoot = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown> | null
+  >("unnestAbsoluteToScreenRoot", "clipsOverflow", {
+    document,
+    parentFlowAxis: () => "y",
+  });
+  const child = { parentElement: parent } as unknown as Element;
+  const altClone = { parentElement: parent } as unknown as Element;
+
+  expect(unnestAbsoluteToScreenRoot(child, 150, 150)).toBeNull();
+  expect(unnestAbsoluteToScreenRoot(child, 400, 400)).toMatchObject({
+    anchor: parent,
+    placement: "after",
+    dropMode: "absolute-container",
+  });
+  expect(unnestAbsoluteToScreenRoot(altClone, 150, 150)).toBeNull();
+});
+
+it.each([
+  {
+    flexDirection: "row-reverse",
+    textDirection: "ltr",
+    axis: "x",
+    firstRect: {
+      left: 120,
+      top: 20,
+      right: 160,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 40,
+      top: 20,
+      right: 80,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 100, y: 40 },
+  },
+  {
+    flexDirection: "row",
+    textDirection: "rtl",
+    axis: "x",
+    firstRect: {
+      left: 120,
+      top: 20,
+      right: 160,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 40,
+      top: 20,
+      right: 80,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 100, y: 40 },
+  },
+  {
+    flexDirection: "row-reverse",
+    textDirection: "rtl",
+    axis: "x",
+    firstRect: {
+      left: 40,
+      top: 20,
+      right: 80,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 120,
+      top: 20,
+      right: 160,
+      bottom: 60,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 100, y: 40 },
+  },
+  {
+    flexDirection: "column-reverse",
+    textDirection: "ltr",
+    axis: "y",
+    firstRect: {
+      left: 20,
+      top: 120,
+      right: 60,
+      bottom: 160,
+      width: 40,
+      height: 40,
+    },
+    secondRect: {
+      left: 20,
+      top: 40,
+      right: 60,
+      bottom: 80,
+      width: 40,
+      height: 40,
+    },
+    point: { x: 40, y: 100 },
+  },
+])(
+  "editor chrome bridge resolves $flexDirection $textDirection insertion by visual order",
+  ({ flexDirection, textDirection, axis, firstRect, secondRect, point }) => {
+    const first = {
+      getBoundingClientRect: () => firstRect,
+    } as unknown as Element;
+    const second = {
+      getBoundingClientRect: () => secondRect,
+    } as unknown as Element;
+    const container = {} as Element;
+    const nearestChildInsertionTarget = compileBridgeFunction<
+      (
+        container: Element,
+        x: number,
+        y: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+      } | null
+    >("nearestChildInsertionTarget", "screenRootFlowInsertionTargetForPoint", {
+      draggableElementChildren: () => [first, second],
+      gridCellInsertionTarget: () => null,
+      parentFlowAxis: () => axis,
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection,
+          direction: textDirection,
+          gridTemplateColumns: "",
+        }),
+      },
+      wrappedFlexMainAxis: () => null,
+    });
+
+    expect(
+      nearestChildInsertionTarget(container, point.x, point.y),
+    ).toMatchObject({
+      anchor: first,
+      placement: "after",
+      axis,
+    });
+  },
+);
+
+it(
+  "editor chrome bridge keeps an exited frame available as an auto-layout insertion anchor",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({ type: "visual-structure-ack", requestId: message.requestId, applied: true }, "*");
+    }
+  });
+</script></body></html>`);
+      await page.locator("#design").evaluate((iframe) => {
+        (iframe as HTMLIFrameElement).srcdoc =
+          `<!doctype html><html><head><style>
+html, body { margin: 0; width: 100%; height: 100%; }
+#outer { position: absolute; left: 80px; top: 80px; width: 650px; height: 240px; display: flex; align-items: flex-start; gap: 20px; padding: 16px; box-sizing: border-box; background: #eee; }
+#before { flex: 0 0 80px; height: 160px; background: #aaa; }
+#exited { flex: 0 0 220px; height: 160px; display: flex; flex-direction: column; overflow: hidden; background: #ccc; }
+#dragme { flex: 0 0 40px; background: #6366f1; }
+</style></head><body>
+<main id="outer" data-agent-native-node-id="outer">
+  <div id="before" data-agent-native-node-id="before">Before</div>
+  <section id="exited" data-an-primitive="frame" data-agent-native-node-id="exited"><div id="dragme" data-agent-native-node-id="dragme">Drag me</div></section>
+</main></body></html>`;
+      });
+      const iframe = await page.locator("#design").elementHandle();
+      const frame = await iframe?.contentFrame();
+      if (!frame) throw new Error("Design fixture iframe failed to load");
+      await frame.waitForSelector("#dragme");
+      await frame.evaluate(() => {
+        (window as any).__receivedStructureAcks = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-ack") {
+            (window as any).__receivedStructureAcks.push(event.data);
+          }
+        });
+      });
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "auto-layout-exit-slot",
+          true,
+          sourceScript,
+        ),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#design")!
+          .contentWindow!.postMessage(
+            { type: "select-element", selector: "#dragme" },
+            "*",
+          );
+      });
+      const box = await frame.locator("#dragme").boundingBox();
+      const exitedBox = await frame.locator("#exited").boundingBox();
+      if (!box || !exitedBox)
+        throw new Error("Drop fixture has no rendered box");
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 2 });
+      await page.mouse.move(exitedBox.x + exitedBox.width + 40, startY, {
+        steps: 8,
+      });
+      await page.mouse.up();
+
+      const structureChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-structure-change",
+      );
+      if (!structureChange) {
+        throw new Error("The host did not receive the structure change");
+      }
+      expect(structureChange).toMatchObject({
+        anchorSourceId: "exited",
+        placement: "after",
+        dropMode: "flow-insert",
+      });
+      await frame.waitForFunction((requestId) => {
+        const acknowledgements = (window as any)
+          .__receivedStructureAcks as Array<Record<string, unknown>>;
+        return acknowledgements.some(
+          (acknowledgement) =>
+            acknowledgement.requestId === requestId &&
+            acknowledgement.applied === true,
+        );
+      }, structureChange.requestId);
+      const result = await frame.evaluate(() => {
+        const outer = document.querySelector<HTMLElement>("#outer")!;
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          parentId: dragged.parentElement?.id,
+          childOrder: Array.from(outer.children).map((child) => child.id),
+        };
+      });
+      expect(result).toEqual({
+        parentId: "outer",
+        childOrder: ["before", "exited", "dragme"],
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge keeps a deep unnest target at the board root instead of rewriting it inside the exited frame",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({ type: "visual-structure-ack", requestId: message.requestId, applied: true }, "*");
+    }
+  });
+</script></body></html>`);
+      await page.locator("#design").evaluate((iframe) => {
+        (iframe as HTMLIFrameElement).srcdoc =
+          `<!doctype html><html><body style="margin:0;width:100%;height:100%;position:relative">
+<main id="receiving" data-agent-native-node-id="receiving" style="position:absolute;left:80px;top:80px;width:320px;height:220px;overflow:hidden;background:#ddd">
+  <section id="exited" data-an-primitive="frame" data-agent-native-node-id="exited" style="position:absolute;left:20px;top:20px;width:180px;height:140px;overflow:hidden;display:flex;flex-direction:column;background:#aaa">
+    <div id="dragme" data-agent-native-node-id="dragme" style="width:80px;height:50px;background:#6366f1">Drag me</div>
+  </section>
+</main></body></html>`;
+      });
+      const iframe = await page.locator("#design").elementHandle();
+      const frame = await iframe?.contentFrame();
+      if (!frame) throw new Error("Design fixture iframe failed to load");
+      await frame.waitForSelector("#dragme");
+      await frame.evaluate(() => {
+        (window as any).__receivedStructureAcks = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-ack") {
+            (window as any).__receivedStructureAcks.push(event.data);
+          }
+        });
+      });
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "deep-flow-unnest",
+          true,
+          sourceScript,
+        ),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#design")!
+          .contentWindow!.postMessage(
+            { type: "select-element", selector: "#dragme" },
+            "*",
+          );
+      });
+      const box = await frame.locator("#dragme").boundingBox();
+      if (!box) throw new Error("Dragged layer has no rendered box");
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 5, startY - 5, { steps: 2 });
+      await page.mouse.move(700, 600, { steps: 10 });
+      await page.mouse.up();
+
+      const structureChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-structure-change",
+      );
+      if (!structureChange) {
+        throw new Error("The host did not receive the structure change");
+      }
+      expect(structureChange).toMatchObject({
+        anchorSourceId: "receiving",
+        persistenceAnchorSourceId: "receiving",
+        placement: "after",
+        persistencePlacement: "after",
+      });
+      await frame.waitForFunction((requestId) => {
+        const acknowledgements = (window as any)
+          .__receivedStructureAcks as Array<Record<string, unknown>>;
+        return acknowledgements.some(
+          (acknowledgement) =>
+            acknowledgement.requestId === requestId &&
+            acknowledgement.applied === true,
+        );
+      }, structureChange.requestId);
+      const state = await frame.evaluate(() => {
+        const dragged = document.querySelector<HTMLElement>("#dragme")!;
+        return {
+          isBoardRootChild: dragged.parentElement === document.body,
+          remainsInExitedFrame: document
+            .querySelector("#exited")!
+            .contains(dragged),
+        };
+      });
+      expect(state).toEqual({
+        isBoardRootChild: true,
+        remainsInExitedFrame: false,
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "editor chrome bridge uses the exited frame for empty-area drops and preserves explicit sibling slots",
   { timeout: 30_000 },
@@ -10295,6 +10793,127 @@ it(
         }
       }
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge promotes a deeply nested absolute drop through clipped ancestors to the board root",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    try {
+      const sourceBuild = await build({
+        entryPoints: [join(bridgeDir, "editor-chrome.bridge.ts")],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2020",
+        write: false,
+        external: [],
+      });
+      const sourceScript = sourceBuild.outputFiles[0]?.text;
+      if (!sourceScript) throw new Error("Bridge source compilation failed");
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+<iframe id="design" style="display:block;width:900px;height:700px;border:0"></iframe>
+<script>
+  window.__bridgeMessages = [];
+  window.addEventListener("message", event => {
+    const message = event.data;
+    if (!message || typeof message.type !== "string") return;
+    window.__bridgeMessages.push(message);
+    if (message.type === "visual-structure-change") {
+      event.source.postMessage({
+        type: "visual-structure-ack",
+        requestId: message.requestId,
+        applied: true,
+      }, "*");
+    }
+  });
+</script></body></html>`);
+      await page.locator("#design").evaluate((iframe) => {
+        (iframe as HTMLIFrameElement).srcdoc = `<!doctype html><html>
+<body style="margin:0;width:100%;height:100%;position:relative">
+  <main id="root" data-agent-native-node-id="root" style="position:absolute;left:80px;top:80px;width:320px;height:220px;overflow:hidden;background:#ddd">
+    <section id="frame2" data-agent-native-node-id="frame2" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:180px;height:140px;overflow:hidden;background:#aaa">
+      <div id="dragme" data-agent-native-node-id="dragme" style="position:absolute;left:20px;top:20px;width:80px;height:50px;background:#6366f1">Drag me</div>
+    </section>
+  </main>
+</body></html>`;
+      });
+      const iframe = await page.locator("#design").elementHandle();
+      const frame = await iframe?.contentFrame();
+      if (!frame) throw new Error("Design fixture iframe failed to load");
+      await frame.waitForSelector("#dragme");
+      await frame.evaluate(() => {
+        (window as any).__receivedStructureAcks = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "visual-structure-ack") {
+            (window as any).__receivedStructureAcks.push(event.data);
+          }
+        });
+      });
+      await frame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(
+          false,
+          "deep-unnest",
+          true,
+          sourceScript,
+        ),
+      });
+      await frame.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        document
+          .querySelector<HTMLIFrameElement>("#design")!
+          .contentWindow!.postMessage(
+            { type: "select-element", selector: "#dragme" },
+            "*",
+          );
+      });
+      const dragBox = await frame.locator("#dragme").boundingBox();
+      if (!dragBox) throw new Error("Dragged layer has no rendered box");
+      const startX = dragBox.x + dragBox.width / 2;
+      const startY = dragBox.y + dragBox.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(700, 600, { steps: 12 });
+      await page.mouse.up();
+
+      const structureChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-structure-change",
+      );
+      if (!structureChange) {
+        throw new Error("The host did not receive the structure change");
+      }
+      expect(structureChange).toMatchObject({
+        anchorSourceId: "root",
+        persistenceAnchorSourceId: "root",
+        placement: "after",
+        persistencePlacement: "after",
+      });
+      await frame.waitForFunction((requestId) => {
+        const acknowledgements = (window as any)
+          .__receivedStructureAcks as Array<Record<string, unknown>>;
+        return acknowledgements.some(
+          (acknowledgement) =>
+            acknowledgement.requestId === requestId &&
+            acknowledgement.applied === true,
+        );
+      }, structureChange!.requestId);
+      const parents = await frame.evaluate(() => ({
+        rootChildren: Array.from(document.querySelector("#root")!.children).map(
+          (element) => element.id,
+        ),
+        draggedAtBoardRoot:
+          document.querySelector("#dragme")?.parentElement === document.body,
+      }));
+      expect(parents.draggedAtBoardRoot).toBe(true);
+      expect(parents.rootChildren).toEqual(["frame2"]);
     } finally {
       await browser.close();
     }

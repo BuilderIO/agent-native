@@ -48,6 +48,7 @@ import type {
   SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
+  applyDuplicateStackHistoryChanges,
   MAX_DESIGN_UNDO_STACK,
   filterFileDeletionHistoryEntry,
   applyGeometryHistoryDiff,
@@ -56,6 +57,7 @@ import {
   contentHistoryEntryFromChanges,
   readYjsUndoSelection,
   remapFileDeletionHistoryEntryIds,
+  remapFileCreationHistoryEntryIds,
   restoreFileContentHistoryOrderToken,
 } from "@/pages/design-editor/history";
 import {
@@ -426,6 +428,7 @@ export interface UndoArgs {
   designDataJsonRef: RefObject<Record<string, unknown>>;
   fileCreationRedoStackRef: RefObject<FileCreationHistoryEntry[]>;
   fileCreationUndoStackRef: RefObject<FileCreationHistoryEntry[]>;
+  onFileHistoryMutationSettled?: () => void;
   fileDeletionRedoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileDeletionUndoStackRef: RefObject<FileDeletionHistoryEntry[]>;
   fileHistoryMutationPendingRef: RefObject<boolean>;
@@ -586,6 +589,7 @@ export function runUndo({
   localContentRedoStackRef,
   localContentUndoStackRef,
   markPendingLocalFileContent,
+  onFileHistoryMutationSettled,
   pendingLiveNonStyleEditsRef,
   pendingLiveNonStyleRedoStackRef,
   pendingLiveNonStyleUndoStackRef,
@@ -1380,10 +1384,13 @@ export function runUndo({
       batchStart -= 1;
     }
     const entries = stack.slice(batchStart);
+    const historyOrderIndex = historyOrderRef.current.length;
     const createdFiles = entries.map((item) =>
       files.find((file) => file.filename === item.filename),
     );
     if (createdFiles.some((file) => !file)) return false;
+    fileHistoryMutationPendingRef.current = true;
+    syncUndoRedoState();
     stack.splice(batchStart, entries.length);
     fileCreationRedoStackRef.current = [
       ...fileCreationRedoStackRef.current.slice(
@@ -1391,17 +1398,191 @@ export function runUndo({
       ),
       ...entries,
     ];
-    redoOrderRef.current = [
+    const nextRedoOrder = [
       ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "file-created",
+      "file-created" as const,
     ];
+    redoOrderRef.current = nextRedoOrder;
+    const reconcileDuplicateStackUndo = (
+      settledEntries: FileCreationHistoryEntry[],
+      deletedFiles: DesignFile[],
+      persistWhenNoStackChange = false,
+    ) => {
+      const settledEntrySet = new Set(settledEntries);
+      fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+        (item) =>
+          settledEntrySet.has(item)
+            ? { ...item, duplicateStackUndoSettled: true }
+            : item,
+      );
+      const settledDuplicateEntries = fileCreationRedoStackRef.current.filter(
+        (item) => item.duplicateStack && item.duplicateStackUndoSettled,
+      );
+      const unappliedDuplicateEntries = settledDuplicateEntries.filter(
+        (item) => !item.duplicateStackUndoApplied,
+      );
+      const duplicateStackChanges = unappliedDuplicateEntries.flatMap((item) =>
+        item.duplicateStack ? [item.duplicateStack] : [],
+      );
+      if (duplicateStackChanges.length === 0 && !persistWhenNoStackChange)
+        return;
+
+      const deletedDuplicateIds = new Set([
+        ...deletedFiles.map((file) => file.id),
+        ...settledDuplicateEntries.flatMap((item) =>
+          item.createdFileId ? [item.createdFileId] : [],
+        ),
+      ]);
+      const survivingDuplicateStackChanges = duplicateStackChanges.map(
+        (change) => ({
+          before: Object.fromEntries(
+            Object.entries(change.before).filter(
+              ([frameId]) => !deletedDuplicateIds.has(frameId),
+            ),
+          ),
+          after: Object.fromEntries(
+            Object.entries(change.after).filter(
+              ([frameId]) => !deletedDuplicateIds.has(frameId),
+            ),
+          ),
+        }),
+      );
+      const persistedGeometry = getCanvasFrameGeometry(
+        designDataJsonRef.current,
+      );
+      const currentGeometry = { ...persistedGeometry };
+      for (const [frameId, liveFrame] of Object.entries(
+        liveFrameGeometryRef.current,
+      )) {
+        const persistedFrame = persistedGeometry[frameId];
+        currentGeometry[frameId] = { ...persistedFrame, ...liveFrame };
+        if (typeof persistedFrame?.z === "number") {
+          currentGeometry[frameId] = {
+            ...currentGeometry[frameId],
+            z: persistedFrame.z,
+          };
+        }
+      }
+      for (const deletedFile of deletedFiles) {
+        delete currentGeometry[deletedFile.id];
+      }
+      for (const item of settledDuplicateEntries) {
+        if (item.createdFileId) delete currentGeometry[item.createdFileId];
+      }
+      const restored = applyDuplicateStackHistoryChanges(
+        currentGeometry,
+        survivingDuplicateStackChanges.reverse(),
+        "undo",
+      );
+      if (restored.staleFrameIds.length > 0) {
+        console.debug(
+          "[design] skipping stale duplicate stack undo; frames changed since capture:",
+          restored.staleFrameIds,
+        );
+        toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
+        writeFrameGeometrySnapshot(currentGeometry);
+        return;
+      }
+      writeFrameGeometrySnapshot(restored.geometryById);
+      const appliedFilenames = new Set(
+        unappliedDuplicateEntries.map((item) => item.filename),
+      );
+      fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+        (item) =>
+          appliedFilenames.has(item.filename)
+            ? { ...item, duplicateStackUndoApplied: true }
+            : item,
+      );
+    };
     // skipFileCreationRedoPrune: the entry was just pushed onto the redo
     // stack above for this exact filename — without this flag
     // performDeleteFiles' filename-keyed redo prune would immediately pop
     // it back off, leaving redo permanently empty after this undo.
     performDeleteFiles(
       createdFiles.filter((file): file is DesignFile => Boolean(file)),
-      { skipFileCreationRedoPrune: true },
+      {
+        skipFileCreationRedoPrune: true,
+        onMutationSettled: (deletedFiles, failedFiles) => {
+          if (
+            failedFiles.length > 0 ||
+            deletedFiles.length !== createdFiles.length
+          ) {
+            const redoStackBeforeFailure = fileCreationRedoStackRef.current;
+            const failedBatchStart = redoStackBeforeFailure.findIndex((item) =>
+              entries.includes(item),
+            );
+            const precedingBatchKeys = new Set<
+              string | FileCreationHistoryEntry
+            >();
+            if (failedBatchStart >= 0) {
+              for (const item of redoStackBeforeFailure.slice(
+                0,
+                failedBatchStart,
+              )) {
+                precedingBatchKeys.add(item.historyBatchId ?? item);
+              }
+            }
+            const deletedFilenames = new Set(
+              deletedFiles.map((file) => file.filename),
+            );
+            const failedEntries = entries.filter(
+              (item) => !deletedFilenames.has(item.filename),
+            );
+            const failedEntrySet = new Set(failedEntries);
+            fileCreationRedoStackRef.current =
+              fileCreationRedoStackRef.current.filter(
+                (item) => !failedEntrySet.has(item),
+              );
+            const currentUndoStack = fileCreationUndoStackRef.current;
+            const insertionIndex = Math.min(
+              batchStart,
+              currentUndoStack.length,
+            );
+            const retryEntries =
+              deletedFiles.length > 0
+                ? failedEntries.map((item) => {
+                    const { historyBatchId: _batchId, ...separateEntry } = item;
+                    return separateEntry;
+                  })
+                : failedEntries;
+            const restoredUndoStack = [
+              ...currentUndoStack.slice(0, insertionIndex),
+              ...retryEntries,
+              ...currentUndoStack.slice(insertionIndex),
+            ].slice(-MAX_DESIGN_UNDO_STACK);
+            fileCreationUndoStackRef.current = restoredUndoStack;
+            if (retryEntries.some((item) => restoredUndoStack.includes(item))) {
+              historyOrderRef.current.splice(
+                Math.min(historyOrderIndex, historyOrderRef.current.length),
+                0,
+                "file-created",
+              );
+            }
+            if (deletedFiles.length === 0 && failedBatchStart >= 0) {
+              let fileCreationGroupIndex = 0;
+              const markerIndex = redoOrderRef.current.findIndex((kind) => {
+                if (kind !== "file-created") return false;
+                return fileCreationGroupIndex++ === precedingBatchKeys.size;
+              });
+              if (markerIndex >= 0) redoOrderRef.current.splice(markerIndex, 1);
+            }
+            if (deletedFiles.length > 0)
+              reconcileDuplicateStackUndo(
+                entries.filter((item) => deletedFilenames.has(item.filename)),
+                deletedFiles,
+                true,
+              );
+            fileHistoryMutationPendingRef.current = false;
+            onFileHistoryMutationSettled?.();
+            syncUndoRedoState();
+            return;
+          }
+          reconcileDuplicateStackUndo(entries, deletedFiles);
+          fileHistoryMutationPendingRef.current = false;
+          onFileHistoryMutationSettled?.();
+          syncUndoRedoState();
+        },
+      },
     );
     return true;
   };
@@ -1459,6 +1640,12 @@ export function runUndo({
         clipboardPasteRedoStackRef.current.map((item) =>
           remapHistoryChange(item, fileIds),
         );
+      fileCreationUndoStackRef.current = fileCreationUndoStackRef.current.map(
+        (item) => remapFileCreationHistoryEntryIds(item, fileIds),
+      );
+      fileCreationRedoStackRef.current = fileCreationRedoStackRef.current.map(
+        (item) => remapFileCreationHistoryEntryIds(item, fileIds),
+      );
       const remapDeletionEntry = (other: FileDeletionHistoryEntry) => {
         const remapped = remapFileDeletionHistoryEntryIds(
           other,
@@ -1748,6 +1935,7 @@ export function runUndo({
         );
       } finally {
         fileHistoryMutationPendingRef.current = false;
+        onFileHistoryMutationSettled?.();
         syncUndoRedoState();
       }
     })();

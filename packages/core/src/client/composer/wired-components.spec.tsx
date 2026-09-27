@@ -99,6 +99,26 @@ afterEach(() => {
 });
 
 describe("PromptComposer storage setup", () => {
+  it("keeps a host upload request available while attachments are gated", () => {
+    const onAttachmentRequest = vi.fn();
+    act(() => {
+      root.render(
+        <PromptComposer
+          attachmentsEnabled={false}
+          onAttachmentRequest={onAttachmentRequest}
+        />,
+      );
+    });
+
+    const uploadButton = container.querySelector("button");
+    expect(uploadButton?.getAttribute("data-attachments-enabled")).toBe(
+      "false",
+    );
+    act(() => uploadButton?.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("preserves a host upload request when storage is not configured", () => {
     const onAttachmentRequest = vi.fn();
     act(() => {

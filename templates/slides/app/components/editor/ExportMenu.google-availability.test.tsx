@@ -68,6 +68,7 @@ function renderMenu(onExportGoogleSlides = vi.fn()) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ExportMenu
+        hasSlides
         deckId="deck-1"
         deckTitle="Quarterly Review"
         onDuplicate={vi.fn()}

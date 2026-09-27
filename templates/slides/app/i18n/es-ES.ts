@@ -836,6 +836,11 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Crea una presentación de producto",
+      roadmap: "Crea una hoja de ruta de producto",
+      explainer: "Explica un tema en una presentación",
+    },
     suggestedPrompts: "Indicaciones sugeridas",
     importMenu: {
       import: "Importar",
@@ -843,8 +848,12 @@ const messages = {
       invalidPdf: "Elige un archivo PDF.",
       invalidPptx: "Elige un archivo PPTX.",
       invalidFile: "Elige un archivo PDF o PPTX.",
+      networkFailed:
+        "La solicitud de importación agotó el tiempo de espera o perdió la conexión. Comprueba la conexión e inténtalo de nuevo.",
       notStarted:
         "Completa el inicio de sesión requerido y vuelve a intentar la importación.",
+      uploadLimitExceeded:
+        "La carga supera un límite permitido. Reduce el tamaño del archivo o elige menos archivos y vuelve a intentarlo.",
     },
     importDeck: "Importar presentación",
     context: {
@@ -884,6 +893,8 @@ const messages = {
       notReady:
         "El contexto sigue cargando o no está disponible. Reintenta o elimínalo antes de enviar.",
       emptySource: "La fuente no devolvió contexto utilizable.",
+      figmaReadFailed:
+        "Design no pudo leer esta referencia de Figma. Comprueba el token de acceso a Figma guardado en Design y que esa cuenta pueda abrir el archivo; luego inténtalo de nuevo.",
       tooMany: "Elige hasta 20 referencias.",
       search: "Buscar referencias",
       designCategory: "Diseño",
