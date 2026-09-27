@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  calendarSlotDraftId,
   createCalendarSlotDraft,
   createOrLoadCalendarSlotDraft,
   parseCalendarSlotPrefill,
@@ -42,13 +43,21 @@ describe("calendar slot prefill", () => {
     });
   });
 
+  it("uses timezone as part of the persisted draft identity", () => {
+    const prefill = parseCalendarSlotPrefill(VALID_PARAMS)!;
+    const otherTimezone = { ...prefill, timezone: "America/New_York" };
+
+    expect(calendarSlotDraftId(prefill)).not.toBe(
+      calendarSlotDraftId(otherTimezone),
+    );
+    expect(calendarSlotDraftId(prefill)).toMatch(/^[a-zA-Z0-9_-]{1,96}$/);
+  });
+
   it("reuses an existing edited draft for the same slot", async () => {
+    const prefill = parseCalendarSlotPrefill(VALID_PARAMS)!;
+    const id = calendarSlotDraftId(prefill);
     const savedDraft = {
-      ...createCalendarSlotDraft(
-        parseCalendarSlotPrefill(VALID_PARAMS)!,
-        "slot-1776965400000",
-        "created",
-      ),
+      ...createCalendarSlotDraft(prefill, id, "created"),
       title: "Product review",
       description: "Keep these edits",
     };
@@ -63,10 +72,7 @@ describe("calendar slot prefill", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      createOrLoadCalendarSlotDraft(
-        parseCalendarSlotPrefill(VALID_PARAMS)!,
-        savedDraft.id,
-      ),
+      createOrLoadCalendarSlotDraft(prefill, savedDraft.id),
     ).resolves.toEqual(savedDraft);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PATCH" });
@@ -74,6 +80,8 @@ describe("calendar slot prefill", () => {
   });
 
   it("creates a draft only when the slot has no saved draft", async () => {
+    const prefill = parseCalendarSlotPrefill(VALID_PARAMS)!;
+    const id = calendarSlotDraftId(prefill);
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -82,19 +90,16 @@ describe("calendar slot prefill", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      createOrLoadCalendarSlotDraft(
-        parseCalendarSlotPrefill(VALID_PARAMS)!,
-        "slot-1776965400000",
-      ),
+      createOrLoadCalendarSlotDraft(prefill, id),
     ).resolves.toMatchObject({
-      id: "slot-1776965400000",
+      id,
       title: "",
       start: "2026-04-23T17:30:00.000Z",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
-    ).toMatchObject({ expected: null, next: { id: "slot-1776965400000" } });
+    ).toMatchObject({ expected: null, next: { id } });
   });
 
   it.each([

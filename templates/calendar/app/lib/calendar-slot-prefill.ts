@@ -64,6 +64,14 @@ export function createCalendarSlotDraft(
   };
 }
 
+export function calendarSlotDraftId(prefill: CalendarSlotPrefill): string {
+  const timezone = btoa(prefill.timezone)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `slot-${Date.parse(prefill.start).toString(36)}-${Date.parse(prefill.end).toString(36)}-${timezone}`;
+}
+
 export async function createOrLoadCalendarSlotDraft(
   prefill: CalendarSlotPrefill,
   id: string,

@@ -107,6 +107,7 @@ import {
 } from "@/lib/calendar-event-identity";
 import { navigateCalendarDate } from "@/lib/calendar-navigation";
 import {
+  calendarSlotDraftId,
   createOrLoadCalendarSlotDraft,
   type CalendarSlotPrefill,
 } from "@/lib/calendar-slot-prefill";
@@ -170,7 +171,7 @@ type DraftEventPatch = Partial<CalendarEvent> & {
 };
 
 function safeCalendarDraftId(id: string | undefined): string | null {
-  return id && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+  return id && /^[a-zA-Z0-9_-]{1,96}$/.test(id) ? id : null;
 }
 
 function calendarDraftEventId(id: string) {
@@ -500,23 +501,26 @@ export default function CalendarView({
     const prefillKey = `${slotPrefill.start}|${slotPrefill.end}|${slotPrefill.timezone}`;
     if (appliedSlotPrefillRef.current === prefillKey) return;
     let cancelled = false;
-    void createOrLoadCalendarSlotDraft(
-      slotPrefill,
-      `slot-${Date.parse(slotPrefill.start)}-${Date.parse(slotPrefill.end)}`,
-    )
+    const draftAtStart = eventDraft;
+    const draftId = calendarSlotDraftId(slotPrefill);
+    appliedSlotPrefillRef.current = prefillKey;
+    void createOrLoadCalendarSlotDraft(slotPrefill, draftId)
       .then((draft) => {
-        if (cancelled) return;
-        appliedSlotPrefillRef.current = prefillKey;
+        if (cancelled || eventDraft !== draftAtStart) return;
         setEventDraft(draft);
       })
       .catch(() => {
-        if (!cancelled) toast.error(t("common.loadFailed"));
+        if (!cancelled) {
+          appliedSlotPrefillRef.current = null;
+          toast.error(t("common.loadFailed"));
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [
     setEventDraft,
+    eventDraft,
     slotPrefill?.end,
     slotPrefill?.start,
     slotPrefill?.timezone,
