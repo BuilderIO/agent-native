@@ -362,7 +362,7 @@ describe("AiInboxSetup", () => {
       await screen.findByRole("textbox", {
         name: "mail.sort.aiSetupImportantHeadline",
       }),
-      { target: { value: "Anything from my finance team" } },
+      { target: { value: "Keep project decisions visible" } },
     );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
