@@ -41,7 +41,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/index.js";
-import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
+import {
+  FileStorageSetupPopover,
+  type FileStorageSetupCloseReason,
+} from "../FileStorageSetupPopover.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { useFileUploadStatus } from "../uploads/use-file-upload-status.js";
@@ -101,6 +104,26 @@ export function mergePendingResourceUploads(
     );
   }
   return [...byResourcePath.values()];
+}
+
+export function takePendingResourceUploads(
+  pending: PendingResourceUpload[],
+  result: { isError: boolean; data?: { configured?: unknown } },
+): { uploads: PendingResourceUpload[]; storageConfigured: boolean } | null {
+  if (result.isError || typeof result.data?.configured !== "boolean") {
+    return null;
+  }
+  return {
+    uploads: pending.splice(0),
+    storageConfigured: result.data.configured,
+  };
+}
+
+export function shouldClearPendingResourceUploads(
+  open: boolean,
+  reason?: FileStorageSetupCloseReason,
+): boolean {
+  return !open && reason === "dismiss";
 }
 
 export function normalizeResourceFileName(name: string): string {
@@ -1462,11 +1485,22 @@ export function ResourcesPanel({
     [uploadResourceFile],
   );
   useEffect(() => {
-    if (!fileStorageConfigured) return;
+    if (!fileUploadStatus.isSuccess) return;
     setFileStorageSetupOpen(false);
-    const pending = pendingResourceUploadsRef.current.splice(0);
-    processResourceUploads(pending, true, false);
-  }, [fileStorageConfigured, processResourceUploads]);
+    const pending = takePendingResourceUploads(
+      pendingResourceUploadsRef.current,
+      fileUploadStatus,
+    );
+    if (pending) {
+      processResourceUploads(pending.uploads, pending.storageConfigured, true);
+    }
+  }, [
+    fileStorageConfigured,
+    fileUploadStatus.data,
+    fileUploadStatus.isError,
+    fileUploadStatus.isSuccess,
+    processResourceUploads,
+  ]);
   const selectedResourceReadOnly =
     !!resourceQuery.data &&
     ((isWorkspaceResourceOwner(resourceQuery.data.owner) &&
@@ -1629,9 +1663,20 @@ export function ResourcesPanel({
   const handleUploadFiles = useCallback(
     (files: FileList, targetScope: ResourceScope) => {
       const selected = Array.from(files, (file) => ({ file, targetScope }));
-      const processAttempt = (storageConfigured: boolean) => {
-        const pending = pendingResourceUploadsRef.current.splice(0);
-        processResourceUploads(pending, storageConfigured, true);
+      const processAttempt = (result: typeof fileUploadStatus) => {
+        const pending = takePendingResourceUploads(
+          pendingResourceUploadsRef.current,
+          result,
+        );
+        if (!pending) {
+          setFileStorageSetupOpen(true);
+          return;
+        }
+        processResourceUploads(
+          pending.uploads,
+          pending.storageConfigured,
+          true,
+        );
       };
       if (fileUploadStatus.data && !fileUploadStatus.isError) {
         processResourceUploads(
@@ -1647,13 +1692,7 @@ export function ResourcesPanel({
       );
       void fileUploadStatus
         .refetch()
-        .then((result) => {
-          if (result.isError || typeof result.data?.configured !== "boolean") {
-            setFileStorageSetupOpen(true);
-            return;
-          }
-          processAttempt(result.data.configured);
-        })
+        .then(processAttempt)
         .catch(() => {
           setFileStorageSetupOpen(true);
         });
@@ -1808,7 +1847,7 @@ export function ResourcesPanel({
         open={fileStorageSetupOpen}
         onOpenChange={(open, reason) => {
           setFileStorageSetupOpen(open);
-          if (!open && reason === "dismiss") {
+          if (shouldClearPendingResourceUploads(open, reason)) {
             pendingResourceUploadsRef.current = [];
           }
         }}

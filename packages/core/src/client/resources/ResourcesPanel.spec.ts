@@ -8,7 +8,9 @@ import {
   normalizeResourceFileName,
   resolveInitialResourceScope,
   resolveResourceCreateMenuMode,
+  shouldClearPendingResourceUploads,
   shouldRenderResourceSectionCreateMenu,
+  takePendingResourceUploads,
 } from "./ResourcesPanel.js";
 import type { TreeNode } from "./use-resources.js";
 
@@ -155,6 +157,53 @@ describe("mergePendingResourceUploads", () => {
       { file: latest, targetScope: "personal" },
       { file: first, targetScope: "shared" },
     ]);
+  });
+});
+
+describe("takePendingResourceUploads", () => {
+  it("keeps a failed probe batch for retry and consumes it once on a valid status", () => {
+    const batch = [
+      {
+        file: new File(["notes"], "notes.md", { type: "text/markdown" }),
+        targetScope: "personal" as const,
+      },
+      {
+        file: new File(["image"], "image.png", { type: "image/png" }),
+        targetScope: "shared" as const,
+      },
+    ];
+    const pending = mergePendingResourceUploads([], batch);
+
+    expect(takePendingResourceUploads(pending, { isError: true })).toBeNull();
+    expect(pending).toEqual(batch);
+
+    const retry = takePendingResourceUploads(pending, {
+      isError: false,
+      data: { configured: false },
+    });
+    expect(retry).toEqual({ uploads: batch, storageConfigured: false });
+    expect(pending).toEqual([]);
+    expect(
+      canUploadResourceFile("text/markdown", retry!.storageConfigured),
+    ).toBe(true);
+    expect(canUploadResourceFile("image/png", retry!.storageConfigured)).toBe(
+      false,
+    );
+    expect(
+      takePendingResourceUploads(pending, {
+        isError: false,
+        data: { configured: false },
+      }),
+    ).toEqual({ uploads: [], storageConfigured: false });
+  });
+});
+
+describe("shouldClearPendingResourceUploads", () => {
+  it("discards only when the user dismisses the storage popover", () => {
+    expect(shouldClearPendingResourceUploads(false, "dismiss")).toBe(true);
+    expect(shouldClearPendingResourceUploads(false, "setup")).toBe(false);
+    expect(shouldClearPendingResourceUploads(false, "connected")).toBe(false);
+    expect(shouldClearPendingResourceUploads(true, "dismiss")).toBe(false);
   });
 });
 
