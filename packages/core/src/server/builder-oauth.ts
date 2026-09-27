@@ -159,8 +159,9 @@ function userOwnerOptions(ownerEmail: string) {
 
 /**
  * Whether `email` is an owner or admin of `orgId`, which puts the org's Builder
- * connection ahead of their own. An unreadable role keeps the member order
- * rather than failing a credential lookup that doesn't otherwise need it.
+ * connection ahead of their own. A database that never created the org tables
+ * has no managers. Any other failed read throws: guessing "member" would run a
+ * manager's request on the personal connection the org's is meant to replace.
  */
 export async function isBuilderOrgManager(
   orgId: string,
@@ -168,10 +169,18 @@ export async function isBuilderOrgManager(
 ): Promise<boolean> {
   try {
     return isBuilderOrgManagerRole(await readOrgMemberRole(orgId, email));
-  } catch {
-    // coercion-ok: only the lookup order depends on this; both scopes are still tried.
-    return false;
+  } catch (error) {
+    if (isMissingOrgMembersTable(error)) return false;
+    throw error;
   }
+}
+
+function isMissingOrgMembersTable(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  if (candidate?.code === "42P01") return true;
+  return /relation ["']?org_members["']? does not exist/i.test(
+    String(candidate?.message ?? error),
+  );
 }
 
 // Read paths try a member's personal grant first, then the org grant. An

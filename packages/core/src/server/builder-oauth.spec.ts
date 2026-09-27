@@ -960,6 +960,26 @@ describe("Builder organization and personal connections", () => {
     ).resolves.toMatchObject({ scope: "user" });
   });
 
+  it("fails the grant lookup when a manager's role can't be read, instead of guessing", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    readRoleMock.mockRejectedValue(new Error("db query timed out"));
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).rejects.toThrow("db query timed out");
+
+    // A database without the org tables simply has no managers.
+    readRoleMock.mockRejectedValue(
+      Object.assign(new Error('relation "org_members" does not exist'), {
+        code: "42P01",
+      }),
+    );
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+  });
+
   it("reports a stored grant that no longer reads as Builder custody as needing reconnect", async () => {
     getRawTokensMock.mockImplementation(
       async (_provider: string, _key: string, owner: string) =>
