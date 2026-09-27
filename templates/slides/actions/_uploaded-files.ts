@@ -17,18 +17,26 @@ export async function readUserUploadedFile(
   try {
     privateUpload = await readUploadedReferenceBlob(filePath, email);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Invalid uploaded file reference"
-    ) {
-      throw new AgentActionStopError(
-        "This uploaded file reference is invalid or expired. Reattach the file before trying again.",
-        {
-          errorCode: "permanent_precondition",
-          toolResult:
-            "The uploaded file reference is invalid or expired. Do not retry this filePath; ask the user to attach the file again.",
-        },
-      );
+    if (error instanceof Error) {
+      const invalidReference =
+        error.message === "Invalid uploaded file reference";
+      const inaccessibleReference =
+        error.message ===
+        "Access denied: uploaded file reference is not valid for this user or organization";
+
+      if (invalidReference || inaccessibleReference) {
+        throw new AgentActionStopError(
+          inaccessibleReference
+            ? error.message
+            : "This uploaded file reference is invalid or expired. Reattach the file before trying again.",
+          {
+            errorCode: "permanent_precondition",
+            toolResult: inaccessibleReference
+              ? "The uploaded file reference is not valid for this user or organization. Do not retry this filePath; ask the user to attach a file they can access."
+              : "The uploaded file reference is invalid or expired. Do not retry this filePath; ask the user to attach the file again.",
+          },
+        );
+      }
     }
     throw error;
   }
