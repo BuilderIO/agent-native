@@ -18,6 +18,8 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+import { mailSettingsRoute } from "@shared/settings-navigation";
+
 import { EmailListItem } from "./EmailListItem";
 
 const email = {
@@ -162,9 +164,13 @@ describe("EmailListItem touch swipe interactions", () => {
     ).toBeNull();
 
     fireEvent.click(trigger);
-    fireEvent.click(
-      screen.getByRole("link", { name: "mail.sort.priorityEditRules" }),
+    const editRulesLink = screen.getByRole("link", {
+      name: "mail.sort.priorityEditRules",
+    });
+    expect(editRulesLink.getAttribute("href")).toBe(
+      `${mailSettingsRoute("ai-filter")}#importance-rules`,
     );
+    fireEvent.click(editRulesLink);
 
     expect(onImportanceFeedback).toHaveBeenNthCalledWith(1, "important");
     expect(onImportanceFeedback).toHaveBeenNthCalledWith(2, "not-important");
