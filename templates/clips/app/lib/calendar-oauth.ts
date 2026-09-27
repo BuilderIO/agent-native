@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 
 import { PopupBlockedError } from "./popup-blocked";
 
@@ -30,6 +30,8 @@ export async function startCalendarOAuth(
     popup.close();
     throw error;
   }
+  // Closed while the URL was loading: an ordinary cancel, not an error.
+  if (popup.closed) return null;
   popup.location.href = new URL(url, window.location.origin).toString();
   return await new Promise<CalendarOAuthResult | null>((resolve) => {
     let settled = false;
@@ -75,30 +77,15 @@ async function fetchCalendarOAuthUrl(
   flowId: string,
   expectedAccountId: string | undefined,
 ): Promise<string> {
-  const actionUrl = new URL(
-    agentNativePath("/_agent-native/actions/connect-calendar"),
-    window.location.origin,
+  const result = await callAction<{ url?: string }>(
+    "connect-calendar",
+    {
+      provider: "google",
+      flowId,
+      ...(expectedAccountId ? { calendarAccountId: expectedAccountId } : {}),
+    },
+    { method: "GET" },
   );
-  actionUrl.searchParams.set("provider", "google");
-  actionUrl.searchParams.set("flowId", flowId);
-  if (expectedAccountId) {
-    actionUrl.searchParams.set("calendarAccountId", expectedAccountId);
-  }
-  const r = await fetch(actionUrl);
-  const text = await r.text();
-  let data: {
-    url?: string;
-    error?: string;
-    result?: { url?: string };
-  } = {};
-  try {
-    data = JSON.parse(text);
-    // coercion-ok: a body that isn't JSON still throws below, as "Failed (status)" or "No OAuth URL returned".
-  } catch {
-    // Keep the fallback below.
-  }
-  if (!r.ok) throw new Error(data.error || `Failed (${r.status})`);
-  const url = data.result?.url ?? data.url;
-  if (!url) throw new Error("No OAuth URL returned");
-  return url;
+  if (!result?.url) throw new Error("No OAuth URL returned");
+  return result.url;
 }

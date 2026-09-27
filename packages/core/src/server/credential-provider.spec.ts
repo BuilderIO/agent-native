@@ -2880,6 +2880,47 @@ describe("Restrict personal API keys", () => {
     );
   });
 
+  it("puts the org's Builder key pair ahead of an owner's or admin's own", async () => {
+    for (const role of ["owner", "admin"]) {
+      restrictOrg(role, false);
+      storeRows({
+        "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+        "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+        [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+        [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
+      });
+      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+        privateKey: "bpk-org",
+        source: "org",
+      });
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).resolves.toBe("bpk-org");
+    }
+
+    // A member keeps their own pair first.
+    restrictOrg("member", false);
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-personal",
+      source: "user",
+    });
+  });
+
+  it("falls back to an admin's own Builder key pair when the org has none", async () => {
+    restrictOrg("admin", false);
+    storeRows({
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+    });
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "bpk-personal",
+      source: "user",
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "bpk-personal",
+    );
+  });
+
   it("applies a background identity's explicit org to the Builder key pair", async () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     mockGetRequestOrgId.mockReturnValue(undefined);

@@ -935,7 +935,7 @@ describe("Builder organization and personal connections", () => {
     ).resolves.toMatchObject({ scope: "user" });
   });
 
-  it("runs an owner or admin on the org's grant, not one they connected before promotion", async () => {
+  it("runs an owner or admin on the org's grant ahead of one they connected before promotion", async () => {
     const rows = installTokenStore();
     rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
     rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
@@ -948,6 +948,13 @@ describe("Builder organization and personal connections", () => {
     expect(rows.has(`user:${ownerEmail}`)).toBe(true);
 
     readRoleMock.mockResolvedValue("member");
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+
+    // With no org grant, an admin still runs on their own.
+    rows.delete(`org:${DEFAULT_ORG}`);
+    readRoleMock.mockResolvedValue("admin");
     await expect(
       getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
     ).resolves.toMatchObject({ scope: "user" });

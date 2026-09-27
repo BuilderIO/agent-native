@@ -160,10 +160,11 @@ function userOwnerOptions(ownerEmail: string) {
 // Read paths try a member's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
-// a request runs on, so they skip a personal grant the org policy disallows,
-// and one held by a current owner or admin (connected before a promotion),
-// which would otherwise shadow the org's connection. Disconnect still sees it
-// so its owner can remove it.
+// a request runs on, so they skip a personal grant the org policy disallows
+// (disconnect still sees it so its owner can remove it), and put the org grant
+// first for a current owner or admin: a personal grant kept from before a
+// promotion would otherwise shadow the org's connection. Their own grant stays
+// the fallback, matching the key-pair resolver.
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -177,18 +178,17 @@ async function resolveBuilderOAuthOptions(
       : orgId?.trim() || null;
   const personalAllowed =
     !forUse ||
-    ((!resolvedOrgId ||
-      !isBuilderOrgManagerRole(
-        await readOrgMemberRole(resolvedOrgId, email),
-      )) &&
-      (await isPersonalBuilderGrantAllowed({
-        ownerEmail: email,
-        orgId: resolvedOrgId,
-      })));
-  return [
-    ...(personalAllowed ? [userOptions] : []),
-    ...(resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : []),
-  ];
+    (await isPersonalBuilderGrantAllowed({
+      ownerEmail: email,
+      orgId: resolvedOrgId,
+    }));
+  const personal = personalAllowed ? [userOptions] : [];
+  const org = resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
+  const orgFirst =
+    forUse &&
+    !!resolvedOrgId &&
+    isBuilderOrgManagerRole(await readOrgMemberRole(resolvedOrgId, email));
+  return orgFirst ? [...org, ...personal] : [...personal, ...org];
 }
 
 async function resolveBuilderOAuthOptionsForScope(

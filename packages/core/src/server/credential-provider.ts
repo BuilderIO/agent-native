@@ -41,6 +41,7 @@ import {
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
+  readOrgMemberRole,
   isPersonalProviderPolicyKey,
 } from "./personal-provider-key-policy.js";
 export {
@@ -506,6 +507,24 @@ function isPersonalBuilderCredentialRestricted(
   );
 }
 
+/**
+ * Whether `email` is an owner or admin of `orgId`, which puts the org's Builder
+ * connection ahead of their own. An unreadable role keeps the member order
+ * rather than failing a credential lookup that doesn't otherwise need it.
+ */
+async function isBuilderOrgManager(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  try {
+    const role = await readOrgMemberRole(orgId, email);
+    return role === "owner" || role === "admin";
+  } catch {
+    // coercion-ok: only the lookup order depends on this; both scopes are still tried.
+    return false;
+  }
+}
+
 interface ScopedCredentialResult {
   value: string | null;
   source: "user" | "org" | "workspace" | null;
@@ -545,24 +564,6 @@ async function resolveScopedBuilderCredential(
       identity,
     );
 
-    // 1. Per-user override: a user can paste their own key in settings to
-    //    overrule the org-shared one (handy for a personal sandbox).
-    const userSecret = personalRestricted
-      ? null
-      : await readAppSecret({
-          key,
-          scope: "user",
-          scopeId: email,
-        });
-    if (userSecret) {
-      if (traceLookup) {
-        console.log(
-          `[builder-credential] key=${key} email=${email} scope=user hit=true`,
-        );
-      }
-      return { value: userSecret.value, source: "user", lookupFailed: false };
-    }
-
     let orgId: string | null | undefined =
       identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
@@ -573,6 +574,31 @@ async function resolveScopedBuilderCredential(
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
       if (orgId) orgSource = "email-fallback";
+    }
+
+    // 1. Per-user override: a user can paste their own key in settings to
+    //    overrule the org-shared one (handy for a personal sandbox). An owner
+    //    or admin reads the org's first instead (see resolveScopedBuilderCredentials);
+    //    their own key is then the fallback after the org scopes.
+    const readPersonal = async (): Promise<ScopedCredentialResult | null> => {
+      if (personalRestricted) return null;
+      const userSecret = await readAppSecret({
+        key,
+        scope: "user",
+        scopeId: email,
+      });
+      if (!userSecret) return null;
+      if (traceLookup) {
+        console.log(
+          `[builder-credential] key=${key} email=${email} scope=user hit=true`,
+        );
+      }
+      return { value: userSecret.value, source: "user", lookupFailed: false };
+    };
+    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
+    if (!orgFirst) {
+      const personal = await readPersonal();
+      if (personal) return personal;
     }
 
     // 2. Per-org shared credential: when one teammate connects Builder
@@ -622,6 +648,11 @@ async function resolveScopedBuilderCredential(
           `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} miss tried=user,org,workspace`,
         );
       }
+    }
+
+    if (orgFirst) {
+      const personal = await readPersonal();
+      if (personal) return personal;
     }
 
     // Membership lookup failure means the org scopes were never searched.
@@ -727,17 +758,6 @@ async function resolveScopedBuilderCredentials(
       email,
       identity,
     );
-    if (!personalRestricted) {
-      const userCreds = await readBuilderCredentialScope(
-        readAppSecrets,
-        "user",
-        email,
-      );
-      await traceScope(userCreds, email);
-      if (await isCompleteBuilderConnection(userCreds)) {
-        return { creds: userCreds, lookupFailed: false };
-      }
-    }
 
     let orgId: string | null | undefined =
       identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
@@ -751,7 +771,21 @@ async function resolveScopedBuilderCredentials(
       if (orgId) orgSource = "email-fallback";
     }
 
-    if (orgId) {
+    const tryPersonal =
+      async (): Promise<BuilderResolvedCredentials | null> => {
+        if (personalRestricted) return null;
+        const userCreds = await readBuilderCredentialScope(
+          readAppSecrets,
+          "user",
+          email,
+        );
+        await traceScope(userCreds, email);
+        return (await isCompleteBuilderConnection(userCreds))
+          ? userCreds
+          : null;
+      };
+    const tryOrg = async (): Promise<BuilderResolvedCredentials | null> => {
+      if (!orgId) return null;
       scopeAttempted = "org";
       const orgCreds = await readBuilderCredentialScope(
         readAppSecrets,
@@ -759,9 +793,7 @@ async function resolveScopedBuilderCredentials(
         orgId,
       );
       await traceScope(orgCreds, orgId, ` orgSource=${orgSource}`);
-      if (await isCompleteBuilderConnection(orgCreds)) {
-        return { creds: orgCreds, lookupFailed: false };
-      }
+      if (await isCompleteBuilderConnection(orgCreds)) return orgCreds;
 
       scopeAttempted = "workspace";
       const workspaceCreds = await readBuilderCredentialScope(
@@ -770,9 +802,20 @@ async function resolveScopedBuilderCredentials(
         orgId,
       );
       await traceScope(workspaceCreds, orgId, ` orgSource=${orgSource}`);
-      if (await isCompleteBuilderConnection(workspaceCreds)) {
-        return { creds: workspaceCreds, lookupFailed: false };
-      }
+      return (await isCompleteBuilderConnection(workspaceCreds))
+        ? workspaceCreds
+        : null;
+    };
+
+    // Members run on their own pair first; an owner or admin runs on the org's
+    // connection first, since a pair kept from before a promotion would
+    // otherwise shadow it. Their own pair stays the fallback: the owner who
+    // activates an account during first-run setup holds only a personal pair.
+    const orgFirst = orgId ? await isBuilderOrgManager(orgId, email) : false;
+    const order = orgFirst ? [tryOrg, tryPersonal] : [tryPersonal, tryOrg];
+    for (const attempt of order) {
+      const creds = await attempt();
+      if (creds) return { creds, lookupFailed: false };
     }
 
     if (orgLookupCause !== undefined) {
