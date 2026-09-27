@@ -37,11 +37,11 @@ import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  isBuilderOrgManager,
 } from "./builder-oauth.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
-  readOrgMemberRole,
   isPersonalProviderPolicyKey,
 } from "./personal-provider-key-policy.js";
 export {
@@ -505,24 +505,6 @@ function isPersonalBuilderCredentialRestricted(
   return isPersonalProviderKeyUseRestricted(
     orgId ? { email, orgId } : { email },
   );
-}
-
-/**
- * Whether `email` is an owner or admin of `orgId`, which puts the org's Builder
- * connection ahead of their own. An unreadable role keeps the member order
- * rather than failing a credential lookup that doesn't otherwise need it.
- */
-async function isBuilderOrgManager(
-  orgId: string,
-  email: string,
-): Promise<boolean> {
-  try {
-    const role = await readOrgMemberRole(orgId, email);
-    return role === "owner" || role === "admin";
-  } catch {
-    // coercion-ok: only the lookup order depends on this; both scopes are still tried.
-    return false;
-  }
 }
 
 interface ScopedCredentialResult {

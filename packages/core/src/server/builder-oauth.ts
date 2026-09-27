@@ -157,6 +157,23 @@ function userOwnerOptions(ownerEmail: string) {
   };
 }
 
+/**
+ * Whether `email` is an owner or admin of `orgId`, which puts the org's Builder
+ * connection ahead of their own. An unreadable role keeps the member order
+ * rather than failing a credential lookup that doesn't otherwise need it.
+ */
+export async function isBuilderOrgManager(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  try {
+    return isBuilderOrgManagerRole(await readOrgMemberRole(orgId, email));
+  } catch {
+    // coercion-ok: only the lookup order depends on this; both scopes are still tried.
+    return false;
+  }
+}
+
 // Read paths try a member's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
@@ -187,7 +204,7 @@ async function resolveBuilderOAuthOptions(
   const orgFirst =
     forUse &&
     !!resolvedOrgId &&
-    isBuilderOrgManagerRole(await readOrgMemberRole(resolvedOrgId, email));
+    (await isBuilderOrgManager(resolvedOrgId, email));
   return orgFirst ? [...org, ...personal] : [...personal, ...org];
 }
 

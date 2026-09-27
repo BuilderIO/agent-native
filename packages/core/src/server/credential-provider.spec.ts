@@ -55,6 +55,17 @@ vi.mock("./builder-oauth.js", () => ({
     mockGetBuilderOAuthSession(
       ...(args as [string, string | null | undefined, string | undefined]),
     ),
+  // Same as the real helper: the member's role, read through the mocked DB.
+  isBuilderOrgManager: async (orgId: string, email: string) => {
+    try {
+      const { readOrgMemberRole } =
+        await import("./personal-provider-key-policy.js");
+      const role = await readOrgMemberRole(orgId, email);
+      return role === "owner" || role === "admin";
+    } catch {
+      return false;
+    }
+  },
 }));
 vi.mock("./request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),

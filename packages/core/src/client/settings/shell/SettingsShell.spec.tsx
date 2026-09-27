@@ -683,7 +683,10 @@ describe("SettingsShell", () => {
       // the router is still committing the previous navigation.
       const [, setTick] = useState(0);
       React.useEffect(() => {
-        const timer = setInterval(() => setTick((tick) => tick + 1), 5);
+        // Several ticks land inside each 60ms loader, so the shell re-renders
+        // mid-navigation; a tick shorter than one render keeps act() from ever
+        // going idle on a slow runner.
+        const timer = setInterval(() => setTick((tick) => tick + 1), 25);
         return () => clearInterval(timer);
       }, []);
       const current = useLocation();
@@ -695,7 +698,7 @@ describe("SettingsShell", () => {
         {
           path: "/settings/*",
           element: <BusySettings />,
-          loader: () => new Promise((resolve) => setTimeout(resolve, 40)),
+          loader: () => new Promise((resolve) => setTimeout(resolve, 60)),
         },
       ],
       { initialEntries: ["/settings/infra"] },
@@ -703,8 +706,6 @@ describe("SettingsShell", () => {
     await act(async () => {
       root.render(<RouterProvider router={router} />);
     });
-    // Every act() here flushes the ticking re-renders, so a slow runner spends
-    // far longer per poll than a laptop; the budget is in polls, not time.
     await waitFor(() => location === "/settings/profile", 400);
     clickPage("org");
     await waitFor(() => location === "/settings/org", 400);

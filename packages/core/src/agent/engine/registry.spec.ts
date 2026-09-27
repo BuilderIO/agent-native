@@ -6,6 +6,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
   hasBuilderOAuthSession: vi.fn(async () => false),
   resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+  isBuilderOrgManager: vi.fn(async () => false),
 }));
 
 function providerFailureFingerprint(key: string, value: string): string {
