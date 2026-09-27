@@ -124,11 +124,21 @@ describe("requestRecordingShortcutStop", () => {
     );
     const setup = listenForRecordingShortcutStopAcks();
     const stopRequest = requestRecordingShortcutStop();
+    emit.mockImplementation((event, payload) => {
+      if (event === "clips:tray-stop-request" && payload === undefined) {
+        return new Promise(() => {});
+      }
+      return Promise.resolve(undefined);
+    });
+    invoke.mockImplementation(() => new Promise(() => {}));
 
     await vi.advanceTimersByTimeAsync(149);
     finishRegistration(vi.fn());
     unlistenAcks = await setup;
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(80);
+    expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(69);
     expect(emit).not.toHaveBeenCalledWith("clips:recorder-stop");
     await vi.advanceTimersByTimeAsync(1);
     await stopRequest;

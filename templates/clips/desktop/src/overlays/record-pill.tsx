@@ -209,7 +209,9 @@ export function RecordingPill() {
     null,
   );
   const playheadConfirmOpenRef = useRef(false);
-  const stopDispatchRef = useRef<Promise<void> | null>(null);
+  const stopDispatchRef = useRef<Promise<{ finishingHoldSet: boolean }> | null>(
+    null,
+  );
 
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -556,8 +558,17 @@ export function RecordingPill() {
     setCompletionActionError(null);
     setCompletionActionBusy(false);
     const stopDispatch = (async () => {
-      if (hasTauri) await invoke("set_toolbar_finishing", { hold: true });
+      let finishingHoldSet = true;
+      if (hasTauri) {
+        try {
+          await invoke("set_toolbar_finishing", { hold: true });
+        } catch (error) {
+          finishingHoldSet = false;
+          console.error("[record-pill] finishing hold failed:", error);
+        }
+      }
       await safeEmit("clips:recorder-stop");
+      return { finishingHoldSet };
     })();
     stopDispatchRef.current = stopDispatch;
     void stopDispatch.catch((error) =>
@@ -921,7 +932,10 @@ export function RecordingPill() {
           }
           if (requestId) {
             try {
-              if (stopDispatchRef.current) await stopDispatchRef.current;
+              if (stopDispatchRef.current) {
+                const { finishingHoldSet } = await stopDispatchRef.current;
+                if (!finishingHoldSet) return;
+              }
               await safeEmit("clips:tray-stop-ack", requestId);
             } catch (error) {
               console.error(

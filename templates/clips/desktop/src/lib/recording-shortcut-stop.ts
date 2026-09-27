@@ -5,6 +5,10 @@ const STOP_FALLBACK_DEADLINE_MS = 300;
 const ACK_LISTENER_READY_TIMEOUT_MS = 150;
 const DIRECT_STOP_REQUEST_TIMEOUT_MS = 20;
 const DIRECT_STOP_HOLD_TIMEOUT_MS = 50;
+const ACKNOWLEDGEMENT_DEADLINE_MS =
+  STOP_FALLBACK_DEADLINE_MS -
+  DIRECT_STOP_REQUEST_TIMEOUT_MS -
+  DIRECT_STOP_HOLD_TIMEOUT_MS;
 const pendingStops = new Map<string, (handled: boolean) => void>();
 let acknowledgementListenerCount = 0;
 let acknowledgementListenerReady = false;
@@ -93,7 +97,7 @@ export function listenForRecordingShortcutStopAcks() {
 }
 
 export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
-  const deadline = Date.now() + STOP_FALLBACK_DEADLINE_MS;
+  const deadline = Date.now() + ACKNOWLEDGEMENT_DEADLINE_MS;
   if (!acknowledgementListenerReady) {
     if (!acknowledgementListenerSetup) {
       return stopDirectly("acknowledgement-listener-not-registered");

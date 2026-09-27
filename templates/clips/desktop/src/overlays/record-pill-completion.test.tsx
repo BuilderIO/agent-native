@@ -306,6 +306,36 @@ describe("completion card actions", () => {
     expect(tauriCore.invoke).toHaveBeenCalledWith("show_popover", undefined);
   });
 
+  it("still dispatches manual stop when the finishing hold fails", async () => {
+    await renderTauriPill();
+    await act(async () => {
+      await tauriEvents.emit("clips:toolbar-enabled", true);
+      await tauriEvents.emit("clips:recorder-session", {
+        viewUrl: url,
+        recordingId: "example-clip",
+        localOnly: false,
+      });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    tauriCore.invoke.mockRejectedValueOnce(new Error("hold unavailable"));
+
+    await act(async () => button("Stop recording").click());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      tauriEvents.emit.mock.calls.some(
+        ([event]) => event === "clips:recorder-stop",
+      ),
+    ).toBe(true);
+    expect(log).toHaveBeenCalledWith(
+      "[record-pill] finishing hold failed:",
+      expect.any(Error),
+    );
+  });
+
   it("shows Copy and Open when direct shortcut fallback reaches the pill", async () => {
     await renderTauriPill();
     await act(async () => {
