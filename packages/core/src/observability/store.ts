@@ -705,7 +705,7 @@ export async function getTraceSummaries(opts: {
           JSON_AGG(run_id) OVER (
             PARTITION BY org_id, review_group_owner_key, review_group_key
             ORDER BY created_at DESC, run_id DESC
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 5 FOLLOWING
+            ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING
           ) AS review_group_run_ids
         FROM (
           SELECT agent_trace_summaries.*,

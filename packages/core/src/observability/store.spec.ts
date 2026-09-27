@@ -342,6 +342,13 @@ describe("observability store: per-user isolation", () => {
           requireReviewContext: true,
         });
 
+        expect(mockDb.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sql: expect.stringContaining(
+              "ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING",
+            ),
+          }),
+        );
         expect(summaries).toHaveLength(10);
         expect(summaries).toContainEqual(
           expect.objectContaining({
