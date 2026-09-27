@@ -44,14 +44,14 @@ afterEach(() => {
 });
 
 describe("BodyElementTiming", () => {
-  it("tags only the text of the first non-empty block", () => {
+  it("tags only the first non-empty block", () => {
     const state = EditorState.create({
       doc: doc("", "First words", "Later words"),
       plugins: [createBodyElementTimingPlugin("doc-1")],
     });
 
     expect(timedBlocks(state)).toEqual([
-      { from: 3, to: 14, attribute: CONTENT_BODY_ELEMENT_TIMING },
+      { from: 2, to: 15, attribute: CONTENT_BODY_ELEMENT_TIMING },
     ]);
   });
 

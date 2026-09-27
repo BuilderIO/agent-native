@@ -38,11 +38,12 @@ export function createBodyElementTimingPlugin(documentId?: string) {
       decorations(state) {
         const block = firstTextBlock(state.doc);
         if (!block) return DecorationSet.empty;
-        // Element Timing reports text only through the element that directly
-        // owns the text nodes, so wrap the inline content rather than tagging
-        // the block, whose text may sit inside marks or links.
+        // An attribute on the block, never a wrapper element: selection and
+        // suggestion handling read the editor's DOM structure. Element Timing
+        // only sees text the block owns directly, so text that starts inside a
+        // mark or link falls back to the startup marks.
         return DecorationSet.create(state.doc, [
-          Decoration.inline(block.pos + 1, block.pos + block.size - 1, {
+          Decoration.node(block.pos, block.pos + block.size, {
             elementtiming: CONTENT_BODY_ELEMENT_TIMING,
           }),
         ]);
