@@ -28,12 +28,16 @@ const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 const AI_REQUEST_REFRESH_SOURCE = "app-state:refresh-signal";
 const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
 
-export function notifyAiRequestQueued(recordingId: string): void {
-  if (!recordingId) return;
+function bumpAiRequestRefresh(): void {
   bumpChangeVersion(
     AI_REQUEST_REFRESH_SOURCE,
     Math.max(Date.now(), getChangeVersion(AI_REQUEST_REFRESH_SOURCE) + 1),
   );
+}
+
+export function notifyAiRequestQueued(recordingId: string): void {
+  if (!recordingId) return;
+  bumpAiRequestRefresh();
 }
 
 interface AiRequest {
@@ -80,6 +84,7 @@ async function clearRequest(recordingId: string): Promise<void> {
     )}`,
   );
   await fetch(url, { method: "DELETE" }).catch(() => {});
+  bumpAiRequestRefresh();
 }
 
 export function useAutoTitleBridge(): void {
