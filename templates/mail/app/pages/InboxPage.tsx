@@ -434,7 +434,6 @@ export function InboxPage() {
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
   const {
     shouldNormalizeCombinedInboxRoute,
-    mailboxWideLabelTab,
     clientSliceTab,
     effectiveLabel,
     emailView,
