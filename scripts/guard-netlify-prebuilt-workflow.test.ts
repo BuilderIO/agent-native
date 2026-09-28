@@ -364,6 +364,10 @@ describe("Netlify PR preview workflow guard", () => {
         "github.event.comment.body == '/preview analytics' && 'assets'",
       ],
       [
+        'contains(fromJSON(\'["OWNER","MEMBER"]\'), github.event.comment.author_association)',
+        "false",
+      ],
+      [
         "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
         "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}-invalid",
       ],

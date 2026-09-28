@@ -14,20 +14,25 @@ concurrency:
   # Match each site so a different app's pending preview is not replaced.
   group: >-
     netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{
-      github.event.comment.body == '/preview analytics' && 'analytics' ||
-      github.event.comment.body == '/preview assets' && 'assets' ||
-      github.event.comment.body == '/preview calendar' && 'calendar' ||
-      github.event.comment.body == '/preview clips' && 'clips' ||
-      github.event.comment.body == '/preview content' && 'content' ||
-      github.event.comment.body == '/preview design' && 'design' ||
-      github.event.comment.body == '/preview dispatch' && 'dispatch' ||
-      github.event.comment.body == '/preview forms' && 'forms' ||
-      github.event.comment.body == '/preview mail' && 'mail' ||
-      github.event.comment.body == '/preview plan' && 'plan' ||
-      github.event.comment.body == '/preview slides' && 'slides' ||
-      github.event.comment.body == '/preview starter' && 'starter' ||
-      github.event.comment.body == '/preview fw' && 'fw' ||
-      format('invalid-{0}', github.run_id)
+      contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) &&
+      github.event.comment.user.type == 'User' &&
+      (
+        github.event.comment.body == '/preview analytics' && 'analytics' ||
+        github.event.comment.body == '/preview assets' && 'assets' ||
+        github.event.comment.body == '/preview calendar' && 'calendar' ||
+        github.event.comment.body == '/preview clips' && 'clips' ||
+        github.event.comment.body == '/preview content' && 'content' ||
+        github.event.comment.body == '/preview design' && 'design' ||
+        github.event.comment.body == '/preview dispatch' && 'dispatch' ||
+        github.event.comment.body == '/preview forms' && 'forms' ||
+        github.event.comment.body == '/preview mail' && 'mail' ||
+        github.event.comment.body == '/preview plan' && 'plan' ||
+        github.event.comment.body == '/preview slides' && 'slides' ||
+        github.event.comment.body == '/preview starter' && 'starter' ||
+        github.event.comment.body == '/preview fw' && 'fw' ||
+        format('unrecognized-{0}', github.run_id)
+      ) ||
+      format('ignored-{0}', github.run_id)
     }}
   cancel-in-progress: false
 

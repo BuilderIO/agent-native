@@ -282,7 +282,8 @@ export function validateNetlifyPrPreviewWorkflow(
       (site) => `github.event.comment.body == '/preview ${site}' && '${site}'`,
     )
     .join(" || ");
-  const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${previewSiteConcurrency} || format('invalid-{0}', github.run_id) }}`;
+  const expectedPreviewConcurrencyExpression = `contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;
+  const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${expectedPreviewConcurrencyExpression} }}`;
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -342,7 +343,7 @@ export function validateNetlifyPrPreviewWorkflow(
     workflowConcurrency?.["cancel-in-progress"] !== false
   ) {
     issues.push(
-      `${pullRequestPath} must serialize each PR-and-site request before revalidation`,
+      `${pullRequestPath} must serialize authorized PR-and-site requests before revalidation and isolate ignored comments`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
