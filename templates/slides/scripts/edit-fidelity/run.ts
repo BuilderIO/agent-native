@@ -994,13 +994,31 @@ async function runScenario(
 
   try {
     await page.goto(`${ctx.base}/home`, { waitUntil: "domcontentloaded" });
-    // Flush the previous slide pagehide before restoring this scenario's fixture.
-    await takeKeepaliveWrites(page);
+    const priorPagehideWrites = await takeKeepaliveWrites(page);
+    const priorPagehideMismatches = keepaliveMismatches(
+      priorPagehideWrites,
+      slideId,
+      ctx.stored,
+    );
     await restoreSlide(page, deckId, slideId, ctx.stored);
+    if (priorPagehideMismatches.length) {
+      const restored = await settleSaved(
+        page,
+        deckId,
+        slideId,
+        () => inFlight.size,
+        15_000,
+      );
+      if (restored !== ctx.stored) {
+        throw new Error(
+          `${priorPagehideMismatches.length} prior pagehide write(s) overwrote the restored slide`,
+        );
+      }
+    }
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
     // Recheck after reopening in case a prior pagehide write raced the restore.
     const leftBehind = keepaliveMismatches(
-      await takeKeepaliveWrites(page),
+      [...priorPagehideWrites, ...(await takeKeepaliveWrites(page))],
       slideId,
       ctx.stored,
     );
