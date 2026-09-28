@@ -2939,7 +2939,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
   cursor: pointer;
