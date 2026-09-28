@@ -572,6 +572,29 @@ describe("Index skip to editor", () => {
     dispatch.mockRestore();
   });
 
+  it("ignores a stale readiness check after the provider hook reports configured", async () => {
+    mocks.agentEngine = { state: "unknown", missing: false };
+    await act(async () => root.render(<Index />));
+    let resolveStatus: (state: "missing") => void = () => {};
+    mocks.fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight =
+        mocks.promptProps?.onBeforeSubmit?.() ?? Promise.resolve(false);
+    });
+
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    await act(async () => resolveStatus("missing"));
+
+    expect(await preflight).toBe(true);
+    expect(container.textContent).not.toContain("Connect AI");
+  });
+
   it("shows generic home suggestions while provider setup is pending", async () => {
     mocks.agentEngine = { state: "missing", missing: true };
     await act(async () => root.render(<Index />));
@@ -767,6 +790,27 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+  });
+
+  it("preserves an explicit Templates choice made while the summary is pending", async () => {
+    mocks.ownCount = 1;
+    mocks.ownStatus = "pending";
+    await act(async () => root.render(<Index />));
+    const templates = container.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]',
+    )!;
+    expect(templates.textContent).toBe("navigation.templates");
+    await act(async () =>
+      templates.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
   });
 
   it("does not treat pending or failed ownership reads as successful empty results", async () => {

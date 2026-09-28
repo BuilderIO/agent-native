@@ -85,6 +85,14 @@ export function PromptHomeLibrary({
     <section
       className="agent-prompt-home-library"
       aria-label={labels.templates}
+      onClickCapture={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[role="tab"][aria-selected="true"]')
+        ) {
+          onValueChange(value);
+        }
+      }}
     >
       <Tabs<PromptHomeLibraryTab>
         className="agent-prompt-home-tabs"

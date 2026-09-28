@@ -728,6 +728,51 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByText("providerStatusUnavailable")).toBeNull();
   });
 
+  it("ignores a stale readiness check after the provider hook reports configured", async () => {
+    agentEngine.state = "unknown";
+    agentEngine.missing = false;
+    const home = renderHome();
+    let resolveStatus: (state: "missing") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+
+    agentEngine.state = "configured";
+    await act(async () => home.rerenderHome());
+    await act(async () => resolveStatus("missing"));
+
+    expect(await preflight).toBe(true);
+    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+  });
+
+  it("preserves an explicit Templates choice made while decks are loading", async () => {
+    const home = renderHome({ loading: true });
+    const templates = screen.getByRole("tab", { name: "Templates" });
+    fireEvent.click(templates);
+
+    useDecks.mockReturnValue({
+      decks: [ownDeck],
+      loading: false,
+      loadError: false,
+      reloadDecks,
+      createDeck,
+      catchUpStaleDeckList: vi.fn(),
+    });
+    await act(async () => home.rerenderHome());
+
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
   it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(

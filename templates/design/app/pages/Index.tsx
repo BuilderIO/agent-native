@@ -278,6 +278,7 @@ export default function Index() {
   const agentEngine = useAgentEngineConfigured();
   const [preflightAgentEngineState, setPreflightAgentEngineState] =
     useState<AgentEngineConfiguredState | null>(null);
+  const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
   const agentEngineConfigured = effectiveAgentEngineState === "configured";
@@ -286,16 +287,21 @@ export default function Index() {
   canChatRef.current = agentEngineConfigured;
   useEffect(() => {
     if (agentEngine.state === "configured" || agentEngine.state === "missing") {
+      preflightRequestIdRef.current += 1;
       setPreflightAgentEngineState(null);
     }
   }, [agentEngine.state]);
   const ensureAgentEngineConfigured = useCallback(async () => {
     if (agentEngineConfigured) return true;
+    const requestId = ++preflightRequestIdRef.current;
     let nextState: AgentEngineConfiguredState;
     try {
       nextState = await fetchAgentEngineConfiguredState();
     } catch {
       nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+    }
+    if (requestId !== preflightRequestIdRef.current) {
+      return canChatRef.current;
     }
     setPreflightAgentEngineState(nextState);
     canChatRef.current = nextState === "configured";
@@ -306,6 +312,7 @@ export default function Index() {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
+    preflightRequestIdRef.current += 1;
     setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
