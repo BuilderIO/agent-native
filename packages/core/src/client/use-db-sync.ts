@@ -1566,6 +1566,7 @@ export const useFileWatcher = useDbSync;
 
 export function useScreenRefreshKey(
   options: {
+    enabled?: boolean;
     pollUrl?: string;
     sseUrl?: string | false;
     interval?: number;
@@ -1574,6 +1575,7 @@ export function useScreenRefreshKey(
   } = {},
 ): number {
   const {
+    enabled = true,
     pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
@@ -1588,6 +1590,8 @@ export function useScreenRefreshKey(
   const [key, setKey] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const id = Symbol("useScreenRefreshKey");
     let subscriberVersion = 0;
     let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
@@ -1646,6 +1650,7 @@ export function useScreenRefreshKey(
       }
     };
   }, [
+    enabled,
     pollUrl,
     sseUrl,
     interval,
