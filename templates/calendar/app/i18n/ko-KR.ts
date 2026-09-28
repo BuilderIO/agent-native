@@ -249,6 +249,7 @@ export default {
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
     eventRules: "초대 규칙",
+    eventRulesAutomationLink: "다른 작업을 하려면 자동화를 만드세요.",
     eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io로 무료 이용하거나 API 키를 추가하세요.",

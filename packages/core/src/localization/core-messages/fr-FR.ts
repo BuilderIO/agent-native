@@ -1398,6 +1398,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendToday":
     "Autre utilisation ou non classée aujourd’hui : {{amount}}",
   "usage.driverCreditsAndUsd": "Crédits Builder / USD",
+  "billing.builderCreditLimitTitle": "Vos crédits Builder sont épuisés",
+  "billing.builderCreditLimitEmailBody":
+    "Une requête d’IA s’est arrêtée, car votre compte Builder connecté n’a plus de crédits. Passez à une offre Builder supérieure pour continuer.",
+  "billing.builderCreditUpgrade": "Changer d’offre",
   "settings.usage.tabsLabel": "Vues d'utilisation",
   "settings.usage.tabOverview": "Vue d'ensemble",
   "settings.usage.tabActivity": "Activité",

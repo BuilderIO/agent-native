@@ -9,6 +9,7 @@ import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { NotificationsBell } from "@agent-native/core/client/notifications";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
@@ -1900,6 +1901,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </Popover>
           )}
 
+          <NotificationsBell browserNotifications />
           <AgentToggleButton />
         </header>
 

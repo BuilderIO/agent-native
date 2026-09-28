@@ -291,6 +291,12 @@ export function CalendarEventRules() {
             ) : null}
           </div>
         </div>
+        <Link
+          to={buildSettingsRoute("agent:automations")}
+          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {t("settings.eventRulesAutomationLink")}
+        </Link>
       </TabsContent>
       <TabsContent value="activity">
         {settings?.eventRuleActivity?.length ? (

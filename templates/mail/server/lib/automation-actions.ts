@@ -1,3 +1,4 @@
+import { notify } from "@agent-native/core/notifications";
 import type { AutomationAction } from "@shared/types.js";
 
 import {
@@ -15,6 +16,9 @@ export interface ActionContext {
   ownerEmail: string;
   accountEmail: string;
   labelCache: Map<string, string>;
+  from?: string;
+  subject?: string;
+  snippet?: string;
 }
 
 export async function buildLabelCache(
@@ -87,6 +91,27 @@ export async function executeAction(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     switch (action.type) {
+      case "notify": {
+        const notification = await notify(
+          {
+            severity: "info",
+            channels: ["inbox"],
+            title: ctx.subject?.trim() || ctx.from?.trim() || ctx.accountEmail,
+            body: [ctx.from?.trim(), ctx.snippet?.trim()]
+              .filter(Boolean)
+              .join(" · "),
+            metadata: {
+              accountEmail: ctx.accountEmail,
+              messageId: ctx.messageId,
+            },
+          },
+          { owner: ctx.ownerEmail },
+        );
+        if (!notification) {
+          throw new Error("Mail notification was not persisted.");
+        }
+        return { success: true };
+      }
       case "label": {
         const labelId = await ensureGmailLabel(
           ctx.accessToken,
@@ -168,19 +193,25 @@ export async function executeAction(
 export async function executeActions(
   actions: AutomationAction[],
   ctx: ActionContext,
-): Promise<{ successes: number; failures: number }> {
+): Promise<{
+  successes: number;
+  failures: number;
+  failedActions: AutomationAction[];
+}> {
   let successes = 0;
   let failures = 0;
+  const failedActions: AutomationAction[] = [];
   for (const action of actions) {
     const result = await executeAction(action, ctx);
     if (result.success) successes++;
     else {
       failures++;
+      failedActions.push(action);
       console.error(
         `[automation-actions] Action ${action.type} failed for ${ctx.messageId}:`,
         result.error,
       );
     }
   }
-  return { successes, failures };
+  return { successes, failures, failedActions };
 }

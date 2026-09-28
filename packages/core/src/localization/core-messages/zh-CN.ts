@@ -1248,6 +1248,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 计费之外的提供商使用量或旧调用",
   "usage.providerSpendToday": "今日其他或未分类使用量：{{amount}}",
   "usage.driverCreditsAndUsd": "Builder 积分 / USD",
+  "billing.builderCreditLimitTitle": "Builder 积分已用完",
+  "billing.builderCreditLimitEmailBody":
+    "由于您连接的 Builder 账户积分已用完，一项 AI 请求已停止。升级 Builder 套餐即可继续使用。",
+  "billing.builderCreditUpgrade": "升级套餐",
   "settings.usage.tabsLabel": "用量视图",
   "settings.usage.tabOverview": "概览",
   "settings.usage.tabActivity": "活动",

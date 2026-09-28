@@ -13,6 +13,7 @@ import {
   IconChevronRight,
   IconDownload,
   IconExternalLink,
+  IconAlertCircle,
   IconKey,
   IconLoader2,
   IconLogout,
@@ -36,6 +37,7 @@ import { Link, useNavigate } from "react-router";
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import { builderSubscriptionUpgradeUrl } from "../../shared/builder-link-tracking.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import {
   Dialog,
@@ -231,6 +233,15 @@ export function OrgSwitcher({
     undefined,
     { enabled: !!email },
   );
+  const builderCreditStatus = useActionQuery<{ exhausted: boolean } | null>(
+    "get-builder-credit-status",
+    { orgId: org?.orgId ?? null },
+    {
+      enabled: Boolean(org?.email),
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    },
+  );
   const avatarUrl = useAvatarUrl(email);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
@@ -342,6 +353,12 @@ export function OrgSwitcher({
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
     joinByDomain.error) as Error | null;
+  const showBuilderCreditNotice =
+    !builderCreditStatus.isError &&
+    builderCreditStatus.data?.exhausted === true;
+  const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
+    "builder_credit_limit_sidebar",
+  );
 
   const avatar = (
     <Avatar
@@ -717,42 +734,97 @@ export function OrgSwitcher({
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
-        {compact ? (
-          // The menu trigger has to sit directly on the button: both Radix
-          // slots merge their props into the same DOM node, and a provider
-          // between them would swallow the click that opens the menu.
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <span className="block font-medium">{displayName}</span>
-                <span className="block opacity-70">{organizationLabel}</span>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-1.5",
+          compact && "items-center",
         )}
-        <DropdownMenuContent
-          ref={contentRef}
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={12}
-          aria-label={t("agentChat.accountMenu.label")}
-          className="w-[max(15.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)]"
-          onCloseAutoFocus={(event) => {
-            if (!openingDialogRef.current) return;
-            openingDialogRef.current = false;
-            event.preventDefault();
-          }}
-        >
-          {view === "apps" && links.length > 0 ? appItems : mainItems}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      >
+        {showBuilderCreditNotice &&
+          (compact ? (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    href={builderUpgradeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`${t("agentChat.billing.builderCreditLimitTitle")} · ${t("agentChat.billing.builderCreditUpgrade")}`}
+                    className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <IconAlertCircle className="size-4" aria-hidden="true" />
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {t("agentChat.billing.builderCreditLimitTitle")} ·{" "}
+                  {t("agentChat.billing.builderCreditUpgrade")}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <div
+              role="status"
+              className="rounded-md border border-border bg-muted px-2.5 py-2 text-xs"
+            >
+              <div className="flex items-start gap-2">
+                <IconAlertCircle
+                  className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="leading-snug text-foreground">
+                    {t("agentChat.billing.builderCreditLimitTitle")}
+                  </p>
+                  <a
+                    href={builderUpgradeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    {t("agentChat.billing.builderCreditUpgrade")}
+                    <IconArrowUpRight className="size-3" aria-hidden="true" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+        <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+          {compact ? (
+            // The menu trigger has to sit directly on the button: both Radix
+            // slots merge their props into the same DOM node, and a provider
+            // between them would swallow the click that opens the menu.
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <span className="block font-medium">{displayName}</span>
+                  <span className="block opacity-70">{organizationLabel}</span>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          )}
+          <DropdownMenuContent
+            ref={contentRef}
+            side="top"
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
+            aria-label={t("agentChat.accountMenu.label")}
+            className="w-[max(15.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)]"
+            onCloseAutoFocus={(event) => {
+              if (!openingDialogRef.current) return;
+              openingDialogRef.current = false;
+              event.preventDefault();
+            }}
+          >
+            {view === "apps" && links.length > 0 ? appItems : mainItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <Dialog
         open={createOpen}

@@ -1338,6 +1338,10 @@ const messages: AgentChatTranslation = {
     "Builder 請求対象外のプロバイダー利用または過去の呼び出し",
   "usage.providerSpendToday": "本日のその他または未分類の利用額: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder クレジット / USD",
+  "billing.builderCreditLimitTitle": "Builder クレジットを使い切りました",
+  "billing.builderCreditLimitEmailBody":
+    "接続中の Builder アカウントのクレジットがなくなったため、AI リクエストが停止しました。Builder プランをアップグレードすると続けて利用できます。",
+  "billing.builderCreditUpgrade": "プランをアップグレード",
   "settings.usage.tabsLabel": "使用状況の表示",
   "settings.usage.tabOverview": "概要",
   "settings.usage.tabActivity": "アクティビティ",

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
     runMigrations: vi.fn(() => vi.fn(async () => {})),
     runBetterAuthMigrations: vi.fn(async () => {}),
     runAutomationRunMigrations: vi.fn(async () => {}),
+    runAutomationTriggerEventMigrations: vi.fn(async () => {}),
     runAutomationSchedulerHealthMigrations: vi.fn(async () => {}),
     runFrameworkSchemaEnsures: vi.fn(async () => {}),
     order: [] as string[],
@@ -74,6 +75,10 @@ vi.mock("../db/migrations.js", () => ({
 }));
 vi.mock("../jobs/run-history.js", () => ({
   runAutomationRunMigrations: mocks.runAutomationRunMigrations,
+}));
+vi.mock("../triggers/event-queue.js", () => ({
+  runAutomationTriggerEventMigrations:
+    mocks.runAutomationTriggerEventMigrations,
 }));
 vi.mock("../settings/store.js", () => ({
   mutateSetting: mocks.mutateSetting,
@@ -133,6 +138,12 @@ describe("runFrameworkReleaseMigrations", () => {
 
     expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalledTimes(1);
     expect(mocks.order).toEqual(["schema-ensures", "better-auth"]);
+  });
+
+  it("runs the durable trigger event queue migration", async () => {
+    await runFrameworkReleaseMigrations(null);
+
+    expect(mocks.runAutomationTriggerEventMigrations).toHaveBeenCalledOnce();
   });
 
   it("propagates a schema-ensure failure instead of migrating on regardless", async () => {

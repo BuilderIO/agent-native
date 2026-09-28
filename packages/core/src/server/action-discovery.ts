@@ -693,6 +693,10 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-builder-credit-usage.js"),
     ],
     [
+      "get-builder-credit-status",
+      () => import("../usage/actions/get-builder-credit-status.js"),
+    ],
+    [
       "get-builder-referral-info",
       () => import("../usage/actions/get-builder-referral-info.js"),
     ],

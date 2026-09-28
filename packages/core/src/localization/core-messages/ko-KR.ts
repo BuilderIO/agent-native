@@ -1316,6 +1316,10 @@ const messages: AgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
   "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
+  "billing.builderCreditLimitTitle": "Builder 크레딧을 모두 사용했습니다",
+  "billing.builderCreditLimitEmailBody":
+    "연결된 Builder 계정의 크레딧이 소진되어 AI 요청이 중단되었습니다. Builder 플랜을 업그레이드하면 계속 이용할 수 있습니다.",
+  "billing.builderCreditUpgrade": "플랜 업그레이드",
   "settings.usage.tabsLabel": "사용량 보기",
   "settings.usage.tabOverview": "개요",
   "settings.usage.tabActivity": "활동",

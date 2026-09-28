@@ -855,6 +855,16 @@ function actionLabels(actions: AutomationAction[]): string[] {
     .map((action) => action.labelName);
 }
 
+export function backfillActionEffects(actions: AutomationAction[]): {
+  labels: string[];
+  archive: boolean;
+} {
+  return {
+    labels: actionLabels(actions),
+    archive: actions.some((action) => action.type === "archive"),
+  };
+}
+
 function normalizeLocalLabel(label: string): string {
   return label.trim().toLowerCase().replace(/_/g, " ");
 }
@@ -1023,7 +1033,8 @@ async function applyLocalActions(
   existing: UndoThreadSnapshot | undefined,
   beforeMutation: (snapshot: UndoThreadSnapshot) => Promise<boolean>,
 ): Promise<{ snapshot: UndoThreadSnapshot; preview: AiFilterBackfillPreview }> {
-  const names = actionLabels(actions);
+  const effects = backfillActionEffects(actions);
+  const names = effects.labels;
   const labelIdByName = new Map<string, string>();
   for (const name of names)
     labelIdByName.set(name, await localLabelId(ownerEmail, name));
@@ -1036,7 +1047,7 @@ async function applyLocalActions(
     );
     if (thread.length === 0)
       throw new Error("The local conversation no longer exists.");
-    const touchesArchive = actions.some((action) => action.type === "archive");
+    const touchesArchive = effects.archive;
     const touchedLabelIds = [
       ...labelIdByName.values(),
       ...(touchesArchive
@@ -1251,11 +1262,12 @@ async function applyGmailActions(
   existing: UndoThreadSnapshot | undefined,
   beforeMutation: (snapshot: UndoThreadSnapshot) => Promise<boolean>,
 ): Promise<{ snapshot: UndoThreadSnapshot; preview: AiFilterBackfillPreview }> {
+  const effects = backfillActionEffects(actions);
   const addLabelIds: string[] = [];
-  for (const name of actionLabels(actions)) {
+  for (const name of effects.labels) {
     addLabelIds.push(await ensureGmailLabel(accessToken, name, labelCache));
   }
-  const archive = actions.some((action) => action.type === "archive");
+  const archive = effects.archive;
   const touched = [...addLabelIds, ...(archive ? ["INBOX"] : [])];
   const before = await snapshotGmailThread(
     candidate,
