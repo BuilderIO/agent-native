@@ -982,7 +982,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function isRovingFocusSibling(current, next) {
       if (!current) return false;
-      var selector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]';
+      var selector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
       var currentGroup = current.closest(selector);
       return currentGroup !== null && currentGroup === next.closest(selector);
     }

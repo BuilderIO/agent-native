@@ -161,7 +161,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): boolean {
     if (!current) return false;
     var selector =
-      '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"]';
+      '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
     var currentGroup = current.closest(selector);
     return currentGroup !== null && currentGroup === next.closest(selector);
   }

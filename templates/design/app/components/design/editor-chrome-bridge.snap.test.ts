@@ -296,9 +296,9 @@ describe("editor-chrome bridge — focus ownership", () => {
     expect(focusTracker.focused()).toBeNull();
   });
 
-  it("keeps arrow-key focus moves to sibling controls", () => {
+  it("keeps arrow-key focus moves between treegrid cells", () => {
     const group = {
-      matches: (selector: string) => selector.includes('[role="tree"]'),
+      matches: (selector: string) => selector.includes('[role="treegrid"]'),
     } as unknown as Element;
     const current = {
       contains: () => false,
