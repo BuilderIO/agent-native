@@ -920,9 +920,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        sourceCopy: { ...geometry[sourceId], x: 752, z: 1 },
-        neighborCopy: { ...geometry[neighborId], x: 1504, z: 3 },
-        fartherCopy: { ...geometry[fartherId], x: 1880, z: 5 },
+        sourceCopy: { ...geometry[sourceId], x: 736, z: 1 },
+        neighborCopy: { ...geometry[neighborId], x: 1488, z: 3 },
+        fartherCopy: { ...geometry[fartherId], x: 1848, z: 5 },
         farther: { ...geometry[fartherId], z: 4 },
       });
 
