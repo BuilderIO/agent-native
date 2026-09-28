@@ -21,16 +21,24 @@ vi.mock("../agent/run-manager.js", () => ({
 }));
 
 import {
+  AUTOMATION_TRIGGER_EVENT_MIGRATIONS,
+  AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
   AUTOMATION_TRIGGER_EVENT_DEDUPE_RETENTION_MS,
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
   claimNextAutomationTriggerEvent,
   completeAutomationTriggerEvent,
   enqueueAutomationTriggerEvent,
+  expireAutomationTriggerEvent,
+  expireStaleAutomationTriggerEvents,
   failAutomationTriggerEvent,
+  getAutomationTriggerSweepCursor,
   listReadyAutomationTriggerIds,
   purgeExpiredAutomationTriggerEvents,
+  reserveAutomationTriggerEventPurge,
   retryAutomationTriggerEvent,
+  scheduleAutomationTriggerEventPurge,
+  setAutomationTriggerSweepCursor,
 } from "./event-queue.js";
 
 describe("automation trigger event queue", () => {
@@ -253,6 +261,93 @@ describe("automation trigger event queue", () => {
     expect(query.args).toContain("mail");
   });
 
+  it("bounds ready-trigger pages and keysets past the durable cursor", async () => {
+    const triggerIds = Array.from({ length: 100 }, (_, index) => ({
+      trigger_id: `resource-${index}`,
+    }));
+    executeMock.mockResolvedValueOnce({ rows: triggerIds });
+
+    await expect(listReadyAutomationTriggerIds("mail")).resolves.toHaveLength(
+      100,
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("ORDER BY trigger_id ASC");
+    expect(query.sql).toContain("LIMIT ?");
+    expect(query.args.at(-1)).toBe(100);
+
+    executeMock.mockResolvedValueOnce({ rows: [{ trigger_id: "resource-z" }] });
+    await listReadyAutomationTriggerIds("mail", 100, {
+      afterTriggerId: "resource-m",
+      throughTriggerId: "resource-z",
+    });
+    const nextPage = executeMock.mock.calls[1]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(nextPage.sql).toContain("trigger_id > ?");
+    expect(nextPage.sql).toContain("trigger_id <= ?");
+    expect(nextPage.args).toEqual(
+      expect.arrayContaining(["resource-m", "resource-z"]),
+    );
+  });
+
+  it("adds an index for bounded stale-event expiration", () => {
+    const staleIndexMigration = AUTOMATION_TRIGGER_EVENT_MIGRATIONS.find(
+      ({ name }) => name === "automation-trigger-event-stale-mail-index",
+    );
+    expect(staleIndexMigration).toMatchObject({
+      version: 3,
+      name: "automation-trigger-event-stale-mail-index",
+    });
+    expect(staleIndexMigration?.sql).toContain(
+      "ON automation_trigger_event_queue (app_id, event_name, emitted_at)",
+    );
+  });
+
+  it("persists the fair sweep cursor across cold invocations", async () => {
+    executeMock.mockResolvedValueOnce({
+      rows: [{ last_trigger_id: "resource-m" }],
+    });
+    await expect(getAutomationTriggerSweepCursor("mail")).resolves.toBe(
+      "resource-m",
+    );
+
+    await setAutomationTriggerSweepCursor("mail", "resource-z");
+    const update = executeMock.mock.calls[1]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(update.sql).toContain("ON CONFLICT (scope_key) DO UPDATE");
+    expect(update.sql).toContain("last_trigger_id = excluded.last_trigger_id");
+    expect(update.args).toEqual(["mail", "resource-z", expect.any(Number)]);
+  });
+
+  it("reserves queue cleanup durably with a one-minute retry after a failure", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [{ scope_key: "mail" }] });
+    await expect(
+      reserveAutomationTriggerEventPurge("mail", 1_000),
+    ).resolves.toBe(true);
+    const claim = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(claim.sql).toContain("purge_after <= ?");
+    expect(claim.sql).toContain("RETURNING scope_key");
+    expect(claim.args).toEqual(["mail", 61_000, 1_000, 1_000]);
+
+    await scheduleAutomationTriggerEventPurge("mail", 86_401_000);
+    const schedule = executeMock.mock.calls[1]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(schedule.sql).toContain("SET purge_after = ?, updated_at = ?");
+    expect(schedule.args).toEqual([86_401_000, expect.any(Number), "mail"]);
+  });
+
   it("scrubs a completed event payload and retains its dedupe row", async () => {
     await completeAutomationTriggerEvent("queue-1", 1234, 1);
 
@@ -272,6 +367,64 @@ describe("automation trigger event queue", () => {
       "queue-1",
       1234,
       1,
+    ]);
+  });
+
+  it("expires stale pending events in bounded, lock-safe batches", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [], rowsAffected: 17 });
+    const input = {
+      appId: "mail",
+      eventName: "mail.message.received",
+      emittedBefore: "2026-09-28T10:00:00.000Z",
+      reason: "Expired stale mail event.",
+      limit: AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
+    };
+
+    await expect(expireStaleAutomationTriggerEvents(input)).resolves.toBe(17);
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("event_name = ? AND status = 'pending'");
+    expect(query.sql).toContain("emitted_at < ?");
+    expect(query.sql).toContain("ORDER BY emitted_at ASC");
+    expect(query.sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(query.sql).toContain("SET status = 'completed'");
+    expect(query.sql).toContain("last_error = ?");
+    expect(query.args).toEqual([
+      input.appId,
+      input.eventName,
+      input.emittedBefore,
+      input.limit,
+      '{"kind":"completed"}',
+      expect.any(Number),
+      input.reason,
+    ]);
+  });
+
+  it("expires a reclaimed stale event only while its claim is current", async () => {
+    await expireAutomationTriggerEvent(
+      "queue-1",
+      1234,
+      2,
+      "Expired stale mail event.",
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("SET status = 'completed'");
+    expect(query.sql).toContain("last_error = ?");
+    expect(query.sql).toContain("claimed_at = ? AND attempts = ?");
+    expect(query.args).toEqual([
+      '{"kind":"completed"}',
+      expect.any(Number),
+      "Expired stale mail event.",
+      "queue-1",
+      1234,
+      2,
     ]);
   });
 
