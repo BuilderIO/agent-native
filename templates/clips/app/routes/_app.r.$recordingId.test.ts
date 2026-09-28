@@ -35,6 +35,31 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('searchParams.get("panel")');
   });
 
+  it("opens Agent from legacy recording URLs and preserves collapsed state", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_PARAM");
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
+    expect(route).toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      return;',
+    );
+    expect(route).not.toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      setSidePanelCollapsed(false);',
+    );
+    expect(route).toContain(
+      "setPanel(next);\n      setSidePanelCollapsed(false);",
+    );
+  });
+
+  it("routes the Agent shortcut to the recording composer", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain('event.key !== "i"');
+    expect(route).toContain('".ProseMirror, textarea"');
+    expect(route).toContain("window.setTimeout(() => focus(attempt + 1), 50)");
+    expect(route).toContain('"pending-selection-context"');
+  });
+
   it("clamps route playback state before exposing it", () => {
     const recordingRoute = readRoute("_app.r.$recordingId.tsx");
     const shareRoute = readRoute("share.$shareId.tsx");

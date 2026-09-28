@@ -19,6 +19,8 @@ import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "@agent-native/core/shared";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import type {
@@ -572,7 +574,12 @@ export default function RecordingPage() {
     searchParams.get("at") ?? searchParams.get("t"),
   );
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
-  const panelParam = searchParams.get("panel");
+  const panelParam =
+    searchParams.get("panel") ??
+    (searchParams.get(AGENT_SIDEBAR_QUERY_PARAM) ===
+    AGENT_SIDEBAR_QUERY_VALUE_OPEN
+      ? "agent"
+      : null);
   const legacyShareQuery = buildShareContinuationQuery(
     { ref: CLIP_SHARE_REF, via: undefined },
     routePlaybackParam,
@@ -583,6 +590,25 @@ export default function RecordingPage() {
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
+  const agentPanelContentRef = useRef<HTMLDivElement | null>(null);
+  const focusAgentComposerRef = useRef(false);
+  const focusAgentComposer = useCallback(() => {
+    const focus = (attempt = 0) => {
+      const composer = agentPanelContentRef.current?.querySelector<HTMLElement>(
+        ".ProseMirror, textarea",
+      );
+      if (
+        composer &&
+        composer.getAttribute("contenteditable") !== "false" &&
+        !composer.hasAttribute("disabled")
+      ) {
+        composer.focus();
+        return;
+      }
+      if (attempt < 40) window.setTimeout(() => focus(attempt + 1), 50);
+    };
+    requestAnimationFrame(() => focus());
+  }, []);
 
   const [panel, setPanel] = useState<SidePanel | null>("comments");
   const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
@@ -687,6 +713,57 @@ export default function RecordingPage() {
   const [pendingReactions, setPendingReactions] = useState<
     PendingRecordingReaction[]
   >([]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.key !== "i"
+      ) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable ||
+          target.closest?.("[contenteditable]"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      const selectionText = window.getSelection()?.toString().trim() ?? "";
+      if (selectionText) {
+        void writeClientAppState(
+          "pending-selection-context",
+          { text: selectionText, capturedAt: Date.now() },
+          { requestSource: browserTabId, keepalive: true },
+        ).catch(() => {});
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:selection-attached", {
+            detail: { text: selectionText, length: selectionText.length },
+          }),
+        );
+      }
+
+      focusAgentComposerRef.current = panel !== "agent";
+      openAgentPanel();
+      if (panel === "agent") focusAgentComposer();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [browserTabId, focusAgentComposer, openAgentPanel, panel]);
+
+  useEffect(() => {
+    if (panel !== "agent" || !focusAgentComposerRef.current) return;
+    focusAgentComposerRef.current = false;
+    focusAgentComposer();
+  }, [focusAgentComposer, panel]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -1013,7 +1090,6 @@ export default function RecordingPage() {
   useEffect(() => {
     if (panelParam === "agent") {
       setPanel("agent");
-      setSidePanelCollapsed(false);
       return;
     }
     if (panelParam === "comments") {
@@ -2177,6 +2253,7 @@ export default function RecordingPage() {
         <TabsContent
           value="agent"
           className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
+          ref={agentPanelContentRef}
         >
           <AgentPanel
             emptyStateText={t("recordingPage.askAboutClip")}
