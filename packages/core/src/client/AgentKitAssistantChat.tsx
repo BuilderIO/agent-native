@@ -1338,13 +1338,15 @@ const AgentKitAssistantChatBody = forwardRef<
     thread.messages.some((message) => message.role === "assistant");
 
   const clearPendingSelection = useCallback(() => {
-    selectionRevisionRef.current += 1;
-    setPendingSelection(null);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-    }
+    const selectionRevision = ++selectionRevisionRef.current;
     return deleteClientAppState("pending-selection-context", {
       keepalive: true,
+    }).then(() => {
+      if (selectionRevision !== selectionRevisionRef.current) return;
+      setPendingSelection(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agent-panel:selection-cleared"));
+      }
     });
   }, []);
   const requestPendingSelectionClear = useCallback(() => {
