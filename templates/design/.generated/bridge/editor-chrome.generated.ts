@@ -999,6 +999,32 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function isRovingFocusSibling(current, next, key, intent) {
       if (!current) return false;
+      function isNativeRadio(element) {
+        return element.tagName === "INPUT" && element.type === "radio";
+      }
+      if (isNativeRadio(current) && isNativeRadio(next)) {
+        var radioName = current.name;
+        var radioForm = current.form || current.closest("form");
+        var radios = Array.from(
+          current.getRootNode().querySelectorAll(
+            'input[type="radio"]'
+          )
+        ).filter(function(candidate) {
+          var radio = candidate;
+          return radioName !== "" && radio.name === radioName && (radio.form || radio.closest("form")) === radioForm;
+        });
+        var currentRadioIndex = radios.indexOf(current);
+        var nextRadioIndex = radios.indexOf(next);
+        var delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+          if (window.getComputedStyle(current).direction === "rtl") {
+            delta *= -1;
+          }
+        }
+        if (radios.length > 1 && currentRadioIndex !== -1 && nextRadioIndex !== -1 && delta !== 0) {
+          return nextRadioIndex === (currentRadioIndex + delta + radios.length) % radios.length;
+        }
+      }
       var currentGroup = current.closest(rovingGroupSelector);
       if (!currentGroup || currentGroup !== next.closest(rovingGroupSelector) || intent.rovingGroup !== currentGroup) {
         return false;
@@ -1084,7 +1110,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         var nextTabIndex = intent.tabIndexesBefore?.find(function(entry) {
           return entry.element === nextRovingItem2;
         });
-        return previousTabIndex?.value === "0" && currentRovingItem2.getAttribute("tabindex") !== "0" && nextTabIndex !== void 0 && nextTabIndex.value !== "0" && nextRovingItem2.getAttribute("tabindex") === "0";
+        if (previousTabIndex?.value === "0" && currentRovingItem2.getAttribute("tabindex") !== "0" && nextTabIndex !== void 0 && nextTabIndex.value !== "0" && nextRovingItem2.getAttribute("tabindex") === "0") {
+          return true;
+        }
+        function isGridCell(item) {
+          return item.getAttribute("role") === "gridcell" || item.getAttribute("role") === "columnheader" || item.getAttribute("role") === "rowheader" || item.tagName === "TD" || item.tagName === "TH";
+        }
+        return (role === "grid" || role === "treegrid") && isGridCell(currentRovingItem2) && isGridCell(nextRovingItem2) && current !== currentRovingItem2 && next !== nextRovingItem2 && current.matches(focusTargetSelector) && next.matches(focusTargetSelector);
       }
       if (role === "grid" || role === "treegrid") {
         var currentRow = currentItem.closest('[role="row"], tr');
@@ -1142,20 +1174,36 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (role === "tree") return target.closest('[role="treeitem"]');
         return target.closest(itemSelector);
       }
+      function isNavigableTreeItem(item) {
+        var currentItem2 = item;
+        while (currentItem2 && currentItem2 !== currentGroup) {
+          if (currentItem2.getAttribute("hidden") !== null || currentItem2.getAttribute("inert") !== null || currentItem2.getAttribute("aria-hidden") === "true") {
+            return false;
+          }
+          if (currentItem2 !== item && currentItem2.getAttribute("role") === "treeitem" && currentItem2.getAttribute("aria-expanded") === "false") {
+            return false;
+          }
+          currentItem2 = currentItem2.parentElement;
+        }
+        return true;
+      }
       var currentRovingItem = itemFor(current);
       var nextRovingItem = itemFor(next);
       if (!currentRovingItem || !nextRovingItem || !belongsToGroup(currentRovingItem) || !belongsToGroup(nextRovingItem)) {
         return false;
       }
-      if (role === "tree" && key === "ArrowRight") {
-        return nextRovingItem.parentElement?.closest('[role="treeitem"]') === currentRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      var isRtl = window.getComputedStyle(currentGroup).direction === "rtl";
+      var childKey = isRtl ? "ArrowLeft" : "ArrowRight";
+      var parentKey = isRtl ? "ArrowRight" : "ArrowLeft";
+      if (role === "tree" && key === childKey) {
+        return isNavigableTreeItem(currentRovingItem) && isNavigableTreeItem(nextRovingItem) && nextRovingItem.parentElement?.closest('[role="treeitem"]') === currentRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
       }
-      if (role === "tree" && key === "ArrowLeft") {
-        return currentRovingItem.parentElement?.closest('[role="treeitem"]') === nextRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      if (role === "tree" && key === parentKey) {
+        return isNavigableTreeItem(currentRovingItem) && isNavigableTreeItem(nextRovingItem) && currentRovingItem.parentElement?.closest('[role="treeitem"]') === nextRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
       }
       var items = Array.from(currentGroup.querySelectorAll(itemSelector)).filter(
         function(item) {
-          return belongsToGroup(item) && itemFor(item) === item;
+          return belongsToGroup(item) && itemFor(item) === item && (role !== "tree" || isNavigableTreeItem(item));
         }
       );
       var currentIndex = items.indexOf(currentRovingItem);
@@ -1174,7 +1222,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else if (key !== "ArrowUp" && key !== "ArrowDown") {
         return false;
       }
-      return nextIndex === currentIndex + delta && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      var expectedIndex = currentIndex + delta;
+      if (role === "radiogroup" || role === "tablist" || role === "menu" || role === "menubar" || role === "toolbar") {
+        expectedIndex = (expectedIndex + items.length) % items.length;
+      }
+      return nextIndex === expectedIndex && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
     }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;

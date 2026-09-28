@@ -194,6 +194,55 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
   ): boolean {
     if (!current) return false;
+
+    function isNativeRadio(element: Element): element is HTMLInputElement {
+      return (
+        element.tagName === "INPUT" &&
+        (element as HTMLInputElement).type === "radio"
+      );
+    }
+
+    if (isNativeRadio(current) && isNativeRadio(next)) {
+      var radioName = current.name;
+      var radioForm = current.form || current.closest("form");
+      var radios = Array.from(
+        (current.getRootNode() as ParentNode).querySelectorAll(
+          'input[type="radio"]',
+        ),
+      ).filter(function (candidate) {
+        var radio = candidate as HTMLInputElement;
+        return (
+          radioName !== "" &&
+          radio.name === radioName &&
+          (radio.form || radio.closest("form")) === radioForm
+        );
+      });
+      var currentRadioIndex = radios.indexOf(current);
+      var nextRadioIndex = radios.indexOf(next);
+      var delta =
+        key === "ArrowRight" || key === "ArrowDown"
+          ? 1
+          : key === "ArrowLeft" || key === "ArrowUp"
+            ? -1
+            : 0;
+      if (key === "ArrowLeft" || key === "ArrowRight") {
+        if (window.getComputedStyle(current).direction === "rtl") {
+          delta *= -1;
+        }
+      }
+      if (
+        radios.length > 1 &&
+        currentRadioIndex !== -1 &&
+        nextRadioIndex !== -1 &&
+        delta !== 0
+      ) {
+        return (
+          nextRadioIndex ===
+          (currentRadioIndex + delta + radios.length) % radios.length
+        );
+      }
+    }
+
     var currentGroup = current.closest(rovingGroupSelector);
     if (
       !currentGroup ||
@@ -317,12 +366,34 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var nextTabIndex = intent.tabIndexesBefore?.find(function (entry) {
         return entry.element === nextRovingItem;
       });
-      return (
+      if (
         previousTabIndex?.value === "0" &&
         currentRovingItem.getAttribute("tabindex") !== "0" &&
         nextTabIndex !== undefined &&
         nextTabIndex.value !== "0" &&
         nextRovingItem.getAttribute("tabindex") === "0"
+      ) {
+        return true;
+      }
+
+      function isGridCell(item: Element): boolean {
+        return (
+          item.getAttribute("role") === "gridcell" ||
+          item.getAttribute("role") === "columnheader" ||
+          item.getAttribute("role") === "rowheader" ||
+          item.tagName === "TD" ||
+          item.tagName === "TH"
+        );
+      }
+
+      return (
+        (role === "grid" || role === "treegrid") &&
+        isGridCell(currentRovingItem) &&
+        isGridCell(nextRovingItem) &&
+        current !== currentRovingItem &&
+        next !== nextRovingItem &&
+        current.matches(focusTargetSelector) &&
+        next.matches(focusTargetSelector)
       );
     }
 
@@ -408,6 +479,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return target.closest(itemSelector!);
     }
 
+    function isNavigableTreeItem(item: Element): boolean {
+      var currentItem: Element | null = item;
+      while (currentItem && currentItem !== currentGroup) {
+        if (
+          currentItem.getAttribute("hidden") !== null ||
+          currentItem.getAttribute("inert") !== null ||
+          currentItem.getAttribute("aria-hidden") === "true"
+        ) {
+          return false;
+        }
+        if (
+          currentItem !== item &&
+          currentItem.getAttribute("role") === "treeitem" &&
+          currentItem.getAttribute("aria-expanded") === "false"
+        ) {
+          return false;
+        }
+        currentItem = currentItem.parentElement;
+      }
+      return true;
+    }
+
     var currentRovingItem = itemFor(current);
     var nextRovingItem = itemFor(next);
     if (
@@ -419,15 +512,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return false;
     }
 
-    if (role === "tree" && key === "ArrowRight") {
+    var isRtl = window.getComputedStyle(currentGroup).direction === "rtl";
+    var childKey = isRtl ? "ArrowLeft" : "ArrowRight";
+    var parentKey = isRtl ? "ArrowRight" : "ArrowLeft";
+    if (role === "tree" && key === childKey) {
       return (
+        isNavigableTreeItem(currentRovingItem) &&
+        isNavigableTreeItem(nextRovingItem) &&
         nextRovingItem.parentElement?.closest('[role="treeitem"]') ===
           currentRovingItem &&
         hasRovingFocusTransition(currentRovingItem, nextRovingItem)
       );
     }
-    if (role === "tree" && key === "ArrowLeft") {
+    if (role === "tree" && key === parentKey) {
       return (
+        isNavigableTreeItem(currentRovingItem) &&
+        isNavigableTreeItem(nextRovingItem) &&
         currentRovingItem.parentElement?.closest('[role="treeitem"]') ===
           nextRovingItem &&
         hasRovingFocusTransition(currentRovingItem, nextRovingItem)
@@ -436,7 +536,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var items = Array.from(currentGroup.querySelectorAll(itemSelector)).filter(
       function (item) {
-        return belongsToGroup(item) && itemFor(item) === item;
+        return (
+          belongsToGroup(item) &&
+          itemFor(item) === item &&
+          (role !== "tree" || isNavigableTreeItem(item))
+        );
       },
     );
     var currentIndex = items.indexOf(currentRovingItem);
@@ -471,8 +575,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else if (key !== "ArrowUp" && key !== "ArrowDown") {
       return false;
     }
+    var expectedIndex = currentIndex + delta;
+    if (
+      role === "radiogroup" ||
+      role === "tablist" ||
+      role === "menu" ||
+      role === "menubar" ||
+      role === "toolbar"
+    ) {
+      expectedIndex = (expectedIndex + items.length) % items.length;
+    }
     return (
-      nextIndex === currentIndex + delta &&
+      nextIndex === expectedIndex &&
       hasRovingFocusTransition(currentRovingItem, nextRovingItem)
     );
   }
