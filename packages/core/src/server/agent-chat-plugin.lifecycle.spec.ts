@@ -48,6 +48,7 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
     await importOriginal<typeof import("../mcp-client/index.js")>();
   return {
     ...actual,
+    buildMergedConfig: async () => null,
     startMcpConfigRefresh: () => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
@@ -206,7 +207,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       const app = await initializeGeneration();
       await app.hooks.callHook("close");
     }
-    await initializeGeneration();
+    const repeatedGeneration = await initializeGeneration();
     await startFastSweep();
 
     const repeatedLifecycle = {
@@ -225,6 +226,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
       pendingTransactions: 1,
       settingsListeners: 1,
     });
+    await repeatedGeneration.hooks.callHook("close");
   });
 
   it("cleans resources registered after close races asynchronous initialization", async () => {
