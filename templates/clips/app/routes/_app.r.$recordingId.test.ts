@@ -69,6 +69,14 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('event.key !== "i"');
     expect(route).toContain('".ProseMirror, textarea"');
     expect(route).toContain("window.setTimeout(() => focus(attempt + 1), 50)");
+    expect(route).toContain("selectionHandoffRevisionRef.current += 1;");
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
+    expect(route).toContain(
+      "if (selectionRevision !== selectionHandoffRevisionRef.current) return;",
+    );
+    expect(route).toMatch(
+      /useEffect\(\s*\(\) => \(\) => \{\s*selectionHandoffRevisionRef\.current \+= 1;/,
+    );
     expect(route).toContain('"pending-selection-context"');
     expect(route).toContain(
       ").then(dispatchSelectionAttached, dispatchSelectionAttached)",
@@ -77,7 +85,7 @@ describe("direct recording route shell cue", () => {
       "agent-panel:selection-attached",
     );
     expect(route).toContain('if (panel !== "agent") return;');
-    expect(route).toContain("setPendingSelectionText(selectionText)");
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
   });
 
   it("clamps route playback state before exposing it", () => {

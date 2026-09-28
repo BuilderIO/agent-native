@@ -593,6 +593,7 @@ export default function RecordingPage() {
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const agentPanelContentRef = useRef<HTMLDivElement | null>(null);
   const focusAgentComposerRef = useRef(false);
+  const selectionHandoffRevisionRef = useRef(0);
   const focusAgentComposer = useCallback(() => {
     const focus = (attempt = 0) => {
       const composer = agentPanelContentRef.current?.querySelector<HTMLElement>(
@@ -615,6 +616,12 @@ export default function RecordingPage() {
   const [pendingSelectionText, setPendingSelectionText] = useState<
     string | null
   >(null);
+  useEffect(
+    () => () => {
+      selectionHandoffRevisionRef.current += 1;
+    },
+    [],
+  );
   const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
     usePersistentSidebarCollapsed({
       storageKey: "clips:share-sidebar-collapsed",
@@ -740,8 +747,9 @@ export default function RecordingPage() {
       }
 
       event.preventDefault();
+      selectionHandoffRevisionRef.current += 1;
       const selectionText = window.getSelection()?.toString().trim() ?? "";
-      if (selectionText) setPendingSelectionText(selectionText);
+      setPendingSelectionText(selectionText || null);
 
       focusAgentComposerRef.current = panel !== "agent";
       openAgentPanel();
@@ -760,8 +768,10 @@ export default function RecordingPage() {
     }
     if (!pendingSelectionText) return;
 
+    const selectionRevision = selectionHandoffRevisionRef.current;
     setPendingSelectionText(null);
     const dispatchSelectionAttached = () => {
+      if (selectionRevision !== selectionHandoffRevisionRef.current) return;
       window.dispatchEvent(
         new CustomEvent("agent-panel:selection-attached", {
           detail: {
