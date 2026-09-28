@@ -277,6 +277,12 @@ export function validateNetlifyPrPreviewWorkflow(
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
   const workflowConcurrency = asRecord(workflow.concurrency);
+  const previewSiteConcurrency = previewEligibleSiteNames()
+    .map(
+      (site) => `github.event.comment.body == '/preview ${site}' && '${site}'`,
+    )
+    .join(" || ");
+  const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${previewSiteConcurrency} || format('invalid-{0}', github.run_id) }}`;
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -330,12 +336,13 @@ export function validateNetlifyPrPreviewWorkflow(
     );
   }
   if (
-    workflowConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{ github.event.comment.body || github.run_id }}" ||
+    String(workflowConcurrency?.group ?? "")
+      .replace(/\s+/g, " ")
+      .trim() !== expectedPreviewConcurrencyGroup ||
     workflowConcurrency?.["cancel-in-progress"] !== false
   ) {
     issues.push(
-      `${pullRequestPath} must serialize preview requests per PR and exact site command before revalidation`,
+      `${pullRequestPath} must serialize each PR-and-site request before revalidation`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
@@ -625,7 +632,7 @@ export function validateNetlifyPrPreviewWorkflow(
     JSON.stringify(cleanupMatrix.site) !==
       JSON.stringify(previewEligibleSiteNames()) ||
     cleanupConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ format('/preview {0}', matrix.site) }}" ||
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
     cleanupConcurrency["cancel-in-progress"] !== true ||
     !source.includes('--site "$SITE_NAME"')
   ) {
