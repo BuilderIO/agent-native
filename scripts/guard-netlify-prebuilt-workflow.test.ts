@@ -214,18 +214,36 @@ describe("Netlify PR preview workflow guard", () => {
       ["created"],
     );
     assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
-    assert.equal(preview.concurrency, undefined);
-    assert.deepEqual(previewDeploy.concurrency, {
+    assert.deepEqual(preview.concurrency, {
       group:
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
-      "cancel-in-progress": false,
+        "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}",
+      "cancel-in-progress": "${{ github.event_name == 'pull_request_target' }}",
     });
+    assert.equal(previewDeploy.concurrency, undefined);
     assert.deepEqual(previewDeploy.permissions, { contents: "read" });
     assert.deepEqual(previewRevalidate.permissions, {
       contents: "read",
       "pull-requests": "read",
     });
     assert.deepEqual(previewRevalidate.needs, ["authorize", "build"]);
+    const revalidateStart = pullRequestPreviewSource.indexOf(
+      "name: Confirm the authorized PR head is still current",
+    );
+    const invertedHeadRepositoryCheck =
+      pullRequestPreviewSource.slice(0, revalidateStart) +
+      pullRequestPreviewSource
+        .slice(revalidateStart)
+        .replace(
+          "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+          "pullRequest.head.repo?.full_name?.toLowerCase() === fullName",
+        );
+    assert.match(
+      validateNetlifyPrPreviewWorkflow(
+        parse(invertedHeadRepositoryCheck) as Workflow,
+        invertedHeadRepositoryCheck,
+      ).join("\n"),
+      /revalidate the pinned internal PR/,
+    );
     assert.deepEqual(
       ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
       previewEligibleSiteNames(),
@@ -333,8 +351,12 @@ describe("Netlify PR preview workflow guard", () => {
       ],
       ["issue_comment:", "workflow_dispatch:"],
       [
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-all",
+        "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}",
+        "netlify-pr-preview-${{ github.event.issue.number || github.run_id }}",
+      ],
+      [
+        "cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}",
+        "cancel-in-progress: false",
       ],
       ["cancel-in-progress: true", "cancel-in-progress: false"],
       ["          - fw", "          - unknown"],

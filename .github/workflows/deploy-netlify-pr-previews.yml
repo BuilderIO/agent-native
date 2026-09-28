@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+
 jobs:
   authorize:
     name: Authorize internal PR preview
@@ -121,9 +125,6 @@ jobs:
       needs.authorize.result == 'success' &&
       needs.build.result == 'success' &&
       needs.revalidate.result == 'success'
-    concurrency:
-      group: netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}
-      cancel-in-progress: false
     permissions:
       contents: read
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml

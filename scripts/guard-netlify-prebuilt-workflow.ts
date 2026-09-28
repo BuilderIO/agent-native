@@ -276,7 +276,7 @@ export function validateNetlifyPrPreviewWorkflow(
   const revalidateScript = String(asRecord(revalidateStep?.with)?.script ?? "");
   const deploy = asRecord(jobs?.deploy);
   const deployWith = asRecord(deploy?.with);
-  const deployConcurrency = asRecord(deploy?.concurrency);
+  const workflowConcurrency = asRecord(workflow.concurrency);
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
   const deploymentScript = githubScript(deployment ?? {});
@@ -329,9 +329,14 @@ export function validateNetlifyPrPreviewWorkflow(
       `${pullRequestPath} must disable automatic PR previews and retain only closed-PR cleanup`,
     );
   }
-  if (workflow.concurrency !== undefined) {
+  if (
+    workflowConcurrency?.group !==
+      "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}" ||
+    workflowConcurrency?.["cancel-in-progress"] !==
+      "${{ github.event_name == 'pull_request_target' }}"
+  ) {
     issues.push(
-      `${pullRequestPath} must coordinate preview deploys and cleanup per PR and app at the job level`,
+      `${pullRequestPath} must serialize each PR workflow before revalidation and let closed-PR cleanup cancel it`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
@@ -458,12 +463,18 @@ export function validateNetlifyPrPreviewWorkflow(
     !revalidateScript.includes("github.rest.pulls.get") ||
     !revalidateScript.includes("pullRequest.state !== 'open'") ||
     !revalidateScript.includes("pullRequest.base.ref !== 'main'") ||
-    !revalidateScript.includes("pullRequest.base.repo?.full_name") ||
-    !revalidateScript.includes("pullRequest.author_association") ||
+    !revalidateScript.includes(
+      "pullRequest.base.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
+    !revalidateScript.includes(
+      "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+    ) ||
     !revalidateScript.includes(
       "pullRequest.head.sha !== process.env.SOURCE_REF",
     ) ||
-    !revalidateScript.includes("pullRequest.head.repo?.full_name") ||
+    !revalidateScript.includes(
+      "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+    ) ||
     !revalidateScript.includes("pullRequest.user?.type !== 'User'")
   ) {
     issues.push(
@@ -540,17 +551,13 @@ export function validateNetlifyPrPreviewWorkflow(
     issues.push(`${pullRequestPath} deploy job must pass target=preview`);
   }
   if (
-    !deployConcurrency ||
-    deployConcurrency.group !==
-      "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}" ||
-    deployConcurrency["cancel-in-progress"] !== false ||
     asRecord(deploy.permissions)?.contents !== "read" ||
     Object.keys(asRecord(deploy.permissions) ?? {}).some(
       (permission) => permission !== "contents",
     )
   ) {
     issues.push(
-      `${pullRequestPath} deploy job must retain each app request in its PR-and-app queue with contents access only`,
+      `${pullRequestPath} deploy job must retain contents access only`,
     );
   }
   if (deployWith?.build_context !== "deploy-preview") {
@@ -586,7 +593,8 @@ export function validateNetlifyPrPreviewWorkflow(
     deployWith?.site !== "${{ needs.authorize.outputs.site }}" ||
     deployWith?.source_ref !== "${{ needs.authorize.outputs.source_ref }}" ||
     deployWith?.pull_request_number !==
-      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}"
+      "${{ fromJSON(needs.authorize.outputs.pull_request_number) }}" ||
+    deploy?.concurrency !== undefined
   ) {
     issues.push(
       `${pullRequestPath} deploy job must wait for authorization and the secret-free build`,
