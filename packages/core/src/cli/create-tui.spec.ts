@@ -239,6 +239,7 @@ describe("agent-native create TUI", () => {
     await wait(50);
     cli.child.write("wizard-app");
     await cli.waitFor("wizard-app");
+    await wait(50);
     cli.child.write("\r");
     await cli.waitFor("Ready to create");
     expect(cli.output).toContain("Step 4 of 4");

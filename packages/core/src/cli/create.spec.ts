@@ -1108,6 +1108,21 @@ describe("community workspace template sources", () => {
     ).rejects.toThrow("app selectors are only for workspace repositories");
   });
 
+  it("sanitizes community app display names before terminal selection", () => {
+    const root = path.join(tmpDir, "terminal-safe-workspace");
+    writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
+    writeApp(root, "mail", {
+      displayName: "Inbox\u001b[2J\u009b31m\u202eHidden",
+    });
+
+    const [app] = _discoverCommunityWorkspaceApps(root);
+
+    expect(app?.label).toBe("Inbox�[2J�31m�Hidden");
+    expect(app?.label).not.toMatch(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/,
+    );
+  });
+
   it("uses explicit app selectors without prompting and errors without a terminal selector", async () => {
     const root = path.join(tmpDir, "scriptable-workspace");
     writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });

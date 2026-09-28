@@ -146,19 +146,21 @@ function moveTemplatesToFront(
 }
 
 async function loadCreateTui() {
+  // Keep the Ink-only module out of the single-file desktop runner bundle.
+  const tuiModule = "./create-tui.js";
   if (
     !process.stdin.isTTY ||
     !process.stdout.isTTY ||
     process.env.CI === "false"
   ) {
-    return import("./create-tui.js");
+    return import(tuiModule);
   }
 
   // Ink caches CI detection on import, but a real TTY still needs live redraws.
   const originalCi = process.env.CI;
   process.env.CI = "false";
   try {
-    return await import("./create-tui.js");
+    return await import(tuiModule);
   } finally {
     if (originalCi === undefined) delete process.env.CI;
     else process.env.CI = originalCi;
@@ -851,8 +853,6 @@ export async function addAppToWorkspace(
     process.exit(1);
   }
 
-  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
-
   clack.intro("Add an app to your workspace");
 
   const installed = listInstalledApps(workspace.workspaceRoot);
@@ -954,6 +954,7 @@ async function scaffoldOneAppIntoWorkspace(
   showOutro = true,
   appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
 ): Promise<void> {
+  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
@@ -2931,13 +2932,23 @@ function discoverCommunityWorkspaceApps(
       return [
         {
           name: entry.name,
-          label: sourceIdentity.appTitle,
+          label: sanitizeTerminalLabel(sourceIdentity.appTitle),
           dir: appDir,
           sourceIdentity,
         },
       ];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function sanitizeTerminalLabel(value: string): string {
+  return value
+    .replace(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+      "�",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function readPackageJsonObject(
