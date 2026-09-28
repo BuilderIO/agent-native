@@ -87,6 +87,8 @@ const messages = {
       aiSetupUndoBeforeRetry: "重试前请先撤销部分更改。",
       aiSetupSortingFailed: "无法整理收件箱。规则已保存，请重试。",
       aiSetupUndoComplete: "已将 {{count}} 封邮件恢复到原状态。",
+      aiSetupUndoFailed: "无法撤销这些收件箱更改，请重试。",
+      aiSetupUndoStatusFailed: "已提交撤销操作，但无法加载最新结果。",
       aiSetupRuleCount: "匹配 {{count}} 封",
       aiSetupNoMatches: "过去 14 天内没有邮件符合这些规则。",
       aiSetupChatTip: "你可以随时在聊天中调整或添加规则。",

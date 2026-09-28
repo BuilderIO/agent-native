@@ -601,6 +601,10 @@ export function AiInboxSetup({
   const [pendingRuleIds] = useState<string[]>(() =>
     firstRunStage === "sorting" ? readPendingSetupRuleIds() : [],
   );
+  const retryBackfill = useRef<{
+    ruleIds: string[];
+    destinationsByRuleId: Record<string, ReviewDestination>;
+  }>({ ruleIds: pendingRuleIds, destinationsByRuleId: {} });
   const previousForceOpen = useRef(forceOpen);
   const backfillStarted = useRef(backfillRunId !== null);
   const backfillStatus = useAiFilterBackfillStatus(backfillRunId);
@@ -743,12 +747,14 @@ export function AiInboxSetup({
       ruleIds: string[],
       destinationsByRuleId: Record<string, ReviewDestination>,
     ) => {
+      const uniqueRuleIds = [...new Set(ruleIds)];
+      retryBackfill.current = { ruleIds: uniqueRuleIds, destinationsByRuleId };
       setBackfillStartFailed(false);
       let runId: string;
       try {
         const result = await startBackfill.mutateAsync({
           operation: "start",
-          ruleIds: [...new Set(ruleIds)],
+          ruleIds: uniqueRuleIds,
         });
         if (!("runId" in result) || !result.runId) {
           throw new Error("Backfill did not return a run ID");
@@ -1006,7 +1012,7 @@ export function AiInboxSetup({
     } else void complete();
   };
   const startRetry = () => {
-    const ruleIds = pendingRuleIds;
+    const { ruleIds, destinationsByRuleId } = retryBackfill.current;
     if (onboardingPreview || ruleIds.length === 0) return;
     if (
       backfillStatus.data?.status === "failed" &&
@@ -1024,26 +1030,31 @@ export function AiInboxSetup({
     }
     backfillStarted.current = true;
     setBackfillRunId(null);
-    const destinations = Object.fromEntries(
-      aiRules.flatMap((rule) => {
-        if (!ruleIds.includes(rule.id)) return [];
-        const destination = reviewDestinationForRule(rule);
-        return destination ? [[rule.id, destination] as const] : [];
-      }),
-    );
-    void runBackfill(ruleIds, destinations);
+    void runBackfill(ruleIds, destinationsByRuleId);
   };
   const onAdjustRules = async () => {
     if (await complete()) navigate("/settings?section=ai-filter");
   };
   const undoBackfill = async (undoToken: string) => {
     if (onboardingPreview || !backfillRunId) return;
-    await startBackfill.mutateAsync({
-      operation: "undo",
-      runId: backfillRunId,
-      undoToken,
-    });
-    await backfillStatus.refetch();
+    try {
+      await startBackfill.mutateAsync({
+        operation: "undo",
+        runId: backfillRunId,
+        undoToken,
+      });
+    } catch {
+      toast.error(t("mail.sort.aiSetupUndoFailed"));
+      return;
+    }
+    try {
+      const result = await backfillStatus.refetch();
+      if (result.isError) {
+        toast.error(t("mail.sort.aiSetupUndoStatusFailed"));
+      }
+    } catch {
+      toast.error(t("mail.sort.aiSetupUndoStatusFailed"));
+    }
   };
 
   const stepFooter = firstRunPreferences ? (
@@ -1509,7 +1520,7 @@ export function AiInboxSetup({
               hasRun={backfillRunId !== null || backfillStartFailed}
               failed={backfillStartFailed || backfillStatus.isError}
               onUndo={undoBackfill}
-              onRetry={firstRunSorting ? startRetry : undefined}
+              onRetry={startRetry}
               compactReviewLinks={firstRunSorting}
               showChatSuggestion={!firstRunSorting}
               onReview={() => void complete()}

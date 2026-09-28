@@ -92,6 +92,10 @@ const messages = {
       aiSetupSortingFailed:
         "받은편지함을 정리하지 못했어요. 규칙은 저장되었으니 다시 시도해 주세요.",
       aiSetupUndoComplete: "{{count}}개 메시지를 이전 상태로 복원했어요.",
+      aiSetupUndoFailed:
+        "받은편지함 변경사항을 실행 취소하지 못했어요. 다시 시도해 주세요.",
+      aiSetupUndoStatusFailed:
+        "실행 취소 요청을 보냈지만 최신 결과를 불러오지 못했어요.",
       aiSetupRuleCount: "{{count}}개 일치",
       aiSetupNoMatches: "지난 14일 동안 이 규칙에 맞는 메시지가 없어요.",
       aiSetupChatTip: "채팅에서 언제든지 규칙을 수정하거나 추가할 수 있어요.",

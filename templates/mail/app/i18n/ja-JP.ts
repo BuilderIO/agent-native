@@ -93,6 +93,10 @@ const messages = {
       aiSetupSortingFailed:
         "受信トレイを整理できませんでした。ルールは保存されています。もう一度お試しください。",
       aiSetupUndoComplete: "{{count}} 件のメッセージを元の状態に戻しました。",
+      aiSetupUndoFailed:
+        "受信トレイの変更を元に戻せませんでした。もう一度お試しください。",
+      aiSetupUndoStatusFailed:
+        "元に戻す処理は送信されましたが、最新の結果を読み込めませんでした。",
       aiSetupRuleCount: "{{count}} 件が一致",
       aiSetupNoMatches:
         "過去 14 日間に、これらのルールに一致するメッセージはありません。",

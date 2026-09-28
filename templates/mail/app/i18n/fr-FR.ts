@@ -104,6 +104,10 @@ const messages = {
         "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
       aiSetupUndoComplete:
         "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupUndoFailed:
+        "Impossible d’annuler ces changements dans votre boîte de réception. Réessayez.",
+      aiSetupUndoStatusFailed:
+        "L’annulation a été demandée, mais les derniers résultats n’ont pas pu être chargés.",
       aiSetupRuleCount: "{{count}} correspondances",
       aiSetupNoMatches:
         "Aucun message des 14 derniers jours ne correspond à ces règles.",

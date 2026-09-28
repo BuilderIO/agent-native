@@ -102,6 +102,10 @@ const messages = {
       aiSetupSortingFailed:
         "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
       aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",
+      aiSetupUndoFailed:
+        "Não foi possível desfazer essas alterações na caixa de entrada. Tente novamente.",
+      aiSetupUndoStatusFailed:
+        "O pedido para desfazer foi enviado, mas não foi possível carregar os resultados mais recentes.",
       aiSetupRuleCount: "{{count}} correspondências",
       aiSetupNoMatches:
         "Nenhuma mensagem dos últimos 14 dias corresponde a estas regras.",

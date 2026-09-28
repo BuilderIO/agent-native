@@ -92,6 +92,10 @@ const messages = {
       aiSetupSortingFailed:
         "इनबॉक्स व्यवस्थित नहीं हो सका। आपके नियम सहेजे गए हैं; फिर कोशिश करें।",
       aiSetupUndoComplete: "{{count}} संदेश अपनी पिछली स्थिति में लौटे।",
+      aiSetupUndoFailed:
+        "इन इनबॉक्स बदलावों को पूर्ववत नहीं किया जा सका। फिर से कोशिश करें।",
+      aiSetupUndoStatusFailed:
+        "पूर्ववत करने का अनुरोध भेजा गया, लेकिन नए नतीजे लोड नहीं हो सके।",
       aiSetupRuleCount: "{{count}} मेल मिले",
       aiSetupNoMatches: "पिछले 14 दिनों में कोई संदेश इन नियमों से मेल नहीं खाता।",
       aiSetupChatTip: "आप चैट में कभी भी नियम बदल या जोड़ सकते हैं।",

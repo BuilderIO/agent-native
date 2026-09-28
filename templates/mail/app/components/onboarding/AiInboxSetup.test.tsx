@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   startBackfill: vi.fn(),
   backfillRunIds: [] as Array<string | null>,
   updateSettings: vi.fn(),
+  toastError: vi.fn(),
   settingsPending: false,
   canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
@@ -89,6 +90,10 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -257,7 +262,10 @@ describe("AiInboxSetup", () => {
     mocks.backfillStatus.isLoading = false;
     mocks.backfillStatus.isFetching = false;
     mocks.backfillStatus.isError = false;
-    mocks.backfillStatus.refetch.mockReset();
+    mocks.backfillStatus.refetch.mockReset().mockResolvedValue({
+      isError: false,
+    });
+    mocks.toastError.mockReset();
     mocks.jevAvailability.data = { configured: true };
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
@@ -1267,6 +1275,76 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
     );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("retries a failed Settings backfill start with the saved rule ids", async () => {
+    mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupSkipInboxHeadline",
+      }),
+      { target: { value: "Archive weekly newsletters" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    );
+
+    expect(
+      await screen.findByText("mail.sort.aiSetupSortingFailed"),
+    ).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledTimes(2));
+    expect(mocks.startBackfill).toHaveBeenNthCalledWith(1, {
+      operation: "start",
+      ruleIds: ["rule-1", "rule-2", "rule-3"],
+    });
+    expect(mocks.startBackfill).toHaveBeenNthCalledWith(2, {
+      operation: "start",
+      ruleIds: ["rule-1", "rule-2", "rule-3"],
+    });
+  });
+
+  it.each([
+    ["undo mutation", "mail.sort.aiSetupUndoFailed"],
+    ["undo status refresh", "mail.sort.aiSetupUndoStatusFailed"],
+  ])("shows an error when %s fails", async (failure, expectedMessage) => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      undoToken: "undo-run-1",
+      perRule: [],
+    };
+    if (failure === "undo mutation") {
+      mocks.startBackfill.mockRejectedValueOnce(new Error("temporary failure"));
+    } else {
+      mocks.backfillStatus.refetch.mockResolvedValueOnce({ isError: true });
+    }
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(expectedMessage),
+    );
   });
 
   it("lets the Settings dialog save and finish without Jev", async () => {

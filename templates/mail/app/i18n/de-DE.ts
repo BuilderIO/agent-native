@@ -103,6 +103,10 @@ const messages = {
         "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
       aiSetupUndoComplete:
         "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupUndoFailed:
+        "Diese Änderungen im Posteingang konnten nicht rückgängig gemacht werden. Versuche es erneut.",
+      aiSetupUndoStatusFailed:
+        "Der Rückgängig-Vorgang wurde gesendet, aber die neuesten Ergebnisse konnten nicht geladen werden.",
       aiSetupRuleCount: "{{count}} Treffer",
       aiSetupNoMatches:
         "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",

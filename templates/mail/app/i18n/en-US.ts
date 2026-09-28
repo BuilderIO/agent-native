@@ -95,6 +95,9 @@ const messages = {
         "Could not sort your inbox. Your rules are saved; try again.",
       aiSetupUndoComplete:
         "Restored {{count}} messages to their previous state.",
+      aiSetupUndoFailed: "Couldn't undo these inbox changes. Try again.",
+      aiSetupUndoStatusFailed:
+        "Undo was submitted, but the latest results couldn't be loaded.",
       aiSetupRuleCount: "{{count}} matched",
       aiSetupNoMatches: "No messages in the last 14 days matched these rules.",
       aiSetupChatTip: "You can refine or add rules anytime in chat.",

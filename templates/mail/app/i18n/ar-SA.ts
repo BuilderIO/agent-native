@@ -96,6 +96,10 @@ const messages = {
       aiSetupSortingFailed:
         "تعذّر تنظيم صندوق الوارد. حُفظت قواعدك؛ حاول مرة أخرى.",
       aiSetupUndoComplete: "أُعيدت {{count}} رسالة إلى حالتها السابقة.",
+      aiSetupUndoFailed:
+        "تعذّر التراجع عن تغييرات البريد الوارد هذه. حاول مرة أخرى.",
+      aiSetupUndoStatusFailed:
+        "تم إرسال طلب التراجع، لكن تعذّر تحميل أحدث النتائج.",
       aiSetupRuleCount: "{{count}} مطابقة",
       aiSetupNoMatches: "لم تطابق أي رسائل خلال آخر 14 يومًا هذه القواعد.",
       aiSetupChatTip: "يمكنك تحسين القواعد أو إضافتها في الدردشة متى شئت.",

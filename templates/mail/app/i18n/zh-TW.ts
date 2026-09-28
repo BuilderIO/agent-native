@@ -87,6 +87,8 @@ const messages = {
       aiSetupUndoBeforeRetry: "重試前請先復原部分變更。",
       aiSetupSortingFailed: "無法整理收件匣。規則已儲存，請再試一次。",
       aiSetupUndoComplete: "已將 {{count}} 封郵件還原至原狀。",
+      aiSetupUndoFailed: "無法復原這些收件匣變更，請再試一次。",
+      aiSetupUndoStatusFailed: "已送出復原操作，但無法載入最新結果。",
       aiSetupRuleCount: "符合 {{count}} 封",
       aiSetupNoMatches: "過去 14 天內沒有郵件符合這些規則。",
       aiSetupChatTip: "你可以隨時在聊天中調整或新增規則。",

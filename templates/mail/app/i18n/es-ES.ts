@@ -102,6 +102,10 @@ const messages = {
       aiSetupSortingFailed:
         "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
       aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",
+      aiSetupUndoFailed:
+        "No se pudieron deshacer estos cambios en la bandeja de entrada. Inténtalo de nuevo.",
+      aiSetupUndoStatusFailed:
+        "Se solicitó deshacer, pero no se pudieron cargar los resultados más recientes.",
       aiSetupRuleCount: "{{count}} coincidencias",
       aiSetupNoMatches:
         "Ningún mensaje de los últimos 14 días coincide con estas reglas.",
