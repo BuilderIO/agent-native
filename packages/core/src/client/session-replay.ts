@@ -7,6 +7,7 @@ import {
   type SessionReplayIframeStartMessage,
   type SessionReplayIframeStopMessage,
 } from "../session-replay-iframe-protocol.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import {
   getOrCreateAnalyticsAnonymousId,
@@ -3235,12 +3236,10 @@ async function startSessionReplayRecorder(
     };
   }
 
-  let rrweb: RrwebRecordModule;
-  try {
-    rrweb = (await import("@rrweb/record")) as RrwebRecordModule;
-  } catch {
-    return { started: false, reason: "import-failed", sessionId, sampled };
-  }
+  const rrweb = (await loadOptionalPeer(
+    "@rrweb/record",
+    () => import("@rrweb/record"),
+  )) as RrwebRecordModule;
   if (state.startGeneration !== startGeneration) {
     return { started: false, reason: "disabled", sessionId, sampled };
   }

@@ -17,9 +17,50 @@ export interface MigrationMove {
 
 export type MigrationMoveStatus = "active" | "planned";
 
+export type MigrationDependencyCondition =
+  | "pglite-database"
+  | "server-sentry"
+  | "browser-sentry"
+  | "sentry-source-map-upload"
+  | "sso"
+  | "scim"
+  | "amplitude";
+
+export interface MigrationDependency {
+  name: string;
+  version: string;
+  when: MigrationDependencyCondition;
+}
+
 export interface MigrationManifest {
   sinceVersion: string;
   moves: Record<string, MigrationMove>;
+  dependencies?: MigrationDependency[];
+}
+
+const MIGRATION_DEPENDENCY_CONDITIONS = new Set<MigrationDependencyCondition>([
+  "pglite-database",
+  "server-sentry",
+  "browser-sentry",
+  "sentry-source-map-upload",
+  "sso",
+  "scim",
+  "amplitude",
+]);
+
+function isMigrationDependency(value: unknown): value is MigrationDependency {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const dependency = value as Record<string, unknown>;
+  return (
+    typeof dependency.name === "string" &&
+    dependency.name.trim().length > 0 &&
+    typeof dependency.version === "string" &&
+    dependency.version.trim().length > 0 &&
+    typeof dependency.when === "string" &&
+    MIGRATION_DEPENDENCY_CONDITIONS.has(
+      dependency.when as MigrationDependencyCondition,
+    )
+  );
 }
 
 export interface ResolvedMigrationSymbolMove {
@@ -44,7 +85,10 @@ export function readMigrationManifest(
     if (
       typeof parsed.sinceVersion !== "string" ||
       !parsed.moves ||
-      typeof parsed.moves !== "object"
+      typeof parsed.moves !== "object" ||
+      (parsed.dependencies !== undefined &&
+        (!Array.isArray(parsed.dependencies) ||
+          !parsed.dependencies.every(isMigrationDependency)))
     ) {
       return null;
     }

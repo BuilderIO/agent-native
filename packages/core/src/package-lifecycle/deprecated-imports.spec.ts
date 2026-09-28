@@ -14,6 +14,35 @@ import {
 } from "./migration-manifest.js";
 
 const roots: string[] = [];
+const featureDependencies = [
+  {
+    name: "@electric-sql/pglite",
+    version: "^0.5.8",
+    when: "pglite-database",
+  },
+  {
+    name: "@sentry/node",
+    version: "^10.60.0 || ^11.0.0",
+    when: "server-sentry",
+  },
+  {
+    name: "@sentry/browser",
+    version: "^10.60.0 || ^11.0.0",
+    when: "browser-sentry",
+  },
+  {
+    name: "@sentry/vite-plugin",
+    version: "^5.4.0",
+    when: "sentry-source-map-upload",
+  },
+  { name: "@better-auth/sso", version: "1.7.4", when: "sso" },
+  { name: "@better-auth/scim", version: "1.7.4", when: "scim" },
+  {
+    name: "@amplitude/analytics-browser",
+    version: "^2.45.8",
+    when: "amplitude",
+  },
+];
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -169,5 +198,48 @@ describe("scanDeprecatedImports", () => {
         symbols: ["DeepMoved"],
       }),
     ]);
+  });
+});
+
+describe("readMigrationManifest dependencies", () => {
+  it("accepts known dependency conditions and rejects malformed records", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migration-deps-"));
+    roots.push(root);
+    const manifestPath = path.join(root, "migration-manifest.json");
+    const base = { sinceVersion: "0.111.0", moves: {} };
+
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ ...base, dependencies: featureDependencies }),
+    );
+    expect(readMigrationManifest(manifestPath)?.dependencies).toEqual(
+      featureDependencies,
+    );
+
+    for (const invalid of [
+      null,
+      {},
+      { name: "", version: "^1.0.0", when: "sso" },
+      { name: "pkg", version: "", when: "sso" },
+      { name: "pkg", version: "^1.0.0", when: "unknown" },
+      { name: "pkg", version: "^1.0.0", when: 1 },
+    ]) {
+      fs.writeFileSync(
+        manifestPath,
+        JSON.stringify({ ...base, dependencies: [invalid] }),
+      );
+      expect(readMigrationManifest(manifestPath)).toBeNull();
+    }
+
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ ...base, dependencies: {} }),
+    );
+    expect(readMigrationManifest(manifestPath)).toBeNull();
+  });
+
+  it("keeps the feature dependency records in the bundled Core manifest", () => {
+    const manifest = readMigrationManifest(bundledCoreMigrationManifestPath());
+    expect(manifest?.dependencies).toEqual(featureDependencies);
   });
 });

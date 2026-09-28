@@ -1,7 +1,6 @@
-import { Readability } from "@mozilla/readability";
-import { parseHTML } from "linkedom/worker";
 import safeRegex from "safe-regex2";
-import TurndownService from "turndown";
+
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 
 export type WebResponseMode =
   | "auto"
@@ -81,14 +80,6 @@ const MAX_CONTEXT_CHARS = 1_000;
 const MAX_AGENT_METADATA_SCRIPTS = 10;
 const MAX_AGENT_METADATA_CHARS = 32_000;
 
-const turndown = new TurndownService({
-  headingStyle: "atx",
-  bulletListMarker: "-",
-  codeBlockStyle: "fenced",
-  linkStyle: "inlined",
-});
-turndown.remove(["script", "style", "noscript"]);
-
 export function hasWebContentSearch(
   search: WebContentSearchOptions | null | undefined,
 ): boolean {
@@ -160,9 +151,9 @@ export function parseWebContentSearchOptions(
   return null;
 }
 
-export function processWebContent(
+export async function processWebContent(
   options: WebContentProcessOptions,
-): WebContentResult {
+): Promise<WebContentResult> {
   const contentType = options.contentType?.split(";")[0]?.trim() || null;
   const extract = normalizeWebExtractMode(options.extract);
   const requestedMode = normalizeWebResponseMode(options.responseMode);
@@ -178,7 +169,12 @@ export function processWebContent(
 
   const extracted =
     html && (mode !== "raw" || hasWebContentSearch(search))
-      ? extractHtml(options.body, options.url, extract)
+      ? await extractHtml(
+          options.body,
+          options.url,
+          extract,
+          mode === "markdown" || mode === "matches",
+        )
       : null;
   const baseContent = contentForMode(mode, options.body, extracted);
   const result: WebContentResult = {
@@ -302,11 +298,12 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
   );
 }
 
-function extractHtml(
+async function extractHtml(
   body: string,
   url: string,
   extract: WebExtractMode,
-): {
+  includeMarkdown: boolean,
+): Promise<{
   html: string;
   text: string;
   markdown: string;
@@ -318,15 +315,26 @@ function extractHtml(
   lang?: string;
   publishedTime?: string;
   agentMetadata?: unknown[];
-} {
-  const document = parseFullDocument(body);
+}> {
+  const { parseHTML } = await loadOptionalPeer(
+    "linkedom",
+    () => import("linkedom/worker"),
+  );
+  const parseDocument = (html: string) =>
+    parseHTML(html).document as unknown as Document;
+  const document = parseFullDocument(body, parseDocument);
   const alternateLinks = collectAlternateLinks(document, url);
   const agentMetadata = collectAgentMetadata(document);
   removeNonContentNodes(document);
   const pageTitle = textOrUndefined(document.title);
   const article =
     extract === "readability"
-      ? new Readability(document.cloneNode(true) as Document).parse()
+      ? new (
+          await loadOptionalPeer(
+            "@mozilla/readability",
+            () => import("@mozilla/readability"),
+          )
+        ).Readability(document.cloneNode(true) as Document).parse()
       : null;
   const sourceHtml =
     extract === "none"
@@ -335,20 +343,23 @@ function extractHtml(
         document.body?.innerHTML ||
         document.documentElement.innerHTML ||
         body;
-  const absoluteHtml = absolutizeHtmlUrls(sourceHtml, url);
+  const absoluteHtml = absolutizeHtmlUrls(sourceHtml, url, parseDocument);
   const sourceText =
     extract === "none"
-      ? htmlToPlainText(body)
+      ? htmlToPlainText(body, parseDocument)
       : article?.textContent ||
         document.body?.textContent ||
         document.documentElement.textContent ||
         "";
-  const markdown = htmlToMarkdown(absoluteHtml);
+  const markdown = includeMarkdown ? await htmlToMarkdown(absoluteHtml) : "";
   return {
     html: absoluteHtml,
     text: normalizeWhitespace(sourceText),
     markdown,
-    links: mergeLinks(alternateLinks, collectLinks(absoluteHtml, url)),
+    links: mergeLinks(
+      alternateLinks,
+      collectLinks(absoluteHtml, url, parseDocument),
+    ),
     title: textOrUndefined(article?.title) ?? pageTitle,
     excerpt: textOrUndefined(article?.excerpt),
     byline: textOrUndefined(article?.byline),
@@ -437,13 +448,27 @@ function mergeLinks(
   return links;
 }
 
-function htmlToPlainText(html: string): string {
-  const document = parseFullDocument(html);
+function htmlToPlainText(
+  html: string,
+  parseDocument: (html: string) => Document,
+): string {
+  const document = parseFullDocument(html, parseDocument);
   removeNonContentNodes(document);
   return normalizeWhitespace(document.body?.textContent ?? "");
 }
 
-function htmlToMarkdown(html: string): string {
+async function htmlToMarkdown(html: string): Promise<string> {
+  const { default: TurndownService } = await loadOptionalPeer(
+    "turndown",
+    () => import("turndown"),
+  );
+  const turndown = new TurndownService({
+    headingStyle: "atx",
+    bulletListMarker: "-",
+    codeBlockStyle: "fenced",
+    linkStyle: "inlined",
+  });
+  turndown.remove(["script", "style", "noscript"]);
   return normalizeMarkdown(turndown.turndown(html));
 }
 
@@ -462,18 +487,28 @@ function removeNonContentNodes(document: Document) {
   }
 }
 
-function parseFullDocument(html: string): Document {
-  return parseHTML(html).document as unknown as Document;
+function parseFullDocument(
+  html: string,
+  parseDocument: (html: string) => Document,
+): Document {
+  return parseDocument(html);
 }
 
-function parseHtmlFragment(html: string): Document {
-  return parseHTML(
+function parseHtmlFragment(
+  html: string,
+  parseDocument: (html: string) => Document,
+): Document {
+  return parseDocument(
     `<!doctype html><html><head></head><body>${html}</body></html>`,
-  ).document as unknown as Document;
+  );
 }
 
-function absolutizeHtmlUrls(html: string, url: string): string {
-  const document = parseHtmlFragment(html);
+function absolutizeHtmlUrls(
+  html: string,
+  url: string,
+  parseDocument: (html: string) => Document,
+): string {
+  const document = parseHtmlFragment(html, parseDocument);
   for (const anchor of [...document.querySelectorAll("a[href]")]) {
     const href = anchor.getAttribute("href");
     if (!href) continue;
@@ -491,8 +526,12 @@ function absolutizeHtmlUrls(html: string, url: string): string {
   return document.body?.innerHTML || html;
 }
 
-function collectLinks(html: string, url: string): WebContentLink[] {
-  const document = parseHtmlFragment(html);
+function collectLinks(
+  html: string,
+  url: string,
+  parseDocument: (html: string) => Document,
+): WebContentLink[] {
+  const document = parseHtmlFragment(html, parseDocument);
   const links: WebContentLink[] = [];
   const seen = new Set<string>();
   for (const anchor of [...document.querySelectorAll("a[href]")]) {
@@ -515,10 +554,12 @@ function collectLinks(html: string, url: string): WebContentLink[] {
   return links;
 }
 
+type ExtractedHtml = Awaited<ReturnType<typeof extractHtml>>;
+
 function contentForMode(
   mode: Exclude<WebResponseMode, "auto">,
   raw: string,
-  extracted: ReturnType<typeof extractHtml> | null,
+  extracted: ExtractedHtml | null,
 ): string {
   if (mode === "raw") return raw;
   if (mode === "text") return extracted?.text ?? raw;
@@ -528,9 +569,7 @@ function contentForMode(
   return "";
 }
 
-function metadataFromExtraction(
-  extracted: ReturnType<typeof extractHtml> | null,
-) {
+function metadataFromExtraction(extracted: ExtractedHtml | null) {
   if (!extracted) return {};
   return {
     ...(extracted.title ? { title: extracted.title } : {}),
