@@ -91,7 +91,19 @@ function unpublishedAssetImportFailures(
 ): string[] {
   const srcDir = path.join(pkgDir, "src");
   if (!files || !fs.existsSync(srcDir)) return [];
-  const included = files.filter((file) => !file.startsWith("!"));
+  const coveredBy = (target: string, entry: string) => {
+    const pattern = entry.replace(/^\.?\//, "").replace(/\/$/, "");
+    return (
+      target === pattern ||
+      target.startsWith(`${pattern}/`) ||
+      path.matchesGlob(target, pattern) ||
+      path.matchesGlob(target, `${pattern}/**`)
+    );
+  };
+  const included = files.filter((entry) => !entry.startsWith("!"));
+  const excluded = files
+    .filter((entry) => entry.startsWith("!"))
+    .map((entry) => entry.slice(1));
   const result: string[] = [];
   for (const file of listSourceFiles(srcDir)) {
     const source = fs.readFileSync(file, "utf8");
@@ -100,9 +112,9 @@ function unpublishedAssetImportFailures(
         .relative(pkgDir, path.resolve(path.dirname(file), match[1]))
         .split(path.sep)
         .join("/");
-      const shipped = included.some(
-        (entry) => target === entry || target.startsWith(`${entry}/`),
-      );
+      const shipped =
+        included.some((entry) => coveredBy(target, entry)) &&
+        !excluded.some((entry) => coveredBy(target, entry));
       if (!shipped) {
         result.push(
           `${pkgName} ${path.relative(pkgDir, file)} imports ${target}, which is not in package.json "files" and will be missing from the npm tarball`,
