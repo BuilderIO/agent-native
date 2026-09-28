@@ -15,7 +15,7 @@ function propsFromHtml(html: string): AuthPageProps {
   return JSON.parse(match[1]!) as AuthPageProps;
 }
 
-describe("AuthPage local development disclosure", () => {
+describe("AuthPage interactions", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -87,5 +87,70 @@ describe("AuthPage local development disclosure", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(toggle?.dataset.i18n).toBe("localDevFullOptions");
     expect(toggle?.textContent?.trim()).toBe("Show full sign in options");
+  });
+
+  it("shows a loader in the disabled Google button while OAuth starts", async () => {
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input).includes("google/auth-url")) {
+          return new Promise<Response>(() => {});
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(input).includes("/auth/local-dev")
+              ? { available: true }
+              : { error: "Not authenticated" },
+        } as Response);
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(
+            getOnboardingHtml({
+              requestHost: "127.0.0.1",
+              requestPath: "/sign-in?c=%2Fhome",
+            }),
+          )}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="popup"
+          showGoogle
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+
+    const googleButton =
+      container.querySelector<HTMLButtonElement>("#google-btn");
+    expect(googleButton).not.toBeNull();
+    expect(googleButton?.disabled).toBe(false);
+
+    await act(async () => googleButton?.click());
+
+    expect(googleButton?.disabled).toBe(true);
+    expect(googleButton?.getAttribute("aria-busy")).toBe("true");
+    expect(googleButton?.querySelector("svg.animate-spin")).not.toBeNull();
+    expect(
+      googleButton?.querySelector('[data-i18n="googleButton"]'),
+    ).not.toBeNull();
   });
 });

@@ -1305,8 +1305,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "초대 링크 복사",
   "usage.inviteLinkCopied": "초대 링크를 복사했습니다",
   "usage.creditBalance": "워크스페이스 잔액",
-  "usage.monthlyPlan": "월간 플랜",
-  "usage.dailyFreeLimit": "무료 일일 한도",
+  "usage.monthlyLimit": "월간 한도",
+  "usage.dailyDefaultLimit": "기본 일일 한도",
   "usage.creditUsedOfLimit": "{{limit}} 중 {{used}} 사용",
   "usage.creditRemaining": "{{amount}} 남음",
   "usage.creditUsageUnavailable":

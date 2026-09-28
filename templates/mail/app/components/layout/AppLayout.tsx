@@ -10,7 +10,11 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { NotificationsBell } from "@agent-native/core/client/notifications";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  BuilderCreditNotice,
+  InvitationBanner,
+  OrgSwitcher,
+} from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
   AppSidebarFooter,
@@ -125,9 +129,13 @@ import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_PARAM,
+  isInboxScopedLabel,
+  pinnedTriageLabels,
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -569,6 +577,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
   const { data: automations = [] } = useAutomations();
   const aiTags = useMemo(() => {
     const tags = new Map<string, { id: string; name: string }>();
@@ -812,11 +823,57 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const {
+    data: currentViewEmails = [],
+    isPlaceholderData: currentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
     { enabled: isMailboxView },
+  );
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
   );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
@@ -845,14 +902,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(
@@ -1506,6 +1563,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
                 </div>
 
+                <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
                 <AppSidebarFooter
                   collapsed={false}
                   collapsible={false}
@@ -1513,6 +1571,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   orgSwitcher={
                     <OrgSwitcher
                       compact={false}
+                      hideBuilderCreditNotice
                       className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
                     />
                   }
@@ -2347,6 +2406,7 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
           </div>
 
+          <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
           <div className="shrink-0 border-t border-border p-2 space-y-1.5">
             <SidebarFooterActions
               feedback={feedbackButton}
@@ -2357,7 +2417,10 @@ function StandardLayout({ children }: AppLayoutProps) {
               data-sidebar-footer-utilities
               className="flex items-center gap-0.5"
             >
-              <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+              <OrgSwitcher
+                hideBuilderCreditNotice
+                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
               <DevDatabaseLink />
               <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
             </div>

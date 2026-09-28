@@ -49,9 +49,11 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 export function FirstRunOnboardingStartupGate({
   children,
   fallback = <AppShellSkeleton />,
+  suppressSurface = false,
 }: {
   children: React.ReactNode;
   fallback?: React.ReactNode;
+  suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -104,8 +106,8 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [shouldResolve]);
 
-  const ownsSurface = decision === "eligible";
-  const gateOwnsSurface = decision !== "ineligible";
+  const ownsSurface = !suppressSurface && decision === "eligible";
+  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
   const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
@@ -125,7 +127,7 @@ export function FirstRunOnboardingStartupGate({
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
-      {decision === "pending" && (
+      {!suppressSurface && decision === "pending" && (
         <FirstRunOnboardingStartupLoading fallback={fallback} />
       )}
       {ownsSurface && (

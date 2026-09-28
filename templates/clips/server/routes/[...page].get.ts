@@ -29,6 +29,7 @@ import {
   queryString,
 } from "../lib/public-agent-context.js";
 import { isRecordingExpiredForViewer } from "../lib/recording-page-access.js";
+import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -86,6 +87,8 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       id: schema.recordings.id,
       title: schema.recordings.title,
       status: schema.recordings.status,
+      updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
@@ -113,7 +116,11 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   const tokenGrantsAgentAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: getRecordingAccessTokenResourceId(
+          recording.id,
+          recording.password,
+          recording.sharePasswordVersion,
+        ),
       }).ok
     : false;
   const anonymousAccess =

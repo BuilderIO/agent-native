@@ -247,6 +247,7 @@ export interface BuilderConnectFlow {
 }
 
 const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_INTERVAL_MS = 30_000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 20_000;
 const POPUP_LOAD_TIMEOUT_MS = 20_000;
@@ -769,6 +770,7 @@ export function useBuilderConnectFlow(
   } | null>(null);
   const retryStatusRef = useRef<() => boolean>(() => false);
   const statusUnavailableRef = useRef(false);
+  const statusPollFailuresRef = useRef(0);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
   const onConnectedRef = useRef(onConnected);
@@ -777,6 +779,14 @@ export function useBuilderConnectFlow(
     source: trackingSource,
     flow: trackingFlow,
   });
+  const getConnectPollInterval = useCallback(
+    () =>
+      Math.min(
+        MAX_POLL_INTERVAL_MS,
+        POLL_INTERVAL_MS * 2 ** statusPollFailuresRef.current,
+      ),
+    [],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1061,6 +1071,7 @@ export function useBuilderConnectFlow(
       connectStartedAtRef.current = started;
       connectAttemptIdRef.current = connectAttemptId;
       cancelledConnectAttemptIdRef.current = null;
+      statusPollFailuresRef.current = 0;
       callbackSuccessStartedAtRef.current = null;
       callbackSuccessInFlightAtRef.current = null;
       callbackSuccessCancelRef.current = null;
@@ -1339,6 +1350,13 @@ export function useBuilderConnectFlow(
       if (!mountedRef.current || connectStartedAtRef.current !== started) {
         return;
       }
+      if (s) {
+        statusPollFailuresRef.current = 0;
+      } else {
+        statusPollFailuresRef.current += 1;
+        statusUnavailableRef.current = true;
+        setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+      }
       const orgName = s?.orgName ?? null;
       if (s) {
         if (statusUnavailableRef.current) {
@@ -1428,7 +1446,7 @@ export function useBuilderConnectFlow(
       }
     },
     {
-      intervalMs: POLL_INTERVAL_MS,
+      intervalMs: getConnectPollInterval,
       leading: false,
       enabled: enabled && connecting,
     },

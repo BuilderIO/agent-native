@@ -25,6 +25,7 @@ import {
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
   keepLatestEmailPage,
+  emailListRefetchInterval,
   markThreadReadRetryAfterMs,
   shouldRetryMarkThreadRead,
 } from "./use-emails";
@@ -80,6 +81,31 @@ describe("keepLatestEmailPage", () => {
 
     expect(keepLatestEmailPage(stale, confirmed)).toBe(confirmed);
     expect(keepLatestEmailPage(confirmed, stale)).toBe(confirmed);
+  });
+});
+
+describe("emailListRefetchInterval", () => {
+  it("stops background polling after a quota response", () => {
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: Object.assign(new Error("quota"), { status: 429 }),
+      }),
+    ).toBe(false);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: new Error("temporary failure"),
+      }),
+    ).toBe(4 * 60_000);
+    expect(
+      emailListRefetchInterval(
+        { status: "success", fetchFailureCount: 0, error: null },
+        "search term",
+      ),
+    ).toBe(false);
   });
 });
 

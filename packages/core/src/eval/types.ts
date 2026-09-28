@@ -71,6 +71,12 @@ export interface Eval {
   run?(ctx: EvalRunContext): AgentRunOutput | Promise<AgentRunOutput>;
   scorers: Scorer<any, any>[];
   threshold?: number;
+  /**
+   * Provenance for a case promoted from a production run. Ignored by
+   * threshold math; surfaced in `--json` reports so a CI failure can point
+   * back at the trace.
+   */
+  source?: { kind: "trace"; runId: string };
 }
 
 export interface ScorerResult {
@@ -90,6 +96,8 @@ export interface EvalResultRow {
   avgScore: number;
   durationMs: number;
   error?: string;
+  /** Copied from the eval case when present; ignored for pass/fail. */
+  source?: { kind: "trace"; runId: string };
 }
 
 export interface EvalRunReport {

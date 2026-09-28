@@ -99,20 +99,30 @@ afterEach(() => {
 function renderProviders(props: {
   isPublicPath?: boolean;
   sessionBypass?: boolean;
+  skipFirstRunOnboarding?: boolean;
   disableWebMcp?: boolean;
+  children?: React.ReactNode;
 }) {
+  const { children, ...providerProps } = props;
   act(() => {
     root.render(
       <AppProviders
         queryClient={new QueryClient()}
         i18n={false}
         toaster={null}
-        {...props}
+        {...providerProps}
       >
-        <div data-testid="app-content">content</div>
+        {children ?? <div data-testid="app-content">content</div>}
       </AppProviders>,
     );
   });
+}
+
+let statefulAppMounts = 0;
+
+function StatefulApp() {
+  const [mount] = React.useState(() => ++statefulAppMounts);
+  return <div data-testid="stateful-app">{mount}</div>;
 }
 
 function setupWebMcpManifest() {
@@ -410,6 +420,41 @@ describe("AppProviders session gate", () => {
     ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session gate when a route skips first-run onboarding", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+    expect(useSessionMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
+    );
+  });
+
+  it("preserves app state when a route toggles onboarding suppression", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    statefulAppMounts = 0;
+
+    renderProviders({
+      skipFirstRunOnboarding: false,
+      children: <StatefulApp />,
+    });
+    const mount = container.querySelector(
+      '[data-testid="stateful-app"]',
+    )?.textContent;
+
+    renderProviders({
+      skipFirstRunOnboarding: true,
+      children: <StatefulApp />,
+    });
+
+    expect(
+      container.querySelector('[data-testid="stateful-app"]')?.textContent,
+    ).toBe(mount);
+    expect(statefulAppMounts).toBe(1);
   });
 
   it("registers WebMCP actions on token-authenticated private surfaces", async () => {

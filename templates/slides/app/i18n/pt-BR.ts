@@ -867,6 +867,8 @@ const messages = {
       networkFailed:
         "A solicitação de importação expirou ou perdeu a conexão de rede. Verifique sua conexão e tente novamente.",
       notStarted: "Conclua o login necessário e tente importar novamente.",
+      unsupportedFileType:
+        "Este tipo de arquivo não é compatível. Escolha um arquivo compatível.",
       uploadLimitExceeded:
         "O envio excede um limite permitido. Reduza o tamanho do arquivo ou escolha menos arquivos e tente novamente.",
     },
@@ -908,6 +910,8 @@ const messages = {
       notReady:
         "O contexto está carregando ou indisponível. Tente novamente ou remova-o antes de enviar.",
       emptySource: "Esta fonte não retornou contexto utilizável.",
+      websiteReadFailed:
+        "Não foi possível ler este site automaticamente. Copie e cole o texto relevante.",
       figmaReadFailed:
         "O Design não conseguiu ler esta referência do Figma. Confira o token de acesso do Figma salvo no Design e se a conta vinculada consegue abrir o arquivo; depois tente novamente.",
       tooMany: "Escolha até 20 referências.",
@@ -1064,6 +1068,12 @@ const messages = {
     emptyTitle: "Ainda não há decks",
     createFirstDeck: "Crie seu primeiro deck",
     emptyDescription: "Crie belas apresentações com geração por IA.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
   },
 };
 

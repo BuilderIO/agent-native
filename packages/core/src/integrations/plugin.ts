@@ -834,14 +834,16 @@ export function createIntegrationsPlugin(
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
     try {
-      const mod = await import("../scripts/call-agent.js");
-      callAgentEntry = {
-        "call-agent": {
-          tool: mod.tool,
-          run: (args: Record<string, string>, context: unknown) =>
-            mod.run(args, context as any, options?.appId),
-        },
-      };
+      if (options?.callAgent !== false) {
+        const mod = await import("../scripts/call-agent.js");
+        callAgentEntry = {
+          "call-agent": {
+            tool: mod.tool,
+            run: (args: Record<string, string>, context: unknown) =>
+              mod.run(args, context as any, options?.appId),
+          },
+        };
+      }
     } catch {
       // call-agent script not available — skip
     }

@@ -65,6 +65,8 @@ export interface AppProvidersProps {
 
   sessionBypass?: boolean;
 
+  skipFirstRunOnboarding?: boolean;
+
   documentTitleFallback?: string;
 
   children: React.ReactNode;
@@ -433,6 +435,7 @@ export function AppProviders({
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
+  skipFirstRunOnboarding = false,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
@@ -501,7 +504,10 @@ export function AppProviders({
             {sessionBypass ? (
               children
             ) : (
-              <FirstRunOnboardingStartupGate fallback={fallback}>
+              <FirstRunOnboardingStartupGate
+                suppressSurface={skipFirstRunOnboarding}
+                fallback={fallback}
+              >
                 {children}
               </FirstRunOnboardingStartupGate>
             )}

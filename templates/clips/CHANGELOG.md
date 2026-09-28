@@ -3,6 +3,21 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-28
+
+### Improved
+
+- Viewers can share recordings with agents from shared recording menus
+
+### Fixed
+
+- Agent links stay valid when clip details change
+
+### Security
+
+- Password changes immediately invalidate old recording links
+- Password-protected recording links stop working when the password changes
+
 ## 2026-09-26
 
 ### Improved
@@ -16,6 +31,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Removing a member from your organization now completes instead of failing with a pending cleanup error
 - Clips asks you to connect storage only when you choose an upload
 - Clips can play recordings from public S3-compatible storage in more hosted environments.
 - Dismissing storage setup now cancels queued uploads.
@@ -31,6 +47,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
+- The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
+- Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
 - Connect Builder storage by creating an account in one click.
 - Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.

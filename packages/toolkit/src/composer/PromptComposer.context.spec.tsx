@@ -18,6 +18,16 @@ import type { TiptapComposerHandle } from "./TiptapComposer.js";
 let container: HTMLDivElement;
 let root: Root;
 
+function KeyedStaleIndexBoundary({
+  resetKey,
+  children,
+}: {
+  resetKey: string;
+  children: React.ReactNode;
+}) {
+  return <React.Fragment key={resetKey}>{children}</React.Fragment>;
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
@@ -32,6 +42,44 @@ afterEach(() => {
 });
 
 describe("controlled composer context", () => {
+  it("keeps the editor mounted while the host echoes each edit as initial text", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    const EchoingPrompt = () => {
+      const [text, setText] = React.useState("");
+      return (
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            agentChat: {
+              StaleIndexBoundary: KeyedStaleIndexBoundary,
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onSubmit={onSubmit}
+            initialText={text}
+            initialTextKey="stable-while-typing"
+            onTextChange={setText}
+            showModelSelector={false}
+            modelStatusChecksEnabled={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />
+        </ComposerRuntimeAdaptersProvider>
+      );
+    };
+
+    await act(async () => root.render(<EchoingPrompt />));
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(editor).not.toBeNull();
+
+    await act(async () => composerRef.current!.setText("typed at the end"));
+
+    expect(container.querySelector(".ProseMirror")).toBe(editor);
+    expect(editor.textContent).toBe("typed at the end");
+  });
+
   it("uses the shared upload menu without host entries and retains the explicit hidden mode", async () => {
     await mount();
     const trigger = container.querySelector<HTMLButtonElement>(

@@ -125,6 +125,24 @@ describe("application-state script-helpers", () => {
         "navigation:tab-a",
       );
     });
+
+    it("scopes pending selection context reads to the request browser tab", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { readAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue({ text: "selected text" });
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+        () => readAppState("pending-selection-context"),
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "pending-selection-context:tab-a",
+      );
+    });
   });
 
   describe("writeAppState", () => {
