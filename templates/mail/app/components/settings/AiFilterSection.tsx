@@ -312,7 +312,7 @@ function RuleBackfillStatus({
     const message =
       undoing || status?.status === "undoing"
         ? t("mail.aiFilter.ruleBackfillUndoing")
-        : starting || loading
+        : starting || loading || status?.totalThreads === 0
           ? t("mail.aiFilter.ruleBackfillStarting")
           : t("mail.aiFilter.ruleBackfillProgress", {
               processed: status?.processedThreads ?? 0,
@@ -535,6 +535,9 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
 
   const scrolledHash = useRef<string | null>(null);
   useEffect(() => {
+    if (!state || (automations.isError && automations.data === undefined))
+      return;
+
     const targetId = hash.slice(1);
     if (
       scrolledHash.current === hash ||
@@ -562,7 +565,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
       subtree: true,
     });
     return () => observer.disconnect();
-  }, [hash]);
+  }, [automations.data, automations.isError, hash, state]);
 
   const updateAiSettings = (
     next:

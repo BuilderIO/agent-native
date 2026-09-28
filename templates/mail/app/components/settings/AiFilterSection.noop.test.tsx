@@ -174,6 +174,7 @@ describe("AiFilterSection", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     mocks.rules = [];
     mocks.decisions = [];
@@ -238,6 +239,27 @@ describe("AiFilterSection", () => {
       ),
     ).toBe("Receipts");
     expect(normalizedAiFilterLabelId("Work_Updates")).toBe("work updates");
+  });
+
+  it("disconnects the hash observer when rules fail to load", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class MutationObserverMock {
+      observe = observe;
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("MutationObserver", MutationObserverMock);
+    mocks.automationsLoading = true;
+    mocks.automationsHasData = false;
+
+    const view = renderSection("/settings#tags");
+
+    expect(observe).toHaveBeenCalledOnce();
+    mocks.automationsLoading = false;
+    mocks.automationsError = true;
+    view.rerender(<AiFilterSection />);
+
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it("keeps AI tags and Important settings anchors available when empty", () => {

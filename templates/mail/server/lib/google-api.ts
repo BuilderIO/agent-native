@@ -72,13 +72,20 @@ export function createOAuth2Client(
           grant_type: "refresh_token",
         }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (res.ok) throw error;
+      }
       if (!res.ok) {
-        const code = (data as any).error;
-        const desc = (data as any).error_description;
+        const code = data?.error;
+        const desc = data?.error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        const error = new Error(`OAuth token refresh failed: ${detail}`);
+        Object.assign(error, { status: res.status });
+        throw error;
       }
       const typed = data as {
         access_token: string;

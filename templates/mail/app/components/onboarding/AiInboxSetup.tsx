@@ -1,7 +1,10 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/core/client/onboarding";
+import {
+  useFirstRunOnboardingGateOwnsSurface,
+  useOnboardingPreviewMode,
+} from "@agent-native/core/client/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -407,6 +410,7 @@ export function AiInboxSetup({
 }) {
   const t = useT();
   const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const onboardingPreview = useOnboardingPreviewMode();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
@@ -467,8 +471,14 @@ export function AiInboxSetup({
       ),
     [rules],
   );
+  const setupSurfaceAllowed =
+    embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
+  const loadingSurfaceVisible =
+    setupSurfaceAllowed &&
+    forceOpen &&
+    (googleStatus.isLoading || (connected && jevAvailability.isLoading));
   const visible =
-    !firstRunOnboardingOwnsSurface &&
+    setupSurfaceAllowed &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&
@@ -652,17 +662,22 @@ export function AiInboxSetup({
     customTagSelected &&
     (!customTagName.trim() || !customTagPrompt.trim());
 
-  if (
-    embedded &&
-    forceOpen &&
-    (googleStatus.isLoading || (connected && jevAvailability.isLoading))
-  ) {
+  if (loadingSurfaceVisible) {
     return (
-      <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-14 w-full" />
-        <Skeleton className="h-10 w-28" />
-      </div>
+      <SetupSurface
+        embedded={embedded}
+        visible={loadingSurfaceVisible}
+        onClose={() => {
+          onOpenChange?.(false);
+          void complete();
+        }}
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-10 w-28" />
+        </div>
+      </SetupSurface>
     );
   }
 

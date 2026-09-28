@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aiFilterBackfillRetryDelay,
   backfillActionEffects,
   canonicalAiFilterBackfillRuleSetKey,
   hasLocalInboxMessage,
@@ -11,7 +12,48 @@ import {
   originalSnapshotValue,
   planConditionalUndo,
   pendingUndoSnapshots,
+  sanitizeBackfillError,
 } from "./ai-filter-backfill.js";
+import { GmailQuotaCooldownError } from "./google-api.js";
+
+describe("backfill retry handling", () => {
+  it("backs off for Gmail cooldowns and transient network failures", () => {
+    expect(
+      aiFilterBackfillRetryDelay(
+        new GmailQuotaCooldownError("try again later", 90_000),
+      ),
+    ).toBe(90_000);
+    expect(
+      aiFilterBackfillRetryDelay(
+        new GmailQuotaCooldownError("try again later", 60 * 60_000),
+      ),
+    ).toBe(5 * 60_000);
+    const aborted = new Error("request was aborted");
+    aborted.name = "AbortError";
+    expect(aiFilterBackfillRetryDelay(aborted)).toBe(30_000);
+    expect(aiFilterBackfillRetryDelay(new TypeError("fetch failed"))).toBe(
+      30_000,
+    );
+    expect(aiFilterBackfillRetryDelay(new Error("invalid rule"))).toBeNull();
+    expect(
+      aiFilterBackfillRetryDelay(
+        Object.assign(new Error("temporary credential refresh failure"), {
+          retryable: true,
+        }),
+      ),
+    ).toBe(30_000);
+  });
+
+  it("removes database parameter dumps from stored errors", () => {
+    expect(
+      sanitizeBackfillError(
+        new Error(
+          'database update failed\nparams: {"state_json":"private mail"}',
+        ),
+      ),
+    ).toBe("database update failed");
+  });
+});
 
 describe("backfill undo state", () => {
   it("applies notify-rule highlighting without historical notifications", () => {

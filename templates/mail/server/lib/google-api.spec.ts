@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GmailQuotaCooldownError,
+  createOAuth2Client,
   gmailBatchGetMessages,
   googleFetch,
 } from "./google-api.js";
@@ -81,6 +82,43 @@ describe("googleFetch quota handling", () => {
 
     await rejection;
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves the HTTP status when OAuth refresh returns a non-JSON error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("upstream unavailable", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
+      ),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: Service Unavailable",
+      status: 503,
+    });
+  });
+
+  it("preserves the HTTP status and OAuth code for permanent refresh failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(400, { error: "invalid_scope" })),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: invalid_scope",
+      status: 400,
+    });
   });
 
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {
