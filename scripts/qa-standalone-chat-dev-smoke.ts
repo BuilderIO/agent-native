@@ -2971,7 +2971,7 @@ async function assertAgentKitChatAcceptance(
   });
   await historyReleaseCardMatches.first().waitFor({ state: "visible" });
   const historyReleaseCardCount = await historyReleaseCardMatches.count();
-  if (historyReleaseCardCount > 1) {
+  if (historyReleaseCardCount !== 1) {
     const matches = await historyReleaseCardMatches.evaluateAll((elements) =>
       elements.map((element) => {
         const message = element.closest(".agentkit-message");
