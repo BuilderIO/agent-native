@@ -51,7 +51,8 @@ const deleteSettingIfValue = vi.fn(
     return true;
   },
 );
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   deleteSettingIfValue,
   mutateSetting,
 }));
