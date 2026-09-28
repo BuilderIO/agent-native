@@ -257,7 +257,10 @@ export function emailHtmlToText(html: string): string {
     html
       .replace(/<(head|style|script|title)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
       .replace(/<\/(p|div|h[1-6]|tr|li|table)>/gi, "\n\n")
-      .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)"),
+      .replace(
+        /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
+        (_match, dq, sq, bare, label) => `${label} (${dq ?? sq ?? bare})`,
+      ),
   )
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")

@@ -11,7 +11,7 @@ import {
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_RESOURCE_SHARED_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
-  renderTransactionalEmail,
+  resolveTransactionalEmail,
 } from "./templates.js";
 
 const SAMPLE_URL = "https://example.com/accept/sample-token";
@@ -45,7 +45,7 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
     preview: () =>
-      renderTransactionalEmail(CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID, {
         subject: englishMessages["billing.builderCreditLimitTitle"],
         heading: englishMessages["billing.builderCreditLimitTitle"],
         body: englishMessages["billing.builderCreditLimitEmailBody"],
@@ -64,7 +64,7 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
     preview: () =>
-      renderTransactionalEmail(CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID, {
         email: SAMPLE_EMAIL,
         newEmail: "new.address@example.com",
         confirmationUrl: SAMPLE_URL,
@@ -82,7 +82,7 @@ export function registerCoreSystemEmails(): void {
     senderLabel: "Default, app-branded",
     sender: "The configured EMAIL_FROM, branded with the app name.",
     preview: () =>
-      renderTransactionalEmail(CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID, {
         email: "new.address@example.com",
         verifyUrl: SAMPLE_URL,
       }),
@@ -101,7 +101,7 @@ export function registerCoreSystemEmails(): void {
     sender:
       "The configured EMAIL_FROM. On first-party agent-native.com deployments the display name becomes the app's own, with reply-to agent-native@builder.io.",
     preview: () =>
-      renderTransactionalEmail(CORE_INVITE_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_INVITE_EMAIL_ID, {
         invitee: SAMPLE_EMAIL,
         orgName: "Northwind Design",
         acceptUrl: SAMPLE_URL,
@@ -121,7 +121,7 @@ export function registerCoreSystemEmails(): void {
     sender:
       "The configured EMAIL_FROM, branded with the app name the signup happened in.",
     preview: () =>
-      renderTransactionalEmail(CORE_VERIFY_SIGNUP_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_VERIFY_SIGNUP_EMAIL_ID, {
         email: SAMPLE_EMAIL,
         verifyUrl: SAMPLE_URL,
       }),
@@ -140,7 +140,7 @@ export function registerCoreSystemEmails(): void {
     sender:
       "The configured EMAIL_FROM, branded with the app name the reset was requested from.",
     preview: () =>
-      renderTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, {
         email: SAMPLE_EMAIL,
         resetUrl: SAMPLE_URL,
       }),
@@ -159,7 +159,7 @@ export function registerCoreSystemEmails(): void {
     sender:
       "The configured EMAIL_FROM. A resource registration can set the display name, reply-to, brand name, and logo.",
     preview: () =>
-      renderTransactionalEmail(CORE_RESOURCE_SHARED_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_RESOURCE_SHARED_EMAIL_ID, {
         recipientEmail: SAMPLE_EMAIL,
         sender: { name: "Alex Chen", email: "alex.chen@example.com" },
         resource: {
@@ -186,7 +186,7 @@ export function registerCoreSystemEmails(): void {
     sender:
       "The configured EMAIL_FROM, branded with the app name the sign-in happened in.",
     preview: () =>
-      renderTransactionalEmail(CORE_MAGIC_LINK_EMAIL_ID, {
+      resolveTransactionalEmail(CORE_MAGIC_LINK_EMAIL_ID, {
         email: SAMPLE_EMAIL,
         magicLinkUrl: SAMPLE_URL,
       }),

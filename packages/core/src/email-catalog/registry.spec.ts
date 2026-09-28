@@ -7,6 +7,7 @@ import {
   listTransactionalEmails,
   replaceTransactionalEmails,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   resetTransactionalEmailRegistry,
 } from "./registry.js";
 
@@ -193,25 +194,35 @@ describe("transactional email registry", () => {
     expect(getTransactionalEmail("test-app.stale")).toBeDefined();
   });
 
-  it("renders a preview by id", async () => {
+  it("renders a preview by id", () => {
     define("test.preview");
-    expect(
-      (await renderTransactionalEmailPreview("test.preview")).subject,
-    ).toBe("subject:test.preview");
+    expect(renderTransactionalEmailPreview("test.preview").subject).toBe(
+      "subject:test.preview",
+    );
   });
 
-  it("awaits an async preview", async () => {
+  it("throws for an unknown preview id instead of returning an empty body", () => {
+    expect(() => renderTransactionalEmailPreview("test.missing")).toThrow(
+      /Unknown transactional email/,
+    );
+  });
+
+  it("points a synchronous caller at the async preview for an async preview", async () => {
     define("test.async-preview", {
       preview: async () => ({ subject: "async", html: "<p>a</p>", text: "a" }),
     });
+    expect(() => renderTransactionalEmailPreview("test.async-preview")).toThrow(
+      /renderTransactionalEmailPreviewAsync/,
+    );
     expect(
-      (await renderTransactionalEmailPreview("test.async-preview")).subject,
+      (await renderTransactionalEmailPreviewAsync("test.async-preview"))
+        .subject,
     ).toBe("async");
   });
 
-  it("rejects an unknown preview id instead of returning an empty body", async () => {
+  it("rejects an unknown id in the async preview", async () => {
     await expect(
-      renderTransactionalEmailPreview("test.missing"),
+      renderTransactionalEmailPreviewAsync("test.missing"),
     ).rejects.toThrow(/Unknown transactional email/);
   });
 });

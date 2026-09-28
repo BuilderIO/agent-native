@@ -162,14 +162,38 @@ export function getTransactionalEmail(
   return registry.get(id);
 }
 
-export async function renderTransactionalEmailPreview(
-  id: string,
-): Promise<RenderedEmailMessage> {
+function requireDefinition(id: string): RegisteredTransactionalEmail {
   const definition = registry.get(id);
   if (!definition) {
     throw new Error(`Unknown transactional email "${id}".`);
   }
-  return definition.preview();
+  return definition;
+}
+
+/**
+ * Synchronous preview for definitions whose preview is synchronous. A
+ * framework email with an app override renders asynchronously; use
+ * `renderTransactionalEmailPreviewAsync` for those.
+ */
+export function renderTransactionalEmailPreview(
+  id: string,
+): RenderedEmailMessage {
+  const rendered = requireDefinition(id).preview();
+  if (rendered instanceof Promise) {
+    // coercion-ok: the throw below reports this; the abandoned promise must not
+    // also surface as an unhandled rejection.
+    rendered.catch(() => {});
+    throw new Error(
+      `Transactional email "${id}" renders asynchronously. Use renderTransactionalEmailPreviewAsync.`,
+    );
+  }
+  return rendered;
+}
+
+export async function renderTransactionalEmailPreviewAsync(
+  id: string,
+): Promise<RenderedEmailMessage> {
+  return requireDefinition(id).preview();
 }
 
 export {

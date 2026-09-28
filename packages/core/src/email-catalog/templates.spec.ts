@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetAppConfigForTests } from "../app-config/index.js";
 import {
   renderTransactionalEmailPreview,
-  resetTransactionalEmailRegistry,
+  renderTransactionalEmailPreviewAsync,
 } from "./registry.js";
 import { registerCoreSystemEmails } from "./system-emails.js";
 import {
@@ -40,7 +40,6 @@ describe("transactional email overrides", () => {
   beforeEach(() => resetAppConfigForTests());
   afterEach(() => {
     for (const id of OVERRIDDEN) removeTransactionalEmailOverride(id);
-    resetTransactionalEmailRegistry();
   });
 
   it("renders the framework default when no override is registered", async () => {
@@ -155,6 +154,33 @@ describe("transactional email overrides", () => {
     ).toThrow(/Unknown transactional email "core.password-reset"/);
   });
 
+  it("keeps core previews synchronous until an override is registered", async () => {
+    registerCoreSystemEmails();
+    expect(
+      renderTransactionalEmailPreview(CORE_RESOURCE_SHARED_EMAIL_ID).subject,
+    ).toContain("shared with you");
+
+    overrideTransactionalEmail(CORE_RESOURCE_SHARED_EMAIL_ID, () => ({
+      html: "<p>Custom share</p>",
+    }));
+    expect(() =>
+      renderTransactionalEmailPreview(CORE_RESOURCE_SHARED_EMAIL_ID),
+    ).toThrow(/renderTransactionalEmailPreviewAsync/);
+  });
+
+  it("keeps link URLs from every href quoting style in derived text", async () => {
+    overrideTransactionalEmail(CORE_RESET_PASSWORD_EMAIL_ID, () => ({
+      html: `<p><a href='https://example.com/reset?token=single'>Reset</a> <a href=https://example.com/bare>Bare</a> <a class="b" href="https://example.com/double">Double</a></p>`,
+    }));
+    const rendered = await renderTransactionalEmail(
+      CORE_RESET_PASSWORD_EMAIL_ID,
+      { email: "sam@example.com", resetUrl: "https://example.com/reset" },
+    );
+    expect(rendered.text).toBe(
+      "Reset (https://example.com/reset?token=single) Bare (https://example.com/bare) Double (https://example.com/double)",
+    );
+  });
+
   it("shows the override in the catalog preview", async () => {
     registerCoreSystemEmails();
     overrideTransactionalEmail(CORE_RESOURCE_SHARED_EMAIL_ID, (props) => ({
@@ -162,7 +188,7 @@ describe("transactional email overrides", () => {
       html: "<p>Custom share</p>",
     }));
 
-    const preview = await renderTransactionalEmailPreview(
+    const preview = await renderTransactionalEmailPreviewAsync(
       CORE_RESOURCE_SHARED_EMAIL_ID,
     );
 

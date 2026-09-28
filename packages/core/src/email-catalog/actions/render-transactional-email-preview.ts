@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { authorizeTransactionalEmailRead } from "../authorize.js";
-import { renderTransactionalEmailPreview } from "../registry.js";
+import { renderTransactionalEmailPreviewAsync } from "../registry.js";
 import { registerCoreSystemEmails } from "../system-emails.js";
 
 export default defineAction({
@@ -17,7 +17,7 @@ export default defineAction({
   authorize: ({ id }) => authorizeTransactionalEmailRead([id]),
   run: async ({ id }) => {
     registerCoreSystemEmails();
-    const rendered = await renderTransactionalEmailPreview(id);
+    const rendered = await renderTransactionalEmailPreviewAsync(id);
     return {
       id,
       subject: rendered.subject,

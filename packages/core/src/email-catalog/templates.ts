@@ -186,25 +186,35 @@ async function renderOverrideHtml(
 }
 
 /**
- * Render a framework email: the framework default, or the app's override
- * when one is registered. An override that throws fails the send; it is never
- * swapped for the default, so a broken template surfaces instead of shipping
- * the design the app replaced.
+ * The framework default when no override is registered, otherwise the
+ * override's rendering. Stays synchronous in the default case so catalog
+ * previews keep working for synchronous `renderTransactionalEmailPreview`
+ * callers.
  */
-export async function renderTransactionalEmail<
-  Id extends CoreTransactionalEmailId,
->(id: Id, args: CoreTransactionalEmailArgs[Id]): Promise<RenderedEmailMessage> {
+export function resolveTransactionalEmail<Id extends CoreTransactionalEmailId>(
+  id: Id,
+  args: CoreTransactionalEmailArgs[Id],
+): RenderedEmailMessage | Promise<RenderedEmailMessage> {
   const defaults = CORE_EMAIL_DEFAULTS[id] as CoreEmailDefault<Id>;
   const defaultEmail = defaults.render(args);
   const override = getOverrides().get(id) as
     | TransactionalEmailOverride<Id>
     | undefined;
   if (!override) return defaultEmail;
+  return renderOverride(
+    id,
+    override,
+    { ...args, app: defaults.app(args) } as CoreTransactionalEmailProps<Id>,
+    defaultEmail,
+  );
+}
 
-  const props = {
-    ...args,
-    app: defaults.app(args),
-  } as CoreTransactionalEmailProps<Id>;
+async function renderOverride<Id extends CoreTransactionalEmailId>(
+  id: Id,
+  override: TransactionalEmailOverride<Id>,
+  props: CoreTransactionalEmailProps<Id>,
+  defaultEmail: RenderedEmailMessage,
+): Promise<RenderedEmailMessage> {
   const result = await override(props, defaultEmail);
   if (!result || typeof result !== "object") {
     throw new Error(
@@ -226,4 +236,16 @@ export async function renderTransactionalEmail<
     text: result.text?.trim() || emailHtmlToText(html),
     appSender: defaultEmail.appSender,
   };
+}
+
+/**
+ * Render a framework email: the framework default, or the app's override
+ * when one is registered. An override that throws fails the send; it is never
+ * swapped for the default, so a broken template surfaces instead of shipping
+ * the design the app replaced.
+ */
+export async function renderTransactionalEmail<
+  Id extends CoreTransactionalEmailId,
+>(id: Id, args: CoreTransactionalEmailArgs[Id]): Promise<RenderedEmailMessage> {
+  return resolveTransactionalEmail(id, args);
 }

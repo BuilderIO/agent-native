@@ -781,6 +781,7 @@ export {
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
+  renderTransactionalEmailPreviewAsync,
   type TransactionalEmailDefinition,
   type RegisteredTransactionalEmail,
 } from "../email-catalog/registry.js";
